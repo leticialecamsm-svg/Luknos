@@ -373,11 +373,7 @@ export async function createSchedule(data: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
-  const { v4: uuidv4 } = await import('uuid')
-  const id = uuidv4()
-
-  const { error } = await supabase.from('schedules').insert({
-    id,
+  const { data: result, error } = await supabase.from('schedules').insert({
     title: data.title,
     type: data.type,
     quote_id: data.quote_id || null,
@@ -386,13 +382,12 @@ export async function createSchedule(data: {
     location: data.location,
     created_by: user.id,
     team_members: data.team_members,
-    created_at: new Date().toISOString(),
-  })
+  }).select()
 
   if (error) return { error: error.message }
   revalidatePath('/schedules')
   revalidatePath('/dashboard')
-  return { ok: true, id }
+  return { ok: true, id: result?.[0]?.id }
 }
 
 export async function getSchedules(startDate?: string, endDate?: string) {
