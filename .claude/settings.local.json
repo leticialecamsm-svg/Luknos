@@ -23,7 +23,9 @@
       "Bash(git config *)",
       "Bash(vercel --version)",
       "Bash(cp \"/Users/leticiapimentel/Documents/Luknos/Luknos LTDA/LOGO/estampa capa login.png\" /Users/leticiapimentel/Downloads/luknos/public/login-text.png && ls -lh /Users/leticiapimentel/Downloads/luknos/public/login-text.png)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js|html\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js|html\\)$\")",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

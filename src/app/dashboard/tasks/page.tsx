@@ -1,9 +1,9 @@
-import { TasksList } from '@/components/tasks/TasksList'
+import { TasksListNew } from '@/components/tasks/TasksListNew'
 
 export const metadata = {
   title: 'Tarefas — Luknos',
 }
 
 export default function TasksPage() {
-  return <TasksList />
+  return <TasksListNew />
 }

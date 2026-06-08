@@ -5,7 +5,7 @@ import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/ut
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
-import { TasksCard } from '../tasks/TasksCard'
+import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 
 export function VendorDashboard({
   myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId
@@ -333,7 +333,7 @@ export function VendorDashboard({
 
       {/* Card de Tarefas */}
       <div className="grid grid-cols-2 gap-4">
-        <TasksCard />
+        <TasksCardDashboard />
       </div>
         </>
       )}
