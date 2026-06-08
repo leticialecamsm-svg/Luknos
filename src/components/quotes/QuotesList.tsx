@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2 } from 'lucide-react'
-import { deleteQuote } from '@/lib/actions'
+import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { deleteQuote, deleteQuotes } from '@/lib/actions'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
@@ -17,6 +17,8 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
   const [dateFilter, setDateFilter] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   const quotes = view === 'mine' ? myQuotes : allQuotes
 
@@ -66,6 +68,43 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     } else {
       setSortField(field)
       setSortOrder('asc')
+    }
+  }
+
+  function toggleSelectQuote(id: string) {
+    const newSelected = new Set(selected)
+    if (newSelected.has(id)) {
+      newSelected.delete(id)
+    } else {
+      newSelected.add(id)
+    }
+    setSelected(newSelected)
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === sorted.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(sorted.map(q => q.id)))
+    }
+  }
+
+  async function handleDeleteSelected() {
+    if (selected.size === 0) return
+    const message = selected.size === 1
+      ? `Excluir 1 orçamento?`
+      : `Excluir ${selected.size} orçamentos?`
+    if (!confirm(message)) return
+
+    setDeleting(true)
+    const res = await deleteQuotes(Array.from(selected))
+    setDeleting(false)
+
+    if (res.ok) {
+      setSelected(new Set())
+      router.refresh()
+    } else {
+      alert(`Erro ao deletar: ${res.error}`)
     }
   }
 
@@ -141,6 +180,28 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
           <p className="text-xs text-gray-400 ml-2">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
         </div>
+
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+            <p className="flex-1 text-sm font-medium text-red-700">
+              {selected.size} orçamento{selected.size !== 1 ? 's' : ''} selecionado{selected.size !== 1 ? 's' : ''}
+            </p>
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-sm text-red-600 hover:text-red-800 font-medium"
+            >
+              Limpar
+            </button>
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Deletar
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabela */}
@@ -148,6 +209,14 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-3 text-left">
+                <input
+                  type="checkbox"
+                  checked={selected.size > 0 && selected.size === sorted.length}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded cursor-pointer"
+                />
+              </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">Nº</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">CLIENTE</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">
@@ -178,8 +247,16 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
               return (
                 <tr key={q.id} onClick={() => router.push(`/quotes/${q.id}`)}
-                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer group">
-                    <td className="px-6 py-3 text-sm text-gray-500">#{String(q.number).padStart(3, '0')}</td>
+                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                    <td className="px-4 py-3" onClick={e => { e.stopPropagation(); toggleSelectQuote(q.id) }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(q.id)}
+                        onChange={() => toggleSelectQuote(q.id)}
+                        className="w-4 h-4 rounded cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-6 py-3 text-sm text-gray-500 cursor-pointer">#{String(q.number).padStart(3, '0')}</td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold bg-blue-500">

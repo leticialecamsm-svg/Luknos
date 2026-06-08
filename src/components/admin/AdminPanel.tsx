@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
-import { searchContacts, createContact, updateUser, updateUserPassword } from '@/lib/actions'
+import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser } from '@/lib/actions'
 import type { User, MonthlyGoal } from '@/types'
 
 interface Props {
@@ -319,6 +319,8 @@ function UserRow({ user: u }: { user: User }) {
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [pwdSaving, setPwdSaving] = useState(false)
 
+  const [deleting, setDeleting] = useState(false)
+
   async function handleSave() {
     setSaving(true)
     await updateUser(u.id, { name, role })
@@ -327,12 +329,15 @@ function UserRow({ user: u }: { user: User }) {
     window.location.reload()
   }
 
-  async function handleToggleActive() {
-    if (!confirm(u.active
-      ? `Desativar "${u.name}"? Ele não aparecerá mais no sistema.`
-      : `Reativar "${u.name}"?`
-    )) return
-    await updateUser(u.id, { active: !u.active })
+  async function handleDelete() {
+    if (!confirm(`Tem certeza que deseja deletar "${u.name}"? Esta ação é irreversível e o usuário será removido do sistema permanentemente.`)) return
+    setDeleting(true)
+    const res = await deleteUser(u.id)
+    setDeleting(false)
+    if (res.error) {
+      alert(`Erro ao deletar: ${res.error}`)
+      return
+    }
     window.location.reload()
   }
 
@@ -392,9 +397,8 @@ function UserRow({ user: u }: { user: User }) {
             <button onClick={() => setEditing(true)} className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded transition-colors" title="Editar">
               <Pencil className="w-3.5 h-3.5" />
             </button>
-            <button onClick={handleToggleActive} className={`p-1.5 rounded transition-colors ${u.active ? 'text-gray-300 hover:text-red-500 hover:bg-red-50' : 'text-gray-300 hover:text-green-600 hover:bg-green-50'}`}
-              title={u.active ? 'Desativar' : 'Reativar'}>
-              <Trash2 className="w-3.5 h-3.5" />
+            <button onClick={handleDelete} disabled={deleting} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Deletar usuário">
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
             </button>
           </>
         )}

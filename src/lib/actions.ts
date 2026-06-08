@@ -117,6 +117,17 @@ export async function deleteQuote(quoteId: string) {
   return { ok: true }
 }
 
+export async function deleteQuotes(quoteIds: string[]) {
+  if (!quoteIds || quoteIds.length === 0) return { error: 'Nenhum orçamento selecionado' }
+
+  const supabase = createClient()
+  const { error } = await supabase.from('quotes').delete().in('id', quoteIds)
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard')
+  revalidatePath('/quotes')
+  return { ok: true }
+}
+
 export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
   const supabase = createClient()
   const { error } = await supabase.from('quotes').update({ status }).eq('id', quoteId)
@@ -356,6 +367,29 @@ export async function updateUserPassword(userId: string, newPassword: string) {
   const admin = createAdminClient()
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword })
   if (error) return { error: error.message }
+  return { ok: true }
+}
+
+export async function deleteUser(userId: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'Sem permissão' }
+
+  const { createAdminClient } = await import('@/lib/supabase/admin')
+  const admin = createAdminClient()
+
+  // Delete from Supabase Auth
+  const { error: authError } = await admin.auth.admin.deleteUser(userId)
+  if (authError) return { error: authError.message }
+
+  // Delete from users table (will cascade to related records if configured)
+  const { error: dbError } = await supabase.from('users').delete().eq('id', userId)
+  if (dbError) return { error: dbError.message }
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard')
   return { ok: true }
 }
 
