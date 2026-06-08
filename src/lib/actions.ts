@@ -358,3 +358,70 @@ export async function updateUserPassword(userId: string, newPassword: string) {
   if (error) return { error: error.message }
   return { ok: true }
 }
+
+// Schedules (Agendamentos)
+export async function createSchedule(data: {
+  title: string
+  type: 'visita' | 'reuniao' | 'follow_up'
+  quote_id?: string
+  scheduled_date: string
+  scheduled_time: string
+  location: string
+  team_members: string[]
+}) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const { v4: uuidv4 } = await import('uuid')
+  const id = uuidv4()
+
+  const { error } = await supabase.from('schedules').insert({
+    id,
+    title: data.title,
+    type: data.type,
+    quote_id: data.quote_id || null,
+    scheduled_date: data.scheduled_date,
+    scheduled_time: data.scheduled_time,
+    location: data.location,
+    created_by: user.id,
+    team_members: data.team_members,
+    created_at: new Date().toISOString(),
+  })
+
+  if (error) return { error: error.message }
+  revalidatePath('/schedules')
+  revalidatePath('/dashboard')
+  return { ok: true, id }
+}
+
+export async function getSchedules(startDate?: string, endDate?: string) {
+  const supabase = createClient()
+  let query = supabase.from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
+
+  if (startDate && endDate) {
+    query = query.gte('scheduled_date', startDate).lte('scheduled_date', endDate)
+  }
+
+  const { data } = await query
+  return data ?? []
+}
+
+export async function getSchedulesByDate(date: string) {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('schedules')
+    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color)')
+    .eq('scheduled_date', date)
+    .order('scheduled_time', { ascending: true })
+  return data ?? []
+}
+
+export async function deleteSchedule(id: string) {
+  const supabase = createClient()
+  const { error } = await supabase.from('schedules').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/schedules')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
