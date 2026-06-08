@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
+import { QuickLinksMenu } from './QuickLinksMenu'
 
 export function VendorDashboard({
   myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId
@@ -98,9 +99,12 @@ export function VendorDashboard({
           <h1 className="text-2xl font-bold text-gray-900">Olá, {userName.split(' ')[0]} 👋</h1>
           <p className="text-sm text-gray-500 mt-1">{monthName.charAt(0).toUpperCase() + monthName.slice(1)} · {todayDate.charAt(0).toUpperCase() + todayDate.slice(1)}</p>
         </div>
-        <a href="/quotes/new" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-          + Novo orçamento
-        </a>
+        <div className="flex items-center gap-3">
+          <QuickLinksMenu />
+          <a href="/quotes/new" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            + Novo orçamento
+          </a>
+        </div>
       </div>
 
       {/* Abas */}

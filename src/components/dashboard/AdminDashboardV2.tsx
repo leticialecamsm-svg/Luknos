@@ -4,6 +4,7 @@ import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/ut
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useState } from 'react'
+import { QuickLinksMenu } from './QuickLinksMenu'
 
 export function AdminDashboardV2({
   quotes,
@@ -183,6 +184,7 @@ export function AdminDashboardV2({
             <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
               className="hover:text-gray-900">▶</button>
           </div>
+          <QuickLinksMenu />
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
             <Download className="w-4 h-4" /> Exportar
           </button>
