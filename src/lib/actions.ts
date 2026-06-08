@@ -424,8 +424,8 @@ export async function createUserAdmin(data: {
   if (authError) return { error: authError.message }
   if (!authData.user) return { error: 'Erro ao criar usuário' }
 
-  // Create or update user record in users table
-  const { error: dbError } = await supabase.from('users').upsert({
+  // Create or update user record in users table using admin client (bypasses RLS)
+  const { error: dbError } = await admin.from('users').upsert({
     id: authData.user.id,
     email: data.email,
     name: data.name,
