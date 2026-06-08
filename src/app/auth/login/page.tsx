@@ -1,63 +1,70 @@
+'use client'
+
 import { LoginForm } from '@/components/auth/LoginForm'
-import Image from 'next/image'
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Grid layout: 2 colunas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 min-h-screen">
+    <div className="min-h-screen bg-[#D6D6D6] flex items-center justify-center p-5">
+      <div className="w-full max-w-5xl bg-white rounded-[20px] shadow-2xl overflow-hidden" style={{ display: 'flex', height: '660px' }}>
 
-        {/* Coluna Esquerda: Formulário */}
-        <div className="flex flex-col p-4 lg:p-8">
-          {/* Logo pequena */}
-          <div className="mb-12">
-            <svg className="w-32 h-auto" viewBox="0 0 722 218" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* ─── PAINEL ESQUERDO ─── */}
+        <div className="w-full lg:w-96 flex-shrink-0 flex flex-col p-12 bg-white">
+          {/* Logo */}
+          <div className="mb-8">
+            <svg width="160" height="auto" viewBox="0 0 722 218" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M0 119.909C19.7295 121.966 42.4118 126.746 55.9324 137.742C69.3309 147.791 79.2522 168.175 86.4781 183.022C91.3862 193.106 95.0507 200.635 97.7168 200.635C101.259 200.635 102.414 196.49 104.278 189.802C106.904 180.378 110.938 165.905 125.037 150.866C140.037 135.653 152.09 128.728 153.965 128.371C151.62 120.845 144.319 123.974 144.319 123.974C144.319 123.974 140.669 125.017 137.09 127.296C134.835 128.732 132.814 129.978 130.922 131.146C121.278 137.095 114.958 140.994 97.7168 157.563C97.0372 154.613 97.3339 151.368 97.6406 148.013C99.0937 132.12 100.772 113.759 0 112.657V119.909Z" fill="#001A3C"/>
               <path d="M200.115 111.771C183.762 109.145 165.563 103.53 152.626 91.8863C140.825 83.0352 129.202 65.4518 119.472 50.732C110.652 37.3887 103.388 26.3984 98.955 26.3984C93.7376 26.398 92.2749 31.6405 90.0089 39.762C87.2639 49.6004 83.34 63.6637 70.1346 77.7494C55.1351 92.9632 48.7062 95.9629 45.7599 97.3019C45.7599 97.3019 58.8671 98.6461 62.3497 97.3019C74.2881 92.6939 82.9049 82.6265 90.5988 73.6374C92.5618 71.3439 94.4648 69.1206 96.3475 67.0761L98.9537 74.6918C99.3425 76.3791 99.5955 78.0863 99.8497 79.8013C102.087 94.8942 104.413 110.588 200.115 118.665V111.771Z" fill="#CBA455"/>
+              <path d="M304.869 136.961H235.647V23.482H255.443V117.543H304.869V136.961ZM327.323 51.0952V98.3781C327.323 111.996 334.257 118.678 345.353 118.678C357.962 118.678 367.545 107.709 367.545 93.965V51.0952H387.466V136.835H368.806L367.545 120.443C363.132 128.513 354.305 137.465 337.41 137.465C319.253 137.465 307.527 125.991 307.527 106.069V51.0952H327.323ZM417.547 84.6345L442.513 51.2213H470.882L444.026 87.1563L468.487 136.961H442.891L428.517 107.835L417.547 122.587V136.961H394.978V23.482H417.547V84.6345ZM537.494 136.961V94.9737C537.494 78.3301 530.307 69.3779 518.203 69.3779C507.485 69.3779 498.533 79.7171 497.398 92.1998V136.961H477.602V51.2213H496.137L497.398 67.7388C501.685 59.417 509.755 50.5908 524.507 50.5908C544.051 50.5908 557.29 64.4605 557.29 84.2563V136.961H537.494ZM563.889 94.0911C563.889 67.9909 581.037 50.5908 606.759 50.5908C632.481 50.5908 649.755 67.9909 649.755 94.0911C649.755 120.191 632.481 137.591 606.759 137.591C581.037 137.591 563.889 120.191 563.889 94.0911ZM584.063 93.965C584.063 108.465 593.267 118.048 606.759 118.048C620.25 118.048 629.581 108.465 629.581 93.965C629.581 79.7171 620.25 70.1344 606.759 70.1344C593.267 70.1344 584.063 79.7171 584.063 93.965ZM718.462 112.878C718.462 127.63 705.979 137.591 686.814 137.591C673.07 137.591 661.848 132.422 653.526 124.226L663.109 108.717C668.657 114.013 676.727 119.309 687.192 119.309C694.127 119.309 698.414 116.283 698.414 111.996C698.414 97.7476 654.661 107.204 654.661 76.9432C654.661 61.6866 667.9 50.5908 685.427 50.5908C699.17 50.5908 710.392 56.3909 717.831 65.5953L704.844 78.078C699.927 72.404 692.235 69.504 684.418 69.504C678.492 69.504 674.457 72.6562 674.457 77.0693C674.457 89.8041 718.462 81.9867 718.462 112.878Z" fill="#001A3C"/>
             </svg>
           </div>
 
-          {/* Conteúdo do formulário */}
-          <div className="flex-1 flex flex-col justify-center max-w-md">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Bem vindo de volta!</h1>
-              <p className="text-gray-500 text-sm">Entre com seu email e senha.</p>
-            </div>
+          {/* Área do formulário */}
+          <div className="flex-1 flex flex-col justify-center">
+            <h1 className="text-3xl font-light text-[#1A1A2E] mb-2" style={{ fontFamily: "'Montserrat Alternates', sans-serif", fontWeight: 200, letterSpacing: '-0.01em' }}>
+              Bem vindo de volta!
+            </h1>
+            <p className="text-sm text-[#ABABAB] mb-9">Entre com seu email e senha.</p>
 
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-              <LoginForm />
-            </div>
+            <LoginForm />
           </div>
 
           {/* Footer */}
-          <p className="text-xs text-gray-400 text-center mt-8">Todos os direitos reservados para Luknos</p>
+          <p className="text-xs text-[#C8C5BE] pt-6 mt-auto">Todos os direitos reservados para Luknos</p>
         </div>
 
-        {/* Coluna Direita: Banner (oculto em mobile) */}
-        <div className="hidden lg:flex items-center justify-center bg-gradient-to-br from-[#001A3C] to-[#0a2a5c] relative overflow-hidden">
-          {/* Padrão decorativo de fundo */}
-          <div className="absolute inset-0 opacity-10">
-            <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 1000">
+        {/* ─── PAINEL DIREITO ─── */}
+        <div className="hidden lg:flex flex-1 bg-[#072347] relative overflow-hidden items-center justify-center">
+          {/* Estampa decorativa */}
+          <div className="absolute inset-0 opacity-20">
+            <svg className="w-full h-full" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1200 800">
               <defs>
-                <pattern id="wave" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
-                  <path d="M0,50 Q25,25 50,50 T100,50" stroke="white" fill="none" strokeWidth="2"/>
+                <pattern id="waves" x="0" y="0" width="200" height="100" patternUnits="userSpaceOnUse">
+                  <path d="M0,50 Q50,0 100,50 T200,50" stroke="#fff" fill="none" strokeWidth="1.5"/>
                 </pattern>
               </defs>
-              <rect width="1000" height="1000" fill="url(#wave)"/>
+              <rect width="1200" height="800" fill="url(#waves)"/>
             </svg>
           </div>
 
-          {/* Conteúdo do banner */}
-          <div className="relative z-10 text-center px-8 max-w-sm">
-            <h2 className="text-5xl font-bold text-white mb-4">
-              Façam <span className="text-[#CBA455]">aos outros</span>
-            </h2>
-            <p className="text-xl text-blue-100 italic mb-8">
-              aquilo que vocês querem que eles façam a vocês.
-            </p>
-            <p className="text-sm text-blue-300 font-light">
-              Mateus 7:12
-            </p>
+          {/* Texto SVG com o logo Luknos em branco */}
+          <div className="relative z-10 w-full h-full flex items-center justify-start p-12">
+            <svg
+              viewBox="0 0 722 218"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{
+                width: '90%',
+                height: 'auto',
+                maxHeight: '75%',
+                opacity: 0.9
+              }}
+            >
+              {/* Ícone */}
+              <path d="M0 119.909C19.7295 121.966 42.4118 126.746 55.9324 137.742C69.3309 147.791 79.2522 168.175 86.4781 183.022C91.3862 193.106 95.0507 200.635 97.7168 200.635C101.259 200.635 102.414 196.49 104.278 189.802C106.904 180.378 110.938 165.905 125.037 150.866C140.037 135.653 152.09 128.728 153.965 128.371C151.62 120.845 144.319 123.974 144.319 123.974C144.319 123.974 140.669 125.017 137.09 127.296C134.835 128.732 132.814 129.978 130.922 131.146C121.278 137.095 114.958 140.994 97.7168 157.563C97.0372 154.613 97.3339 151.368 97.6406 148.013C99.0937 132.12 100.772 113.759 0 112.657V119.909Z" fill="white"/>
+              <path d="M200.115 111.771C183.762 109.145 165.563 103.53 152.626 91.8863C140.825 83.0352 129.202 65.4518 119.472 50.732C110.652 37.3887 103.388 26.3984 98.955 26.3984C93.7376 26.398 92.2749 31.6405 90.0089 39.762C87.2639 49.6004 83.34 63.6637 70.1346 77.7494C55.1351 92.9632 48.7062 95.9629 45.7599 97.3019C45.7599 97.3019 58.8671 98.6461 62.3497 97.3019C74.2881 92.6939 82.9049 82.6265 90.5988 73.6374C92.5618 71.3439 94.4648 69.1206 96.3475 67.0761L98.9537 74.6918C99.3425 76.3791 99.5955 78.0863 99.8497 79.8013C102.087 94.8942 104.413 110.588 200.115 118.665V111.771Z" fill="#CBA455"/>
+              {/* Texto */}
+              <path d="M238.537 167.145H240.711V201.344H238.537V167.145ZM239.591 158.184C239.02 158.184 238.515 157.986 238.076 157.591C237.636 157.152 237.417 156.646 237.417 156.075C237.417 155.46 237.614 154.955 238.01 154.56C238.449 154.121 238.976 153.901 239.591 153.901C240.162 153.901 240.667 154.121 241.107 154.56C241.546 154.955 241.766 155.438 241.766 156.009C241.766 156.581 241.546 157.086 241.107 157.525C240.667 157.964 240.162 158.184 239.591 158.184ZM263.766 201.541C261.042 201.541 258.956 200.773 257.506 199.235C256.057 197.654 255.332 195.523 255.332 192.844V152.451H257.506V192.448C257.506 197.236 259.637 199.631 263.898 199.631C265.128 199.631 266.226 199.433 267.192 199.038L267.39 200.883C266.204 201.322 264.996 201.541 263.766 201.541ZM303.7 167.145V201.344H301.591V193.041C300.537 195.721 298.846 197.808 296.517 199.301C294.189 200.795 291.422 201.541 288.215 201.541C283.778 201.541 280.308 200.311 277.804 197.851C275.3 195.391 274.048 191.855 274.048 187.243V167.145H276.222V187.111C276.222 191.152 277.255 194.249 279.319 196.402C281.428 198.51 284.415 199.565 288.281 199.565C292.366 199.565 295.595 198.313 297.967 195.809C300.339 193.261 301.525 189.856 301.525 185.595V167.145H303.7Z" fill="white" opacity="0.8"/>
+            </svg>
           </div>
         </div>
       </div>
