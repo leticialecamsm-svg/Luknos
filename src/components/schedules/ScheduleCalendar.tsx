@@ -75,21 +75,21 @@ export function ScheduleCalendar({
       </div>
 
       {/* Weekdays */}
-      <div className="grid grid-cols-7 gap-2 mb-4">
+      <div className="grid grid-cols-7 gap-1 mb-4">
         {WEEKDAYS.map(day => (
-          <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">
+          <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2 h-8 flex items-center justify-center">
             {day}
           </div>
         ))}
       </div>
 
       {/* Days */}
-      <div className="space-y-3">
+      <div className="space-y-1">
         {weeks.map((week, weekIndex) => (
-          <div key={weekIndex} className="grid grid-cols-7 gap-2">
+          <div key={weekIndex} className="grid grid-cols-7 gap-1">
             {week.map((day, dayIndex) => {
               if (day === null) {
-                return <div key={dayIndex} className="aspect-square" />
+                return <div key={dayIndex} className="h-10" />
               }
 
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -101,7 +101,7 @@ export function ScheduleCalendar({
                 <button
                   key={dayIndex}
                   onClick={() => handleDayClick(day)}
-                  className={`aspect-square rounded-lg flex flex-col items-center justify-center relative text-sm font-medium transition-all ${
+                  className={`h-10 w-full rounded-lg flex flex-col items-center justify-center relative text-sm font-medium transition-all ${
                     isSelected
                       ? 'bg-blue-600 text-white'
                       : isTodayAndCurrentMonth
@@ -109,9 +109,9 @@ export function ScheduleCalendar({
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  {day}
+                  <span>{day}</span>
                   {hasSchedules && (
-                    <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-600'} mt-1`} />
+                    <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-600'}`} />
                   )}
                 </button>
               )

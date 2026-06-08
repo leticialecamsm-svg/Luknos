@@ -26,9 +26,9 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
   }
 
   return (
-    <div className="grid grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Calendário */}
-      <div className="col-span-1">
+      <div className="lg:col-span-1">
         <ScheduleCalendar
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
@@ -37,7 +37,7 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
       </div>
 
       {/* Listagem + Form */}
-      <div className="col-span-2 space-y-6">
+      <div className="lg:col-span-2 space-y-6">
         <SchedulesList
           date={selectedDate}
           schedules={todaySchedules}
