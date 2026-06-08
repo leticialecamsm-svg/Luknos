@@ -393,6 +393,53 @@ export async function deleteUser(userId: string) {
   return { ok: true }
 }
 
+export async function createUserAdmin(data: {
+  name: string
+  email: string
+  password: string
+  role: 'admin' | 'seller'
+  avatar_color: string
+}) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'Sem permissão' }
+
+  const { createAdminClient } = await import('@/lib/supabase/admin')
+  const admin = createAdminClient()
+
+  // Create user in Supabase Auth without sending email
+  const { data: authData, error: authError } = await admin.auth.admin.createUser({
+    email: data.email,
+    password: data.password,
+    email_confirm: true, // Mark email as confirmed so they can login immediately
+    user_metadata: {
+      name: data.name,
+      role: data.role,
+      avatar_color: data.avatar_color,
+    },
+  })
+
+  if (authError) return { error: authError.message }
+  if (!authData.user) return { error: 'Erro ao criar usuário' }
+
+  // Create user record in users table
+  const { error: dbError } = await supabase.from('users').insert({
+    id: authData.user.id,
+    email: data.email,
+    name: data.name,
+    role: data.role,
+    avatar_color: data.avatar_color,
+    active: true,
+  })
+
+  if (dbError) return { error: dbError.message }
+
+  revalidatePath('/admin')
+  return { ok: true }
+}
+
 // Schedules (Agendamentos)
 export async function createSchedule(data: {
   title: string

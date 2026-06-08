@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
-import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser } from '@/lib/actions'
+import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin } from '@/lib/actions'
 import type { User, MonthlyGoal } from '@/types'
 
 interface Props {
@@ -32,14 +32,15 @@ export function AdminPanel({ users, goals }: Props) {
     setCreateError(null)
     setCreateSuccess(false)
     startTransition(async () => {
-      const supabase = createClient()
       const color = COLORS[users.length % COLORS.length]
-      const { error } = await supabase.auth.signUp({
+      const res = await createUserAdmin({
+        name: newName,
         email: newEmail,
         password: newPassword,
-        options: { data: { name: newName, role: newRole, avatar_color: color } }
+        role: newRole,
+        avatar_color: color,
       })
-      if (error) { setCreateError(error.message); return }
+      if (res.error) { setCreateError(res.error); return }
       setCreateSuccess(true)
       setNewName(''); setNewEmail(''); setNewPassword('')
       setShowNewUser(false)
