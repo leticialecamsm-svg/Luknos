@@ -17,14 +17,14 @@ export default async function DashboardPage() {
   const [stats, myQuotes, allUsers, goals, myGoalRes, allQuotes] = await Promise.all([
     getDashboardStats(isAdmin ? undefined : user.id),
     getMyQuotes(),
-    isAdmin ? getActiveUsers() : Promise.resolve([]),
+    getActiveUsers(),
     isAdmin
       ? supabase.from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then(r => r.data ?? [])
       : Promise.resolve([]),
     !isAdmin
       ? supabase.from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).single()
       : Promise.resolve({ data: null }),
-    isAdmin ? getAllQuotes() : Promise.resolve([]),
+    getAllQuotes(),
   ])
 
   const myGoal = myGoalRes.data?.target ?? 0
@@ -46,9 +46,12 @@ export default async function DashboardPage() {
         <VendorDashboard
           myGoal={myGoal}
           myQuotes={myQuotes}
+          allQuotes={allQuotes}
+          users={allUsers}
           funnel={stats.funnel}
           sales={totalSold}
           userName={profile?.name ?? 'Vendedor'}
+          currentUserId={user.id}
         />
       )}
     </>

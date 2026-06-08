@@ -1,18 +1,24 @@
 'use client'
 
+import { useState } from 'react'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId
 }: {
   myGoal: number
   myQuotes: any[]
   funnel: any[]
   sales: number
   userName: string
+  allQuotes?: any[]
+  users?: any[]
+  currentUserId?: string
 }) {
+  const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
+
   const now = new Date()
   const monthName = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
   const todayDate = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric' })
@@ -57,6 +63,33 @@ export function VendorDashboard({
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 5)
 
+  // Cálculos para aba "Geral"
+  const totalFaturamento = (allQuotes ?? [])
+    .filter(q => q.status === 'done')
+    .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+
+  const pipelineTotal = (allQuotes ?? [])
+    .filter(q => q.status !== 'done')
+    .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
+
+  // Ranking de colaboradores
+  const userPerformance = (users ?? []).map(u => {
+    const userQuotes = (allQuotes ?? []).filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done')
+    const totalVendido = userQuotes.reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+    const userGoal = 70000
+    const comissao = Math.round(totalVendido * 0.01) // 1% de comissão
+
+    return {
+      id: u.id,
+      name: u.name,
+      avatar_color: u.avatar_color,
+      vendido: totalVendido,
+      meta: userGoal,
+      percentMeta: userGoal > 0 ? (totalVendido / userGoal) * 100 : 0,
+      comissao,
+    }
+  }).sort((a, b) => b.vendido - a.vendido)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -70,6 +103,29 @@ export function VendorDashboard({
         </a>
       </div>
 
+      {/* Abas */}
+      <div className="flex gap-1 bg-surface-secondary rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('meu')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+            activeTab === 'meu' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Meu Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab('geral')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+            activeTab === 'geral' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Geral
+        </button>
+      </div>
+
+      {/* Aba: Meu Dashboard */}
+      {activeTab === 'meu' && (
+        <>
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
@@ -269,6 +325,98 @@ export function VendorDashboard({
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Aba: Geral */}
+      {activeTab === 'geral' && (
+        <div className="space-y-6">
+          {/* KPI Cards da Loja */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento da loja</p>
+              <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(totalFaturamento)}</p>
+              <p className="text-xs text-gray-500 mt-2">Todos os vendedores</p>
+            </div>
+
+            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Pipeline total</p>
+              <p className="text-2xl font-bold text-blue-600 mt-2">{formatCurrency(pipelineTotal)}</p>
+              <p className="text-xs text-gray-500 mt-2">Todas as oportunidades</p>
+            </div>
+
+            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-purple-600"></div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total de colaboradores</p>
+              <p className="text-2xl font-bold text-purple-600 mt-2">{users?.length ?? 0}</p>
+              <p className="text-xs text-gray-500 mt-2">Equipe ativa</p>
+            </div>
+          </div>
+
+          {/* Ranking de Vendas e Comissão */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Ranking de Vendas */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-900">Ranking — Vendas</h3>
+                <p className="text-xs text-gray-500">{monthName}</p>
+              </div>
+              <div className="p-4 space-y-3">
+                {userPerformance.map((u, i) => (
+                  <div key={u.id} className={`flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0 ${u.id === currentUserId ? 'bg-blue-50 -mx-4 px-4 py-3 rounded' : ''}`}>
+                    <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                    </div>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{ backgroundColor: u.avatar_color }}>
+                      {getInitials(u.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900">{u.name}</p>
+                      <p className="text-xs text-gray-500">{Math.round(u.percentMeta)}% da meta</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-bold text-gray-900">{formatCurrency(u.vendido)}</p>
+                      <p className="text-xs text-gray-500">de {formatCurrency(u.meta)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Ranking de Comissão */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-900">Ranking — Comissão</h3>
+                <p className="text-xs text-gray-500 text-green-600 font-semibold">1% de cada venda</p>
+              </div>
+              <div className="p-4 space-y-3">
+                {userPerformance.sort((a, b) => b.comissao - a.comissao).map((u, i) => (
+                  <div key={u.id} className={`flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0 ${u.id === currentUserId ? 'bg-green-50 -mx-4 px-4 py-3 rounded' : ''}`}>
+                    <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                    </div>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{ backgroundColor: u.avatar_color }}>
+                      {getInitials(u.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900">{u.name}</p>
+                      <p className="text-xs text-gray-500">Vendido: {formatCurrency(u.vendido)}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-bold text-green-600">{formatCurrency(u.comissao)}</p>
+                      <p className="text-xs text-gray-500">Comissão</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
