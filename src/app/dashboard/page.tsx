@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes } from '@/lib/actions'
-import { AdminDashboard } from '@/components/dashboard/AdminDashboard'
+import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { formatCurrency } from '@/lib/utils'
 
@@ -36,13 +36,11 @@ export default async function DashboardPage() {
   return (
     <>
       {isAdmin ? (
-        <AdminDashboard
-          funnel={stats.funnel}
+        <AdminDashboardV2
           quotes={allQuotes}
           users={allUsers}
           sales={stats.sales}
-          goals={goals}
-          storeGoal={stats.storeGoal}
+          funnel={stats.funnel}
         />
       ) : (
         <VendorDashboard
