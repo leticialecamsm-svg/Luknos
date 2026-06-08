@@ -74,7 +74,7 @@ export function Sidebar({ user }: { user: User | null }) {
 
       <nav className={`flex-1 space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
         {NAV.map(item => {
-          const active = pathname === item.href || pathname.startsWith(item.href + '/')
+          const active = pathname === item.href || (pathname.startsWith(item.href + '/') && item.href !== '/dashboard')
           return (
             <Link key={item.href} href={item.href}
               title={collapsed ? item.label : undefined}

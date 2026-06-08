@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { getTasks, updateTaskStatus, deleteTask, createTask } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
+import { TasksModal } from './TasksModal'
 import { Trash2, Edit2, Plus } from 'lucide-react'
 
 interface Task {
@@ -30,8 +31,11 @@ export function TasksListNew() {
   const [viewTask, setViewTask] = useState<Task | null>(null)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskSection, setNewTaskSection] = useState<'high' | 'other' | null>(null)
   const [isPending, startTransition] = useTransition()
   const [initialized, setInitialized] = useState(false)
+  const [filterStatus, setFilterStatus] = useState<string>('')
+  const [filterPriority, setFilterPriority] = useState<string>('')
 
   // Carregar tarefas
   const loadTasks = async () => {
@@ -54,9 +58,17 @@ export function TasksListNew() {
 
   const progressPercent = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
 
+  // Aplicar filtros
+  const applyFilters = (task: Task) => {
+    if (filterPriority && task.priority !== filterPriority) return false
+    if (filterStatus && task.status !== filterStatus) return false
+    return true
+  }
+
   // Separar tarefas em 3 seções
   const highPriorityTasks = tasks.filter(t => {
     if (t.status === 'done') return false
+    if (!applyFilters(t)) return false
     if (t.priority === 'high') return true
     // Tarefas atrasadas também vão para alta prioridade
     if (t.due_date && new Date(t.due_date) < new Date(new Date().setHours(0, 0, 0, 0))) return true
@@ -65,13 +77,14 @@ export function TasksListNew() {
 
   const otherTasks = tasks.filter(t => {
     if (t.status === 'done') return false
+    if (!applyFilters(t)) return false
     if (t.priority === 'high') return false
     // Não incluir tarefas atrasadas
     if (t.due_date && new Date(t.due_date) < new Date(new Date().setHours(0, 0, 0, 0))) return false
     return true
   })
 
-  const completedTasks = tasks.filter(t => t.status === 'done')
+  const completedTasks = tasks.filter(t => t.status === 'done' && applyFilters(t))
 
   const handleCheckboxChange = async (taskId: string) => {
     startTransition(async () => {
@@ -147,7 +160,10 @@ export function TasksListNew() {
           <button className="px-3 py-1.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors">
             ■ Kanban
           </button>
-          <button className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors">
+          <button
+            onClick={() => setNewTaskSection('high')}
+            className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+          >
             + Nova tarefa
           </button>
         </div>
@@ -197,25 +213,60 @@ export function TasksListNew() {
           placeholder="Buscar tarefas..."
           className="px-4 py-2 border border-gray-300 rounded-full text-sm bg-white flex-1 min-w-48 focus:outline-none focus:border-blue-500"
         />
-        <button className="px-4 py-2 bg-gray-900 text-white rounded-full text-sm font-semibold">
+        <button
+          onClick={() => { setFilterPriority(''); setFilterStatus('') }}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            !filterPriority && !filterStatus ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           Todas
         </button>
-        <button className="px-3 py-2 bg-red-50 text-red-700 rounded-full text-sm font-semibold border border-red-200">
+        <button
+          onClick={() => setFilterPriority(filterPriority === 'high' ? '' : 'high')}
+          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterPriority === 'high' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           🔴 Alta
         </button>
-        <button className="px-3 py-2 bg-white text-gray-700 rounded-full text-sm font-semibold border border-gray-200 hover:border-gray-300">
+        <button
+          onClick={() => setFilterPriority(filterPriority === 'mid' ? '' : 'mid')}
+          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterPriority === 'mid' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           🟡 Média
         </button>
-        <button className="px-3 py-2 bg-white text-gray-700 rounded-full text-sm font-semibold border border-gray-200 hover:border-gray-300">
+        <button
+          onClick={() => setFilterPriority(filterPriority === 'low' ? '' : 'low')}
+          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterPriority === 'low' ? 'bg-slate-50 text-slate-700 border border-slate-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           ⚪ Baixa
         </button>
-        <button className="px-4 py-2 bg-white text-gray-700 rounded-full text-sm font-semibold border border-gray-200 hover:border-gray-300">
+        <button
+          onClick={() => setFilterStatus(filterStatus === 'todo' ? '' : 'todo')}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterStatus === 'todo' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           A fazer
         </button>
-        <button className="px-4 py-2 bg-white text-gray-700 rounded-full text-sm font-semibold border border-gray-200 hover:border-gray-300">
+        <button
+          onClick={() => setFilterStatus(filterStatus === 'doing' ? '' : 'doing')}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterStatus === 'doing' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           Em andamento
         </button>
-        <button className="px-4 py-2 bg-white text-gray-700 rounded-full text-sm font-semibold border border-gray-200 hover:border-gray-300">
+        <button
+          onClick={() => setFilterStatus(filterStatus === 'done' ? '' : 'done')}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            filterStatus === 'done' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
           Concluídas
         </button>
       </div>
@@ -431,6 +482,7 @@ export function TasksListNew() {
       )}
 
       {/* Modais */}
+      {newTaskSection && <TasksModal onClose={() => setNewTaskSection(null)} onSuccess={() => { setNewTaskSection(null); loadTasks() }} />}
       {viewTask && <TasksViewModal task={viewTask} onClose={() => setViewTask(null)} onEdit={(task) => { setViewTask(null); setEditTask(task) }} />}
       {editTask && <TasksEditModal task={editTask} onClose={() => setEditTask(null)} onSuccess={() => { loadTasks(); setEditTask(null) }} />}
     </div>
