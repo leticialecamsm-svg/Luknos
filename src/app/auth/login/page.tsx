@@ -8,7 +8,7 @@ export default function LoginPage() {
       <div className="w-full bg-white overflow-hidden" style={{ display: 'flex', height: '100vh' }}>
 
         {/* ─── PAINEL ESQUERDO ─── */}
-        <div className="w-full md:w-1/2 flex flex-col px-12 py-10 bg-white justify-between overflow-y-auto">
+        <div className="w-full md:w-1/2 flex flex-col px-8 py-10 bg-white justify-between overflow-y-auto">
           {/* Logo */}
           <div className="mb-6">
             <svg width="140" height="auto" viewBox="0 0 722 218" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -20,7 +20,7 @@ export default function LoginPage() {
           </div>
 
           {/* Área do formulário */}
-          <div className="flex flex-col justify-center flex-1">
+          <div className="flex flex-col justify-center flex-1 max-w-sm">
             <h1 className="text-2xl font-light text-[#1A1A2E] mb-1" style={{ fontFamily: "'Montserrat Alternates', sans-serif", fontWeight: 200 }}>
               Bem vindo de volta!
             </h1>
