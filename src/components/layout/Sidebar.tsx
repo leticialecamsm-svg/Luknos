@@ -50,9 +50,13 @@ export function Sidebar({ user }: { user: User | null }) {
       <div className={`border-b border-white/10 flex items-center ${collapsed ? 'justify-center px-3 py-3' : 'px-5 py-5'}`}>
         {!collapsed && (
           <div className="flex items-center gap-2.5 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
+            <svg className="w-8 h-8" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+              <path d="M 80 40 Q 100 20, 130 35 Q 140 40, 135 60 Q 120 70, 90 65 Q 75 60, 80 40 Z" fill="#C9A961"/>
+              <path d="M 90 65 Q 120 70, 140 50 Q 145 45, 165 55 Q 160 75, 130 80 Q 110 85, 90 65 Z" fill="#D4B577"/>
+              <path d="M 40 95 Q 65 85, 90 105 L 100 130 L 70 115 Q 50 105, 40 95 Z" fill="#0F2A4A"/>
+              <path d="M 90 105 L 100 130 L 130 110 Q 110 95, 90 105 Z" fill="#1a3a54"/>
+              <path d="M 100 130 L 130 110 Q 155 95, 170 100 Q 160 120, 130 140 Q 110 150, 100 130 Z" fill="#0F2A4A"/>
+            </svg>
             <div>
               <p className="font-semibold text-sm text-white leading-tight">Luknos</p>
               <p className="text-xs text-white/40 leading-tight">Iluminação</p>
@@ -60,9 +64,13 @@ export function Sidebar({ user }: { user: User | null }) {
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <Zap className="w-4 h-4 text-white" />
-          </div>
+          <svg className="w-6 h-6" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 80 40 Q 100 20, 130 35 Q 140 40, 135 60 Q 120 70, 90 65 Q 75 60, 80 40 Z" fill="#C9A961"/>
+            <path d="M 90 65 Q 120 70, 140 50 Q 145 45, 165 55 Q 160 75, 130 80 Q 110 85, 90 65 Z" fill="#D4B577"/>
+            <path d="M 40 95 Q 65 85, 90 105 L 100 130 L 70 115 Q 50 105, 40 95 Z" fill="#0F2A4A"/>
+            <path d="M 90 105 L 100 130 L 130 110 Q 110 95, 90 105 Z" fill="#1a3a54"/>
+            <path d="M 100 130 L 130 110 Q 155 95, 170 100 Q 160 120, 130 140 Q 110 150, 100 130 Z" fill="#0F2A4A"/>
+          </svg>
         )}
         <button onClick={toggleCollapse} className="text-white/30 hover:text-white transition-colors ml-auto"
           title={collapsed ? 'Expandir' : 'Recolher'}>
