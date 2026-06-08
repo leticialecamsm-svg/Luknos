@@ -25,7 +25,7 @@ export function AdminDashboardV2({
     .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
 
   const pipelineTotal = quotes
-    .filter(q => q.status !== 'done' && q.temperature && ['warm', 'hot'].includes(q.temperature))
+    .filter(q => q.status !== 'done')
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   const ticketMedio = quotes.filter(q => q.status === 'done').length > 0
@@ -206,7 +206,7 @@ export function AdminDashboardV2({
           <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Pipeline total</p>
           <p className="text-xl font-bold text-blue-600 mt-2">{formatCurrency(pipelineTotal)}</p>
-          <p className="text-xs text-gray-500 mt-1">Morno + Quente + Fila</p>
+          <p className="text-xs text-gray-500 mt-1">Todas as oportunidades em aberto</p>
           <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => q.status !== 'done').length} oportunidades</p>
         </div>
 
