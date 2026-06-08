@@ -505,3 +505,100 @@ export async function deleteSchedule(id: string) {
   revalidatePath('/dashboard')
   return { ok: true }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASKS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function getTasks(filter?: { status?: string; priority?: string }) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  let query = supabase
+    .from('tasks')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false })
+
+  if (filter?.status) query = query.eq('status', filter.status)
+  if (filter?.priority) query = query.eq('priority', filter.priority)
+
+  const { data } = await query
+  return data ?? []
+}
+
+export async function createTask(formData: {
+  title: string
+  description?: string
+  priority: string
+  status: string
+  due_date?: string
+  checklist?: { text: string; done: boolean }[]
+}) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const { error } = await supabase.from('tasks').insert({
+    user_id: user.id,
+    title: formData.title,
+    description: formData.description || null,
+    priority: formData.priority,
+    status: formData.status,
+    due_date: formData.due_date || null,
+    checklist: formData.checklist || [],
+  })
+
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
+export async function updateTask(id: string, formData: {
+  title?: string
+  description?: string
+  priority?: string
+  status?: string
+  due_date?: string
+  checklist?: { text: string; done: boolean }[]
+}) {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('tasks')
+    .update({
+      ...formData,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
+export async function updateTaskStatus(id: string, status: string) {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('tasks')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
+export async function deleteTask(id: string) {
+  const supabase = createClient()
+  const { error } = await supabase.from('tasks').delete().eq('id', id)
+
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}

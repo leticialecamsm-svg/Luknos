@@ -12,7 +12,18 @@
       "Bash(gh auth *)",
       "Bash(ls -la ~/.ssh/)",
       "Bash(ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts 2>&1 && git push origin main)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(npm run *)",
+      "Bash(gh api *)",
+      "Bash(git commit -m 'Adicionar texto '\\\\''Links úteis'\\\\'' ao botão do menu *)",
+      "Bash(cp \"/Users/leticiapimentel/Documents/Luknos/Luknos LTDA/LOGO/LOGO azul 2026.svg\" /Users/leticiapimentel/Downloads/luknos/public/logo-text.svg)",
+      "Bash(cp \"/Users/leticiapimentel/Documents/Luknos/Luknos LTDA/LOGO/Capa Luknos Login.svg\" /Users/leticiapimentel/Downloads/luknos/public/login-banner.svg)",
+      "Bash(grep -n \"right-panel\\\\|DIREITA\\\\|background\\\\|gradient\" /Users/leticiapimentel/Downloads/luknos_login_v4.html | head -30)",
+      "Bash(ssh -T git@github.com)",
+      "Bash(git config *)",
+      "Bash(vercel --version)",
+      "Bash(cp \"/Users/leticiapimentel/Documents/Luknos/Luknos LTDA/LOGO/estampa capa login.png\" /Users/leticiapimentel/Downloads/luknos/public/login-text.png && ls -lh /Users/leticiapimentel/Downloads/luknos/public/login-text.png)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js|html\\)$\")"
     ]
   }
 }
