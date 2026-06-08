@@ -424,17 +424,21 @@ export async function createUserAdmin(data: {
   if (authError) return { error: authError.message }
   if (!authData.user) return { error: 'Erro ao criar usuário' }
 
-  // Create user record in users table
-  const { error: dbError } = await supabase.from('users').insert({
+  // Create or update user record in users table
+  const { error: dbError } = await supabase.from('users').upsert({
     id: authData.user.id,
     email: data.email,
     name: data.name,
     role: data.role,
     avatar_color: data.avatar_color,
     active: true,
-  })
+  }, { onConflict: 'id' })
 
-  if (dbError) return { error: dbError.message }
+  if (dbError) {
+    // Rollback: delete user from Auth if database operation fails
+    await admin.auth.admin.deleteUser(authData.user.id)
+    return { error: dbError.message }
+  }
 
   revalidatePath('/admin')
   return { ok: true }
