@@ -541,13 +541,18 @@ export async function createTask(formData: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
+  // Se nenhuma data for fornecida, usar o dia de hoje
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dueDate = formData.due_date || today.toISOString().split('T')[0]
+
   const { error } = await supabase.from('tasks').insert({
     user_id: user.id,
     title: formData.title,
     description: formData.description || null,
     priority: formData.priority,
     status: formData.status,
-    due_date: formData.due_date || null,
+    due_date: dueDate,
     checklist: formData.checklist || [],
   })
 
