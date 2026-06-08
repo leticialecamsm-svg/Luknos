@@ -4,11 +4,11 @@ import { LoginForm } from '@/components/auth/LoginForm'
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-5">
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg overflow-hidden" style={{ display: 'flex', minHeight: '500px' }}>
+    <div className="min-h-screen bg-white flex w-screen" style={{ display: 'flex' }}>
+      <div className="w-full bg-white overflow-hidden" style={{ display: 'flex', height: '100vh' }}>
 
         {/* ─── PAINEL ESQUERDO ─── */}
-        <div className="w-full lg:w-[420px] flex-shrink-0 flex flex-col px-12 py-10 bg-white">
+        <div className="w-full md:w-1/2 flex flex-col px-12 py-10 bg-white justify-between overflow-y-auto">
           {/* Logo */}
           <div className="mb-6">
             <svg width="140" height="auto" viewBox="0 0 722 218" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -19,7 +19,7 @@ export default function LoginPage() {
           </div>
 
           {/* Área do formulário */}
-          <div className="flex-1 flex flex-col justify-center">
+          <div className="flex flex-col justify-center flex-1">
             <h1 className="text-2xl font-light text-[#1A1A2E] mb-1" style={{ fontFamily: "'Montserrat Alternates', sans-serif", fontWeight: 200 }}>
               Bem vindo de volta!
             </h1>
@@ -33,23 +33,19 @@ export default function LoginPage() {
         </div>
 
         {/* ─── PAINEL DIREITO ─── */}
-        <div className="hidden lg:flex flex-1 bg-[#072347] relative overflow-hidden items-center justify-center p-8">
-          {/* SVG do texto Capa Login - centralizado e tamanho médio */}
+        <div className="hidden md:flex w-1/2 bg-[#072347] relative overflow-hidden items-center justify-center p-8">
+          {/* Imagem centralizada */}
           <div className="w-full h-full flex items-center justify-center">
-            <svg
-              viewBox="0 0 549 628"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+            <img
+              src="/login-text.png"
+              alt="Luknos"
               style={{
-                width: '65%',
-                height: 'auto',
-                maxHeight: '70%'
+                maxWidth: '70%',
+                maxHeight: '70%',
+                width: 'auto',
+                height: 'auto'
               }}
-            >
-              {/* Texto principal com cores originais do SVG */}
-              <path d="M60.9656 40.0635C53.6313 40.0635 48.0924 41.7443 44.3488 45.1058C40.6817 48.391 38.8481 53.2041 38.8481 59.5453V68.7131H75.5196V78.5686H38.8481V111H27.3882V59.4307C27.3882 50.1864 30.2914 42.9667 36.0977 37.7715C41.9804 32.5 50.1551 29.8642 60.6218 29.8642C65.2057 29.8642 69.4841 30.399 73.4568 31.4686C77.4296 32.4618 80.8675 33.9516 83.7707 35.938L79.989 45.4496C74.8702 41.8589 68.5291 40.0635 60.9656 40.0635Z" fill="white" opacity="0.9"/>
-              <path d="M149.799 50.2628V111H139.256V101.374C136.811 104.735 133.717 107.295 129.974 109.052C126.23 110.809 122.105 111.688 117.597 111.688C111.714 111.688 106.443 110.389 101.782 107.791C97.122 105.194 93.4549 101.565 90.7809 96.9044C88.1833 92.1676 86.8846 86.7433 86.8846 80.6314C86.8846 74.5195 88.1833 69.1333 90.7809 64.473C93.4549 59.8127 97.122 56.1837 101.782 53.5861C106.443 50.9886 111.714 49.6898 117.597 49.6898C121.952 49.6898 125.963 50.5302 129.63 52.211C133.297 53.8153 136.353 56.2219 138.798 59.4307V50.2628H149.799Z" fill="white" opacity="0.9"/>
-            </svg>
+            />
           </div>
         </div>
       </div>
