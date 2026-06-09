@@ -243,7 +243,16 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
             {sorted.map(q => {
               const overdue = isOverdue(q.deadline) && q.status !== 'done'
               const tempC = q.temperature ? TEMPERATURE_COLOR[q.temperature as keyof typeof TEMPERATURE_COLOR] : null
-              const daysUntil = q.deadline ? Math.ceil((new Date(q.deadline).getTime() - Date.now()) / 86400000) : null
+              const daysUntil = q.deadline ? Math.floor((new Date(q.deadline).getTime() - Date.now()) / 86400000) : null
+
+              // Format deadline status message
+              const getDeadlineStatus = (days: number | null) => {
+                if (days === null) return ''
+                if (days < 0) return `Venceu a ${Math.abs(days)} dia${Math.abs(days) > 1 ? 's' : ''}`
+                if (days === 0) return 'Vence hoje'
+                if (days === 1) return 'Vence amanhã'
+                return `Vence em ${days} dias`
+              }
 
               return (
                 <tr key={q.id} onClick={() => router.push(`/quotes/${q.id}`)}
@@ -302,8 +311,13 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                           {q.deadline ? formatDate(q.deadline) : '—'}
                         </span>
                         {q.deadline && (
-                          <span className={`text-xs ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
-                            {overdue ? `⚠️ ${Math.abs(daysUntil || 0)} dias atrás` : daysUntil !== null ? `${daysUntil} dias` : ''}
+                          <span className={`text-xs font-medium ${
+                            daysUntil !== null && daysUntil < 0 ? 'text-red-600' :
+                            daysUntil === 0 ? 'text-orange-600' :
+                            daysUntil === 1 ? 'text-amber-600' :
+                            'text-gray-500'
+                          }`}>
+                            {getDeadlineStatus(daysUntil)}
                           </span>
                         )}
                       </div>
