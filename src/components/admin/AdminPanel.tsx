@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
 import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin } from '@/lib/actions'
+import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import type { User, MonthlyGoal } from '@/types'
 
 interface Props {
@@ -429,6 +430,12 @@ function UserRow({ user: u }: { user: User }) {
           )}
         </div>
       )}
+
+      {/* Card de Tarefas do Admin */}
+      <div className="border-t border-gray-200 pt-6 mt-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
+        <TasksCardDashboard />
+      </div>
     </div>
   )
 }

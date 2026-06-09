@@ -165,7 +165,7 @@ export function VendorDashboard({
         </div>
       </div>
 
-      {/* Grid 3 colunas: Meta + Funil */}
+      {/* Grid 3 colunas: Meta + Tarefas */}
       <div className="grid grid-cols-2 gap-4">
         {/* Minha Meta */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -214,38 +214,8 @@ export function VendorDashboard({
           </div>
         </div>
 
-        {/* Meu Funil */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Meu funil</h3>
-            <a href="/negotiations" className="text-xs text-blue-600 hover:text-blue-700">Ver negociações →</a>
-          </div>
-          <div className="p-4 space-y-3">
-            {[
-              { label: 'Frio', data: funnelByTemp.cold, color: '#bfdbfe' },
-              { label: 'Morno', data: funnelByTemp.warm, color: '#fcd34d' },
-              { label: 'Quente', data: funnelByTemp.hot, color: '#fca5a5' },
-              { label: 'Fechada', data: funnelByTemp.closed, color: '#6ee7b7' },
-              { label: 'Perdida', data: funnelByTemp.lost, color: '#d1d5db' },
-            ].map(item => (
-              <div key={item.label} className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></div>
-                <p className="text-xs font-medium text-gray-600 flex-1">{item.label}</p>
-                <p className="text-xs font-bold text-gray-900">{item.data.count}</p>
-                <div className="w-16 h-1 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full"
-                    style={{
-                      backgroundColor: item.color,
-                      width: `${maxFunnelCount > 0 ? (item.data.count / maxFunnelCount) * 100 : 0}%`
-                    }}
-                  ></div>
-                </div>
-                <p className="text-xs text-gray-500 w-12 text-right">{formatCurrency(item.data.total)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Minhas Tarefas */}
+        <TasksCardDashboard />
       </div>
 
       {/* Grid 2 colunas: Urgências + Orçamentos */}
@@ -331,9 +301,37 @@ export function VendorDashboard({
         </div>
       </div>
 
-      {/* Card de Tarefas */}
-      <div className="grid grid-cols-2 gap-4">
-        <TasksCardDashboard />
+      {/* Meu Funil */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">Meu funil</h3>
+          <a href="/negotiations" className="text-xs text-blue-600 hover:text-blue-700">Ver negociações →</a>
+        </div>
+        <div className="p-4 space-y-3">
+          {[
+            { label: 'Frio', data: funnelByTemp.cold, color: '#bfdbfe' },
+            { label: 'Morno', data: funnelByTemp.warm, color: '#fcd34d' },
+            { label: 'Quente', data: funnelByTemp.hot, color: '#fca5a5' },
+            { label: 'Fechada', data: funnelByTemp.closed, color: '#6ee7b7' },
+            { label: 'Perdida', data: funnelByTemp.lost, color: '#d1d5db' },
+          ].map(item => (
+            <div key={item.label} className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></div>
+              <p className="text-xs font-medium text-gray-600 flex-1">{item.label}</p>
+              <p className="text-xs font-bold text-gray-900">{item.data.count}</p>
+              <div className="w-16 h-1 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full"
+                  style={{
+                    backgroundColor: item.color,
+                    width: `${maxFunnelCount > 0 ? (item.data.count / maxFunnelCount) * 100 : 0}%`
+                  }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-500 w-12 text-right">{formatCurrency(item.data.total)}</p>
+            </div>
+          ))}
+        </div>
       </div>
         </>
       )}
