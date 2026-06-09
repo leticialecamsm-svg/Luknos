@@ -31,7 +31,8 @@ export function TasksListNew() {
   const [viewTask, setViewTask] = useState<Task | null>(null)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
-  const [inlineTaskTitle, setInlineTaskTitle] = useState('')
+  const [inlineTaskTitleHigh, setInlineTaskTitleHigh] = useState('')
+  const [inlineTaskTitleOther, setInlineTaskTitleOther] = useState('')
   const [isPending, startTransition] = useTransition()
   const [initialized, setInitialized] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
@@ -66,19 +67,25 @@ export function TasksListNew() {
   }
 
   // Separar tarefas em 3 seções
+  // Alta prioridade: tarefas com prioridade "alta" OU vencidas
   const highPriorityTasks = tasks.filter(t => {
     if (t.status === 'done') return false
     if (!applyFilters(t)) return false
+    // Incluir se prioridade é alta
     if (t.priority === 'high') return true
-    if (t.due_date && new Date(t.due_date) < new Date(new Date().setHours(0, 0, 0, 0))) return true
+    // Incluir se está vencida (de qualquer prioridade)
+    if (isOverdue(t.due_date)) return true
     return false
   })
 
+  // Outras tarefas: não alta prioridade E não vencidas
   const otherTasks = tasks.filter(t => {
     if (t.status === 'done') return false
     if (!applyFilters(t)) return false
+    // Excluir se prioridade é alta
     if (t.priority === 'high') return false
-    if (t.due_date && new Date(t.due_date) < new Date(new Date().setHours(0, 0, 0, 0))) return false
+    // Excluir se está vencida
+    if (isOverdue(t.due_date)) return false
     return true
   })
 
@@ -104,25 +111,45 @@ export function TasksListNew() {
   }
 
   const handleAddTaskInline = async (priority: 'high' | 'mid') => {
-    if (!inlineTaskTitle.trim()) return
+    const title = priority === 'high' ? inlineTaskTitleHigh : inlineTaskTitleOther
+    if (!title.trim()) return
 
     startTransition(async () => {
       const result = await createTask({
-        title: inlineTaskTitle,
+        title: title,
         priority: priority,
         status: 'todo',
       })
       if (!result.error) {
-        setInlineTaskTitle('')
+        if (priority === 'high') {
+          setInlineTaskTitleHigh('')
+        } else {
+          setInlineTaskTitleOther('')
+        }
         loadTasks()
       }
     })
   }
 
+  const getTodayString = () => {
+    const today = new Date()
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+    const day = String(today.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const formatDateDisplay = (dateStr: string | undefined) => {
+    if (!dateStr) return ''
+    const [year, month, day] = dateStr.split('-')
+    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    return `${day} de ${months[parseInt(month) - 1]}`
+  }
+
   const isOverdue = (dueDate: string | undefined) => {
     if (!dueDate) return false
-    const taskDate = dueDate.split('T')[0] // pega apenas a data no formato YYYY-MM-DD
-    const today = new Date().toISOString().split('T')[0] // pega data de hoje no mesmo formato
+    const taskDate = dueDate.split('T')[0]
+    const today = getTodayString()
     return taskDate < today
   }
 
@@ -180,7 +207,7 @@ export function TasksListNew() {
               <span className={`text-xs font-semibold whitespace-nowrap ${
                 isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
               }`}>
-                {isOverdue(task.due_date) ? '⚠ ontem' : task.due_date.split('T')[0]}
+                {isOverdue(task.due_date) ? '⚠ ontem' : formatDateDisplay(task.due_date)}
               </span>
             )}
             <span className="text-xs font-bold">
@@ -365,8 +392,8 @@ export function TasksListNew() {
             <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <input
               type="text"
-              value={inlineTaskTitle}
-              onChange={(e) => setInlineTaskTitle(e.target.value)}
+              value={inlineTaskTitleHigh}
+              onChange={(e) => setInlineTaskTitleHigh(e.target.value)}
               placeholder="Adicionar tarefa de alta prioridade..."
               className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
               onKeyDown={(e) => {
@@ -398,8 +425,8 @@ export function TasksListNew() {
             <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <input
               type="text"
-              value={inlineTaskTitle}
-              onChange={(e) => setInlineTaskTitle(e.target.value)}
+              value={inlineTaskTitleOther}
+              onChange={(e) => setInlineTaskTitleOther(e.target.value)}
               placeholder="Adicionar tarefa..."
               className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
               onKeyDown={(e) => {
