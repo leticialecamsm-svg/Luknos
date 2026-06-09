@@ -5,6 +5,7 @@ import { TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useState } from 'react'
 import { QuickLinksMenu } from './QuickLinksMenu'
+import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 
 export function AdminDashboardV2({
   quotes,
@@ -487,6 +488,12 @@ export function AdminDashboardV2({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Minhas Tarefas */}
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
+        <TasksCardDashboard />
       </div>
     </div>
   )
