@@ -243,7 +243,24 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
             {sorted.map(q => {
               const overdue = isOverdue(q.deadline) && q.status !== 'done'
               const tempC = q.temperature ? TEMPERATURE_COLOR[q.temperature as keyof typeof TEMPERATURE_COLOR] : null
-              const daysUntil = q.deadline ? Math.floor((new Date(q.deadline).getTime() - Date.now()) / 86400000) : null
+
+              // Calculate days using local timezone (string-based)
+              const getDaysUntil = (deadline: string | null) => {
+                if (!deadline) return null
+                const today = new Date()
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+                const deadlineStr = deadline.split('T')[0]
+
+                const [deadlineY, deadlineM, deadlineD] = deadlineStr.split('-').map(Number)
+                const [todayY, todayM, todayD] = todayStr.split('-').map(Number)
+
+                const deadlineDate = new Date(deadlineY, deadlineM - 1, deadlineD)
+                const todayDate = new Date(todayY, todayM - 1, todayD)
+
+                return Math.floor((deadlineDate.getTime() - todayDate.getTime()) / 86400000)
+              }
+
+              const daysUntil = getDaysUntil(q.deadline)
 
               // Format deadline status message
               const getDeadlineStatus = (days: number | null) => {
