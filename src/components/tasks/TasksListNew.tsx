@@ -82,6 +82,20 @@ export function TasksListNew() {
     return taskDate < today
   }
 
+  const isYesterday = (dueDate: string | undefined) => {
+    if (!dueDate) return false
+    const taskDate = dueDate.split('T')[0]
+    const today = getTodayString()
+
+    // Calcula ontem
+    const todayDate = new Date(today)
+    const yesterdayDate = new Date(todayDate)
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`
+
+    return taskDate === yesterday
+  }
+
   const formatDateDisplay = (dateStr: string | undefined) => {
     if (!dateStr) return ''
     // Pega apenas a parte da data (antes do T se tiver hora)
@@ -144,6 +158,7 @@ export function TasksListNew() {
         title: title,
         priority: priority,
         status: 'todo',
+        due_date: getTodayString(), // Enviar data do cliente para o servidor
       })
       if (!result.error) {
         if (priority === 'high') {
@@ -210,7 +225,7 @@ export function TasksListNew() {
               <span className={`text-xs font-semibold whitespace-nowrap ${
                 isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
               }`}>
-                {isOverdue(task.due_date) ? '⚠ ontem' : formatDateDisplay(task.due_date)}
+                {isYesterday(task.due_date) ? '⚠ ontem' : formatDateDisplay(task.due_date)}
               </span>
             )}
             <span className="text-xs font-bold">

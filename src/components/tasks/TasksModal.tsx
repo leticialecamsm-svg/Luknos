@@ -26,13 +26,22 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
       return
     }
 
+    // Se não forneceu data, usar data de hoje (timezone local do cliente)
+    const getTodayString = () => {
+      const today = new Date()
+      const year = today.getFullYear()
+      const month = String(today.getMonth() + 1).padStart(2, '0')
+      const day = String(today.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
     setLoading(true)
     const result = await createTask({
       title: formData.title,
       description: formData.description || undefined,
       priority: formData.priority,
       status: formData.status,
-      due_date: formData.due_date || undefined,
+      due_date: formData.due_date || getTodayString(),
     })
 
     setLoading(false)
