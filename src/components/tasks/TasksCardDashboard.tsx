@@ -54,7 +54,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
   if (loading) {
     return (
       <div className="rounded-2xl p-0.5" style={{
-        background: 'linear-gradient(135deg, #FCD34D 0%, #FBBF24 100%)',
+        background: 'linear-gradient(135deg, #CBA455 0%, #B8934A 100%)',
       }}>
         <div className="bg-white rounded-2xl p-6">
           <div className="h-64 flex items-center justify-center">
@@ -67,7 +67,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
 
   return (
     <div className="rounded-2xl p-0.5" style={{
-      background: 'linear-gradient(135deg, #FCD34D 0%, #FBBF24 100%)',
+      background: 'linear-gradient(135deg, #CBA455 0%, #B8934A 100%)',
     }}>
       <div className="bg-white rounded-2xl p-6 space-y-4">
         {/* Header */}
