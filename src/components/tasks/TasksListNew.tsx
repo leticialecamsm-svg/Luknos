@@ -87,11 +87,24 @@ export function TasksListNew() {
     const taskDate = dueDate.split('T')[0]
     const today = getTodayString()
 
-    // Calcula ontem
-    const todayDate = new Date(today)
-    const yesterdayDate = new Date(todayDate)
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
-    const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`
+    // Calcula ontem usando apenas strings (evita problemas de timezone)
+    const [year, month, day] = today.split('-').map(Number)
+    let yesterdayDay = day - 1
+    let yesterdayMonth = month
+    let yesterdayYear = year
+
+    if (yesterdayDay < 1) {
+      yesterdayMonth -= 1
+      if (yesterdayMonth < 1) {
+        yesterdayMonth = 12
+        yesterdayYear -= 1
+      }
+      // Último dia do mês anterior
+      const daysInMonth = new Date(yesterdayYear, yesterdayMonth, 0).getDate()
+      yesterdayDay = daysInMonth
+    }
+
+    const yesterday = `${yesterdayYear}-${String(yesterdayMonth).padStart(2, '0')}-${String(yesterdayDay).padStart(2, '0')}`
 
     return taskDate === yesterday
   }
@@ -153,12 +166,15 @@ export function TasksListNew() {
     const title = priority === 'high' ? inlineTaskTitleHigh : inlineTaskTitleOther
     if (!title.trim()) return
 
+    // Calcular data FORA do startTransition para garantir que é avaliada corretamente
+    const todayDate = getTodayString()
+
     startTransition(async () => {
       const result = await createTask({
         title: title,
         priority: priority,
         status: 'todo',
-        due_date: getTodayString(), // Enviar data do cliente para o servidor
+        due_date: todayDate,
       })
       if (!result.error) {
         if (priority === 'high') {
