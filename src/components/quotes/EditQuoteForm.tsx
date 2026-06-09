@@ -8,8 +8,11 @@ import { Search, X, Plus, Loader2 } from 'lucide-react'
 const TYPE_LABELS: Record<string, string> = {
   client: 'Cliente',
   architect: 'Arquiteto',
-  designer: 'Designer',
   engineer: 'Engenheiro',
+  designer: 'Designer',
+  electrician: 'Eletricista',
+  plasterer: 'Gesseiro',
+  carpenter: 'Marceneiro',
   other: 'Outro',
 }
 
@@ -29,7 +32,7 @@ function ContactSearch({
   const [creating, setCreating] = useState(false)
   const [creatingMode, setCreatingMode] = useState(false)
   const [phone, setPhone] = useState('')
-  const [contactType, setContactType] = useState(type || 'other')
+  const [contactType, setContactType] = useState(type ?? 'client')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -68,7 +71,7 @@ function ContactSearch({
       onSelect(res.data)
       setSearch('')
       setPhone('')
-      setContactType(type || 'other')
+      setContactType(type ?? 'client')
       setResults([])
       setCreatingMode(false)
       setOpen(false)
@@ -108,8 +111,11 @@ function ContactSearch({
               <label className="text-xs font-medium text-gray-600">Tipo</label>
               <select value={contactType} onChange={e => setContactType(e.target.value)} className="input mt-1">
                 <option value="architect">Arquiteto</option>
-                <option value="designer">Designer</option>
                 <option value="engineer">Engenheiro</option>
+                <option value="designer">Designer</option>
+                <option value="electrician">Eletricista</option>
+                <option value="plasterer">Gesseiro</option>
+                <option value="carpenter">Marceneiro</option>
                 <option value="other">Outro</option>
               </select>
             </div>
