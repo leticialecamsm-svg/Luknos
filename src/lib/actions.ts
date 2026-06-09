@@ -541,6 +541,16 @@ export async function createTask(formData: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
+  // Histórico inicial (tarefa criada)
+  const history = [
+    {
+      type: 'created',
+      timestamp: new Date().toISOString(),
+      user_id: user.id,
+      changes: { status: formData.status }
+    }
+  ]
+
   const { error } = await supabase.from('tasks').insert({
     user_id: user.id,
     title: formData.title,
@@ -549,6 +559,7 @@ export async function createTask(formData: {
     status: formData.status,
     due_date: formData.due_date,
     checklist: formData.checklist || [],
+    history: history,
   })
 
   if (error) return { error: error.message }
@@ -566,11 +577,36 @@ export async function updateTask(id: string, formData: {
   checklist?: { text: string; done: boolean }[]
 }) {
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  // Buscar tarefa atual para pegar histórico
+  const { data: taskData, error: fetchError } = await supabase
+    .from('tasks')
+    .select('history')
+    .eq('id', id)
+    .single()
+
+  if (fetchError) return { error: fetchError.message }
+
+  // Adicionar novo evento ao histórico
+  const currentHistory = taskData.history || []
+  const newHistory = [
+    ...currentHistory,
+    {
+      type: 'updated',
+      timestamp: new Date().toISOString(),
+      user_id: user.id,
+      changes: formData
+    }
+  ]
+
   const { error } = await supabase
     .from('tasks')
     .update({
       ...formData,
       updated_at: new Date().toISOString(),
+      history: newHistory
     })
     .eq('id', id)
 
@@ -582,9 +618,37 @@ export async function updateTask(id: string, formData: {
 
 export async function updateTaskStatus(id: string, status: string) {
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  // Buscar tarefa atual para pegar histórico
+  const { data: taskData, error: fetchError } = await supabase
+    .from('tasks')
+    .select('history')
+    .eq('id', id)
+    .single()
+
+  if (fetchError) return { error: fetchError.message }
+
+  // Adicionar novo evento ao histórico
+  const currentHistory = taskData.history || []
+  const newHistory = [
+    ...currentHistory,
+    {
+      type: 'status_changed',
+      timestamp: new Date().toISOString(),
+      user_id: user.id,
+      changes: { status: status }
+    }
+  ]
+
   const { error } = await supabase
     .from('tasks')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+      history: newHistory
+    })
     .eq('id', id)
 
   if (error) return { error: error.message }
