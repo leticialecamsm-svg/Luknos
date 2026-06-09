@@ -66,6 +66,31 @@ export function TasksListNew() {
     return true
   }
 
+  // Funções utilitárias de data (precisam ser definidas antes de usar)
+  const getTodayString = () => {
+    const today = new Date()
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+    const day = String(today.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const isOverdue = (dueDate: string | undefined) => {
+    if (!dueDate) return false
+    const taskDate = dueDate.split('T')[0]
+    const today = getTodayString()
+    return taskDate < today
+  }
+
+  const formatDateDisplay = (dateStr: string | undefined) => {
+    if (!dateStr) return ''
+    // Pega apenas a parte da data (antes do T se tiver hora)
+    const datePart = dateStr.split('T')[0]
+    const [year, month, day] = datePart.split('-')
+    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    return `${day} de ${months[parseInt(month) - 1]}`
+  }
+
   // Separar tarefas em 3 seções
   // Alta prioridade: tarefas com prioridade "alta" OU vencidas
   const highPriorityTasks = tasks.filter(t => {
@@ -129,30 +154,6 @@ export function TasksListNew() {
         loadTasks()
       }
     })
-  }
-
-  const getTodayString = () => {
-    const today = new Date()
-    const year = today.getFullYear()
-    const month = String(today.getMonth() + 1).padStart(2, '0')
-    const day = String(today.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
-
-  const formatDateDisplay = (dateStr: string | undefined) => {
-    if (!dateStr) return ''
-    // Pega apenas a parte da data (antes do T se tiver hora)
-    const datePart = dateStr.split('T')[0]
-    const [year, month, day] = datePart.split('-')
-    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-    return `${day} de ${months[parseInt(month) - 1]}`
-  }
-
-  const isOverdue = (dueDate: string | undefined) => {
-    if (!dueDate) return false
-    const taskDate = dueDate.split('T')[0]
-    const today = getTodayString()
-    return taskDate < today
   }
 
   const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
