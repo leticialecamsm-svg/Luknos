@@ -651,23 +651,21 @@ export async function getShipments() {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('shipments')
-    .select(`
-      *,
-      quotes (
-        id,
-        number,
-        quoted_value,
-        final_value,
-        client_id,
-        contacts (
-          id,
-          name
-        )
-      )
-    `)
+    .select('*')
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
   return data || []
+}
+
+export async function getShipmentQuoteData(quoteId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('quotes_full')
+    .select('id, number, quoted_value, final_value, client_name')
+    .eq('id', quoteId)
+    .single()
+  if (error) return null
+  return data
 }
 
 export async function getShipmentById(id: string) {

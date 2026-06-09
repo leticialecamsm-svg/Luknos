@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { completeShipment } from '@/lib/actions'
+import { useState, useTransition, useEffect } from 'react'
+import { completeShipment, getShipmentQuoteData } from '@/lib/actions'
 import type { Shipment } from '@/types'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 import { ShippingModal } from './ShippingModal'
@@ -14,23 +14,31 @@ interface ShippingListProps {
 
 export function ShippingList({ initialShipments }: ShippingListProps) {
   const [shipments, setShipments] = useState(initialShipments)
+  const [enrichedShipments, setEnrichedShipments] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [filterDeliveryType, setFilterDeliveryType] = useState<string | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [pending, startTransition] = useTransition()
 
-  // Enriched shipments with quote data
-  const enrichedShipments = shipments.map((s: any) => {
-    const quote = Array.isArray(s.quotes) ? s.quotes[0] : s.quotes
-    const client = quote && Array.isArray(quote.clients) ? quote.clients[0] : quote?.clients
-    return {
-      ...s,
-      client_name: client?.name || 'Cliente',
-      quote_number: quote?.number || 0,
-      quoted_value: quote?.final_value ?? quote?.quoted_value ?? 0,
+  // Load quote data for each shipment
+  useEffect(() => {
+    const loadQuoteData = async () => {
+      const enriched = await Promise.all(
+        shipments.map(async (s) => {
+          const quoteData = await getShipmentQuoteData(s.quote_id)
+          return {
+            ...s,
+            client_name: quoteData?.client_name || 'Cliente',
+            quote_number: quoteData?.number || 0,
+            quoted_value: quoteData?.final_value ?? quoteData?.quoted_value ?? 0,
+          }
+        })
+      )
+      setEnrichedShipments(enriched)
     }
-  })
+    loadQuoteData()
+  }, [shipments])
 
   const filtered = enrichedShipments.filter(s => {
     const matchSearch = (s.client_name || '').toLowerCase().includes(search.toLowerCase())
