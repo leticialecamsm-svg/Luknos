@@ -31,6 +31,7 @@ export function TasksListNew() {
   const [viewTask, setViewTask] = useState<Task | null>(null)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
+  const [inlineTaskTitle, setInlineTaskTitle] = useState('')
   const [isPending, startTransition] = useTransition()
   const [initialized, setInitialized] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
@@ -102,9 +103,27 @@ export function TasksListNew() {
     }
   }
 
+  const handleAddTaskInline = async (priority: 'high' | 'mid') => {
+    if (!inlineTaskTitle.trim()) return
+
+    startTransition(async () => {
+      const result = await createTask({
+        title: inlineTaskTitle,
+        priority: priority,
+        status: 'todo',
+      })
+      if (!result.error) {
+        setInlineTaskTitle('')
+        loadTasks()
+      }
+    })
+  }
+
   const isOverdue = (dueDate: string | undefined) => {
     if (!dueDate) return false
-    return new Date(dueDate) < new Date(new Date().setHours(0, 0, 0, 0))
+    const taskDate = dueDate.split('T')[0] // pega apenas a data no formato YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0] // pega data de hoje no mesmo formato
+    return taskDate < today
   }
 
   const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
@@ -338,16 +357,25 @@ export function TasksListNew() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            setShowNewTaskModal(true)
+            handleAddTaskInline('high')
           }}
           className="px-3 py-2"
         >
-          <div className="flex items-center gap-2 text-gray-500 text-sm">
-            <Plus className="w-4 h-4" />
-            <span className="flex-1 text-gray-400">Adicionar tarefa de alta prioridade...</span>
-            <button type="submit" className="text-xs font-semibold text-gray-600 hover:text-gray-900">
-              Mais ›
-            </button>
+          <div className="flex items-center gap-2">
+            <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={inlineTaskTitle}
+              onChange={(e) => setInlineTaskTitle(e.target.value)}
+              placeholder="Adicionar tarefa de alta prioridade..."
+              className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddTaskInline('high')
+                }
+              }}
+            />
           </div>
         </form>
       </div>
@@ -362,16 +390,25 @@ export function TasksListNew() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            setShowNewTaskModal(true)
+            handleAddTaskInline('mid')
           }}
           className="px-3 py-2"
         >
-          <div className="flex items-center gap-2 text-gray-500 text-sm">
-            <Plus className="w-4 h-4" />
-            <span className="flex-1 text-gray-400">Adicionar tarefa...</span>
-            <button type="submit" className="text-xs font-semibold text-gray-600 hover:text-gray-900">
-              Mais ›
-            </button>
+          <div className="flex items-center gap-2">
+            <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={inlineTaskTitle}
+              onChange={(e) => setInlineTaskTitle(e.target.value)}
+              placeholder="Adicionar tarefa..."
+              className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddTaskInline('mid')
+                }
+              }}
+            />
           </div>
         </form>
       </div>
