@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
@@ -328,14 +328,19 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                           {q.deadline ? formatDate(q.deadline) : '—'}
                         </span>
                         {q.deadline && (
-                          <span className={`text-xs font-medium ${
-                            daysUntil !== null && daysUntil < 0 ? 'text-red-600' :
-                            daysUntil === 0 ? 'text-orange-600' :
-                            daysUntil === 1 ? 'text-amber-600' :
-                            'text-gray-500'
-                          }`}>
-                            {getDeadlineStatus(daysUntil)}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            {daysUntil !== null && daysUntil < 0 && (
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                            )}
+                            <span className={`text-xs font-medium ${
+                              daysUntil !== null && daysUntil < 0 ? 'text-red-600' :
+                              daysUntil === 0 ? 'text-orange-500' :
+                              daysUntil === 1 ? 'text-purple-600' :
+                              'text-gray-500'
+                            }`}>
+                              {getDeadlineStatus(daysUntil)}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </td>
