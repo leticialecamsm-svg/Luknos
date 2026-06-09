@@ -162,15 +162,21 @@ export async function closeSale(quoteId: string, data: {
       closed_at: new Date().toISOString().split('T')[0], notes: data.notes || null,
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
-  await supabase.from('quotes').update({ status: 'done' }).eq('id', quoteId)
+  const { error: updateError } = await supabase.from('quotes').update({ status: 'done' }).eq('id', quoteId)
+  if (updateError) return { error: updateError.message }
 
   // Create shipment automatically after closing sale
-  try {
-    const shipment = await createShipment(quoteId)
-    console.log('Shipment created:', shipment)
-  } catch (err) {
-    console.error('Failed to create shipment:', err)
-    // Don't fail the sale if shipment creation fails
+  const { data: shipmentData, error: shipmentError } = await supabase
+    .from('shipments')
+    .insert({ quote_id: quoteId })
+    .select()
+    .single()
+
+  if (shipmentError) {
+    console.error('Failed to create shipment:', shipmentError)
+    // Still return success for the sale, shipment creation is secondary
+  } else {
+    console.log('Shipment created:', shipmentData)
   }
 
   revalidatePath('/dashboard')
