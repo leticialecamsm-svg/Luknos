@@ -165,7 +165,10 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
             </thead>
             <tbody>
               {filtered.map((shipment, idx) => (
-                <tr key={shipment.id} className={cn('border-b border-surface-border hover:bg-surface transition-colors group', idx === filtered.length - 1 && 'border-0')}>
+                <tr
+                  key={shipment.id}
+                  onClick={() => setSelectedShipment(shipment)}
+                  className={cn('border-b border-surface-border hover:bg-surface transition-colors group cursor-pointer', idx === filtered.length - 1 && 'border-0')}>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{shipment.client_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">#{shipment.quote_number}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-brand-600">
@@ -196,25 +199,13 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                       {SHIPMENT_STATUS_LABEL[shipment.separation_status as keyof typeof SHIPMENT_STATUS_LABEL]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setSelectedShipment(shipment)}
-                        className="text-sm text-brand-600 hover:text-brand-700 font-medium"
-                      >
-                        Editar
-                      </button>
-                      {!shipment.is_completed && (
-                        <button
-                          onClick={() => handleComplete(shipment.id)}
-                          disabled={pending}
-                          className="text-sm text-green-600 hover:text-green-700 font-medium disabled:opacity-50"
-                          title="Marcar como entregue"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
+                  <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => setSelectedShipment(shipment)}
+                      className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                    >
+                      Editar
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -230,9 +221,11 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
           onClose={() => setSelectedShipment(null)}
           onSave={() => {
             setSelectedShipment(null)
-            // Refresh list
           }}
-          onComplete={() => handleComplete(selectedShipment.id)}
+          onComplete={() => {
+            handleComplete(selectedShipment.id)
+            setSelectedShipment(null)
+          }}
         />
       )}
     </>
