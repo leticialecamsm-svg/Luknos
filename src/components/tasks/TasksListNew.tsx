@@ -104,48 +104,73 @@ export function TasksListNew() {
     return new Date(dueDate) < new Date(new Date().setHours(0, 0, 0, 0))
   }
 
-  const renderTaskRow = (task: Task) => (
+  const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
     <div
       key={task.id}
       onClick={() => setViewTask(task)}
-      className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow group flex items-center gap-3 cursor-pointer"
+      className={`border rounded-lg p-3 hover:shadow-md transition-shadow group flex items-center gap-3 cursor-pointer ${
+        isCompleted
+          ? 'bg-green-50 border-green-200'
+          : 'bg-white border-gray-200'
+      }`}
     >
       <input
         type="checkbox"
-        checked={false}
+        checked={isCompleted}
         onChange={(e) => {
           e.stopPropagation()
-          handleCheckboxChange(task.id)
+          if (isCompleted) {
+            handleCheckboxChange(task.id)
+          } else {
+            handleCheckboxChange(task.id)
+          }
         }}
-        className="w-5 h-5 rounded border-gray-300 cursor-pointer flex-shrink-0"
+        className={`w-5 h-5 rounded cursor-pointer flex-shrink-0 ${
+          isCompleted
+            ? 'border-green-400 bg-green-500 accent-green-500'
+            : 'border-gray-300'
+        }`}
       />
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-semibold text-gray-900">{task.title}</h4>
+        <h4 className={`text-sm font-semibold ${
+          isCompleted ? 'text-gray-500 line-through' : 'text-gray-900'
+        }`}>
+          {task.title}
+        </h4>
         {task.checklist && task.checklist.length > 0 && (
-          <p className="text-xs text-gray-600 mt-0.5">
+          <p className={`text-xs mt-0.5 ${
+            isCompleted ? 'text-gray-400' : 'text-gray-600'
+          }`}>
             {task.checklist.filter(c => c.done).length}/{task.checklist.length} subtarefas
           </p>
         )}
       </div>
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
-        <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
-          task.status === 'todo' ? 'bg-blue-50 text-blue-700' :
-          task.status === 'doing' ? 'bg-yellow-50 text-yellow-700' :
-          task.status === 'pending' ? 'bg-orange-50 text-orange-700' :
-          'bg-green-50 text-green-700'
-        }`}>
-          {STATUS_LABELS[task.status]}
-        </span>
-        {task.due_date && (
-          <span className={`text-xs font-semibold whitespace-nowrap ${
-            isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
-          }`}>
-            {isOverdue(task.due_date) ? '⚠ ontem' : task.due_date.split('T')[0]}
-          </span>
+        {!isCompleted && (
+          <>
+            <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
+              task.status === 'todo' ? 'bg-blue-50 text-blue-700' :
+              task.status === 'doing' ? 'bg-yellow-50 text-yellow-700' :
+              task.status === 'pending' ? 'bg-orange-50 text-orange-700' :
+              'bg-green-50 text-green-700'
+            }`}>
+              {STATUS_LABELS[task.status]}
+            </span>
+            {task.due_date && (
+              <span className={`text-xs font-semibold whitespace-nowrap ${
+                isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
+              }`}>
+                {isOverdue(task.due_date) ? '⚠ ontem' : task.due_date.split('T')[0]}
+              </span>
+            )}
+            <span className="text-xs font-bold">
+              {task.priority === 'high' ? '🔴' : task.priority === 'mid' ? '🟡' : '⚪'}
+            </span>
+          </>
         )}
-        <span className="text-xs font-bold">
-          {task.priority === 'high' ? '🔴' : task.priority === 'mid' ? '🟡' : '⚪'}
-        </span>
+        {isCompleted && (
+          <span className="text-xs font-semibold text-green-700">Concluída</span>
+        )}
       </div>
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
@@ -153,20 +178,24 @@ export function TasksListNew() {
             e.stopPropagation()
             setEditTask(task)
           }}
-          className="p-1.5 hover:bg-blue-50 rounded transition-colors"
+          className={`p-1.5 rounded transition-colors ${
+            isCompleted ? 'hover:bg-green-100' : 'hover:bg-blue-50'
+          }`}
           title="Editar"
         >
-          <Edit2 className="w-4 h-4 text-blue-600" />
+          <Edit2 className={`w-4 h-4 ${isCompleted ? 'text-green-600' : 'text-blue-600'}`} />
         </button>
         <button
           onClick={(e) => {
             e.stopPropagation()
             handleDelete(task.id)
           }}
-          className="p-1.5 hover:bg-red-50 rounded transition-colors"
+          className={`p-1.5 rounded transition-colors ${
+            isCompleted ? 'hover:bg-green-100' : 'hover:bg-red-50'
+          }`}
           title="Deletar"
         >
-          <Trash2 className="w-4 h-4 text-red-600" />
+          <Trash2 className={`w-4 h-4 ${isCompleted ? 'text-green-600' : 'text-red-600'}`} />
         </button>
       </div>
     </div>
@@ -304,7 +333,7 @@ export function TasksListNew() {
           </div>
           <span className="text-sm font-bold text-red-600">{highPriorityTasks.length}</span>
         </div>
-        {highPriorityTasks.map(renderTaskRow)}
+        {highPriorityTasks.map(task => renderTaskRow(task, false))}
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -328,7 +357,7 @@ export function TasksListNew() {
           <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Outras Tarefas</span>
           <span className="text-sm font-bold text-gray-600">{otherTasks.length}</span>
         </div>
-        {otherTasks.map(renderTaskRow)}
+        {otherTasks.map(task => renderTaskRow(task, false))}
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -355,30 +384,7 @@ export function TasksListNew() {
           </div>
           <span className="text-sm font-bold text-green-600">{completedTasks.length}</span>
         </div>
-        {completedTasks.map((task) => (
-          <div
-            key={task.id}
-            className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3 opacity-75"
-          >
-            <input
-              type="checkbox"
-              checked={true}
-              onChange={() => {}}
-              className="w-5 h-5 rounded border-green-400 bg-green-500 cursor-pointer flex-shrink-0 accent-green-500"
-            />
-            <div className="flex-1 min-w-0">
-              <h4 className="text-sm font-semibold text-gray-500 line-through">{task.title}</h4>
-            </div>
-            <div className="flex items-center gap-3 ml-auto flex-shrink-0">
-              <span className="text-xs font-semibold text-green-700">Concluída</span>
-              {task.due_date && (
-                <span className="text-xs font-semibold text-gray-500 whitespace-nowrap">
-                  {task.due_date.split('T')[0]}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
+        {completedTasks.map((task) => renderTaskRow(task, true))}
       </div>
 
       {/* Modais */}
