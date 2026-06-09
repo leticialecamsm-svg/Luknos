@@ -308,7 +308,13 @@ export function NewQuoteForm({ currentUserId, users }: Props) {
 
       {/* Pasta Google Drive */}
       <div className="card p-4 space-y-2">
-        <label className="label">Pasta Google Drive <span className="text-gray-400 font-normal">(opcional)</span></label>
+        <div className="flex items-center justify-between">
+          <label className="label">Pasta Google Drive <span className="text-gray-400 font-normal">(opcional)</span></label>
+          <a href="https://drive.google.com/drive/folders/1RXRcW9DGvYGqee2IpbVwT_yxQupUZ9WY" target="_blank" rel="noopener noreferrer"
+            className="text-xs text-blue-600 hover:text-blue-700 hover:underline">
+            ainda não criou a pasta? Crie agora!
+          </a>
+        </div>
         <input type="url" name="drive_link" placeholder="https://drive.google.com/drive/folders/..."
           className="input" />
       </div>
