@@ -83,9 +83,12 @@ export function TasksListNew() {
 
   const completedTasks = tasks.filter(t => t.status === 'done' && applyFilters(t))
 
-  const handleCheckboxChange = async (taskId: string) => {
+  const handleCheckboxChange = async (taskId: string, currentStatus: string) => {
     startTransition(async () => {
-      await updateTaskStatus(taskId, 'done')
+      // Se já está concluída, voltar para "Em andamento"
+      // Se não está concluída, marcar como "Concluída"
+      const newStatus = currentStatus === 'done' ? 'doing' : 'done'
+      await updateTaskStatus(taskId, newStatus)
       loadTasks()
     })
   }
@@ -107,8 +110,7 @@ export function TasksListNew() {
   const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
     <div
       key={task.id}
-      onClick={() => setViewTask(task)}
-      className={`border rounded-lg p-3 hover:shadow-md transition-shadow group flex items-center gap-3 cursor-pointer ${
+      className={`border rounded-lg p-3 hover:shadow-md transition-shadow group flex items-center gap-3 ${
         isCompleted
           ? 'bg-green-50 border-green-200'
           : 'bg-white border-gray-200'
@@ -119,11 +121,7 @@ export function TasksListNew() {
         checked={isCompleted}
         onChange={(e) => {
           e.stopPropagation()
-          if (isCompleted) {
-            handleCheckboxChange(task.id)
-          } else {
-            handleCheckboxChange(task.id)
-          }
+          handleCheckboxChange(task.id, task.status)
         }}
         className={`w-5 h-5 rounded cursor-pointer flex-shrink-0 ${
           isCompleted
@@ -131,7 +129,10 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div className="flex-1 min-w-0">
+      <div
+        onClick={() => setViewTask(task)}
+        className="flex-1 cursor-pointer min-w-0"
+      >
         <h4 className={`text-sm font-semibold ${
           isCompleted ? 'text-gray-500 line-through' : 'text-gray-900'
         }`}>
