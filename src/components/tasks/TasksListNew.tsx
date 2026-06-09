@@ -141,7 +141,9 @@ export function TasksListNew() {
 
   const formatDateDisplay = (dateStr: string | undefined) => {
     if (!dateStr) return ''
-    const [year, month, day] = dateStr.split('-')
+    // Pega apenas a parte da data (antes do T se tiver hora)
+    const datePart = dateStr.split('T')[0]
+    const [year, month, day] = datePart.split('-')
     const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
     return `${day} de ${months[parseInt(month) - 1]}`
   }
