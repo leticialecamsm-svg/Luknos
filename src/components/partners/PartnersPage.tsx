@@ -6,15 +6,24 @@ import { Search, Plus, Trash2, X, User2, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TYPE_LABEL: Record<string, string> = {
-  architect: 'Arquiteto', designer: 'Designer',
-  engineer: 'Engenheiro', client: 'Cliente', other: 'Outro',
+  architect: 'Arquiteto',
+  engineer: 'Engenheiro',
+  designer: 'Designer',
+  electrician: 'Eletricista',
+  plasterer: 'Gesseiro',
+  carpenter: 'Marceneiro',
+  client: 'Cliente',
+  other: 'Outro',
 }
 const TYPE_COLOR: Record<string, string> = {
   architect: 'bg-blue-50 text-blue-700',
-  designer:  'bg-purple-50 text-purple-700',
-  engineer:  'bg-amber-50 text-amber-700',
-  client:    'bg-green-50 text-green-700',
-  other:     'bg-gray-100 text-gray-600',
+  engineer: 'bg-amber-50 text-amber-700',
+  designer: 'bg-purple-50 text-purple-700',
+  electrician: 'bg-yellow-50 text-yellow-700',
+  plasterer: 'bg-pink-50 text-pink-700',
+  carpenter: 'bg-orange-50 text-orange-700',
+  client: 'bg-green-50 text-green-700',
+  other: 'bg-gray-100 text-gray-600',
 }
 
 export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
@@ -61,7 +70,7 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
     })
   }
 
-  const TYPES = ['all','architect','designer','engineer','client','other']
+  const TYPES = ['all','architect','engineer','designer','electrician','plasterer','carpenter','client','other']
 
   return (
     <div className="space-y-5">
@@ -104,8 +113,11 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
                 <label className="label">Tipo</label>
                 <select value={type} onChange={e => setType(e.target.value)} className="select">
                   <option value="architect">Arquiteto</option>
-                  <option value="designer">Designer</option>
                   <option value="engineer">Engenheiro</option>
+                  <option value="designer">Designer</option>
+                  <option value="electrician">Eletricista</option>
+                  <option value="plasterer">Gesseiro</option>
+                  <option value="carpenter">Marceneiro</option>
                   <option value="client">Cliente</option>
                   <option value="other">Outro</option>
                 </select>
@@ -176,48 +188,78 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
           <p className="text-xs text-gray-400 mt-1">Tente outro termo ou adicione um novo contato</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filtered.map(c => (
-            <div key={c.id} className="card p-4 hover:shadow-md transition-shadow group">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-surface-secondary flex items-center justify-center shrink-0">
-                    <span className="text-sm font-semibold text-gray-600">
-                      {c.name.split(' ').slice(0,2).map((w: string) => w[0]).join('').toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
-                    {c.company && (
-                      <p className="text-xs text-gray-400 truncate flex items-center gap-1">
-                        <Building2 className="w-3 h-3 shrink-0" />{c.company}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleDelete(c.id, c.name)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className={cn('badge text-xs', TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-600')}>
-                  {TYPE_LABEL[c.type] ?? c.type}
-                </span>
-                {c.phone && (
-                  <a href={`tel:${c.phone}`} className="text-xs text-gray-400 hover:text-brand-500 transition-colors">
-                    {c.phone}
-                  </a>
-                )}
-              </div>
-              {c.email && (
-                <p className="text-xs text-gray-400 mt-1.5 truncate">{c.email}</p>
-              )}
-            </div>
-          ))}
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-surface-border bg-surface">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Nome</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Tipo</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Empresa</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Telefone</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Email</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c, idx) => (
+                  <tr key={c.id} className={cn('border-b border-surface-border hover:bg-surface transition-colors group', idx === filtered.length - 1 && 'border-0')}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center shrink-0">
+                          <span className="text-xs font-semibold text-gray-600">
+                            {c.name.split(' ').slice(0,2).map((w: string) => w[0]).join('').toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-900">{c.name}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn('inline-block badge text-xs', TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-600')}>
+                        {TYPE_LABEL[c.type] ?? c.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.company ? (
+                        <div className="flex items-center gap-1 text-sm text-gray-600">
+                          <Building2 className="w-3 h-3 shrink-0" />
+                          <span>{c.company}</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.phone ? (
+                        <a href={`tel:${c.phone}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
+                          {c.phone}
+                        </a>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.email ? (
+                        <a href={`mailto:${c.email}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
+                          {c.email}
+                        </a>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleDelete(c.id, c.name)}
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

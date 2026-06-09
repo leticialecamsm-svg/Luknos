@@ -1,7 +1,7 @@
 // ── Enums (espelham o banco) ──────────────────────────────────
 
 export type UserRole = 'admin' | 'seller'
-export type ContactType = 'client' | 'architect' | 'designer' | 'engineer' | 'other'
+export type ContactType = 'client' | 'architect' | 'designer' | 'engineer' | 'electrician' | 'plasterer' | 'carpenter' | 'other'
 export type QuoteOrigin = 'visit' | 'whatsapp' | 'store' | 'referral' | 'other'
 export type QuoteCategory = 'lighting' | 'automation' | 'both'
 export type QuoteSize = 'small' | 'medium' | 'large'
