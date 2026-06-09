@@ -16,12 +16,6 @@ interface Task {
   due_date?: string
   checklist?: { text: string; done: boolean }[]
   created_at: string
-  history?: Array<{
-    type: string
-    timestamp: string
-    user_id: string
-    changes: any
-  }>
 }
 
 const STATUS_LABELS = {
@@ -494,7 +488,7 @@ export function TasksListNew() {
 
       {/* Modais */}
       {showNewTaskModal && <TasksModal onClose={() => setShowNewTaskModal(false)} onSuccess={() => { setShowNewTaskModal(false); loadTasks() }} />}
-      {viewTask && <TasksViewModal task={viewTask} onClose={() => setViewTask(null)} onEdit={(task) => { setViewTask(null); setEditTask(task) }} onSuccess={() => { loadTasks(); setViewTask(null) }} />}
+      {viewTask && <TasksViewModal task={viewTask} onClose={() => setViewTask(null)} onEdit={(task) => { setViewTask(null); setEditTask(task) }} />}
       {editTask && <TasksEditModal task={editTask} onClose={() => setEditTask(null)} onSuccess={() => { loadTasks(); setEditTask(null) }} />}
     </div>
   )
