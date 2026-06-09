@@ -14,6 +14,9 @@ export type PaymentMethod = 'pix' | 'card' | 'cash' | 'invoice' | 'other'
 export type LossReason = 'price' | 'competition' | 'gave_up' | 'no_reply' | 'other'
 export type ActivityType = 'note' | 'call' | 'whatsapp' | 'visit' | 'status_change' | 'temperature_change' | 'owner_added' | 'value_updated'
 export type OwnerRole = 'primary' | 'collaborator'
+export type ShipmentDeliveryType = 'delivery' | 'pickup'
+export type ShipmentStatus = 'queued' | 'in_progress' | 'completed' | 'awaiting_material'
+export type ShipmentPriority = 'low' | 'mid' | 'high'
 
 // ── Entidades ─────────────────────────────────────────────────
 
@@ -94,6 +97,26 @@ export interface Activity {
   metadata: Record<string, unknown>
   created_at: string
   user?: User
+}
+
+export interface Shipment {
+  id: string
+  quote_id: string
+  delivery_type: ShipmentDeliveryType | null
+  delivery_date: string | null
+  separation_status: ShipmentStatus
+  priority: ShipmentPriority
+  is_completed: boolean
+  completed_at: string | null
+  material_files: Array<{ name: string; url: string }> | null
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface ShipmentFull extends Shipment {
+  quote?: QuoteFull
+  updated_by_user?: { name: string; avatar_color: string }
 }
 
 export interface MonthlyGoal {
@@ -255,6 +278,24 @@ export const LOSS_REASON_LABEL: Record<LossReason, string> = {
   other:       'Outro',
 }
 
+export const SHIPMENT_STATUS_LABEL: Record<ShipmentStatus, string> = {
+  queued: 'Na fila',
+  in_progress: 'Em andamento',
+  completed: 'Concluída',
+  awaiting_material: 'Aguardando material',
+}
+
+export const SHIPMENT_PRIORITY_LABEL: Record<ShipmentPriority, string> = {
+  low: 'Baixa',
+  mid: 'Média',
+  high: 'Alta',
+}
+
+export const SHIPMENT_DELIVERY_TYPE_LABEL: Record<ShipmentDeliveryType, string> = {
+  delivery: 'Entrega',
+  pickup: 'Retirada',
+}
+
 // ── Cores por temperatura ─────────────────────────────────────
 
 export const TEMPERATURE_COLOR: Record<NegTemperature, { bg: string; text: string; border: string }> = {
@@ -276,4 +317,17 @@ export const PRIORITY_COLOR: Record<QuotePriority, { bg: string; text: string }>
   normal: { bg: 'bg-gray-100',   text: 'text-gray-600' },
   high:   { bg: 'bg-orange-50',  text: 'text-orange-700' },
   urgent: { bg: 'bg-red-50',     text: 'text-red-700' },
+}
+
+export const SHIPMENT_STATUS_COLOR: Record<ShipmentStatus, { bg: string; text: string }> = {
+  queued: { bg: 'bg-blue-50',   text: 'text-blue-700' },
+  in_progress: { bg: 'bg-amber-50',  text: 'text-amber-700' },
+  awaiting_material: { bg: 'bg-orange-50',  text: 'text-orange-700' },
+  completed: { bg: 'bg-green-50',  text: 'text-green-700' },
+}
+
+export const SHIPMENT_PRIORITY_COLOR: Record<ShipmentPriority, { bg: string; text: string }> = {
+  low: { bg: 'bg-gray-50',   text: 'text-gray-700' },
+  mid: { bg: 'bg-amber-50',  text: 'text-amber-700' },
+  high: { bg: 'bg-red-50',   text: 'text-red-700' },
 }

@@ -163,8 +163,18 @@ export async function closeSale(quoteId: string, data: {
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
   await supabase.from('quotes').update({ status: 'done' }).eq('id', quoteId)
+
+  // Create shipment automatically after closing sale
+  try {
+    await createShipment(quoteId)
+  } catch (err) {
+    console.error('Failed to create shipment:', err)
+    // Don't fail the sale if shipment creation fails
+  }
+
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
+  revalidatePath('/shipping')
   return { ok: true }
 }
 
@@ -615,4 +625,153 @@ export async function getCurrentUser() {
     .single()
 
   return userData
+}
+
+// ── Shipments (Expedição) ────────────────────────────────────
+
+export async function createShipment(quoteId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('shipments')
+    .insert({ quote_id: quoteId })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function getShipments() {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('shipments')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function getShipmentById(id: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('shipments')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function updateShipment(
+  id: string,
+  updates: {
+    delivery_type?: 'delivery' | 'pickup'
+    delivery_date?: string
+    separation_status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material'
+    priority?: 'low' | 'mid' | 'high'
+  }
+) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const { data, error } = await supabase
+    .from('shipments')
+    .update({ ...updates, updated_by: user.id, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  revalidatePath('/shipping')
+  return data
+}
+
+export async function completeShipment(id: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const { data, error } = await supabase
+    .from('shipments')
+    .update({
+      is_completed: true,
+      completed_at: new Date().toISOString(),
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  revalidatePath('/shipping')
+  return data
+}
+
+export async function uploadMaterialFile(shipmentId: string, file: File) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  const fileName = `${shipmentId}/${Date.now()}_${file.name}`
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from('shipments')
+    .upload(fileName, file)
+  if (uploadError) throw new Error(uploadError.message)
+
+  const { data: publicUrl } = supabase.storage.from('shipments').getPublicUrl(fileName)
+
+  // Atualizar array de arquivos no shipment
+  const { data: shipment, error: fetchError } = await supabase
+    .from('shipments')
+    .select('material_files')
+    .eq('id', shipmentId)
+    .single()
+  if (fetchError) throw new Error(fetchError.message)
+
+  const newFiles = [
+    ...(shipment?.material_files || []),
+    { name: file.name, url: publicUrl.publicUrl }
+  ]
+  const { error: updateError } = await supabase
+    .from('shipments')
+    .update({ material_files: newFiles })
+    .eq('id', shipmentId)
+  if (updateError) throw new Error(updateError.message)
+
+  revalidatePath('/shipping')
+  return publicUrl.publicUrl
+}
+
+export async function deleteMaterialFile(shipmentId: string, fileUrl: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Não autenticado')
+
+  // Extract file path from URL
+  const fileName = fileUrl.split('/').slice(-2).join('/')
+
+  // Delete from storage
+  const { error: deleteError } = await supabase.storage
+    .from('shipments')
+    .remove([fileName])
+  if (deleteError) throw new Error(deleteError.message)
+
+  // Update shipment
+  const { data: shipment, error: fetchError } = await supabase
+    .from('shipments')
+    .select('material_files')
+    .eq('id', shipmentId)
+    .single()
+  if (fetchError) throw new Error(fetchError.message)
+
+  const newFiles = (shipment?.material_files || []).filter(
+    (f: any) => f.url !== fileUrl
+  )
+  const { error: updateError } = await supabase
+    .from('shipments')
+    .update({ material_files: newFiles })
+    .eq('id', shipmentId)
+  if (updateError) throw new Error(updateError.message)
+
+  revalidatePath('/shipping')
+  return { ok: true }
 }

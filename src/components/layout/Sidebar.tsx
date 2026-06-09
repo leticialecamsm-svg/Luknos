@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, Zap, Users2, TrendingUp, Menu, X, Calendar, CheckSquare } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, Zap, Users2, TrendingUp, Menu, X, Calendar, CheckSquare, Package } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -14,6 +14,7 @@ const NAV = [
   { href: '/schedules',     label: 'Agenda',       icon: Calendar },
   { href: '/quotes',        label: 'Orçamentos',   icon: FileText },
   { href: '/negotiations',  label: 'Negociações',  icon: TrendingUp },
+  { href: '/shipping',      label: 'Expedição',    icon: Package },
   { href: '/partners',      label: 'Parceiros',    icon: Users2 },
 ]
 const ADMIN_NAV = [
