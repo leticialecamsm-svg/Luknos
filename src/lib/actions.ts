@@ -651,7 +651,20 @@ export async function getShipments() {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('shipments')
-    .select('*')
+    .select(`
+      *,
+      quote_id,
+      quotes (
+        id,
+        number,
+        quoted_value,
+        final_value,
+        clients:client_id (
+          id,
+          name
+        )
+      )
+    `)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
   return data || []

@@ -21,12 +21,16 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
   const [pending, startTransition] = useTransition()
 
   // Enriched shipments with quote data
-  const enrichedShipments = shipments.map(s => ({
-    ...s,
-    client_name: 'Cliente', // TODO: will need to fetch from quote
-    quote_number: Math.floor(Math.random() * 10000), // TODO: will need to fetch from quote
-    quoted_value: 0, // TODO: will need to fetch from quote
-  }))
+  const enrichedShipments = shipments.map((s: any) => {
+    const quote = Array.isArray(s.quotes) ? s.quotes[0] : s.quotes
+    const client = quote && Array.isArray(quote.clients) ? quote.clients[0] : quote?.clients
+    return {
+      ...s,
+      client_name: client?.name || 'Cliente',
+      quote_number: quote?.number || 0,
+      quoted_value: quote?.final_value ?? quote?.quoted_value ?? 0,
+    }
+  })
 
   const filtered = enrichedShipments.filter(s => {
     const matchSearch = (s.client_name || '').toLowerCase().includes(search.toLowerCase())
@@ -162,7 +166,7 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                   <td className="px-4 py-3">
                     {shipment.delivery_type ? (
                       <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
-                        {SHIPMENT_DELIVERY_TYPE_LABEL[shipment.delivery_type]}
+                        {SHIPMENT_DELIVERY_TYPE_LABEL[shipment.delivery_type as keyof typeof SHIPMENT_DELIVERY_TYPE_LABEL]}
                       </span>
                     ) : (
                       <span className="text-xs text-gray-400">—</span>
@@ -175,13 +179,13 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                     }
                   </td>
                   <td className="px-4 py-3">
-                    <span className={cn('badge text-xs', SHIPMENT_PRIORITY_COLOR[shipment.priority])}>
-                      {SHIPMENT_PRIORITY_LABEL[shipment.priority]}
+                    <span className={cn('badge text-xs', SHIPMENT_PRIORITY_COLOR[shipment.priority as keyof typeof SHIPMENT_PRIORITY_COLOR])}>
+                      {SHIPMENT_PRIORITY_LABEL[shipment.priority as keyof typeof SHIPMENT_PRIORITY_LABEL]}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={cn('badge text-xs', SHIPMENT_STATUS_COLOR[shipment.separation_status])}>
-                      {SHIPMENT_STATUS_LABEL[shipment.separation_status]}
+                    <span className={cn('badge text-xs', SHIPMENT_STATUS_COLOR[shipment.separation_status as keyof typeof SHIPMENT_STATUS_COLOR])}>
+                      {SHIPMENT_STATUS_LABEL[shipment.separation_status as keyof typeof SHIPMENT_STATUS_LABEL]}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">

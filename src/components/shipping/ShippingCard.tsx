@@ -38,7 +38,7 @@ export function ShippingCard({ shipment, onClick, draggable = false, onDragStart
       {/* Delivery Type */}
       {shipment.delivery_type && (
         <span className="inline-block badge text-xs bg-blue-50 text-blue-700">
-          {SHIPMENT_DELIVERY_TYPE_LABEL[shipment.delivery_type]}
+          {SHIPMENT_DELIVERY_TYPE_LABEL[shipment.delivery_type as keyof typeof SHIPMENT_DELIVERY_TYPE_LABEL]}
         </span>
       )}
 
