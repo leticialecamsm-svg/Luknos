@@ -11,6 +11,14 @@ interface Props {
   users: Pick<User, 'id' | 'name' | 'avatar_color'>[]
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  client: 'Cliente',
+  architect: 'Arquiteto',
+  designer: 'Designer',
+  engineer: 'Engenheiro',
+  other: 'Outro',
+}
+
 function ContactSearch({
   label, required, placeholder, type, onSelect
 }: {
@@ -26,6 +34,7 @@ function ContactSearch({
   const [creating, setCreating] = useState(false)
   const [creatingMode, setCreatingMode] = useState(false)
   const [phone, setPhone] = useState('')
+  const [contactType, setContactType] = useState(type || 'other')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -56,7 +65,7 @@ function ContactSearch({
     const res = await createContact({
       name: search.trim(),
       phone: phone.trim() || undefined,
-      type: type ?? 'client'
+      type: contactType
     })
     setCreating(false)
     if (res.data) {
@@ -64,6 +73,7 @@ function ContactSearch({
       onSelect(res.data)
       setSearch('')
       setPhone('')
+      setContactType(type || 'other')
       setResults([])
       setCreatingMode(false)
       setOpen(false)
@@ -104,6 +114,17 @@ function ContactSearch({
             <input type="text" disabled value={search.trim()}
               className="input mt-1 opacity-70 cursor-not-allowed" />
           </div>
+          {type && (
+            <div>
+              <label className="text-xs font-medium text-gray-600">Tipo</label>
+              <select value={contactType} onChange={e => setContactType(e.target.value)} className="input mt-1">
+                <option value="architect">Arquiteto</option>
+                <option value="designer">Designer</option>
+                <option value="engineer">Engenheiro</option>
+                <option value="other">Outro</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-xs font-medium text-gray-600">Telefone <span className="text-gray-400">(opcional)</span></label>
             <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
@@ -117,13 +138,14 @@ function ContactSearch({
             <button type="button" onClick={handleCreate} disabled={creating}
               className="flex-1 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
               {creating && <Loader2 className="w-3 h-3 animate-spin" />}
-              Criar cliente
+              Criar
             </button>
           </div>
         </div>
       ) : selected ? (
         <div className="flex items-center gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
           <span className="text-sm font-medium flex-1">{selected.name}</span>
+          {selected.type && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{TYPE_LABELS[selected.type] || selected.type}</span>}
           {selected.phone && <span className="text-xs text-gray-400">{selected.phone}</span>}
           <button type="button" onClick={handleClear}><X className="w-4 h-4 text-gray-400 hover:text-gray-600" /></button>
         </div>
@@ -142,7 +164,10 @@ function ContactSearch({
               {results.map(c => (
                 <button key={c.id} type="button" onClick={() => handleSelect(c)}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-surface flex items-center justify-between">
-                  <span>{c.name}</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    <span>{c.name}</span>
+                    {c.type && <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{TYPE_LABELS[c.type] || c.type}</span>}
+                  </div>
                   {c.phone && <span className="text-xs text-gray-400">{c.phone}</span>}
                 </button>
               ))}
@@ -204,7 +229,7 @@ export function NewQuoteForm({ currentUserId, users }: Props) {
     <form onSubmit={handleSubmit} className="space-y-5">
 
       <ContactSearch label="Cliente" required placeholder="Buscar ou criar cliente..." onSelect={setSelectedClient} />
-      <ContactSearch label="Arquiteto / Designer" placeholder="Buscar ou criar arquiteto..." type="architect" onSelect={setSelectedArch} />
+      <ContactSearch label="Parceiro" placeholder="Buscar ou criar parceiro..." type="architect" onSelect={setSelectedArch} />
 
       {/* Detalhes */}
       <div className="card p-4 space-y-4">
