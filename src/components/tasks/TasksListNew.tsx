@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { getTasks, updateTaskStatus, deleteTask, createTask } from '@/lib/actions'
+import { useState, useTransition, useEffect } from 'react'
+import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
@@ -37,6 +37,7 @@ export function TasksListNew() {
   const [initialized, setInitialized] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterPriority, setFilterPriority] = useState<string>('')
+  const [userName, setUserName] = useState<string>('Usuário')
 
   // Carregar tarefas
   const loadTasks = async () => {
@@ -45,6 +46,17 @@ export function TasksListNew() {
     setTasks(data as Task[])
     setLoading(false)
   }
+
+  // Carregar nome do usuário
+  useEffect(() => {
+    const loadUser = async () => {
+      const user = await getCurrentUser()
+      if (user?.name) {
+        setUserName(user.name)
+      }
+    }
+    loadUser()
+  }, [])
 
   if (!initialized) {
     setInitialized(true)
@@ -190,10 +202,10 @@ export function TasksListNew() {
   const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
     <div
       key={task.id}
-      className={`border rounded-lg p-3 hover:shadow-md transition-shadow group flex items-center gap-3 ${
+      className={`border-b p-2.5 hover:bg-gray-50 transition-colors group flex items-center gap-3 ${
         isCompleted
-          ? 'bg-green-50 border-green-200'
-          : 'bg-white border-gray-200'
+          ? 'border-green-100'
+          : 'border-gray-200'
       }`}
     >
       <input
@@ -288,53 +300,45 @@ export function TasksListNew() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Minhas tarefas</h1>
-          <p className="text-sm text-gray-600">Jennifer · {totalTasks} tarefas · {pendingCount} pendentes</p>
+          <p className="text-sm text-gray-600">{userName} · {totalTasks} tarefas · {pendingCount} pendentes</p>
         </div>
-        <div className="flex gap-2">
-          <button className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
-            ≡ Lista
-          </button>
-          <button className="px-3 py-1.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors">
-            ■ Kanban
-          </button>
-          <button
-            onClick={() => setShowNewTaskModal(true)}
-            className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
-          >
-            + Nova tarefa
-          </button>
-        </div>
+        <button
+          onClick={() => setShowNewTaskModal(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
+          + Nova tarefa
+        </button>
       </div>
 
       {/* Top Stats Bar */}
-      <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-6">
-        <div className="flex gap-6">
-          <div className="text-center">
-            <div className="text-sm font-bold text-gray-700">A fazer</div>
-            <div className="text-lg font-bold text-gray-900">{todoCount}</div>
+      <div className="flex gap-3 items-stretch">
+        {/* Stat Cards */}
+        <div className="grid grid-cols-4 gap-3 flex-1">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-1">A fazer</div>
+            <div className="text-2xl font-bold text-gray-900">{todoCount}</div>
           </div>
-          <div className="text-center">
-            <div className="text-sm font-bold text-gray-700">Em andamento</div>
-            <div className="text-lg font-bold text-gray-900">{doingCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-1">Em andamento</div>
+            <div className="text-2xl font-bold text-blue-600">{doingCount}</div>
           </div>
-          <div className="text-center">
-            <div className="text-sm font-bold text-gray-700">Pendente</div>
-            <div className="text-lg font-bold text-orange-600">{pendingCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-1">Pendente</div>
+            <div className="text-2xl font-bold text-orange-600">{pendingCount}</div>
           </div>
-          <div className="text-center">
-            <div className="text-sm font-bold text-gray-700">Concluídas</div>
-            <div className="text-lg font-bold text-green-600">{doneCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-1">Concluídas</div>
+            <div className="text-2xl font-bold text-green-600">{doneCount}</div>
           </div>
         </div>
 
-        <div className="w-px h-12 bg-gray-200"></div>
-
-        <div className="flex-1 space-y-1">
+        {/* Progress Card */}
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 min-w-64 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-700">Progresso hoje</span>
-            <span className="text-sm font-bold text-green-600">{progressPercent}%</span>
+            <span className="text-xs font-semibold text-green-700">Progresso hoje</span>
+            <span className="text-xs font-bold text-green-600">{progressPercent}%</span>
           </div>
-          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-2 bg-green-200 rounded-full overflow-hidden">
             <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${progressPercent}%` }}></div>
           </div>
         </div>
