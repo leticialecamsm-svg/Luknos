@@ -166,7 +166,8 @@ export async function closeSale(quoteId: string, data: {
 
   // Create shipment automatically after closing sale
   try {
-    await createShipment(quoteId)
+    const shipment = await createShipment(quoteId)
+    console.log('Shipment created:', shipment)
   } catch (err) {
     console.error('Failed to create shipment:', err)
     // Don't fail the sale if shipment creation fails
