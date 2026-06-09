@@ -653,13 +653,13 @@ export async function getShipments() {
     .from('shipments')
     .select(`
       *,
-      quote_id,
       quotes (
         id,
         number,
         quoted_value,
         final_value,
-        clients:client_id (
+        client_id,
+        contacts (
           id,
           name
         )
