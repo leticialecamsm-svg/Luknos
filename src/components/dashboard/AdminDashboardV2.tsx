@@ -23,20 +23,21 @@ export function AdminDashboardV2({
 
   // KPIs
   const totalFaturamento = quotes
-    .filter(q => q.status === 'done')
-    .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+    .filter(q => q.status === 'done' && q.temperature === 'closed')
+    .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
 
   const pipelineTotal = quotes
     .filter(q => q.status !== 'done')
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
-  const ticketMedio = quotes.filter(q => q.status === 'done').length > 0
-    ? totalFaturamento / quotes.filter(q => q.status === 'done').length
+  const closedQuotes = quotes.filter(q => q.status === 'done' && q.temperature === 'closed').length
+  const ticketMedio = closedQuotes > 0
+    ? totalFaturamento / closedQuotes
     : 0
 
   const totalQuotesClosedOrOpen = quotes.filter(q => q.status !== 'done').length + quotes.filter(q => q.status === 'done').length
   const conversionRate = totalQuotesClosedOrOpen > 0
-    ? Math.round((quotes.filter(q => q.status === 'done').length / totalQuotesClosedOrOpen) * 100)
+    ? Math.round((closedQuotes / totalQuotesClosedOrOpen) * 100)
     : 0
 
   const perdidas = quotes
@@ -50,8 +51,8 @@ export function AdminDashboardV2({
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0)
 
     const faturado = quotes
-      .filter(q => q.status === 'done' && q.closed_at && new Date(q.closed_at) >= start && new Date(q.closed_at) <= end)
-      .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+      .filter(q => q.status === 'done' && q.temperature === 'closed' && q.closed_at && new Date(q.closed_at) >= start && new Date(q.closed_at) <= end)
+      .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
 
     return {
       month: d.toLocaleDateString('pt-BR', { month: 'short' }),
@@ -64,8 +65,8 @@ export function AdminDashboardV2({
 
   // Ranking colaboradores
   const userPerformance = users.map(u => {
-    const userQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done')
-    const totalVendido = userQuotes.reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+    const userQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done' && q.temperature === 'closed')
+    const totalVendido = userQuotes.reduce((sum, q) => sum + (q.final_value ?? 0), 0)
     const userGoal = 70000
     const openQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status !== 'done')
     const openValue = openQuotes.reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)

@@ -67,8 +67,8 @@ export function VendorDashboard({
 
   // Cálculos para aba "Geral"
   const totalFaturamento = (allQuotes ?? [])
-    .filter(q => q.status === 'done')
-    .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+    .filter(q => q.status === 'done' && q.temperature === 'closed')
+    .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
 
   const pipelineTotal = (allQuotes ?? [])
     .filter(q => q.status !== 'done')
@@ -76,8 +76,8 @@ export function VendorDashboard({
 
   // Ranking de colaboradores
   const userPerformance = (users ?? []).map(u => {
-    const userQuotes = (allQuotes ?? []).filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done')
-    const totalVendido = userQuotes.reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
+    const userQuotes = (allQuotes ?? []).filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done' && q.temperature === 'closed')
+    const totalVendido = userQuotes.reduce((sum, q) => sum + (q.final_value ?? 0), 0)
     const userGoal = 70000
     const comissao = Math.round(totalVendido * 0.01) // 1% de comissão
 
