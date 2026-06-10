@@ -26,9 +26,9 @@ export function AdminDashboardV2({
     .filter(q => q.status === 'done' && q.temperature === 'closed')
     .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
 
-  // Oportunidades em aberto (Frio, Morno, Quente)
+  // Oportunidades em aberto (tudo que não é fechado ou perdido = Frio + Morno + Quente)
   const oportunidades = quotes
-    .filter(q => (q.temperature === 'cold' || q.temperature === 'warm' || q.temperature === 'hot'))
+    .filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   const closedQuotes = quotes.filter(q => q.status === 'done' && q.temperature === 'closed').length
@@ -70,8 +70,8 @@ export function AdminDashboardV2({
     const closedQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done' && q.temperature === 'closed')
     const totalVendido = closedQuotes.reduce((sum, q) => sum + (q.final_value ?? 0), 0)
 
-    // Tudo em aberto (Frio, Morno, Quente) - dividido pela quantidade de donos
-    const openQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && (q.temperature === 'cold' || q.temperature === 'warm' || q.temperature === 'hot'))
+    // Tudo em aberto (tudo que não é fechado ou perdido) - dividido pela quantidade de donos
+    const openQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     const openValue = openQuotes.reduce((sum, q) => {
       const numOwners = q.owners?.length || 1
       return sum + ((q.quoted_value ?? 0) / numOwners)
@@ -219,7 +219,7 @@ export function AdminDashboardV2({
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Oportunidades</p>
           <p className="text-xl font-bold text-blue-600 mt-2">{formatCurrency(oportunidades)}</p>
           <p className="text-xs text-gray-500 mt-1">Frio + Morno + Quente</p>
-          <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => q.temperature === 'cold' || q.temperature === 'warm' || q.temperature === 'hot').length} oportunidades</p>
+          <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length} oportunidades</p>
         </div>
 
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
