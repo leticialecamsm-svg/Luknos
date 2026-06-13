@@ -29,7 +29,8 @@
       "Bash(git commit -m 'Fix: add stopPropagation to inline status and date editors *)",
       "Bash(git commit -m 'Fix: prevent blur from closing inline editors prematurely *)",
       "Bash(git commit -m 'Rewrite inline task editors with separate components *)",
-      "Bash(git commit -m 'Improve InlineDateEditor to show '\\\\''Sem prazo'\\\\'' when no due date *)"
+      "Bash(git commit -m 'Improve InlineDateEditor to show '\\\\''Sem prazo'\\\\'' when no due date *)",
+      "Bash(git commit *)"
     ]
   }
 }
