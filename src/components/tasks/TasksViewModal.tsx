@@ -11,6 +11,7 @@ interface Task {
   status: 'todo' | 'doing' | 'pending' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
+  completed_at?: string | null
   checklist?: { text: string; done: boolean }[]
   created_at: string
 }

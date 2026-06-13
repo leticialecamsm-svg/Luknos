@@ -599,9 +599,14 @@ export async function updateTask(id: string, formData: {
 
 export async function updateTaskStatus(id: string, status: string) {
   const supabase = createClient()
+
+  // Se marcando como concluída, preencher completed_at com a data de hoje
+  // Se desmarcando, limpar completed_at
+  const completed_at = status === 'done' ? new Date().toISOString() : null
+
   const { error } = await supabase
     .from('tasks')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, completed_at, updated_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return { error: error.message }

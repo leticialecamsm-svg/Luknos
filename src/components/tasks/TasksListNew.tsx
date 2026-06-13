@@ -14,6 +14,7 @@ interface Task {
   status: 'todo' | 'doing' | 'pending' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
+  completed_at?: string | null
   checklist?: { text: string; done: boolean }[]
   created_at: string
 }
@@ -37,6 +38,7 @@ export function TasksListNew() {
   const [initialized, setInitialized] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterPriority, setFilterPriority] = useState<string>('')
+  const [showAllCompleted, setShowAllCompleted] = useState(false)
   const [userName, setUserName] = useState<string>('Usuário')
 
   // Carregar tarefas
@@ -130,6 +132,13 @@ export function TasksListNew() {
     return `${day} de ${months[parseInt(month) - 1]}`
   }
 
+  const isTodayCompleted = (completedAt: string | undefined) => {
+    if (!completedAt) return false
+    const completedDate = completedAt.split('T')[0]
+    const today = getTodayString()
+    return completedDate === today
+  }
+
   // Separar tarefas em 3 seções
   // Alta prioridade: tarefas com prioridade "alta" OU vencidas
   const highPriorityTasks = tasks.filter(t => {
@@ -153,7 +162,16 @@ export function TasksListNew() {
     return true
   })
 
-  const completedTasks = tasks.filter(t => t.status === 'done' && applyFilters(t))
+  // Tarefas concluídas: separar por "hoje" e "anteriores"
+  const allCompletedTasks = tasks.filter(t => t.status === 'done' && applyFilters(t))
+  const completedTodayTasks = allCompletedTasks.filter(t => isTodayCompleted(t.completed_at))
+  const completedPreviousTasks = allCompletedTasks.filter(t => !isTodayCompleted(t.completed_at))
+    .sort((a, b) => {
+      // Ordenar por data de conclusão (mais recente primeiro)
+      const dateA = a.completed_at ? new Date(a.completed_at).getTime() : 0
+      const dateB = b.completed_at ? new Date(b.completed_at).getTime() : 0
+      return dateB - dateA
+    })
 
   const handleCheckboxChange = async (taskId: string, currentStatus: string) => {
     startTransition(async () => {
@@ -261,7 +279,10 @@ export function TasksListNew() {
             </span>
           </>
         )}
-        {isCompleted && (
+        {isCompleted && task.completed_at && (
+          <span className="text-xs font-semibold text-green-700">Concluída em {formatDateDisplay(task.completed_at)}</span>
+        )}
+        {isCompleted && !task.completed_at && (
           <span className="text-xs font-semibold text-green-700">Concluída</span>
         )}
       </div>
@@ -400,12 +421,23 @@ export function TasksListNew() {
           Em andamento
         </button>
         <button
-          onClick={() => setFilterStatus(filterStatus === 'done' ? '' : 'done')}
+          onClick={() => {
+            setFilterStatus(filterStatus === 'done' ? '' : 'done')
+            setShowAllCompleted(false)
+          }}
           className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterStatus === 'done' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+            filterStatus === 'done' && !showAllCompleted ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
           }`}
         >
           Concluídas
+        </button>
+        <button
+          onClick={() => setShowAllCompleted(!showAllCompleted)}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+            showAllCompleted ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+          }`}
+        >
+          Ver histórico
         </button>
       </div>
 
@@ -478,17 +510,39 @@ export function TasksListNew() {
         </form>
       </div>
 
-      {/* CONCLUÍDAS HOJE */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-3 py-2 bg-green-50 rounded">
-          <div className="flex items-center gap-2">
-            <span className="text-green-600 font-bold">✓</span>
-            <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Concluídas Hoje</span>
+      {/* CONCLUÍDAS */}
+      {(showAllCompleted || filterStatus === 'done' || (!showAllCompleted && completedTodayTasks.length > 0)) && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-3 py-2 bg-green-50 rounded">
+            <div className="flex items-center gap-2">
+              <span className="text-green-600 font-bold">✓</span>
+              <span className="text-xs font-bold text-green-700 uppercase tracking-wide">
+                {showAllCompleted ? 'Histórico de Conclusões' : 'Concluídas Hoje'}
+              </span>
+            </div>
+            <span className="text-sm font-bold text-green-600">
+              {showAllCompleted ? completedPreviousTasks.length + completedTodayTasks.length : completedTodayTasks.length}
+            </span>
           </div>
-          <span className="text-sm font-bold text-green-600">{completedTasks.length}</span>
+          {showAllCompleted ? (
+            <>
+              {/* Mostrar concluídas de hoje em primeiro */}
+              {completedTodayTasks.length > 0 && (
+                <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-green-100">Hoje</div>
+              )}
+              {completedTodayTasks.map((task) => renderTaskRow(task, true))}
+
+              {/* Mostrar concluídas anteriores */}
+              {completedPreviousTasks.length > 0 && (
+                <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-gray-100">Anteriores</div>
+              )}
+              {completedPreviousTasks.map((task) => renderTaskRow(task, true))}
+            </>
+          ) : (
+            completedTodayTasks.map((task) => renderTaskRow(task, true))
+          )}
         </div>
-        {completedTasks.map((task) => renderTaskRow(task, true))}
-      </div>
+      )}
 
       {/* Modais */}
       {showNewTaskModal && <TasksModal onClose={() => setShowNewTaskModal(false)} onSuccess={() => { setShowNewTaskModal(false); loadTasks() }} />}
