@@ -138,7 +138,7 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
             >
               <option value="todo">A Fazer</option>
               <option value="doing">Fazendo</option>
-              <option value="pending">Pendente</option>
+              <option value="pending">Pausada</option>
               <option value="done">Concluído</option>
             </select>
           </div>

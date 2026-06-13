@@ -11,7 +11,7 @@ interface Task {
   id: string
   title: string
   description?: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -22,7 +22,7 @@ interface Task {
 const STATUS_COLORS = {
   todo: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
   doing: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  paused: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   done: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
 }
 
@@ -93,7 +93,7 @@ export function TasksList() {
   const groupedByStatus = {
     todo: tasks.filter(t => t.status === 'todo'),
     doing: tasks.filter(t => t.status === 'doing'),
-    pending: tasks.filter(t => t.status === 'pending'),
+    paused: tasks.filter(t => t.status === 'paused'),
     done: tasks.filter(t => t.status === 'done'),
   }
 
@@ -126,7 +126,7 @@ export function TasksList() {
           <option value="">Todos os status</option>
           <option value="todo">A fazer</option>
           <option value="doing">Fazendo</option>
-          <option value="pending">Pendente</option>
+          <option value="pending">Pausada</option>
           <option value="done">Concluído</option>
         </select>
 
@@ -161,7 +161,7 @@ export function TasksList() {
                 <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[status as keyof typeof STATUS_COLORS].bg} ${STATUS_COLORS[status as keyof typeof STATUS_COLORS].text}`}>
                   {status === 'todo' && 'A Fazer'}
                   {status === 'doing' && 'Fazendo'}
-                  {status === 'pending' && 'Pendente'}
+                  {status === 'paused' && 'Pausada'}
                   {status === 'done' && 'Concluído'}
                 </span>
                 <span className="text-sm font-semibold text-gray-700 ml-auto">{groupTasks.length}</span>

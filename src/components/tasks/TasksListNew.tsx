@@ -12,7 +12,7 @@ interface Task {
   id: string
   title: string
   description?: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -23,7 +23,7 @@ interface Task {
 const STATUS_LABELS = {
   todo: 'A fazer',
   doing: 'Em andamento',
-  pending: 'Pendente',
+  paused: 'Pausada',
   done: 'Concluídas',
 }
 
@@ -70,7 +70,7 @@ export function TasksListNew() {
 
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const doingCount = tasks.filter(t => t.status === 'doing').length
-  const pendingCount = tasks.filter(t => t.status === 'pending').length
+  const pendingCount = tasks.filter(t => t.status === 'paused').length
   const doneCount = tasks.filter(t => t.status === 'done').length
   const totalTasks = tasks.length
 
@@ -346,7 +346,7 @@ export function TasksListNew() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Minhas tarefas</h1>
-          <p className="text-sm text-gray-600">{userName} · {totalTasks} tarefas · {pendingCount} pendentes</p>
+          <p className="text-sm text-gray-600">{userName} · {totalTasks} tarefas · {pendingCount} pausadas</p>
         </div>
         <button
           onClick={() => setShowNewTaskModal(true)}
@@ -369,7 +369,7 @@ export function TasksListNew() {
             <div className="text-2xl font-bold text-blue-600">{doingCount}</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-            <div className="text-xs font-semibold text-gray-600 mb-1">Pendente</div>
+            <div className="text-xs font-semibold text-gray-600 mb-1">Pausada</div>
             <div className="text-2xl font-bold text-orange-600">{pendingCount}</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">

@@ -8,7 +8,7 @@ interface Task {
   id: string
   title: string
   description?: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -25,7 +25,7 @@ interface TasksViewModalProps {
 const STATUS_LABELS = {
   todo: 'A Fazer',
   doing: 'Fazendo',
-  pending: 'Pendente',
+  paused: 'Pausada',
   done: 'Concluído',
 }
 
@@ -38,7 +38,7 @@ const PRIORITY_LABELS = {
 const STATUS_COLORS = {
   todo: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
   doing: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  paused: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   done: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
 }
 

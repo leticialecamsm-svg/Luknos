@@ -8,7 +8,7 @@ import { CheckCircle2 } from 'lucide-react'
 interface Task {
   id: string
   title: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -40,7 +40,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
 
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const doingCount = tasks.filter(t => t.status === 'doing').length
-  const pendingCount = tasks.filter(t => t.status === 'pending').length
+  const pendingCount = tasks.filter(t => t.status === 'paused').length
   const doneCount = tasks.filter(t => t.status === 'done').length
   const progressPercent = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0
 
@@ -77,7 +77,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
             <CheckCircle2 className="w-5 h-5 text-green-600" />
             <div>
               <h3 className="font-bold text-gray-900">Minhas tarefas</h3>
-              <p className="text-sm text-orange-600 font-semibold">{pendingCount} pendentes</p>
+              <p className="text-sm text-orange-600 font-semibold">{pendingCount} pausadas</p>
             </div>
           </div>
           <Link href="/dashboard/tasks" className="text-blue-600 font-bold text-sm hover:text-blue-700">

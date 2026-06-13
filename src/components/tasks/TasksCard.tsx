@@ -8,7 +8,7 @@ import { CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 interface Task {
   id: string
   title: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -29,7 +29,7 @@ export function TasksCard() {
 
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const doingCount = tasks.filter(t => t.status === 'doing').length
-  const pendingCount = tasks.filter(t => t.status === 'pending').length
+  const pendingCount = tasks.filter(t => t.status === 'paused').length
   const doneCount = tasks.filter(t => t.status === 'done').length
 
   if (loading) {
@@ -64,7 +64,7 @@ export function TasksCard() {
         </div>
         <div className="text-center">
           <div className="text-xl font-bold text-orange-600">{pendingCount}</div>
-          <div className="text-xs text-gray-600">Pendente</div>
+          <div className="text-xs text-gray-600">Pausada</div>
         </div>
         <div className="text-center">
           <div className="text-xl font-bold text-green-600">{doneCount}</div>
@@ -99,12 +99,12 @@ export function TasksCard() {
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
                       task.status === 'todo' ? 'bg-blue-50 text-blue-700' :
                       task.status === 'doing' ? 'bg-yellow-50 text-yellow-700' :
-                      task.status === 'pending' ? 'bg-orange-50 text-orange-700' :
+                      task.status === 'paused' ? 'bg-orange-50 text-orange-700' :
                       'bg-green-50 text-green-700'
                     }`}>
                       {task.status === 'todo' && 'A Fazer'}
                       {task.status === 'doing' && 'Fazendo'}
-                      {task.status === 'pending' && 'Pendente'}
+                      {task.status === 'paused' && 'Pausada'}
                       {task.status === 'done' && 'Concluída'}
                     </span>
                     {task.due_date && (

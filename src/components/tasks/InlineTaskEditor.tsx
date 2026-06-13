@@ -14,7 +14,7 @@ interface InlineTaskEditorProps {
 const STATUS_LABELS: Record<string, string> = {
   todo: 'A fazer',
   doing: 'Em andamento',
-  pending: 'Pendente',
+  paused: 'Pausada',
   done: 'Concluído',
 }
 
@@ -85,7 +85,7 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
       >
         <option value="todo">A fazer</option>
         <option value="doing">Em andamento</option>
-        <option value="pending">Pendente</option>
+        <option value="pending">Pausada</option>
       </select>
     )
   }
@@ -101,7 +101,7 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
           ? 'bg-blue-50 text-blue-700'
           : currentStatus === 'doing'
             ? 'bg-yellow-50 text-yellow-700'
-            : currentStatus === 'pending'
+            : currentStatus === 'paused'
               ? 'bg-orange-50 text-orange-700'
               : 'bg-green-50 text-green-700'
       }`}

@@ -119,7 +119,7 @@ export function AdminDashboardV2({
       owner: q.owners?.[0]?.name || 'Sem responsável',
       owner_color: q.owners?.[0]?.avatar_color || '#9B9A96',
       location: 'Local' + (i + 1),
-      status: i === 0 ? 'scheduled' : 'pending',
+      status: i === 0 ? 'scheduled' : 'paused',
     }))
 
   // Top arquitetos
@@ -380,7 +380,7 @@ export function AdminDashboardV2({
                   </div>
                   <span className={cn('text-xs font-semibold px-2 py-1 rounded whitespace-nowrap', {
                     'bg-green-50 text-green-700': v.status === 'scheduled',
-                    'bg-amber-50 text-amber-700': v.status === 'pending',
+                    'bg-amber-50 text-amber-700': v.status === 'paused',
                   })}>
                     {v.status === 'scheduled' ? 'Agendada' : 'À agendar'}
                   </span>

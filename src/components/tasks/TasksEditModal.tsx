@@ -8,7 +8,7 @@ interface Task {
   id: string
   title: string
   description?: string
-  status: 'todo' | 'doing' | 'pending' | 'done'
+  status: 'todo' | 'doing' | 'paused' | 'done'
   priority: 'high' | 'mid' | 'low'
   due_date?: string
   completed_at?: string | null
@@ -150,7 +150,7 @@ export function TasksEditModal({ task, onClose, onSuccess }: TasksEditModalProps
             >
               <option value="todo">A Fazer</option>
               <option value="doing">Fazendo</option>
-              <option value="pending">Pendente</option>
+              <option value="pending">Pausada</option>
               <option value="done">Concluído</option>
             </select>
           </div>
