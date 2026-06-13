@@ -132,7 +132,7 @@ export function TasksListNew() {
     return `${day} de ${months[parseInt(month) - 1]}`
   }
 
-  const isTodayCompleted = (completedAt: string | undefined) => {
+  const isTodayCompleted = (completedAt: string | null | undefined) => {
     if (!completedAt) return false
     const completedDate = completedAt.split('T')[0]
     const today = getTodayString()
