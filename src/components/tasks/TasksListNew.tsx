@@ -293,10 +293,14 @@ export function TasksListNew() {
       />
       <div
         onClick={(e) => {
-          // Só abre o modal se não foi um clique no input de edição do título
           const target = e.target as HTMLElement
+          console.log('Click em:', target.tagName, 'Classe:', target.className)
+          // Só abre o modal se não foi um clique no input de edição do título
           if (target.tagName !== 'INPUT' && target.tagName !== 'H4') {
+            console.log('Abrindo modal...')
             setViewTask(task)
+          } else {
+            console.log('Não abrir modal - tagName é:', target.tagName)
           }
         }}
         className="flex-1 min-w-0 cursor-pointer"
