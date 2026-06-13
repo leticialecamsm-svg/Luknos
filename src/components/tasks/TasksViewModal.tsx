@@ -56,6 +56,7 @@ const PRIORITY_COLORS = {
 }
 
 export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksViewModalProps) {
+  const [localTask, setLocalTask] = useState(task)
   const [deleting, setDeleting] = useState(false)
   const [updating, setUpdating] = useState(false)
 
@@ -69,6 +70,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
 
   const handleStatusChange = async (newStatus: string) => {
     setUpdating(true)
+    setLocalTask({ ...localTask, status: newStatus as Task['status'] })
     await updateTaskStatus(task.id, newStatus)
     setUpdating(false)
     onStatusChange?.()
@@ -76,7 +78,8 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
 
   const handleMarkAsCompleted = async () => {
     setUpdating(true)
-    const newStatus = task.status === 'done' ? 'doing' : 'done'
+    const newStatus = localTask.status === 'done' ? 'doing' : 'done'
+    setLocalTask({ ...localTask, status: newStatus as Task['status'] })
     await updateTaskStatus(task.id, newStatus)
     setUpdating(false)
     onStatusChange?.()
@@ -90,62 +93,55 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col">
+      <div className="bg-white rounded-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-start justify-between mb-4">
-            {/* Left side: Checkbox, Priority, Status, Title */}
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3">
+          <div className="flex items-start justify-between mb-3">
+            {/* Left side: Priority, Status, Title */}
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  checked={task.status === 'done'}
-                  onChange={handleMarkAsCompleted}
-                  disabled={updating}
-                  className="w-6 h-6 rounded cursor-pointer"
-                />
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${PRIORITY_COLORS[task.priority].bg} ${PRIORITY_COLORS[task.priority].text}`}>
-                  {PRIORITY_EMOJI[task.priority]} {PRIORITY_LABELS[task.priority]}
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${PRIORITY_COLORS[localTask.priority].bg} ${PRIORITY_COLORS[localTask.priority].text}`}>
+                  {PRIORITY_EMOJI[localTask.priority]} {PRIORITY_LABELS[localTask.priority]}
                 </span>
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[task.status].bg} ${STATUS_COLORS[task.status].text}`}>
-                  {STATUS_LABELS[task.status]}
+                <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[localTask.status].bg} ${STATUS_COLORS[localTask.status].text}`}>
+                  {STATUS_LABELS[localTask.status]}
                 </span>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">{task.title}</h2>
+              <h2 className="text-xl font-bold text-gray-900">{localTask.title}</h2>
             </div>
 
             {/* Right side: Edit and Close buttons */}
             <div className="flex items-center gap-2 ml-4">
               <button
                 onClick={() => onEdit(task)}
-                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
               >
-                <Edit2 className="w-4 h-4" />
+                <Edit2 className="w-3.5 h-3.5" />
                 Editar
               </button>
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <X className="w-5 h-5 text-gray-600" />
+                <X className="w-4 h-4 text-gray-600" />
               </button>
             </div>
           </div>
         </div>
 
         {/* Body */}
-        <div className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
+        <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto">
           {/* Status Selection */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Status</h3>
-            <div className="flex gap-2 flex-wrap">
+            <h3 className="text-xs font-semibold text-gray-700 mb-2 uppercase">Status</h3>
+            <div className="flex gap-1.5 flex-wrap">
               {Object.entries(STATUS_LABELS).map(([value, label]) => (
                 <button
                   key={value}
                   onClick={() => handleStatusChange(value)}
                   disabled={updating}
-                  className={`px-4 py-2 rounded-full font-semibold text-sm transition-all ${
-                    task.status === value
+                  className={`px-3 py-1.5 rounded-full font-semibold text-xs transition-all ${
+                    localTask.status === value
                       ? STATUS_COLORS[value as keyof typeof STATUS_COLORS].bg +
                         ' ' +
                         STATUS_COLORS[value as keyof typeof STATUS_COLORS].text +
@@ -161,18 +157,18 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-xs font-semibold text-gray-600 mb-2">Início</div>
-              <div className="text-lg font-bold text-gray-900">{formatDate(task.created_at)}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Início</div>
+              <div className="text-sm font-bold text-gray-900">{formatDate(localTask.created_at)}</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-xs font-semibold text-gray-600 mb-2">Conclusão</div>
-              <div className={`text-lg font-bold ${task.due_date ? 'text-gray-900' : 'text-gray-400'}`}>
-                {task.due_date ? (
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Conclusão</div>
+              <div className={`text-sm font-bold ${localTask.due_date ? 'text-gray-900' : 'text-gray-400'}`}>
+                {localTask.due_date ? (
                   <>
-                    {formatDate(task.due_date)}
-                    {new Date(task.due_date) < new Date() && task.status !== 'done' && (
+                    {formatDate(localTask.due_date)}
+                    {new Date(localTask.due_date) < new Date() && localTask.status !== 'done' && (
                       <span className="ml-2">⚠️</span>
                     )}
                   </>
@@ -184,30 +180,30 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           </div>
 
           {/* Observations */}
-          {task.description && (
+          {localTask.description && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Observações</h3>
-              <p className="text-gray-600 text-sm whitespace-pre-wrap bg-gray-50 p-4 rounded-lg">
-                {task.description}
+              <h3 className="text-xs font-semibold text-gray-700 mb-2 uppercase">Observações</h3>
+              <p className="text-gray-600 text-xs whitespace-pre-wrap bg-gray-50 p-3 rounded-lg">
+                {localTask.description}
               </p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
           <button
             onClick={handleDelete}
             disabled={deleting || updating}
-            className="px-4 py-2 bg-red-50 text-red-600 font-semibold rounded-lg hover:bg-red-100 transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-3 py-1.5 bg-red-50 text-red-600 font-semibold rounded-lg text-sm hover:bg-red-100 transition-colors flex items-center gap-2 disabled:opacity-50"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
             Excluir
           </button>
           <button
             onClick={handleMarkAsCompleted}
             disabled={updating}
-            className="px-6 py-2 bg-green-50 text-green-700 font-semibold rounded-lg hover:bg-green-100 transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-1.5 bg-green-50 text-green-700 font-semibold rounded-lg text-sm hover:bg-green-100 transition-colors flex items-center gap-2 disabled:opacity-50"
           >
             <span>✓</span>
             Marcar como finalizada
