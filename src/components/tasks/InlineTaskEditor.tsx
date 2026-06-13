@@ -327,24 +327,25 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
 
   if (isEditing) {
     return (
-      <input
-        type="text"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={handleSave}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            handleSave()
-          } else if (e.key === 'Escape') {
-            setTitle(currentTitle)
-            setIsEditing(false)
-          }
-        }}
-        autoFocus
-        disabled={saving}
-        onClick={(e) => e.stopPropagation()}
-        className="flex-1 text-sm font-semibold border border-blue-400 rounded px-2 py-1 outline-none"
-      />
+      <div onClick={(e) => e.stopPropagation()}>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSave()
+            } else if (e.key === 'Escape') {
+              setTitle(currentTitle)
+              setIsEditing(false)
+            }
+          }}
+          autoFocus
+          disabled={saving}
+          className="flex-1 text-sm font-semibold border border-blue-400 rounded px-2 py-1 outline-none"
+        />
+      </div>
     )
   }
 

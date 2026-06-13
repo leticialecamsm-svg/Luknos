@@ -296,9 +296,7 @@ export function TasksListNew() {
         className="flex-1 min-w-0 cursor-pointer"
       >
         {!isCompleted ? (
-          <div onClick={(e) => e.stopPropagation()}>
-            <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
-          </div>
+          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
         ) : (
           <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
             {task.title}
