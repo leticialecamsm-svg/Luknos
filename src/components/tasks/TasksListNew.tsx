@@ -5,7 +5,7 @@ import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } fr
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
-import { InlineStatusEditor, InlineDateEditor } from './InlineTaskEditor'
+import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus } from 'lucide-react'
 
 interface Task {
@@ -41,6 +41,7 @@ export function TasksListNew() {
   const [filterPriority, setFilterPriority] = useState<string>('')
   const [showAllCompleted, setShowAllCompleted] = useState(false)
   const [userName, setUserName] = useState<string>('Usuário')
+  const [draggedTask, setDraggedTask] = useState<string | null>(null)
 
   // Carregar tarefas
   const loadTasks = async () => {
@@ -184,6 +185,37 @@ export function TasksListNew() {
     })
   }
 
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDraggedTask(taskId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (e: React.DragEvent, targetTaskId: string) => {
+    e.preventDefault()
+    if (!draggedTask || draggedTask === targetTaskId) {
+      setDraggedTask(null)
+      return
+    }
+
+    // Reordenar tarefas: mover dragged para posição de target
+    const draggedIndex = tasks.findIndex(t => t.id === draggedTask)
+    const targetIndex = tasks.findIndex(t => t.id === targetTaskId)
+
+    if (draggedIndex !== -1 && targetIndex !== -1) {
+      const newTasks = [...tasks]
+      const [removed] = newTasks.splice(draggedIndex, 1)
+      newTasks.splice(targetIndex, 0, removed)
+      setTasks(newTasks)
+    }
+
+    setDraggedTask(null)
+  }
+
   const handleDelete = (taskId: string) => {
     if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
       startTransition(async () => {
@@ -221,7 +253,13 @@ export function TasksListNew() {
   const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
     <div
       key={task.id}
-      className={`border-b p-2.5 hover:bg-gray-50 transition-colors group flex items-center gap-3 ${
+      draggable={!isCompleted}
+      onDragStart={(e) => handleDragStart(e, task.id)}
+      onDragOver={handleDragOver}
+      onDrop={(e) => handleDrop(e, task.id)}
+      className={`border-b p-2.5 transition-colors group flex items-center gap-3 cursor-move ${
+        draggedTask === task.id ? 'opacity-50 bg-blue-50' : 'hover:bg-gray-50'
+      } ${
         isCompleted
           ? 'border-green-100'
           : 'border-gray-200'
@@ -262,9 +300,7 @@ export function TasksListNew() {
           <>
             <InlineStatusEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <InlineDateEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
-            <span className="text-xs font-bold">
-              {task.priority === 'high' ? '🔴' : task.priority === 'mid' ? '🟡' : '⚪'}
-            </span>
+            <InlinePriorityEditor taskId={task.id} currentPriority={task.priority} onSave={loadTasks} />
           </>
         )}
         {isCompleted && task.completed_at && (

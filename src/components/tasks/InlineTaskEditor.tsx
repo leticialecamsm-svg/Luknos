@@ -5,8 +5,9 @@ import { updateTask } from '@/lib/actions'
 
 interface InlineTaskEditorProps {
   taskId: string
-  currentStatus: string
-  currentDueDate: string | undefined
+  currentStatus?: string
+  currentDueDate?: string | undefined
+  currentPriority?: string
   onSave: () => void
 }
 
@@ -15,6 +16,45 @@ const STATUS_LABELS: Record<string, string> = {
   doing: 'Em andamento',
   pending: 'Pendente',
   done: 'Concluído',
+}
+
+const getTodayString = () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const isYesterdayDate = (dateStr: string | undefined) => {
+  if (!dateStr) return false
+  const taskDate = dateStr.split('T')[0]
+  const today = getTodayString()
+
+  const [year, month, day] = today.split('-').map(Number)
+  let yesterdayDay = day - 1
+  let yesterdayMonth = month
+  let yesterdayYear = year
+
+  if (yesterdayDay < 1) {
+    yesterdayMonth -= 1
+    if (yesterdayMonth < 1) {
+      yesterdayMonth = 12
+      yesterdayYear -= 1
+    }
+    const daysInMonth = new Date(yesterdayYear, yesterdayMonth, 0).getDate()
+    yesterdayDay = daysInMonth
+  }
+
+  const yesterday = `${yesterdayYear}-${String(yesterdayMonth).padStart(2, '0')}-${String(yesterdayDay).padStart(2, '0')}`
+  return taskDate === yesterday
+}
+
+const isOverdueDate = (dateStr: string | undefined) => {
+  if (!dateStr) return false
+  const taskDate = dateStr.split('T')[0]
+  const today = getTodayString()
+  return taskDate < today
 }
 
 export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTaskEditorProps) {
@@ -66,7 +106,7 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
               : 'bg-green-50 text-green-700'
       }`}
     >
-      {STATUS_LABELS[currentStatus] || currentStatus}
+      {currentStatus ? STATUS_LABELS[currentStatus] : 'Desconhecido'}
     </button>
   )
 }
@@ -81,6 +121,19 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
     const [year, month, day] = dateStr.split('-')
     const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
     return `${day} de ${months[parseInt(month) - 1]}`
+  }
+
+  const getDateStyles = (dateStr: string | undefined) => {
+    if (!dateStr) return { text: 'Sem prazo', className: 'text-gray-400', icon: '' }
+
+    if (isOverdueDate(dateStr)) {
+      if (isYesterdayDate(dateStr)) {
+        return { text: 'ontem', className: 'text-red-600 font-semibold', icon: '⚠️ ' }
+      }
+      return { text: formatDateDisplay(dateStr), className: 'text-red-600 font-semibold', icon: '⚠️ ' }
+    }
+
+    return { text: formatDateDisplay(dateStr), className: 'text-gray-600', icon: '' }
   }
 
   const handleSave = async () => {
@@ -108,17 +161,70 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
     )
   }
 
+  const dateStyles = getDateStyles(currentDueDate?.split('T')[0])
+
   return (
     <button
       onClick={(e) => {
         e.stopPropagation()
         setIsEditing(true)
       }}
-      className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
-        currentDueDate ? 'text-gray-600' : 'text-gray-400'
-      }`}
+      className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${dateStyles.className}`}
     >
-      {formatDateDisplay(currentDueDate?.split('T')[0])}
+      {dateStyles.icon}{dateStyles.text}
+    </button>
+  )
+}
+
+export function InlinePriorityEditor({ taskId, currentPriority, onSave }: InlineTaskEditorProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [priority, setPriority] = useState(currentPriority || 'mid')
+  const [saving, setSaving] = useState(false)
+
+  const priorityEmoji = {
+    high: '🔴',
+    mid: '🟡',
+    low: '⚪',
+  }
+
+  const handleSave = async () => {
+    if (priority !== currentPriority) {
+      setSaving(true)
+      await updateTask(taskId, { priority })
+      setSaving(false)
+      onSave()
+    }
+    setIsEditing(false)
+  }
+
+  if (isEditing) {
+    return (
+      <select
+        value={priority}
+        onChange={(e) => setPriority(e.target.value)}
+        onBlur={handleSave}
+        autoFocus
+        disabled={saving}
+        onClick={(e) => e.stopPropagation()}
+        className="px-2 py-1 rounded text-xs font-semibold border border-gray-300 bg-white cursor-pointer"
+      >
+        <option value="high">Alta</option>
+        <option value="mid">Média</option>
+        <option value="low">Baixa</option>
+      </select>
+    )
+  }
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        setIsEditing(true)
+      }}
+      title={`Prioridade: ${priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}`}
+      className="text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity"
+    >
+      {priorityEmoji[priority as keyof typeof priorityEmoji]}
     </button>
   )
 }
