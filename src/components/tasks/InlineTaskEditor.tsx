@@ -225,9 +225,9 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   const [error, setError] = useState<string | null>(null)
 
   const priorityEmoji = {
-    high: '🔴',
-    mid: '🟡',
-    low: '⚪',
+    high: '✓',
+    mid: '✓',
+    low: '✓',
   }
 
   const handleSave = async () => {
