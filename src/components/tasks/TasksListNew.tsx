@@ -68,21 +68,6 @@ export function TasksListNew() {
     loadTasks()
   }
 
-  const todoCount = tasks.filter(t => t.status === 'todo').length
-  const doingCount = tasks.filter(t => t.status === 'doing').length
-  const pendingCount = tasks.filter(t => t.status === 'paused').length
-  const doneCount = tasks.filter(t => t.status === 'done').length
-  const totalTasks = tasks.length
-
-  const progressPercent = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
-
-  // Aplicar filtros
-  const applyFilters = (task: Task) => {
-    if (filterPriority && task.priority !== filterPriority) return false
-    if (filterStatus && task.status !== filterStatus) return false
-    return true
-  }
-
   // Funções utilitárias de data (precisam ser definidas antes de usar)
   const getTodayString = () => {
     const today = new Date()
@@ -90,6 +75,33 @@ export function TasksListNew() {
     const month = String(today.getMonth() + 1).padStart(2, '0')
     const day = String(today.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
+  }
+
+  const isTaskTodayOrOverdue = (dueDate: string | undefined) => {
+    if (!dueDate) return false
+    const taskDate = dueDate.split('T')[0]
+    const today = getTodayString()
+    return taskDate <= today
+  }
+
+  const todoCount = tasks.filter(t => t.status === 'todo').length
+  const doingCount = tasks.filter(t => t.status === 'doing').length
+  const pendingCount = tasks.filter(t => t.status === 'paused').length
+  const doneCount = tasks.filter(t => t.status === 'done').length
+  const totalTasks = tasks.length
+
+  // Para o progresso, considerar apenas tarefas de hoje ou atrasadas
+  const todayOrOverdueTasks = tasks.filter(t => isTaskTodayOrOverdue(t.due_date) && t.status !== 'done')
+  const todayOrOverdueDoneCount = tasks.filter(t => isTaskTodayOrOverdue(t.due_date) && t.status === 'done').length
+  const todayOrOverdueTotalTasks = todayOrOverdueTasks.length + todayOrOverdueDoneCount
+
+  const progressPercent = todayOrOverdueTotalTasks > 0 ? Math.round((todayOrOverdueDoneCount / todayOrOverdueTotalTasks) * 100) : 0
+
+  // Aplicar filtros
+  const applyFilters = (task: Task) => {
+    if (filterPriority && task.priority !== filterPriority) return false
+    if (filterStatus && task.status !== filterStatus) return false
+    return true
   }
 
   const isOverdue = (dueDate: string | undefined) => {
