@@ -294,7 +294,8 @@ export function TasksListNew() {
       <div
         onClick={(e) => {
           // Só abre o modal se não foi um clique no input de edição do título
-          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'H4') {
+          const target = e.target as HTMLElement
+          if (target.tagName !== 'INPUT' && target.tagName !== 'H4') {
             setViewTask(task)
           }
         }}
