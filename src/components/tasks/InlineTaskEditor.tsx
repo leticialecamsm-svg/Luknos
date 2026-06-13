@@ -76,8 +76,15 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
   const [dueDate, setDueDate] = useState(currentDueDate?.split('T')[0] || '')
   const [saving, setSaving] = useState(false)
 
+  const formatDateDisplay = (dateStr: string | undefined) => {
+    if (!dateStr) return 'Sem prazo'
+    const [year, month, day] = dateStr.split('-')
+    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    return `${day} de ${months[parseInt(month) - 1]}`
+  }
+
   const handleSave = async () => {
-    if (dueDate && dueDate !== currentDueDate?.split('T')[0]) {
+    if (dueDate !== currentDueDate?.split('T')[0]) {
       setSaving(true)
       await updateTask(taskId, { due_date: dueDate })
       setSaving(false)
@@ -101,23 +108,17 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
     )
   }
 
-  if (!currentDueDate) return null
-
-  const formatDateDisplay = (dateStr: string) => {
-    const [year, month, day] = dateStr.split('-')
-    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-    return `${day} de ${months[parseInt(month) - 1]}`
-  }
-
   return (
     <button
       onClick={(e) => {
         e.stopPropagation()
         setIsEditing(true)
       }}
-      className="text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity text-gray-600"
+      className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
+        currentDueDate ? 'text-gray-600' : 'text-gray-400'
+      }`}
     >
-      {formatDateDisplay(currentDueDate.split('T')[0])}
+      {formatDateDisplay(currentDueDate?.split('T')[0])}
     </button>
   )
 }
