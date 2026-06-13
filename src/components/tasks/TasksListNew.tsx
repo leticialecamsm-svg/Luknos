@@ -427,8 +427,8 @@ export function TasksListNew() {
             ) : (
               'Prioridade:'
             )}
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M7 10l5 5 5-5z" />
             </svg>
           </button>
 
@@ -489,10 +489,10 @@ export function TasksListNew() {
         <div className="space-y-2">
           <div className="flex items-center justify-between px-3 py-2">
             <div className="flex items-center gap-2">
-              <span className={`font-bold ${
+              <span className={`font-bold text-lg ${
                 filterPriority === 'high' ? 'text-red-600' :
                 filterPriority === 'mid' ? 'text-yellow-600' :
-                'text-gray-600'
+                'text-gray-400'
               }`}>●</span>
               <span className={`text-xs font-bold uppercase tracking-wide ${
                 filterPriority === 'high' ? 'text-red-700' :
@@ -503,11 +503,16 @@ export function TasksListNew() {
                 {filterPriority === 'mid' && 'Média Prioridade'}
                 {filterPriority === 'low' && 'Baixa Prioridade'}
               </span>
+              {filterPriority === 'low' && (
+                <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="2" />
+                </svg>
+              )}
             </div>
             <span className={`text-sm font-bold ${
               filterPriority === 'high' ? 'text-red-600' :
               filterPriority === 'mid' ? 'text-yellow-600' :
-              'text-gray-600'
+              'text-gray-400'
             }`}>
               {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).length}
             </span>
