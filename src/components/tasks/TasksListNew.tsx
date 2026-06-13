@@ -292,7 +292,10 @@ export function TasksListNew() {
         }`}
       />
       <div
-        onClick={() => setViewTask(task)}
+        onClick={() => {
+          console.log('Abrindo modal da tarefa:', task.id)
+          setViewTask(task)
+        }}
         className="flex-1 min-w-0 cursor-pointer"
       >
         {!isCompleted ? (
