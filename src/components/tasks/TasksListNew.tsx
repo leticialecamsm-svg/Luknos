@@ -291,23 +291,25 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div className="flex-1 min-w-0">
+      <div
+        onClick={(e) => {
+          // Só abre o modal se não foi um clique no input de edição do título
+          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'H4') {
+            setViewTask(task)
+          }
+        }}
+        className="flex-1 min-w-0 cursor-pointer"
+      >
         {!isCompleted ? (
-          <div onClick={() => setViewTask(task)} className="cursor-pointer">
-            <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
-          </div>
+          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
         ) : (
-          <h4
-            onClick={() => setViewTask(task)}
-            className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600 cursor-pointer"
-          >
+          <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
             {task.title}
           </h4>
         )}
         {task.checklist && task.checklist.length > 0 && (
           <p
-            onClick={() => setViewTask(task)}
-            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors cursor-pointer ${
+            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors ${
               isCompleted ? 'text-gray-400' : 'text-gray-600'
             }`}
           >
@@ -318,15 +320,6 @@ export function TasksListNew() {
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
           <>
-            <button
-              onClick={() => {
-                console.log('Clique no botão, abrindo tarefa:', task.id)
-                setViewTask(task)
-              }}
-              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-            >
-              Ver
-            </button>
             <InlineStatusEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <InlineDateEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <InlinePriorityEditor taskId={task.id} currentPriority={task.priority} onSave={loadTasks} />
