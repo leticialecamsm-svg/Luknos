@@ -5,7 +5,7 @@ import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } fr
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
-import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor } from './InlineTaskEditor'
+import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus } from 'lucide-react'
 
 interface Task {
@@ -291,15 +291,14 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div
-        onClick={() => setViewTask(task)}
-        className="flex-1 cursor-pointer min-w-0"
-      >
-        <h4 className={`text-sm font-semibold ${
-          isCompleted ? 'text-gray-500 line-through' : 'text-gray-900'
-        }`}>
-          {task.title}
-        </h4>
+      <div className="flex-1 cursor-pointer min-w-0">
+        {!isCompleted ? (
+          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+        ) : (
+          <h4 className="text-sm font-semibold text-gray-500 line-through">
+            {task.title}
+          </h4>
+        )}
         {task.checklist && task.checklist.length > 0 && (
           <p className={`text-xs mt-0.5 ${
             isCompleted ? 'text-gray-400' : 'text-gray-600'

@@ -300,3 +300,62 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
     </div>
   )
 }
+
+export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: string; currentTitle: string; onSave: () => void }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [title, setTitle] = useState(currentTitle)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    if (title.trim() !== currentTitle.trim() && title.trim()) {
+      setSaving(true)
+      setError(null)
+      const result = await updateTask(taskId, { title: title.trim() })
+      setSaving(false)
+
+      if (result?.error) {
+        setError(result.error)
+        console.error('Error updating task title:', result.error)
+        setTitle(currentTitle)
+      } else {
+        onSave()
+      }
+    }
+    setIsEditing(false)
+  }
+
+  if (isEditing) {
+    return (
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            handleSave()
+          } else if (e.key === 'Escape') {
+            setTitle(currentTitle)
+            setIsEditing(false)
+          }
+        }}
+        autoFocus
+        disabled={saving}
+        className="flex-1 text-sm font-semibold border border-blue-400 rounded px-2 py-1 outline-none"
+      />
+    )
+  }
+
+  return (
+    <h4
+      onClick={() => setIsEditing(true)}
+      className={`text-sm font-semibold cursor-text hover:text-blue-600 transition-colors ${
+        error ? 'text-red-600' : 'text-gray-900'
+      }`}
+      title="Clique para editar"
+    >
+      {error ? '⚠️ Erro ao salvar' : currentTitle}
+    </h4>
+  )
+}
