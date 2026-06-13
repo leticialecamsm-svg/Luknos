@@ -273,7 +273,7 @@ export function TasksListNew() {
           e.stopPropagation()
           handleCheckboxChange(task.id, task.status)
         }}
-        className={`w-5 h-5 rounded cursor-pointer flex-shrink-0 ${
+        className={`w-5 h-5 rounded-md cursor-pointer flex-shrink-0 ${
           isCompleted
             ? 'border-green-400 bg-green-500 accent-green-500'
             : 'border-gray-300'
@@ -628,12 +628,12 @@ export function TasksListNew() {
               <>
                 {/* Todas as concluídas, ordenadas do mais recente ao mais antigo */}
                 {completedTodayTasks.length > 0 && (
-                  <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-green-100">Hoje</div>
+                  <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-t border-gray-100">Hoje</div>
                 )}
                 {completedTodayTasks.map((task) => renderTaskRow(task, true))}
 
                 {completedPreviousTasks.length > 0 && (
-                  <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-gray-100">Anteriores</div>
+                  <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-t border-gray-100">Anteriores</div>
                 )}
                 {completedPreviousTasks.map((task) => renderTaskRow(task, true))}
 

@@ -281,11 +281,20 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
           setError(null)
         }}
         title={error ? `Erro: ${error}` : `Prioridade: ${priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}`}
-        className={`text-lg font-bold cursor-pointer hover:opacity-80 transition-opacity ${
-          error ? 'text-red-600' : 'text-gray-600'
+        className={`flex items-center gap-1 text-sm font-semibold cursor-pointer hover:opacity-80 transition-opacity ${
+          error ? 'text-red-600' : 'text-gray-700'
         }`}
       >
-        {error ? '⚠️' : priorityIcon[priority as keyof typeof priorityIcon]}
+        {error ? '⚠️ Erro' : (
+          <>
+            <span className="text-lg">
+              {priority === 'high' ? '🔴' : priority === 'mid' ? '🟡' : '⚪'}
+            </span>
+            <span className="text-xs">
+              {priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}
+            </span>
+          </>
+        )}
       </button>
       {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
     </div>
