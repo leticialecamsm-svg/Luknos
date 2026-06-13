@@ -61,13 +61,23 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
   const [isEditing, setIsEditing] = useState(false)
   const [status, setStatus] = useState(currentStatus)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleSave = async () => {
     if (status !== currentStatus) {
       setSaving(true)
-      await updateTask(taskId, { status })
+      setError(null)
+      const result = await updateTask(taskId, { status })
       setSaving(false)
-      onSave()
+
+      if (result?.error) {
+        setError(result.error)
+        console.error('Error updating task status:', result.error)
+        // Reset status to previous value on error
+        setStatus(currentStatus)
+      } else {
+        onSave()
+      }
     }
     setIsEditing(false)
   }
@@ -91,23 +101,33 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
   }
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        setIsEditing(true)
-      }}
-      className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity ${
-        currentStatus === 'todo'
-          ? 'bg-blue-50 text-blue-700'
-          : currentStatus === 'doing'
-            ? 'bg-yellow-50 text-yellow-700'
-            : currentStatus === 'paused'
-              ? 'bg-orange-50 text-orange-700'
-              : 'bg-green-50 text-green-700'
-      }`}
-    >
-      {currentStatus ? STATUS_LABELS[currentStatus] : 'Desconhecido'}
-    </button>
+    <div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsEditing(true)
+          setError(null)
+        }}
+        className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity ${
+          error ? 'bg-red-50 text-red-700 border border-red-300' :
+          currentStatus === 'todo'
+            ? 'bg-blue-50 text-blue-700'
+            : currentStatus === 'doing'
+              ? 'bg-yellow-50 text-yellow-700'
+              : currentStatus === 'paused'
+                ? 'bg-orange-50 text-orange-700'
+                : 'bg-green-50 text-green-700'
+        }`}
+        title={error ? `Erro: ${error}` : ''}
+      >
+        {error ? '⚠️ Erro' : (currentStatus ? STATUS_LABELS[currentStatus] : 'Desconhecido')}
+      </button>
+      {error && (
+        <div className="text-xs text-red-600 mt-1 px-1">
+          {error}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -115,6 +135,7 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
   const [isEditing, setIsEditing] = useState(false)
   const [dueDate, setDueDate] = useState(currentDueDate?.split('T')[0] || '')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const formatDateDisplay = (dateStr: string | undefined) => {
     if (!dateStr) return 'Sem prazo'
@@ -139,40 +160,61 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
   const handleSave = async () => {
     if (dueDate !== currentDueDate?.split('T')[0]) {
       setSaving(true)
-      await updateTask(taskId, { due_date: dueDate })
+      setError(null)
+      const result = await updateTask(taskId, { due_date: dueDate })
       setSaving(false)
-      onSave()
+
+      if (result?.error) {
+        setError(result.error)
+        console.error('Error updating task due date:', result.error)
+        // Reset date to previous value on error
+        setDueDate(currentDueDate?.split('T')[0] || '')
+      } else {
+        onSave()
+      }
     }
     setIsEditing(false)
   }
 
   if (isEditing) {
     return (
-      <input
-        type="date"
-        value={dueDate}
-        onChange={(e) => setDueDate(e.target.value)}
-        onBlur={handleSave}
-        autoFocus
-        disabled={saving}
-        onClick={(e) => e.stopPropagation()}
-        className="px-2 py-1 rounded text-xs border border-gray-300 bg-white cursor-pointer"
-      />
+      <div>
+        <input
+          type="date"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          onBlur={handleSave}
+          autoFocus
+          disabled={saving}
+          onClick={(e) => e.stopPropagation()}
+          className={`px-2 py-1 rounded text-xs border bg-white cursor-pointer ${
+            error ? 'border-red-300' : 'border-gray-300'
+          }`}
+        />
+        {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
+      </div>
     )
   }
 
   const dateStyles = getDateStyles(currentDueDate?.split('T')[0])
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        setIsEditing(true)
-      }}
-      className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${dateStyles.className}`}
-    >
-      {dateStyles.icon}{dateStyles.text}
-    </button>
+    <div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsEditing(true)
+          setError(null)
+        }}
+        className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
+          error ? 'text-red-600' : dateStyles.className
+        }`}
+        title={error ? `Erro: ${error}` : ''}
+      >
+        {error ? '⚠️ Erro' : `${dateStyles.icon}${dateStyles.text}`}
+      </button>
+      {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
+    </div>
   )
 }
 
@@ -180,6 +222,7 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   const [isEditing, setIsEditing] = useState(false)
   const [priority, setPriority] = useState(currentPriority || 'mid')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const priorityEmoji = {
     high: '🔴',
@@ -190,41 +233,61 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   const handleSave = async () => {
     if (priority !== currentPriority) {
       setSaving(true)
-      await updateTask(taskId, { priority })
+      setError(null)
+      const result = await updateTask(taskId, { priority })
       setSaving(false)
-      onSave()
+
+      if (result?.error) {
+        setError(result.error)
+        console.error('Error updating task priority:', result.error)
+        // Reset priority to previous value on error
+        setPriority(currentPriority || 'mid')
+      } else {
+        onSave()
+      }
     }
     setIsEditing(false)
   }
 
   if (isEditing) {
     return (
-      <select
-        value={priority}
-        onChange={(e) => setPriority(e.target.value)}
-        onBlur={handleSave}
-        autoFocus
-        disabled={saving}
-        onClick={(e) => e.stopPropagation()}
-        className="px-2 py-1 rounded text-xs font-semibold border border-gray-300 bg-white cursor-pointer"
-      >
-        <option value="high">Alta</option>
-        <option value="mid">Média</option>
-        <option value="low">Baixa</option>
-      </select>
+      <div>
+        <select
+          value={priority}
+          onChange={(e) => setPriority(e.target.value)}
+          onBlur={handleSave}
+          autoFocus
+          disabled={saving}
+          onClick={(e) => e.stopPropagation()}
+          className={`px-2 py-1 rounded text-xs font-semibold border bg-white cursor-pointer ${
+            error ? 'border-red-300' : 'border-gray-300'
+          }`}
+        >
+          <option value="high">Alta</option>
+          <option value="mid">Média</option>
+          <option value="low">Baixa</option>
+        </select>
+        {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
+      </div>
     )
   }
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        setIsEditing(true)
-      }}
-      title={`Prioridade: ${priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}`}
-      className="text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity"
-    >
-      {priorityEmoji[priority as keyof typeof priorityEmoji]}
-    </button>
+    <div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsEditing(true)
+          setError(null)
+        }}
+        title={error ? `Erro: ${error}` : `Prioridade: ${priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}`}
+        className={`text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity ${
+          error ? 'text-red-600' : ''
+        }`}
+      >
+        {error ? '⚠️' : priorityEmoji[priority as keyof typeof priorityEmoji]}
+      </button>
+      {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
+    </div>
   )
 }
