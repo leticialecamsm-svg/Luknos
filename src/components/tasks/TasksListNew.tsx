@@ -302,6 +302,7 @@ export function TasksListNew() {
                   if (e.key === 'Enter') saveInlineChanges(task.id)
                   if (e.key === 'Escape') setEditingInlineId(null)
                 }}
+                onClick={(e) => e.stopPropagation()}
                 autoFocus
                 className="px-2 py-1 rounded text-xs font-semibold border border-gray-300 bg-white"
               >
@@ -311,7 +312,10 @@ export function TasksListNew() {
               </select>
             ) : (
               <button
-                onClick={() => handleInlineStatusChange(task.id, task.status)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleInlineStatusChange(task.id, task.status)
+                }}
                 className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity ${
                   task.status === 'todo' ? 'bg-blue-50 text-blue-700' :
                   task.status === 'doing' ? 'bg-yellow-50 text-yellow-700' :
@@ -332,13 +336,17 @@ export function TasksListNew() {
                   if (e.key === 'Enter') saveInlineChanges(task.id)
                   if (e.key === 'Escape') setEditingInlineId(null)
                 }}
+                onClick={(e) => e.stopPropagation()}
                 autoFocus
                 className="px-2 py-1 rounded text-xs border border-gray-300 bg-white"
               />
             ) : (
               task.due_date && (
                 <button
-                  onClick={() => handleInlineDueDateChange(task.id, task.due_date || '')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleInlineDueDateChange(task.id, task.due_date || '')
+                  }}
                   className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
                     isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
                   }`}
