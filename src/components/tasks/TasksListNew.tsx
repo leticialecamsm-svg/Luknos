@@ -558,6 +558,9 @@ export function TasksListNew() {
         const showAllMode = showAllCompleted || filterStatus === 'done'
         const totalCompleted = completedTodayTasks.length + completedPreviousTasks.length
 
+        // Esconde a seção quando filtro de prioridade está ativo
+        if (filterPriority) return null
+
         // Esconde a seção quando, no modo padrão, não há concluídas hoje
         if (!showAllMode && completedTodayTasks.length === 0) return null
 
