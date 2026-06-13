@@ -394,27 +394,27 @@ export function TasksListNew() {
       {/* Top Stats Bar */}
       <div className="flex gap-3 items-stretch">
         {/* Stat Cards */}
-        <div className="grid grid-cols-4 gap-3 flex-1">
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-            <div className="text-xs font-semibold text-gray-600 mb-1">A fazer</div>
-            <div className="text-2xl font-bold text-gray-900">{todoCount}</div>
+        <div className="grid grid-cols-4 gap-2">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-0.5">A fazer</div>
+            <div className="text-lg font-bold text-gray-900">{todoCount}</div>
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-            <div className="text-xs font-semibold text-gray-600 mb-1">Em andamento</div>
-            <div className="text-2xl font-bold text-blue-600">{doingCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-0.5">Em andamento</div>
+            <div className="text-lg font-bold text-blue-600">{doingCount}</div>
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-            <div className="text-xs font-semibold text-gray-600 mb-1">Pausada</div>
-            <div className="text-2xl font-bold text-orange-600">{pendingCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-0.5">Pausada</div>
+            <div className="text-lg font-bold text-orange-600">{pendingCount}</div>
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-            <div className="text-xs font-semibold text-gray-600 mb-1">Concluídas</div>
-            <div className="text-2xl font-bold text-green-600">{doneCount}</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
+            <div className="text-xs font-semibold text-gray-600 mb-0.5">Concluídas</div>
+            <div className="text-lg font-bold text-green-600">{doneCount}</div>
           </div>
         </div>
 
         {/* Progress Card */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 min-w-64 space-y-1">
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex-1 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-green-700">Progresso hoje</span>
             <span className="text-xs font-bold text-green-600">{progressPercent}%</span>
