@@ -197,24 +197,28 @@ export function TasksListNew() {
   }
 
   const saveInlineChanges = async (taskId: string) => {
-    startTransition(async () => {
-      const task = tasks.find(t => t.id === taskId)
-      if (!task) return
-
-      const updates: any = {}
-      if (inlineStatus && inlineStatus !== task.status) {
-        updates.status = inlineStatus
-      }
-      if (inlineDueDate && inlineDueDate !== task.due_date?.split('T')[0]) {
-        updates.due_date = inlineDueDate
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updateTask(taskId, updates)
-        loadTasks()
-      }
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) {
       setEditingInlineId(null)
-    })
+      return
+    }
+
+    const updates: any = {}
+    if (inlineStatus && inlineStatus !== task.status) {
+      updates.status = inlineStatus
+    }
+    if (inlineDueDate && inlineDueDate !== task.due_date?.split('T')[0]) {
+      updates.due_date = inlineDueDate
+    }
+
+    if (Object.keys(updates).length > 0) {
+      startTransition(async () => {
+        await updateTask(taskId, updates)
+        await loadTasks()
+      })
+    }
+
+    setEditingInlineId(null)
   }
 
   const handleDelete = (taskId: string) => {
@@ -295,15 +299,21 @@ export function TasksListNew() {
           <>
             {editingInlineId === task.id ? (
               <select
+                ref={(el) => el?.focus()}
                 value={inlineStatus || task.status}
                 onChange={(e) => setInlineStatus(e.target.value)}
                 onBlur={() => saveInlineChanges(task.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') saveInlineChanges(task.id)
-                  if (e.key === 'Escape') setEditingInlineId(null)
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    saveInlineChanges(task.id)
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setEditingInlineId(null)
+                  }
                 }}
                 onClick={(e) => e.stopPropagation()}
-                autoFocus
                 className="px-2 py-1 rounded text-xs font-semibold border border-gray-300 bg-white"
               >
                 <option value="todo">A fazer</option>
@@ -329,15 +339,21 @@ export function TasksListNew() {
             {editingInlineId === task.id ? (
               <input
                 type="date"
+                ref={(el) => el?.focus()}
                 value={inlineDueDate || (task.due_date?.split('T')[0] || '')}
                 onChange={(e) => setInlineDueDate(e.target.value)}
                 onBlur={() => saveInlineChanges(task.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') saveInlineChanges(task.id)
-                  if (e.key === 'Escape') setEditingInlineId(null)
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    saveInlineChanges(task.id)
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setEditingInlineId(null)
+                  }
                 }}
                 onClick={(e) => e.stopPropagation()}
-                autoFocus
                 className="px-2 py-1 rounded text-xs border border-gray-300 bg-white"
               />
             ) : (
