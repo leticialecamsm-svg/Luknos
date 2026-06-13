@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { getTasks, updateTaskStatus, updateTask, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
+import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
+import { InlineStatusEditor, InlineDateEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus } from 'lucide-react'
 
 interface Task {
@@ -40,9 +41,6 @@ export function TasksListNew() {
   const [filterPriority, setFilterPriority] = useState<string>('')
   const [showAllCompleted, setShowAllCompleted] = useState(false)
   const [userName, setUserName] = useState<string>('Usuário')
-  const [editingInlineId, setEditingInlineId] = useState<string | null>(null)
-  const [inlineStatus, setInlineStatus] = useState<string>('')
-  const [inlineDueDate, setInlineDueDate] = useState<string>('')
 
   // Carregar tarefas
   const loadTasks = async () => {
@@ -186,41 +184,6 @@ export function TasksListNew() {
     })
   }
 
-  const handleInlineStatusChange = (taskId: string, status: string) => {
-    setEditingInlineId(taskId)
-    setInlineStatus(status)
-  }
-
-  const handleInlineDueDateChange = (taskId: string, dueDate: string) => {
-    setEditingInlineId(taskId)
-    setInlineDueDate(dueDate?.split('T')[0] || '')
-  }
-
-  const saveInlineChanges = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (!task) {
-      setEditingInlineId(null)
-      return
-    }
-
-    const updates: any = {}
-    if (inlineStatus && inlineStatus !== task.status) {
-      updates.status = inlineStatus
-    }
-    if (inlineDueDate && inlineDueDate !== task.due_date?.split('T')[0]) {
-      updates.due_date = inlineDueDate
-    }
-
-    if (Object.keys(updates).length > 0) {
-      startTransition(async () => {
-        await updateTask(taskId, updates)
-        await loadTasks()
-      })
-    }
-
-    setEditingInlineId(null)
-  }
-
   const handleDelete = (taskId: string) => {
     if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
       startTransition(async () => {
@@ -297,80 +260,8 @@ export function TasksListNew() {
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
           <>
-            {editingInlineId === task.id ? (
-              <select
-                ref={(el) => el?.focus()}
-                value={inlineStatus || task.status}
-                onChange={(e) => setInlineStatus(e.target.value)}
-                onBlur={() => saveInlineChanges(task.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    saveInlineChanges(task.id)
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setEditingInlineId(null)
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="px-2 py-1 rounded text-xs font-semibold border border-gray-300 bg-white"
-              >
-                <option value="todo">A fazer</option>
-                <option value="doing">Em andamento</option>
-                <option value="pending">Pendente</option>
-              </select>
-            ) : (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleInlineStatusChange(task.id, task.status)
-                }}
-                className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity ${
-                  task.status === 'todo' ? 'bg-blue-50 text-blue-700' :
-                  task.status === 'doing' ? 'bg-yellow-50 text-yellow-700' :
-                  task.status === 'pending' ? 'bg-orange-50 text-orange-700' :
-                  'bg-green-50 text-green-700'
-                }`}
-              >
-                {STATUS_LABELS[task.status]}
-              </button>
-            )}
-            {editingInlineId === task.id ? (
-              <input
-                type="date"
-                ref={(el) => el?.focus()}
-                value={inlineDueDate || (task.due_date?.split('T')[0] || '')}
-                onChange={(e) => setInlineDueDate(e.target.value)}
-                onBlur={() => saveInlineChanges(task.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    saveInlineChanges(task.id)
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setEditingInlineId(null)
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="px-2 py-1 rounded text-xs border border-gray-300 bg-white"
-              />
-            ) : (
-              task.due_date && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleInlineDueDateChange(task.id, task.due_date || '')
-                  }}
-                  className={`text-xs font-semibold whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
-                    isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-600'
-                  }`}
-                >
-                  {isYesterday(task.due_date) ? '⚠ ontem' : formatDateDisplay(task.due_date)}
-                </button>
-              )
-            )}
+            <InlineStatusEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
+            <InlineDateEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <span className="text-xs font-bold">
               {task.priority === 'high' ? '🔴' : task.priority === 'mid' ? '🟡' : '⚪'}
             </span>

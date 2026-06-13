@@ -27,7 +27,8 @@
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
       "Bash(npx tsc *)",
       "Bash(git commit -m 'Fix: add stopPropagation to inline status and date editors *)",
-      "Bash(git commit -m 'Fix: prevent blur from closing inline editors prematurely *)"
+      "Bash(git commit -m 'Fix: prevent blur from closing inline editors prematurely *)",
+      "Bash(git commit -m 'Rewrite inline task editors with separate components *)"
     ]
   }
 }
