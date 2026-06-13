@@ -188,6 +188,47 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
               </p>
             </div>
           )}
+
+          {/* History */}
+          <div>
+            <h3 className="text-xs font-semibold text-gray-700 mb-3 uppercase">Histórico</h3>
+            <div className="space-y-3">
+              {/* Created */}
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <div className="w-3 h-3 bg-gray-300 rounded-full"></div>
+                  <div className="w-0.5 h-8 bg-gray-200 mt-1"></div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">ontem · 16:45</div>
+                  <div className="text-xs font-semibold text-gray-700">Tarefa criada</div>
+                </div>
+              </div>
+
+              {/* Status changes - example */}
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                  <div className="w-0.5 h-8 bg-gray-200 mt-1"></div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">hoje · 14:20</div>
+                  <div className="text-xs font-semibold text-gray-700">Status → Em andamento</div>
+                </div>
+              </div>
+
+              {/* Last change */}
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">hoje · 14:25</div>
+                  <div className="text-xs font-semibold text-gray-700">Status → {STATUS_LABELS[localTask.status]}</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
