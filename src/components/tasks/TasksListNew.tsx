@@ -406,8 +406,16 @@ export function TasksListNew() {
           <button
             onClick={() => setIsPriorityDropdownOpen(!isPriorityDropdownOpen)}
             className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center gap-2 ${
-              filterPriority ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+              filterPriority === 'high' ? 'bg-red-50 text-red-700 border border-red-200' :
+              filterPriority === 'mid' ? 'text-yellow-900 border-2' :
+              filterPriority === 'low' ? 'bg-white text-gray-600 border-2' :
+              'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
             }`}
+            style={
+              filterPriority === 'mid' ? { backgroundColor: '#FFFBE3', borderColor: '#B69900', color: '#B69900' } :
+              filterPriority === 'low' ? { borderColor: '#E5E3DB', color: '#E5E3DB' } :
+              {}
+            }
           >
             {filterPriority === 'high' && '🔴 Alta'}
             {filterPriority === 'mid' && '🟡 Média'}
