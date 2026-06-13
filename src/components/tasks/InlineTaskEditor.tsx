@@ -327,15 +327,21 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
 
   if (isEditing) {
     return (
-      <div onClick={(e) => e.stopPropagation()}>
+      <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onBlur={handleSave}
+          onBlur={() => {
+            setIsEditing(false)
+            if (title.trim() !== currentTitle.trim() && title.trim()) {
+              handleSave()
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               handleSave()
+              setIsEditing(false)
             } else if (e.key === 'Escape') {
               setTitle(currentTitle)
               setIsEditing(false)
