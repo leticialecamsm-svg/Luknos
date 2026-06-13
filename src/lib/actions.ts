@@ -534,7 +534,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 
   let query = supabase
     .from('tasks')
-    .select('*')
+    .select('*, subtasks(id, done)')
     .eq('user_id', user.id)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -624,6 +624,15 @@ export async function updateTaskStatus(id: string, status: string) {
     }
     return { error: error.message }
   }
+
+  // Se tarefa mãe for marcada como finalizada, finaliza todas as subtarefas também
+  if (status === 'done') {
+    await supabase
+      .from('subtasks')
+      .update({ done: true, updated_at: new Date().toISOString() })
+      .eq('task_id', id)
+  }
+
   revalidatePath('/dashboard/tasks')
   revalidatePath('/dashboard')
   return { ok: true }
@@ -636,6 +645,71 @@ export async function deleteTask(id: string) {
   if (error) return { error: error.message }
   revalidatePath('/dashboard/tasks')
   revalidatePath('/dashboard')
+  return { ok: true }
+}
+
+// ── Subtarefas ─────────────────────────────────────────────────────────────
+
+export async function getSubtasks(taskId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('subtasks')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('position', { ascending: true })
+  if (error) return { error: error.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function createSubtask(taskId: string, title: string) {
+  const supabase = createClient()
+  // pega a posição máxima atual
+  const { data: existing } = await supabase
+    .from('subtasks')
+    .select('position')
+    .eq('task_id', taskId)
+    .order('position', { ascending: false })
+    .limit(1)
+  const nextPosition = existing && existing.length > 0 ? existing[0].position + 1 : 0
+
+  const { data, error } = await supabase
+    .from('subtasks')
+    .insert({ task_id: taskId, title: title.trim(), position: nextPosition })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  return { data }
+}
+
+export async function updateSubtask(id: string, updates: { title?: string; done?: boolean }) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('subtasks')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  return { data }
+}
+
+export async function deleteSubtask(id: string) {
+  const supabase = createClient()
+  const { error } = await supabase.from('subtasks').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard/tasks')
+  return { ok: true }
+}
+
+export async function completeAllSubtasks(taskId: string) {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('subtasks')
+    .update({ done: true, updated_at: new Date().toISOString() })
+    .eq('task_id', taskId)
+  if (error) return { error: error.message }
   return { ok: true }
 }
 

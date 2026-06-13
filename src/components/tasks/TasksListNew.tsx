@@ -17,6 +17,7 @@ interface Task {
   due_date?: string
   completed_at?: string | null
   checklist?: { text: string; done: boolean }[]
+  subtasks?: { id: string; done: boolean }[]
   created_at: string
 }
 
@@ -320,13 +321,13 @@ export function TasksListNew() {
             </h4>
           )}
         </div>
-        {task.checklist && task.checklist.length > 0 && (
+        {task.subtasks && task.subtasks.length > 0 && (
           <p
             className={`text-xs mt-0.5 ${
-              isCompleted ? 'text-gray-400' : 'text-gray-600'
+              isCompleted ? 'text-gray-400' : 'text-gray-500'
             }`}
           >
-            {task.checklist.filter(c => c.done).length}/{task.checklist.length} subtarefas
+            {task.subtasks.filter((s: { done: boolean }) => s.done).length}/{task.subtasks.length} subtarefas · {STATUS_LABELS[task.status as keyof typeof STATUS_LABELS] || task.status}
           </p>
         )}
       </div>

@@ -3,6 +3,7 @@
 import { X, Edit2, Trash2 } from 'lucide-react'
 import { deleteTask, updateTaskStatus } from '@/lib/actions'
 import { useState } from 'react'
+import { SubtasksList } from './SubtasksList'
 
 interface Task {
   id: string
@@ -177,6 +178,14 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Subtarefas */}
+          <div className="border-t border-gray-100 pt-4">
+            <SubtasksList
+              taskId={localTask.id}
+              allDone={localTask.status === 'done'}
+            />
           </div>
 
           {/* Observations */}
