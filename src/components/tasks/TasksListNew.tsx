@@ -291,7 +291,10 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div className="flex-1 cursor-pointer min-w-0">
+      <div
+        onClick={() => setViewTask(task)}
+        className="flex-1 cursor-pointer min-w-0"
+      >
         {!isCompleted ? (
           <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
         ) : (

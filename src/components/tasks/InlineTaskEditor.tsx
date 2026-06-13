@@ -342,6 +342,7 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
         }}
         autoFocus
         disabled={saving}
+        onClick={(e) => e.stopPropagation()}
         className="flex-1 text-sm font-semibold border border-blue-400 rounded px-2 py-1 outline-none"
       />
     )
@@ -349,11 +350,14 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
 
   return (
     <h4
-      onClick={() => setIsEditing(true)}
-      className={`text-sm font-semibold cursor-text hover:text-blue-600 transition-colors ${
+      onClick={(e) => {
+        e.stopPropagation()
+        setIsEditing(true)
+      }}
+      className={`text-sm font-semibold cursor-text hover:underline hover:text-blue-600 transition-colors ${
         error ? 'text-red-600' : 'text-gray-900'
       }`}
-      title="Clique para editar"
+      title="Clique para editar o título"
     >
       {error ? '⚠️ Erro ao salvar' : currentTitle}
     </h4>
