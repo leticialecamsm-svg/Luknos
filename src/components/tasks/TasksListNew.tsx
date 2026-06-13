@@ -291,20 +291,23 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div
-        onClick={() => setViewTask(task)}
-        className="flex-1 min-w-0 cursor-pointer"
-      >
+      <div className="flex-1 min-w-0">
         {!isCompleted ? (
-          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+          <div onClick={() => setViewTask(task)} className="cursor-pointer">
+            <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+          </div>
         ) : (
-          <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
+          <h4
+            onClick={() => setViewTask(task)}
+            className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600 cursor-pointer"
+          >
             {task.title}
           </h4>
         )}
         {task.checklist && task.checklist.length > 0 && (
           <p
-            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors ${
+            onClick={() => setViewTask(task)}
+            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors cursor-pointer ${
               isCompleted ? 'text-gray-400' : 'text-gray-600'
             }`}
           >

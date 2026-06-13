@@ -329,6 +329,8 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
     return (
       <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
         <input
+          id={`task-title-${taskId}`}
+          name={`task-title-${taskId}`}
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
