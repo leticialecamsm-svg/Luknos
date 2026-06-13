@@ -293,19 +293,23 @@ export function TasksListNew() {
       />
       <div
         onClick={() => setViewTask(task)}
-        className="flex-1 cursor-pointer min-w-0"
+        className="flex-1 min-w-0 cursor-pointer"
       >
         {!isCompleted ? (
-          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+          <div onClick={(e) => e.stopPropagation()}>
+            <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+          </div>
         ) : (
-          <h4 className="text-sm font-semibold text-gray-500 line-through">
+          <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
             {task.title}
           </h4>
         )}
         {task.checklist && task.checklist.length > 0 && (
-          <p className={`text-xs mt-0.5 ${
-            isCompleted ? 'text-gray-400' : 'text-gray-600'
-          }`}>
+          <p
+            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors ${
+              isCompleted ? 'text-gray-400' : 'text-gray-600'
+            }`}
+          >
             {task.checklist.filter(c => c.done).length}/{task.checklist.length} subtarefas
           </p>
         )}
