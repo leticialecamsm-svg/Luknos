@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Trash2, Check } from 'lucide-react'
-import { getSubtasks, createSubtask, updateSubtask, deleteSubtask } from '@/lib/actions'
+import { getSubtasks, createSubtask, updateSubtask, deleteSubtask, updateTaskStatus } from '@/lib/actions'
 
 interface Subtask {
   id: string
@@ -52,8 +52,15 @@ export function SubtasksList({ taskId, allDone, onSubtasksChange }: SubtasksList
 
   const handleToggle = async (subtask: Subtask) => {
     const newDone = !subtask.done
-    setSubtasks(prev => prev.map(s => s.id === subtask.id ? { ...s, done: newDone } : s))
+    const updated = subtasks.map(s => s.id === subtask.id ? { ...s, done: newDone } : s)
+    setSubtasks(updated)
     await updateSubtask(subtask.id, { done: newDone })
+
+    // Se todas as subtarefas agora estão concluídas, finaliza a tarefa mãe
+    if (newDone && updated.length > 0 && updated.every(s => s.done)) {
+      await updateTaskStatus(taskId, 'done')
+    }
+
     onSubtasksChange?.()
   }
 
