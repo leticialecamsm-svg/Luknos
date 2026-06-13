@@ -85,7 +85,7 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
       >
         <option value="todo">A fazer</option>
         <option value="doing">Em andamento</option>
-        <option value="pending">Pausada</option>
+        <option value="paused">Pausada</option>
       </select>
     )
   }
