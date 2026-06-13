@@ -308,10 +308,10 @@ export function TasksListNew() {
                   e.stopPropagation()
                   titleEditorRef.current?.startEditing()
                 }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-50 rounded"
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-yellow-50 rounded"
                 title="Editar título"
               >
-                <Pencil className="w-3 h-3 text-blue-600" />
+                <Pencil className="w-3 h-3" style={{ color: '#CBA455' }} />
               </button>
             </>
           ) : (
