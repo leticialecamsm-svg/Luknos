@@ -486,38 +486,37 @@ export function TasksListNew() {
 
       {/* Quando há filtro de prioridade, mostrar apenas as tarefas daquela prioridade */}
       {filterPriority && filterStatus !== 'done' && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-3 py-2">
-            <div className="flex items-center gap-2">
-              <span className={`font-bold text-lg ${
-                filterPriority === 'high' ? 'text-red-600' :
-                filterPriority === 'mid' ? 'text-yellow-600' :
-                'text-gray-400'
-              }`}>●</span>
-              <span className={`text-xs font-bold uppercase tracking-wide ${
-                filterPriority === 'high' ? 'text-red-700' :
-                filterPriority === 'mid' ? 'text-yellow-700' :
-                'text-gray-700'
-              }`}>
-                {filterPriority === 'high' && 'Alta Prioridade'}
-                {filterPriority === 'mid' && 'Média Prioridade'}
-                {filterPriority === 'low' && 'Baixa Prioridade'}
-              </span>
-              {filterPriority === 'low' && (
-                <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="2" />
-                </svg>
-              )}
-            </div>
-            <span className={`text-sm font-bold ${
+        <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
+          <div className={`flex items-center gap-2 px-3 py-2 ${
+            filterPriority === 'high' ? 'bg-red-50' :
+            filterPriority === 'mid' ? 'bg-yellow-50' :
+            'bg-gray-50'
+          }`}>
+            <span className={`font-bold text-lg ${
               filterPriority === 'high' ? 'text-red-600' :
               filterPriority === 'mid' ? 'text-yellow-600' :
               'text-gray-400'
+            }`}>●</span>
+            <span className={`text-xs font-bold uppercase tracking-wide ${
+              filterPriority === 'high' ? 'text-red-700' :
+              filterPriority === 'mid' ? 'text-yellow-700' :
+              'text-gray-700'
+            }`}>
+              {filterPriority === 'high' && 'Alta Prioridade'}
+              {filterPriority === 'mid' && 'Média Prioridade'}
+              {filterPriority === 'low' && 'Baixa Prioridade'}
+            </span>
+            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+              filterPriority === 'high' ? 'bg-red-200 text-red-700' :
+              filterPriority === 'mid' ? 'bg-yellow-200 text-yellow-700' :
+              'bg-gray-200 text-gray-700'
             }`}>
               {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).length}
             </span>
           </div>
-          {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).map(task => renderTaskRow(task, false))}
+          <div className="space-y-0">
+            {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).map(task => renderTaskRow(task, false))}
+          </div>
         </div>
       )}
 
@@ -525,15 +524,17 @@ export function TasksListNew() {
       {!filterPriority && filterStatus !== 'done' && (
         <>
           {/* ALTA PRIORIDADE */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="text-red-600 font-bold">●</span>
-                <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Alta Prioridade</span>
-              </div>
-              <span className="text-sm font-bold text-red-600">{highPriorityTasks.length}</span>
+          <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50">
+              <span className="text-red-600 font-bold">●</span>
+              <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Alta Prioridade</span>
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-red-200 text-red-700">
+                {highPriorityTasks.length}
+              </span>
             </div>
-            {highPriorityTasks.map(task => renderTaskRow(task, false))}
+            <div className="space-y-0">
+                {highPriorityTasks.map(task => renderTaskRow(task, false))}
+            </div>
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -561,12 +562,16 @@ export function TasksListNew() {
           </div>
 
           {/* OUTRAS TAREFAS */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-3 py-2">
+          <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
+            <div className="flex items-center gap-2 px-3 py-2 bg-gray-50">
               <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Outras Tarefas</span>
-              <span className="text-sm font-bold text-gray-600">{otherTasks.length}</span>
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-gray-200 text-gray-700">
+                {otherTasks.length}
+              </span>
             </div>
-            {otherTasks.map(task => renderTaskRow(task, false))}
+            <div className="space-y-0">
+              {otherTasks.map(task => renderTaskRow(task, false))}
+            </div>
             <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -608,18 +613,17 @@ export function TasksListNew() {
         if (!showAllMode && completedTodayTasks.length === 0) return null
 
         return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-3 py-2 bg-green-50 rounded">
-              <div className="flex items-center gap-2">
-                <span className="text-green-600 font-bold">✓</span>
-                <span className="text-xs font-bold text-green-700 uppercase tracking-wide">
-                  {showAllMode ? 'Concluídas' : 'Concluídas Hoje'}
-                </span>
-              </div>
-              <span className="text-sm font-bold text-green-600">
+          <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50">
+              <span className="text-green-600 font-bold">✓</span>
+              <span className="text-xs font-bold text-green-700 uppercase tracking-wide">
+                {showAllMode ? 'Concluídas' : 'Concluídas Hoje'}
+              </span>
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-green-200 text-green-700">
                 {showAllMode ? totalCompleted : completedTodayTasks.length}
               </span>
             </div>
+            <div className="space-y-0">
             {showAllMode ? (
               <>
                 {/* Todas as concluídas, ordenadas do mais recente ao mais antigo */}
@@ -640,6 +644,7 @@ export function TasksListNew() {
             ) : (
               completedTodayTasks.map((task) => renderTaskRow(task, true))
             )}
+            </div>
           </div>
         )
       })()}

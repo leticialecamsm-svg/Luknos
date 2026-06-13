@@ -30,7 +30,11 @@
       "Bash(git commit -m 'Fix: prevent blur from closing inline editors prematurely *)",
       "Bash(git commit -m 'Rewrite inline task editors with separate components *)",
       "Bash(git commit -m 'Improve InlineDateEditor to show '\\\\''Sem prazo'\\\\'' when no due date *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git rebase *)",
+      "Bash(git merge *)",
+      "Bash(git rm *)",
+      "Bash(npm install *)"
     ]
   }
 }
