@@ -413,7 +413,7 @@ export function TasksListNew() {
             }`}
             style={
               filterPriority === 'mid' ? { backgroundColor: '#FFFBE3', borderColor: '#B69900', color: '#B69900' } :
-              filterPriority === 'low' ? { borderColor: '#E5E3DB', color: '#E5E3DB' } :
+              filterPriority === 'low' ? { borderColor: '#E5E3DB', color: '#344153' } :
               {}
             }
           >
