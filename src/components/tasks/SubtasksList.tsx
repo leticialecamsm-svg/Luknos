@@ -16,9 +16,10 @@ interface Subtask {
 interface SubtasksListProps {
   taskId: string
   allDone?: boolean // quando tarefa mãe é finalizada
+  onSubtasksChange?: () => void
 }
 
-export function SubtasksList({ taskId, allDone }: SubtasksListProps) {
+export function SubtasksList({ taskId, allDone, onSubtasksChange }: SubtasksListProps) {
   const [subtasks, setSubtasks] = useState<Subtask[]>([])
   const [loading, setLoading] = useState(true)
   const [newTitle, setNewTitle] = useState('')
@@ -53,6 +54,7 @@ export function SubtasksList({ taskId, allDone }: SubtasksListProps) {
     const newDone = !subtask.done
     setSubtasks(prev => prev.map(s => s.id === subtask.id ? { ...s, done: newDone } : s))
     await updateSubtask(subtask.id, { done: newDone })
+    onSubtasksChange?.()
   }
 
   const handleAdd = async () => {
@@ -64,6 +66,7 @@ export function SubtasksList({ taskId, allDone }: SubtasksListProps) {
     const result = await createSubtask(taskId, newTitle)
     if (result.data) {
       setSubtasks(prev => [...prev, result.data as Subtask])
+      onSubtasksChange?.()
     }
     setNewTitle('')
     setAdding(false)
@@ -73,6 +76,7 @@ export function SubtasksList({ taskId, allDone }: SubtasksListProps) {
   const handleDelete = async (id: string) => {
     setSubtasks(prev => prev.filter(s => s.id !== id))
     await deleteSubtask(id)
+    onSubtasksChange?.()
   }
 
   const handleTitleEdit = async (subtask: Subtask, newTitle: string) => {

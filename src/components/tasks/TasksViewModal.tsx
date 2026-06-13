@@ -185,6 +185,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
             <SubtasksList
               taskId={localTask.id}
               allDone={localTask.status === 'done'}
+              onSubtasksChange={onStatusChange}
             />
           </div>
 
