@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
 import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
-import { Trash2, Edit2, Plus } from 'lucide-react'
+import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
 
 interface Task {
   id: string
@@ -263,7 +263,10 @@ export function TasksListNew() {
     })
   }
 
-  const renderTaskRow = (task: Task, isCompleted: boolean = false) => (
+  const renderTaskRow = (task: Task, isCompleted: boolean = false) => {
+    const titleEditorRef = useRef<any>(null)
+
+    return (
     <div
       key={task.id}
       draggable={!isCompleted}
@@ -291,35 +294,40 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div className="flex-1 min-w-0">
-        {!isCompleted ? (
-          <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
-        ) : (
-          <h4
-            onClick={() => setViewTask(task)}
-            className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600 cursor-pointer"
-          >
-            {task.title}
-          </h4>
-        )}
+      <div
+        onClick={() => setViewTask(task)}
+        className="flex-1 min-w-0 cursor-pointer group"
+      >
+        <div className="flex items-center gap-2">
+          {!isCompleted ? (
+            <>
+              <InlineTitleEditor ref={titleEditorRef} taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  titleEditorRef.current?.startEditing()
+                }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-50 rounded"
+                title="Editar título"
+              >
+                <Pencil className="w-3 h-3 text-blue-600" />
+              </button>
+            </>
+          ) : (
+            <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
+              {task.title}
+            </h4>
+          )}
+        </div>
         {task.checklist && task.checklist.length > 0 && (
           <p
-            onClick={() => setViewTask(task)}
-            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors cursor-pointer ${
+            className={`text-xs mt-0.5 ${
               isCompleted ? 'text-gray-400' : 'text-gray-600'
             }`}
           >
             {task.checklist.filter(c => c.done).length}/{task.checklist.length} subtarefas
           </p>
         )}
-        {!task.checklist || task.checklist.length === 0 ? (
-          <p
-            onClick={() => setViewTask(task)}
-            className="text-xs text-gray-400 cursor-pointer hover:text-blue-500 mt-0.5"
-          >
-            (clique para ver detalhes)
-          </p>
-        ) : null}
       </div>
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
@@ -363,7 +371,8 @@ export function TasksListNew() {
         </button>
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div className="space-y-3">

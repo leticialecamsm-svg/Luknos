@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, forwardRef, useImperativeHandle } from 'react'
 import { updateTask } from '@/lib/actions'
 
 interface InlineTaskEditorProps {
@@ -301,11 +301,18 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   )
 }
 
-export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: string; currentTitle: string; onSave: () => void }) {
+export const InlineTitleEditor = forwardRef(function InlineTitleEditor(
+  { taskId, currentTitle, onSave }: { taskId: string; currentTitle: string; onSave: () => void },
+  ref
+) {
   const [isEditing, setIsEditing] = useState(false)
   const [title, setTitle] = useState(currentTitle)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    startEditing: () => setIsEditing(true),
+  }))
 
   const handleSave = async () => {
     if (title.trim() !== currentTitle.trim() && title.trim()) {
@@ -371,4 +378,4 @@ export function InlineTitleEditor({ taskId, currentTitle, onSave }: { taskId: st
       {error ? '⚠️ Erro ao salvar' : currentTitle}
     </h4>
   )
-}
+})
