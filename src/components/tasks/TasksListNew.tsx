@@ -291,36 +291,35 @@ export function TasksListNew() {
             : 'border-gray-300'
         }`}
       />
-      <div
-        onClick={(e) => {
-          const target = e.target as HTMLElement
-          console.log('Click em:', target.tagName, 'Classe:', target.className)
-          // Só abre o modal se não foi um clique no input de edição do título
-          if (target.tagName !== 'INPUT' && target.tagName !== 'H4') {
-            console.log('Abrindo modal...')
-            setViewTask(task)
-          } else {
-            console.log('Não abrir modal - tagName é:', target.tagName)
-          }
-        }}
-        className="flex-1 min-w-0 cursor-pointer"
-      >
+      <div className="flex-1 min-w-0">
         {!isCompleted ? (
           <InlineTitleEditor taskId={task.id} currentTitle={task.title} onSave={loadTasks} />
         ) : (
-          <h4 className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600">
+          <h4
+            onClick={() => setViewTask(task)}
+            className="text-sm font-semibold text-gray-500 line-through hover:text-gray-600 cursor-pointer"
+          >
             {task.title}
           </h4>
         )}
         {task.checklist && task.checklist.length > 0 && (
           <p
-            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors ${
+            onClick={() => setViewTask(task)}
+            className={`text-xs mt-0.5 hover:text-blue-600 transition-colors cursor-pointer ${
               isCompleted ? 'text-gray-400' : 'text-gray-600'
             }`}
           >
             {task.checklist.filter(c => c.done).length}/{task.checklist.length} subtarefas
           </p>
         )}
+        {!task.checklist || task.checklist.length === 0 ? (
+          <p
+            onClick={() => setViewTask(task)}
+            className="text-xs text-gray-400 cursor-pointer hover:text-blue-500 mt-0.5"
+          >
+            (clique para ver detalhes)
+          </p>
+        ) : null}
       </div>
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
