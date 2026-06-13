@@ -484,8 +484,40 @@ export function TasksListNew() {
         </button>
       </div>
 
-      {/* Mostrar apenas ALTA PRIORIDADE e OUTRAS TAREFAS se não estiver vendo Concluídas */}
-      {filterStatus !== 'done' && (
+      {/* Quando há filtro de prioridade, mostrar apenas as tarefas daquela prioridade */}
+      {filterPriority && filterStatus !== 'done' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className={`font-bold ${
+                filterPriority === 'high' ? 'text-red-600' :
+                filterPriority === 'mid' ? 'text-yellow-600' :
+                'text-gray-600'
+              }`}>●</span>
+              <span className={`text-xs font-bold uppercase tracking-wide ${
+                filterPriority === 'high' ? 'text-red-700' :
+                filterPriority === 'mid' ? 'text-yellow-700' :
+                'text-gray-700'
+              }`}>
+                {filterPriority === 'high' && 'Alta Prioridade'}
+                {filterPriority === 'mid' && 'Média Prioridade'}
+                {filterPriority === 'low' && 'Baixa Prioridade'}
+              </span>
+            </div>
+            <span className={`text-sm font-bold ${
+              filterPriority === 'high' ? 'text-red-600' :
+              filterPriority === 'mid' ? 'text-yellow-600' :
+              'text-gray-600'
+            }`}>
+              {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).length}
+            </span>
+          </div>
+          {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).map(task => renderTaskRow(task, false))}
+        </div>
+      )}
+
+      {/* Mostrar apenas ALTA PRIORIDADE e OUTRAS TAREFAS se não estiver vendo Concluídas E não houver filtro de prioridade */}
+      {!filterPriority && filterStatus !== 'done' && (
         <>
           {/* ALTA PRIORIDADE */}
           <div className="space-y-2">

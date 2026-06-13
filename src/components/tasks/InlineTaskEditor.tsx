@@ -224,10 +224,10 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const priorityEmoji = {
-    high: '✓',
-    mid: '✓',
-    low: '✓',
+  const priorityIcon = {
+    high: '›',
+    mid: '›',
+    low: '›',
   }
 
   const handleSave = async () => {
@@ -281,11 +281,11 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
           setError(null)
         }}
         title={error ? `Erro: ${error}` : `Prioridade: ${priority === 'high' ? 'Alta' : priority === 'mid' ? 'Média' : 'Baixa'}`}
-        className={`text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity ${
-          error ? 'text-red-600' : ''
+        className={`text-lg font-bold cursor-pointer hover:opacity-80 transition-opacity ${
+          error ? 'text-red-600' : 'text-gray-600'
         }`}
       >
-        {error ? '⚠️' : priorityEmoji[priority as keyof typeof priorityEmoji]}
+        {error ? '⚠️' : priorityIcon[priority as keyof typeof priorityIcon]}
       </button>
       {error && <div className="text-xs text-red-600 mt-1 px-1">{error}</div>}
     </div>
