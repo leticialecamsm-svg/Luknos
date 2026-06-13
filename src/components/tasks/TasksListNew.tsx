@@ -42,6 +42,7 @@ export function TasksListNew() {
   const [showAllCompleted, setShowAllCompleted] = useState(false)
   const [userName, setUserName] = useState<string>('Usuário')
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
+  const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
   // Carregar tarefas
   const loadTasks = async () => {
@@ -391,11 +392,6 @@ export function TasksListNew() {
 
       {/* Filtros */}
       <div className="flex gap-2 flex-wrap items-center">
-        <input
-          type="text"
-          placeholder="Buscar tarefas..."
-          className="px-4 py-2 border border-gray-300 rounded-full text-sm bg-white flex-1 min-w-48 focus:outline-none focus:border-blue-500"
-        />
         <button
           onClick={() => { setFilterPriority(''); setFilterStatus('') }}
           className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
@@ -408,6 +404,7 @@ export function TasksListNew() {
         {/* Priority Dropdown */}
         <div className="relative">
           <button
+            onClick={() => setIsPriorityDropdownOpen(!isPriorityDropdownOpen)}
             className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center gap-2 ${
               filterPriority ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
             }`}
@@ -416,37 +413,48 @@ export function TasksListNew() {
             {filterPriority === 'mid' && '🟡 Média'}
             {filterPriority === 'low' && '⚪ Baixa'}
             {!filterPriority && '🔴 Alta'}
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-4 h-4 transition-transform ${isPriorityDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
           </button>
 
-          <div className="absolute top-full mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
-            <button
-              onClick={() => setFilterPriority(filterPriority === 'high' ? '' : 'high')}
-              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
-                filterPriority === 'high' ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'
-              }`}
-            >
-              🔴 Alta
-            </button>
-            <button
-              onClick={() => setFilterPriority(filterPriority === 'mid' ? '' : 'mid')}
-              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
-                filterPriority === 'mid' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-gray-700'
-              }`}
-            >
-              🟡 Média
-            </button>
-            <button
-              onClick={() => setFilterPriority(filterPriority === 'low' ? '' : 'low')}
-              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors rounded-b-lg ${
-                filterPriority === 'low' ? 'bg-slate-50 text-slate-700 font-semibold' : 'text-gray-700'
-              }`}
-            >
-              ⚪ Baixa
-            </button>
-          </div>
+          {isPriorityDropdownOpen && (
+            <div className="absolute top-full mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
+              <button
+                onClick={() => {
+                  setFilterPriority(filterPriority === 'high' ? '' : 'high')
+                  setIsPriorityDropdownOpen(false)
+                }}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                  filterPriority === 'high' ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'
+                }`}
+              >
+                🔴 Alta
+              </button>
+              <button
+                onClick={() => {
+                  setFilterPriority(filterPriority === 'mid' ? '' : 'mid')
+                  setIsPriorityDropdownOpen(false)
+                }}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                  filterPriority === 'mid' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-gray-700'
+                }`}
+              >
+                🟡 Média
+              </button>
+              <button
+                onClick={() => {
+                  setFilterPriority(filterPriority === 'low' ? '' : 'low')
+                  setIsPriorityDropdownOpen(false)
+                }}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors rounded-b-lg ${
+                  filterPriority === 'low' ? 'bg-slate-50 text-slate-700 font-semibold' : 'text-gray-700'
+                }`}
+              >
+                ⚪ Baixa
+              </button>
+            </div>
+          )}
         </div>
 
         <button
@@ -455,22 +463,11 @@ export function TasksListNew() {
             setShowAllCompleted(false)
           }}
           className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterStatus === 'done' && !showAllCompleted ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+            filterStatus === 'done' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
           }`}
         >
           Concluídas
         </button>
-
-        {filterStatus === 'done' && (
-          <button
-            onClick={() => setShowAllCompleted(!showAllCompleted)}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-              showAllCompleted ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            Ver histórico
-          </button>
-        )}
       </div>
 
       {/* Mostrar apenas ALTA PRIORIDADE e OUTRAS TAREFAS se não estiver vendo Concluídas */}
