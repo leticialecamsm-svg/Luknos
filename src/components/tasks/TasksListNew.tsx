@@ -7,6 +7,7 @@ import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
 import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
+import { useToast } from '@/components/ui/Toast'
 
 interface Task {
   id: string
@@ -29,6 +30,7 @@ const STATUS_LABELS = {
 }
 
 export function TasksListNew() {
+  const toast = useToast()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [viewTask, setViewTask] = useState<Task | null>(null)
@@ -191,10 +193,13 @@ export function TasksListNew() {
 
   const handleCheckboxChange = async (taskId: string, currentStatus: string) => {
     startTransition(async () => {
-      // Se já está concluída, voltar para "Em andamento"
-      // Se não está concluída, marcar como "Concluída"
       const newStatus = currentStatus === 'done' ? 'doing' : 'done'
-      await updateTaskStatus(taskId, newStatus)
+      const result = await updateTaskStatus(taskId, newStatus)
+      if (result?.error) {
+        toast.error('OCORREU UM ERRO', 'Não foi possível atualizar a tarefa.')
+      } else {
+        toast.success('TUDO CERTO!', newStatus === 'done' ? 'Tarefa finalizada!' : 'Tarefa reaberta.')
+      }
       loadTasks()
     })
   }
@@ -233,7 +238,12 @@ export function TasksListNew() {
   const handleDelete = (taskId: string) => {
     if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
       startTransition(async () => {
-        await deleteTask(taskId)
+        const result = await deleteTask(taskId)
+        if (result?.error) {
+          toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
+        } else {
+          toast.success('TUDO CERTO!', 'Tarefa excluída.')
+        }
         loadTasks()
       })
     }

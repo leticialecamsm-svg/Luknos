@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createQuote, searchContacts, createContact } from '@/lib/actions'
+import { useToast } from '@/components/ui/Toast'
 import { Loader2, Search, X, Plus } from 'lucide-react'
 import type { User } from '@/types'
 
@@ -192,6 +193,7 @@ function ContactSearch({
 
 export function NewQuoteForm({ currentUserId, users }: Props) {
   const router = useRouter()
+  const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [selectedClient, setSelectedClient] = useState<any>(null)
@@ -226,7 +228,8 @@ export function NewQuoteForm({ currentUserId, users }: Props) {
         primary_owner_id: primaryOwner ?? undefined,
         collaborator_ids: collaborators,
       })
-      if (result.error) { setError(result.error); return }
+      if (result.error) { setError(result.error); toast.error('OCORREU UM ERRO', 'Não foi possível criar o orçamento.'); return }
+      toast.success('TUDO CERTO!', 'Orçamento criado com sucesso.')
       window.location.href = '/quotes'
     })
   }

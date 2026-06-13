@@ -4,6 +4,7 @@ import { X, Edit2, Trash2 } from 'lucide-react'
 import { deleteTask, updateTaskStatus } from '@/lib/actions'
 import { useState } from 'react'
 import { SubtasksList } from './SubtasksList'
+import { useToast } from '@/components/ui/Toast'
 
 interface Task {
   id: string
@@ -60,20 +61,32 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
   const [localTask, setLocalTask] = useState(task)
   const [deleting, setDeleting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const toast = useToast()
 
   const handleDelete = async () => {
     if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
       setDeleting(true)
-      await deleteTask(task.id)
-      onClose()
+      const result = await deleteTask(task.id)
+      if (result?.error) {
+        toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
+        setDeleting(false)
+      } else {
+        toast.success('TUDO CERTO!', 'Tarefa excluída com sucesso.')
+        onClose()
+      }
     }
   }
 
   const handleStatusChange = async (newStatus: string) => {
     setUpdating(true)
     setLocalTask({ ...localTask, status: newStatus as Task['status'] })
-    await updateTaskStatus(task.id, newStatus)
+    const result = await updateTaskStatus(task.id, newStatus)
     setUpdating(false)
+    if (result?.error) {
+      toast.error('OCORREU UM ERRO', 'Não foi possível atualizar o status.')
+    } else {
+      toast.success('TUDO CERTO!', 'Status atualizado com sucesso.')
+    }
     onStatusChange?.()
   }
 
@@ -81,8 +94,13 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
     setUpdating(true)
     const newStatus = localTask.status === 'done' ? 'doing' : 'done'
     setLocalTask({ ...localTask, status: newStatus as Task['status'] })
-    await updateTaskStatus(task.id, newStatus)
+    const result = await updateTaskStatus(task.id, newStatus)
     setUpdating(false)
+    if (result?.error) {
+      toast.error('OCORREU UM ERRO', 'Não foi possível atualizar a tarefa.')
+    } else {
+      toast.success('TUDO CERTO!', newStatus === 'done' ? 'Tarefa finalizada!' : 'Tarefa reaberta.')
+    }
     onStatusChange?.()
   }
 

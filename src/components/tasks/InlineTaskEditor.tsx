@@ -2,6 +2,7 @@
 
 import { useState, forwardRef, useImperativeHandle } from 'react'
 import { updateTask } from '@/lib/actions'
+import { useToast } from '@/components/ui/Toast'
 
 interface InlineTaskEditorProps {
   taskId: string
@@ -62,6 +63,7 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
   const [status, setStatus] = useState(currentStatus)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toast = useToast()
 
   const handleSave = async () => {
     if (status !== currentStatus) {
@@ -72,10 +74,10 @@ export function InlineStatusEditor({ taskId, currentStatus, onSave }: InlineTask
 
       if (result?.error) {
         setError(result.error)
-        console.error('Error updating task status:', result.error)
-        // Reset status to previous value on error
         setStatus(currentStatus)
+        toast.error('OCORREU UM ERRO', 'Não foi possível atualizar o status.')
       } else {
+        toast.success('TUDO CERTO!', 'Status atualizado.')
         onSave()
       }
     }
@@ -136,6 +138,7 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
   const [dueDate, setDueDate] = useState(currentDueDate?.split('T')[0] || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toast = useToast()
 
   const formatDateDisplay = (dateStr: string | undefined) => {
     if (!dateStr) return 'Sem prazo'
@@ -166,10 +169,10 @@ export function InlineDateEditor({ taskId, currentDueDate, onSave }: InlineTaskE
 
       if (result?.error) {
         setError(result.error)
-        console.error('Error updating task due date:', result.error)
-        // Reset date to previous value on error
         setDueDate(currentDueDate?.split('T')[0] || '')
+        toast.error('OCORREU UM ERRO', 'Não foi possível atualizar a data.')
       } else {
+        toast.success('TUDO CERTO!', 'Data atualizada.')
         onSave()
       }
     }
@@ -223,6 +226,7 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
   const [priority, setPriority] = useState(currentPriority || 'mid')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toast = useToast()
 
   const priorityIcon = {
     high: '›',
@@ -239,10 +243,10 @@ export function InlinePriorityEditor({ taskId, currentPriority, onSave }: Inline
 
       if (result?.error) {
         setError(result.error)
-        console.error('Error updating task priority:', result.error)
-        // Reset priority to previous value on error
         setPriority(currentPriority || 'mid')
+        toast.error('OCORREU UM ERRO', 'Não foi possível atualizar a prioridade.')
       } else {
+        toast.success('TUDO CERTO!', 'Prioridade atualizada.')
         onSave()
       }
     }
@@ -309,6 +313,7 @@ export const InlineTitleEditor = forwardRef(function InlineTitleEditor(
   const [title, setTitle] = useState(currentTitle)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toast = useToast()
 
   useImperativeHandle(ref, () => ({
     startEditing: () => setIsEditing(true),
@@ -323,9 +328,10 @@ export const InlineTitleEditor = forwardRef(function InlineTitleEditor(
 
       if (result?.error) {
         setError(result.error)
-        console.error('Error updating task title:', result.error)
         setTitle(currentTitle)
+        toast.error('OCORREU UM ERRO', 'Não foi possível atualizar o título.')
       } else {
+        toast.success('TUDO CERTO!', 'Título atualizado.')
         onSave()
       }
     }

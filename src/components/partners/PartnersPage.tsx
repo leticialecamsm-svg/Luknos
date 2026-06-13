@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { createContact, deleteContact, searchContacts } from '@/lib/actions'
+import { useToast } from '@/components/ui/Toast'
 import { Search, Plus, Trash2, X, User2, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +28,7 @@ const TYPE_COLOR: Record<string, string> = {
 }
 
 export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
+  const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [contacts, setContacts] = useState(initialContacts)
   const [search, setSearch] = useState('')
@@ -53,11 +55,10 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
     if (!name.trim()) return
     startTransition(async () => {
       const res = await createContact({ name: name.trim(), phone: phone || undefined, email: email || undefined, type, company: company || undefined })
-      if (res.error) { setMsg({ type: 'err', text: res.error }); return }
+      if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
       setContacts(prev => [...prev, res.data].sort((a,b) => a.name.localeCompare(b.name)))
-      setMsg({ type: 'ok', text: `${name} adicionado(a) com sucesso!` })
+      toast.success('TUDO CERTO!', `${name} adicionado(a) com sucesso!`)
       setName(''); setPhone(''); setEmail(''); setCompany(''); setShowForm(false)
-      setTimeout(() => setMsg(null), 3000)
     })
   }
 
@@ -65,7 +66,8 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
     if (!confirm(`Excluir "${contactName}"?`)) return
     startTransition(async () => {
       const res = await deleteContact(id)
-      if (res.error) { setMsg({ type: 'err', text: res.error }); return }
+      if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
+      toast.success('TUDO CERTO!', `${contactName} excluído(a).`)
       setContacts(prev => prev.filter(c => c.id !== id))
     })
   }

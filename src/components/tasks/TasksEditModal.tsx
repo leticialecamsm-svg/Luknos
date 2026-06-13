@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { updateTask } from '@/lib/actions'
 import { X } from 'lucide-react'
+import { useToast } from '@/components/ui/Toast'
 
 interface Task {
   id: string
@@ -23,6 +24,7 @@ interface TasksEditModalProps {
 
 export function TasksEditModal({ task, onClose, onSuccess }: TasksEditModalProps) {
   const [loading, setLoading] = useState(false)
+  const toast = useToast()
   const [formData, setFormData] = useState({
     title: task.title,
     description: task.description || '',
@@ -59,8 +61,9 @@ export function TasksEditModal({ task, onClose, onSuccess }: TasksEditModalProps
     setLoading(false)
 
     if (result.error) {
-      alert(result.error)
+      toast.error('OCORREU UM ERRO', 'Não foi possível salvar as alterações.')
     } else {
+      toast.success('TUDO CERTO!', 'Tarefa atualizada com sucesso.')
       onSuccess()
     }
   }

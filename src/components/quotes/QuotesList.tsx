@@ -6,12 +6,14 @@ import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/ut
 import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
+import { useToast } from '@/components/ui/Toast'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
 
 export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; allQuotes: any[]; isAdmin: boolean }) {
   const router = useRouter()
+  const toast = useToast()
   const [view, setView] = useState<'mine' | 'all'>(isAdmin ? 'all' : 'mine')
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>(null)
@@ -101,19 +103,25 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     setDeleting(false)
 
     if (res.ok) {
+      toast.success('TUDO CERTO!', 'Orçamentos excluídos com sucesso.')
       setSelected(new Set())
       router.refresh()
     } else {
-      alert(`Erro ao deletar: ${res.error}`)
+      toast.error('OCORREU UM ERRO', res.error || 'Não foi possível excluir os orçamentos.')
     }
   }
 
-  function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
+  async function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
     e.preventDefault()
     e.stopPropagation()
     if (!confirm(`Excluir orçamento de "${clientName}"?`)) return
-    deleteQuote(id)
-    router.refresh()
+    const res = await deleteQuote(id)
+    if (res?.error) {
+      toast.error('OCORREU UM ERRO', 'Não foi possível excluir o orçamento.')
+    } else {
+      toast.success('TUDO CERTO!', 'Orçamento excluído.')
+      router.refresh()
+    }
   }
 
   const SortIcon = ({ field }: { field: SortField }) => {

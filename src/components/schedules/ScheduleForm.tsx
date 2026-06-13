@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createSchedule } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { X } from 'lucide-react'
+import { useToast } from '@/components/ui/Toast'
 
 export function ScheduleForm({
   selectedDate,
@@ -15,6 +16,7 @@ export function ScheduleForm({
   onSuccess: () => void
 }) {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -45,12 +47,15 @@ export function ScheduleForm({
 
       if (result.error) {
         setError(result.error)
+        toast.error('OCORREU UM ERRO', 'Não foi possível criar o agendamento.')
       } else {
+        toast.success('TUDO CERTO!', 'Agendamento criado com sucesso.')
         router.refresh()
         onSuccess()
       }
     } catch (err) {
       setError('Erro ao criar agendamento')
+      toast.error('OCORREU UM ERRO', 'Não foi possível criar o agendamento.')
     } finally {
       setLoading(false)
     }

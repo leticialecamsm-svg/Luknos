@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { searchContacts, createContact, updateQuote } from '@/lib/actions'
+import { useToast } from '@/components/ui/Toast'
 import { Search, X, Plus, Loader2 } from 'lucide-react'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -176,6 +177,7 @@ function ContactSearch({
 
 export function EditQuoteForm({ quote, users, currentUserId }: any) {
   const router = useRouter()
+  const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -216,8 +218,8 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
         primary_owner_id: primaryOwner,
         collaborator_ids: collaborators,
       })
-      if (res.error) { setError(res.error); return }
-
+      if (res.error) { setError(res.error); toast.error('OCORREU UM ERRO', 'Não foi possível salvar o orçamento.'); return }
+      toast.success('TUDO CERTO!', 'Orçamento atualizado com sucesso.')
       router.push(`/quotes/${quote.id}`)
       router.refresh()
     })

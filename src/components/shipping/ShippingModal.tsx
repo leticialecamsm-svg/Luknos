@@ -6,6 +6,7 @@ import type { Shipment } from '@/types'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL } from '@/types'
 import { X, Upload, Download, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/Toast'
 
 interface ShippingModalProps {
   shipment: Shipment
@@ -22,6 +23,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
   const [files, setFiles] = useState(shipment.material_files || [])
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const toast = useToast()
 
   const handleSave = () => {
     if (!deliveryType || !deliveryDate) {
@@ -38,9 +40,12 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
           separation_status: status,
           priority,
         })
+        toast.success('TUDO CERTO!', 'Expedição atualizada com sucesso.')
         onSave()
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao salvar')
+        const msg = err instanceof Error ? err.message : 'Erro ao salvar'
+        setError(msg)
+        toast.error('OCORREU UM ERRO', msg)
       }
     })
   }
@@ -49,9 +54,12 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
     startTransition(async () => {
       try {
         await completeShipment(shipment.id)
+        toast.success('TUDO CERTO!', 'Expedição marcada como concluída.')
         onComplete()
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao finalizar')
+        const msg = err instanceof Error ? err.message : 'Erro ao finalizar'
+        setError(msg)
+        toast.error('OCORREU UM ERRO', msg)
       }
     })
   }
@@ -64,10 +72,12 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
       try {
         await uploadMaterialFile(shipment.id, file)
         setFiles([...files, { name: file.name, url: '' }])
-        // Reset input
+        toast.success('TUDO CERTO!', 'Arquivo enviado com sucesso.')
         e.target.value = ''
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao fazer upload')
+        const msg = err instanceof Error ? err.message : 'Erro ao fazer upload'
+        setError(msg)
+        toast.error('OCORREU UM ERRO', msg)
       }
     })
   }
@@ -77,8 +87,11 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
       try {
         await deleteMaterialFile(shipment.id, fileUrl)
         setFiles(files.filter(f => f.url !== fileUrl))
+        toast.success('TUDO CERTO!', 'Arquivo removido.')
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao deletar arquivo')
+        const msg = err instanceof Error ? err.message : 'Erro ao deletar arquivo'
+        setError(msg)
+        toast.error('OCORREU UM ERRO', msg)
       }
     })
   }

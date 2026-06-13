@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createTask } from '@/lib/actions'
 import { X } from 'lucide-react'
+import { useToast } from '@/components/ui/Toast'
 
 interface TasksModalProps {
   onClose: () => void
@@ -11,6 +12,7 @@ interface TasksModalProps {
 
 export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
   const [loading, setLoading] = useState(false)
+  const toast = useToast()
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -47,8 +49,9 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
     setLoading(false)
 
     if (result.error) {
-      alert(result.error)
+      toast.error('OCORREU UM ERRO', 'Não foi possível criar a tarefa.')
     } else {
+      toast.success('TUDO CERTO!', 'Tarefa criada com sucesso.')
       onSuccess()
     }
   }
