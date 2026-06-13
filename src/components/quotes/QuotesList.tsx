@@ -7,6 +7,7 @@ import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/type
 import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
@@ -14,6 +15,7 @@ type SortOrder = 'asc' | 'desc'
 export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; allQuotes: any[]; isAdmin: boolean }) {
   const router = useRouter()
   const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [view, setView] = useState<'mine' | 'all'>(isAdmin ? 'all' : 'mine')
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>(null)
@@ -96,7 +98,8 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     const message = selected.size === 1
       ? `Excluir 1 orçamento?`
       : `Excluir ${selected.size} orçamentos?`
-    if (!confirm(message)) return
+    const ok = await confirm(message, 'Sim, excluir')
+    if (!ok) return
 
     setDeleting(true)
     const res = await deleteQuotes(Array.from(selected))
@@ -114,7 +117,8 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   async function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
     e.preventDefault()
     e.stopPropagation()
-    if (!confirm(`Excluir orçamento de "${clientName}"?`)) return
+    const ok = await confirm(`Excluir orçamento de "${clientName}"?`, 'Sim, excluir')
+    if (!ok) return
     const res = await deleteQuote(id)
     if (res?.error) {
       toast.error('OCORREU UM ERRO', 'Não foi possível excluir o orçamento.')
@@ -379,6 +383,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
           </div>
         )}
       </div>
+      {ConfirmDialog}
     </div>
   )
 }

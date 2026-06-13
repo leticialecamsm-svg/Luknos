@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react'
 import { deleteSchedule } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui/Toast'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 const SCHEDULE_TYPE_COLORS = {
   visita: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-l-blue-500', label: 'Visita' },
@@ -23,6 +24,7 @@ export function SchedulesList({
 }) {
   const router = useRouter()
   const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
   const dateObj = new Date(date + 'T00:00:00')
   const dateFormatted = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'long',
@@ -31,14 +33,14 @@ export function SchedulesList({
   }).format(dateObj)
 
   const handleDelete = async (id: string) => {
-    if (confirm('Tem certeza que deseja excluir este agendamento?')) {
-      const result = await deleteSchedule(id)
-      if (result?.error) {
-        toast.error('OCORREU UM ERRO', 'Não foi possível excluir o agendamento.')
-      } else {
-        toast.success('TUDO CERTO!', 'Agendamento excluído.')
-        router.refresh()
-      }
+    const ok = await confirm('Tem certeza que deseja excluir este agendamento?', 'Sim, excluir')
+    if (!ok) return
+    const result = await deleteSchedule(id)
+    if (result?.error) {
+      toast.error('OCORREU UM ERRO', 'Não foi possível excluir o agendamento.')
+    } else {
+      toast.success('TUDO CERTO!', 'Agendamento excluído.')
+      router.refresh()
     }
   }
 
@@ -121,6 +123,7 @@ export function SchedulesList({
           </div>
         )}
       </div>
+      {ConfirmDialog}
     </div>
   )
 }

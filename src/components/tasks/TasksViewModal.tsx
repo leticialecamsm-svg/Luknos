@@ -5,6 +5,7 @@ import { deleteTask, updateTaskStatus } from '@/lib/actions'
 import { useState } from 'react'
 import { SubtasksList } from './SubtasksList'
 import { useToast } from '@/components/ui/Toast'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 interface Task {
   id: string
@@ -61,19 +62,18 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
   const [localTask, setLocalTask] = useState(task)
   const [deleting, setDeleting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const toast = useToast()
 
   const handleDelete = async () => {
-    if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
-      setDeleting(true)
-      const result = await deleteTask(task.id)
-      if (result?.error) {
-        toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
-        setDeleting(false)
-      } else {
-        toast.success('TUDO CERTO!', 'Tarefa excluída com sucesso.')
-        onClose()
-      }
+    setDeleting(true)
+    const result = await deleteTask(task.id)
+    if (result?.error) {
+      toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
+      setDeleting(false)
+    } else {
+      toast.success('TUDO CERTO!', 'Tarefa excluída com sucesso.')
+      onClose()
     }
   }
 
@@ -221,7 +221,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
         {/* Footer */}
         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
           <button
-            onClick={handleDelete}
+            onClick={() => setShowConfirmDelete(true)}
             disabled={deleting || updating}
             className="px-3 py-1.5 bg-red-50 text-red-600 font-semibold rounded-lg text-sm hover:bg-red-100 transition-colors flex items-center gap-2 disabled:opacity-50"
           >
@@ -238,6 +238,14 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           </button>
         </div>
       </div>
+
+      {showConfirmDelete && (
+        <ConfirmModal
+          message="Tem certeza que deseja deletar esta tarefa?"
+          onConfirm={() => { setShowConfirmDelete(false); handleDelete() }}
+          onCancel={() => setShowConfirmDelete(false)}
+        />
+      )}
     </div>
   )
 }

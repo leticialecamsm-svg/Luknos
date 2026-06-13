@@ -6,6 +6,7 @@ import { TasksModal } from './TasksModal'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { Trash2, Edit2, ChevronDown } from 'lucide-react'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 interface Task {
   id: string
@@ -40,6 +41,7 @@ export function TasksList() {
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterPriority, setFilterPriority] = useState<string>('')
+  const { confirm, ConfirmDialog } = useConfirm()
   const [isPending, startTransition] = useTransition()
 
   // Carregar tarefas
@@ -67,13 +69,13 @@ export function TasksList() {
     })
   }
 
-  const handleDelete = (taskId: string) => {
-    if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
-      startTransition(async () => {
-        await deleteTask(taskId)
-        loadTasks()
-      })
-    }
+  const handleDelete = async (taskId: string) => {
+    const ok = await confirm('Tem certeza que deseja deletar esta tarefa?', 'Sim, deletar')
+    if (!ok) return
+    startTransition(async () => {
+      await deleteTask(taskId)
+      loadTasks()
+    })
   }
 
   const handleNewTask = () => {
@@ -226,6 +228,7 @@ export function TasksList() {
       {showNewModal && <TasksModal onClose={() => setShowNewModal(false)} onSuccess={handleTaskCreated} />}
       {viewTask && <TasksViewModal task={viewTask} onClose={() => setViewTask(null)} onEdit={(task) => { setViewTask(null); setEditTask(task) }} />}
       {editTask && <TasksEditModal task={editTask} onClose={() => setEditTask(null)} onSuccess={handleTaskUpdated} />}
+      {ConfirmDialog}
     </div>
   )
 }

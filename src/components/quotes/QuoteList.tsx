@@ -6,9 +6,11 @@ import { Trash2, Search, X, Pencil } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { cn, formatDate, formatCurrency, getInitials, isOverdue, isDueToday } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, STATUS_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR, CATEGORY_LABEL } from '@/types'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 export function QuoteList({ quotes }: { quotes: any[] }) {
   const router = useRouter()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [search, setSearch] = useState('')
   const [pending, startTransition] = useTransition()
 
@@ -18,9 +20,10 @@ export function QuoteList({ quotes }: { quotes: any[] }) {
     String(q.number).includes(search)
   )
 
-  function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
+  async function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
     e.preventDefault(); e.stopPropagation()
-    if (!confirm(`Excluir orçamento de "${clientName}"? Esta ação não pode ser desfeita.`)) return
+    const ok = await confirm(`Excluir orçamento de "${clientName}"?`, 'Sim, excluir')
+    if (!ok) return
     startTransition(async () => {
       await deleteQuote(id)
       router.refresh()
@@ -135,6 +138,7 @@ export function QuoteList({ quotes }: { quotes: any[] }) {
           )
         })}
       </div>
+      {ConfirmDialog}
     </div>
   )
 }

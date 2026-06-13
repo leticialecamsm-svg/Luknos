@@ -8,6 +8,7 @@ import { TasksModal } from './TasksModal'
 import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 interface Task {
   id: string
@@ -31,6 +32,7 @@ const STATUS_LABELS = {
 
 export function TasksListNew() {
   const toast = useToast()
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [viewTask, setViewTask] = useState<Task | null>(null)
@@ -236,17 +238,22 @@ export function TasksListNew() {
   }
 
   const handleDelete = (taskId: string) => {
-    if (confirm('Tem certeza que deseja deletar esta tarefa?')) {
-      startTransition(async () => {
-        const result = await deleteTask(taskId)
-        if (result?.error) {
-          toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
-        } else {
-          toast.success('TUDO CERTO!', 'Tarefa excluída.')
-        }
-        loadTasks()
-      })
-    }
+    setConfirmDeleteId(taskId)
+  }
+
+  const confirmDelete = () => {
+    if (!confirmDeleteId) return
+    const id = confirmDeleteId
+    setConfirmDeleteId(null)
+    startTransition(async () => {
+      const result = await deleteTask(id)
+      if (result?.error) {
+        toast.error('OCORREU UM ERRO', 'Não foi possível excluir a tarefa.')
+      } else {
+        toast.success('TUDO CERTO!', 'Tarefa excluída.')
+      }
+      loadTasks()
+    })
   }
 
   const handleAddTaskInline = async (priority: 'high' | 'mid') => {
@@ -699,6 +706,13 @@ export function TasksListNew() {
       {showNewTaskModal && <TasksModal onClose={() => setShowNewTaskModal(false)} onSuccess={() => { setShowNewTaskModal(false); loadTasks() }} />}
       {viewTask && <TasksViewModal task={viewTask} onClose={() => { setViewTask(null); loadTasks() }} onEdit={(task) => { setViewTask(null); setEditTask(task) }} onStatusChange={loadTasks} />}
       {editTask && <TasksEditModal task={editTask} onClose={() => setEditTask(null)} onSuccess={() => { loadTasks(); setEditTask(null) }} />}
+      {confirmDeleteId && (
+        <ConfirmModal
+          message="Tem certeza que deseja deletar esta tarefa?"
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
+      )}
     </div>
   )
 }

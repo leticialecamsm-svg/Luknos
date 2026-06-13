@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { createContact, deleteContact, searchContacts } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
+import { useConfirm } from '@/components/ui/useConfirm'
 import { Search, Plus, Trash2, X, User2, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,7 @@ const TYPE_COLOR: Record<string, string> = {
 
 export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
   const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
   const [contacts, setContacts] = useState(initialContacts)
   const [search, setSearch] = useState('')
@@ -63,7 +65,8 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
   }
 
   async function handleDelete(id: string, contactName: string) {
-    if (!confirm(`Excluir "${contactName}"?`)) return
+    const ok = await confirm(`Excluir "${contactName}"?`, 'Sim, excluir')
+    if (!ok) return
     startTransition(async () => {
       const res = await deleteContact(id)
       if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
@@ -264,6 +267,7 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
           </div>
         </div>
       )}
+      {ConfirmDialog}
     </div>
   )
 }

@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
 import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin } from '@/lib/actions'
+import { useConfirm } from '@/components/ui/useConfirm'
+import { useToast } from '@/components/ui/Toast'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import type { User, MonthlyGoal } from '@/types'
 
@@ -311,6 +313,8 @@ export function AdminPanel({ users, goals }: Props) {
 }
 
 function UserRow({ user: u }: { user: User }) {
+  const { confirm, ConfirmDialog } = useConfirm()
+  const toast = useToast()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(u.name)
   const [role, setRole] = useState(u.role)
@@ -332,14 +336,16 @@ function UserRow({ user: u }: { user: User }) {
   }
 
   async function handleDelete() {
-    if (!confirm(`Tem certeza que deseja deletar "${u.name}"? Esta ação é irreversível e o usuário será removido do sistema permanentemente.`)) return
+    const ok = await confirm(`Tem certeza que deseja deletar "${u.name}"? Esta ação é irreversível.`, 'Sim, deletar')
+    if (!ok) return
     setDeleting(true)
     const res = await deleteUser(u.id)
     setDeleting(false)
     if (res.error) {
-      alert(`Erro ao deletar: ${res.error}`)
+      toast.error('OCORREU UM ERRO', `Erro ao deletar: ${res.error}`)
       return
     }
+    toast.success('TUDO CERTO!', `${u.name} removido do sistema.`)
     window.location.reload()
   }
 
@@ -436,6 +442,7 @@ function UserRow({ user: u }: { user: User }) {
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
         <TasksCardDashboard />
       </div>
+      {ConfirmDialog}
     </div>
   )
 }

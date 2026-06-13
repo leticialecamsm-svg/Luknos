@@ -7,6 +7,7 @@ import { updateQuoteStatus, deleteQuote } from '@/lib/actions'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { Search, X, Trash2, Pencil } from 'lucide-react'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 const COLUMNS = [
   { key: 'queue',       label: 'Na fila',       color: 'border-blue-200',   bg: 'bg-blue-50/50',   header: 'bg-blue-100',   text: 'text-blue-700' },
@@ -27,6 +28,7 @@ export function QuotesKanban({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]
     setView(v)
     setQuotes(v === 'mine' ? myQuotes : allQuotes)
   }
+  const { confirm, ConfirmDialog } = useConfirm()
   const [dragging, setDragging] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -56,9 +58,10 @@ export function QuotesKanban({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]
     startTransition(async () => { await updateQuoteStatus(quoteId, newStatus as any) })
   }
 
-  function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
+  async function handleDelete(e: React.MouseEvent, id: string, clientName: string) {
     e.preventDefault(); e.stopPropagation()
-    if (!confirm(`Excluir orçamento de "${clientName}"?`)) return
+    const ok = await confirm(`Excluir orçamento de "${clientName}"?`, 'Sim, excluir')
+    if (!ok) return
     startTransition(async () => {
       await deleteQuote(id)
       setQuotes(prev => prev.filter(q => q.id !== id))
@@ -142,6 +145,7 @@ export function QuotesKanban({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]
           )
         })}
       </div>
+      {ConfirmDialog}
     </div>
   )
 }

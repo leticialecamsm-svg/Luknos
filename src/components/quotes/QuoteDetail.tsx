@@ -22,9 +22,11 @@ import {
   Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 export function QuoteDetail({ quote, activities }: { quote: any; activities: any[] }) {
   const router = useRouter()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
   const [note, setNote] = useState('')
   const [noteType, setNoteType] = useState<'note'|'call'|'whatsapp'|'visit'>('note')
@@ -63,8 +65,9 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
             <Pencil className="w-3.5 h-3.5" /> Editar
           </button>
           <button
-            onClick={() => {
-              if (!confirm(`Excluir orçamento de "${quote.client_name}"?`)) return
+            onClick={async () => {
+              const ok = await confirm(`Excluir orçamento de "${quote.client_name}"?`, 'Sim, excluir')
+              if (!ok) return
               act(async () => { await deleteQuote(quote.id); router.push('/quotes') })
             }}
             className="btn-secondary text-xs py-1.5 gap-1.5 text-red-500 hover:bg-red-50 hover:border-red-200"
@@ -477,6 +480,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           })}
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   )
 }
