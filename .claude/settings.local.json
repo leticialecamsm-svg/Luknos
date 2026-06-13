@@ -35,7 +35,9 @@
       "Bash(git merge *)",
       "Bash(git rm *)",
       "Bash(npm install *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(sed -i '' 's/renderTaskRow\\(task, false\\)/<TaskRow task={task} isCompleted={false} \\\\/>/g' src/components/tasks/TasksListNew.tsx)",
+      "Bash(sed -i '' 's/renderTaskRow\\(task, true\\)/<TaskRow task={task} isCompleted={true} \\\\/>/g' src/components/tasks/TasksListNew.tsx)"
     ]
   }
 }

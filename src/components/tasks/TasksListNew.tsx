@@ -263,7 +263,8 @@ export function TasksListNew() {
     })
   }
 
-  const renderTaskRow = (task: Task, isCompleted: boolean = false) => {
+  // Componente separado para cada linha de tarefa
+  const TaskRow = ({ task, isCompleted }: { task: Task; isCompleted: boolean }) => {
     const titleEditorRef = useRef<any>(null)
 
     return (
@@ -549,7 +550,7 @@ export function TasksListNew() {
             </span>
           </div>
           <div className="space-y-0">
-            {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).map(task => renderTaskRow(task, false))}
+            {tasks.filter(t => t.status !== 'done' && t.priority === filterPriority).map(task => <TaskRow task={task} isCompleted={false} />)}
           </div>
         </div>
       )}
@@ -567,7 +568,7 @@ export function TasksListNew() {
               </span>
             </div>
             <div className="space-y-0">
-                {highPriorityTasks.map(task => renderTaskRow(task, false))}
+                {highPriorityTasks.map(task => <TaskRow task={task} isCompleted={false} />)}
             </div>
             <form
               onSubmit={(e) => {
@@ -604,7 +605,7 @@ export function TasksListNew() {
               </span>
             </div>
             <div className="space-y-0">
-              {otherTasks.map(task => renderTaskRow(task, false))}
+              {otherTasks.map(task => <TaskRow task={task} isCompleted={false} />)}
             </div>
             <form
           onSubmit={(e) => {
@@ -664,19 +665,19 @@ export function TasksListNew() {
                 {completedTodayTasks.length > 0 && (
                   <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-t border-gray-100">Hoje</div>
                 )}
-                {completedTodayTasks.map((task) => renderTaskRow(task, true))}
+                {completedTodayTasks.map((task) => <TaskRow task={task} isCompleted={true} />)}
 
                 {completedPreviousTasks.length > 0 && (
                   <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-t border-gray-100">Anteriores</div>
                 )}
-                {completedPreviousTasks.map((task) => renderTaskRow(task, true))}
+                {completedPreviousTasks.map((task) => <TaskRow task={task} isCompleted={true} />)}
 
                 {totalCompleted === 0 && (
                   <div className="px-3 py-4 text-sm text-gray-400 text-center">Nenhuma tarefa concluída ainda</div>
                 )}
               </>
             ) : (
-              completedTodayTasks.map((task) => renderTaskRow(task, true))
+              completedTodayTasks.map((task) => <TaskRow task={task} isCompleted={true} />)
             )}
             </div>
           </div>
