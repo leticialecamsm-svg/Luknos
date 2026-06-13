@@ -609,7 +609,21 @@ export async function updateTaskStatus(id: string, status: string) {
     .update({ status, completed_at, updated_at: new Date().toISOString() })
     .eq('id', id)
 
-  if (error) return { error: error.message }
+  if (error) {
+    // Fallback: se a coluna completed_at ainda não existe no banco (migration não aplicada),
+    // atualiza apenas o status para o checkbox continuar funcionando.
+    if (error.code === '42703' || /completed_at/.test(error.message)) {
+      const { error: fallbackError } = await supabase
+        .from('tasks')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (fallbackError) return { error: fallbackError.message }
+      revalidatePath('/dashboard/tasks')
+      revalidatePath('/dashboard')
+      return { ok: true }
+    }
+    return { error: error.message }
+  }
   revalidatePath('/dashboard/tasks')
   revalidatePath('/dashboard')
   return { ok: true }

@@ -511,38 +511,50 @@ export function TasksListNew() {
       </div>
 
       {/* CONCLUÍDAS */}
-      {(showAllCompleted || filterStatus === 'done' || (!showAllCompleted && completedTodayTasks.length > 0)) && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-3 py-2 bg-green-50 rounded">
-            <div className="flex items-center gap-2">
-              <span className="text-green-600 font-bold">✓</span>
-              <span className="text-xs font-bold text-green-700 uppercase tracking-wide">
-                {showAllCompleted ? 'Histórico de Conclusões' : 'Concluídas Hoje'}
+      {(() => {
+        // Modo "todas": ativo quando filtro "Concluídas" ou botão "Ver histórico" selecionado
+        const showAllMode = showAllCompleted || filterStatus === 'done'
+        const totalCompleted = completedTodayTasks.length + completedPreviousTasks.length
+
+        // Esconde a seção quando, no modo padrão, não há concluídas hoje
+        if (!showAllMode && completedTodayTasks.length === 0) return null
+
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-3 py-2 bg-green-50 rounded">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 font-bold">✓</span>
+                <span className="text-xs font-bold text-green-700 uppercase tracking-wide">
+                  {showAllMode ? 'Concluídas' : 'Concluídas Hoje'}
+                </span>
+              </div>
+              <span className="text-sm font-bold text-green-600">
+                {showAllMode ? totalCompleted : completedTodayTasks.length}
               </span>
             </div>
-            <span className="text-sm font-bold text-green-600">
-              {showAllCompleted ? completedPreviousTasks.length + completedTodayTasks.length : completedTodayTasks.length}
-            </span>
-          </div>
-          {showAllCompleted ? (
-            <>
-              {/* Mostrar concluídas de hoje em primeiro */}
-              {completedTodayTasks.length > 0 && (
-                <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-green-100">Hoje</div>
-              )}
-              {completedTodayTasks.map((task) => renderTaskRow(task, true))}
+            {showAllMode ? (
+              <>
+                {/* Todas as concluídas, ordenadas do mais recente ao mais antigo */}
+                {completedTodayTasks.length > 0 && (
+                  <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-green-100">Hoje</div>
+                )}
+                {completedTodayTasks.map((task) => renderTaskRow(task, true))}
 
-              {/* Mostrar concluídas anteriores */}
-              {completedPreviousTasks.length > 0 && (
-                <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-gray-100">Anteriores</div>
-              )}
-              {completedPreviousTasks.map((task) => renderTaskRow(task, true))}
-            </>
-          ) : (
-            completedTodayTasks.map((task) => renderTaskRow(task, true))
-          )}
-        </div>
-      )}
+                {completedPreviousTasks.length > 0 && (
+                  <div className="px-3 py-1 text-xs font-semibold text-gray-600 bg-gray-100">Anteriores</div>
+                )}
+                {completedPreviousTasks.map((task) => renderTaskRow(task, true))}
+
+                {totalCompleted === 0 && (
+                  <div className="px-3 py-4 text-sm text-gray-400 text-center">Nenhuma tarefa concluída ainda</div>
+                )}
+              </>
+            ) : (
+              completedTodayTasks.map((task) => renderTaskRow(task, true))
+            )}
+          </div>
+        )
+      })()}
 
       {/* Modais */}
       {showNewTaskModal && <TasksModal onClose={() => setShowNewTaskModal(false)} onSuccess={() => { setShowNewTaskModal(false); loadTasks() }} />}
