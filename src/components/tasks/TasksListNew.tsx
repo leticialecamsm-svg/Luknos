@@ -318,6 +318,15 @@ export function TasksListNew() {
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
           <>
+            <button
+              onClick={() => {
+                console.log('Clique no botão, abrindo tarefa:', task.id)
+                setViewTask(task)
+              }}
+              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+            >
+              Ver
+            </button>
             <InlineStatusEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <InlineDateEditor taskId={task.id} currentStatus={task.status} currentDueDate={task.due_date} onSave={loadTasks} />
             <InlinePriorityEditor taskId={task.id} currentPriority={task.priority} onSave={loadTasks} />
