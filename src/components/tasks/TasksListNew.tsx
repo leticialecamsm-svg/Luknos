@@ -390,7 +390,7 @@ export function TasksListNew() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         <input
           type="text"
           placeholder="Buscar tarefas..."
@@ -404,46 +404,51 @@ export function TasksListNew() {
         >
           Todas
         </button>
-        <button
-          onClick={() => setFilterPriority(filterPriority === 'high' ? '' : 'high')}
-          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterPriority === 'high' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          🔴 Alta
-        </button>
-        <button
-          onClick={() => setFilterPriority(filterPriority === 'mid' ? '' : 'mid')}
-          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterPriority === 'mid' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          🟡 Média
-        </button>
-        <button
-          onClick={() => setFilterPriority(filterPriority === 'low' ? '' : 'low')}
-          className={`px-3 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterPriority === 'low' ? 'bg-slate-50 text-slate-700 border border-slate-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          ⚪ Baixa
-        </button>
-        <button
-          onClick={() => setFilterStatus(filterStatus === 'todo' ? '' : 'todo')}
-          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterStatus === 'todo' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          A fazer
-        </button>
-        <button
-          onClick={() => setFilterStatus(filterStatus === 'doing' ? '' : 'doing')}
-          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-            filterStatus === 'doing' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          Em andamento
-        </button>
+
+        {/* Priority Dropdown */}
+        <div className="relative">
+          <button
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center gap-2 ${
+              filterPriority ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            {filterPriority === 'high' && '🔴 Alta'}
+            {filterPriority === 'mid' && '🟡 Média'}
+            {filterPriority === 'low' && '⚪ Baixa'}
+            {!filterPriority && '🔴 Alta'}
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          </button>
+
+          <div className="absolute top-full mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
+            <button
+              onClick={() => setFilterPriority(filterPriority === 'high' ? '' : 'high')}
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                filterPriority === 'high' ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'
+              }`}
+            >
+              🔴 Alta
+            </button>
+            <button
+              onClick={() => setFilterPriority(filterPriority === 'mid' ? '' : 'mid')}
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                filterPriority === 'mid' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-gray-700'
+              }`}
+            >
+              🟡 Média
+            </button>
+            <button
+              onClick={() => setFilterPriority(filterPriority === 'low' ? '' : 'low')}
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors rounded-b-lg ${
+                filterPriority === 'low' ? 'bg-slate-50 text-slate-700 font-semibold' : 'text-gray-700'
+              }`}
+            >
+              ⚪ Baixa
+            </button>
+          </div>
+        </div>
+
         <button
           onClick={() => {
             setFilterStatus(filterStatus === 'done' ? '' : 'done')
@@ -455,60 +460,66 @@ export function TasksListNew() {
         >
           Concluídas
         </button>
-        <button
-          onClick={() => setShowAllCompleted(!showAllCompleted)}
-          className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-            showAllCompleted ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          Ver histórico
-        </button>
+
+        {filterStatus === 'done' && (
+          <button
+            onClick={() => setShowAllCompleted(!showAllCompleted)}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              showAllCompleted ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            Ver histórico
+          </button>
+        )}
       </div>
 
-      {/* ALTA PRIORIDADE */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-3 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-red-600 font-bold">●</span>
-            <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Alta Prioridade</span>
-          </div>
-          <span className="text-sm font-bold text-red-600">{highPriorityTasks.length}</span>
-        </div>
-        {highPriorityTasks.map(task => renderTaskRow(task, false))}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            handleAddTaskInline('high')
-          }}
-          className="px-3 py-2"
-        >
-          <div className="flex items-center gap-2">
-            <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <input
-              type="text"
-              value={inlineTaskTitleHigh}
-              onChange={(e) => setInlineTaskTitleHigh(e.target.value)}
-              placeholder="Adicionar tarefa de alta prioridade..."
-              className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleAddTaskInline('high')
-                }
+      {/* Mostrar apenas ALTA PRIORIDADE e OUTRAS TAREFAS se não estiver vendo Concluídas */}
+      {filterStatus !== 'done' && (
+        <>
+          {/* ALTA PRIORIDADE */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-bold">●</span>
+                <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Alta Prioridade</span>
+              </div>
+              <span className="text-sm font-bold text-red-600">{highPriorityTasks.length}</span>
+            </div>
+            {highPriorityTasks.map(task => renderTaskRow(task, false))}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleAddTaskInline('high')
               }}
-            />
+              className="px-3 py-2"
+            >
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <input
+                  type="text"
+                  value={inlineTaskTitleHigh}
+                  onChange={(e) => setInlineTaskTitleHigh(e.target.value)}
+                  placeholder="Adicionar tarefa de alta prioridade..."
+                  className="flex-1 border-none outline-none text-sm bg-transparent placeholder-gray-400 text-gray-700"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleAddTaskInline('high')
+                    }
+                  }}
+                />
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
 
-      {/* OUTRAS TAREFAS */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Outras Tarefas</span>
-          <span className="text-sm font-bold text-gray-600">{otherTasks.length}</span>
-        </div>
-        {otherTasks.map(task => renderTaskRow(task, false))}
-        <form
+          {/* OUTRAS TAREFAS */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Outras Tarefas</span>
+              <span className="text-sm font-bold text-gray-600">{otherTasks.length}</span>
+            </div>
+            {otherTasks.map(task => renderTaskRow(task, false))}
+            <form
           onSubmit={(e) => {
             e.preventDefault()
             handleAddTaskInline('mid')
@@ -533,6 +544,8 @@ export function TasksListNew() {
           </div>
         </form>
       </div>
+        </>
+      )}
 
       {/* CONCLUÍDAS */}
       {(() => {
