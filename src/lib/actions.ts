@@ -719,7 +719,8 @@ export async function getCurrentUser() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: userData } = await supabase
+  const adminSupabase = createAdminClient()
+  const { data: userData } = await adminSupabase
     .from('users')
     .select('id, email, name, role')
     .eq('id', user.id)
