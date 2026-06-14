@@ -575,6 +575,14 @@ export async function createTask(formData: {
   return { ok: true }
 }
 
+async function getDbClient() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return supabase
+  const { data: profile } = await createAdminClient().from('users').select('role').eq('id', user.id).single()
+  return profile?.role === 'admin' ? createAdminClient() : supabase
+}
+
 export async function updateTask(id: string, formData: {
   title?: string
   description?: string
@@ -583,13 +591,10 @@ export async function updateTask(id: string, formData: {
   due_date?: string
   checklist?: { text: string; done: boolean }[]
 }) {
-  const supabase = createClient()
-  const { error } = await supabase
+  const db = await getDbClient()
+  const { error } = await db
     .from('tasks')
-    .update({
-      ...formData,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...formData, updated_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return { error: error.message }
@@ -599,13 +604,10 @@ export async function updateTask(id: string, formData: {
 }
 
 export async function updateTaskStatus(id: string, status: string) {
-  const supabase = createClient()
-
-  // Se marcando como concluída, preencher completed_at com a data de hoje
-  // Se desmarcando, limpar completed_at
+  const db = await getDbClient()
   const completed_at = status === 'done' ? new Date().toISOString() : null
 
-  const { error } = await supabase
+  const { error } = await db
     .from('tasks')
     .update({ status, completed_at, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -614,7 +616,7 @@ export async function updateTaskStatus(id: string, status: string) {
     // Fallback: se a coluna completed_at ainda não existe no banco (migration não aplicada),
     // atualiza apenas o status para o checkbox continuar funcionando.
     if (error.code === '42703' || /completed_at/.test(error.message)) {
-      const { error: fallbackError } = await supabase
+      const { error: fallbackError } = await db
         .from('tasks')
         .update({ status, updated_at: new Date().toISOString() })
         .eq('id', id)
@@ -626,9 +628,8 @@ export async function updateTaskStatus(id: string, status: string) {
     return { error: error.message }
   }
 
-  // Se tarefa mãe for marcada como finalizada, finaliza todas as subtarefas também
   if (status === 'done') {
-    await supabase
+    await db
       .from('subtasks')
       .update({ done: true, updated_at: new Date().toISOString() })
       .eq('task_id', id)
@@ -640,8 +641,8 @@ export async function updateTaskStatus(id: string, status: string) {
 }
 
 export async function deleteTask(id: string) {
-  const supabase = createClient()
-  const { error } = await supabase.from('tasks').delete().eq('id', id)
+  const db = await getDbClient()
+  const { error } = await db.from('tasks').delete().eq('id', id)
 
   if (error) return { error: error.message }
   revalidatePath('/dashboard/tasks')
@@ -652,8 +653,8 @@ export async function deleteTask(id: string) {
 // ── Subtarefas ─────────────────────────────────────────────────────────────
 
 export async function getSubtasks(taskId: string) {
-  const supabase = createClient()
-  const { data, error } = await supabase
+  const db = await getDbClient()
+  const { data, error } = await db
     .from('subtasks')
     .select('*')
     .eq('task_id', taskId)
@@ -663,9 +664,8 @@ export async function getSubtasks(taskId: string) {
 }
 
 export async function createSubtask(taskId: string, title: string) {
-  const supabase = createClient()
-  // pega a posição máxima atual
-  const { data: existing } = await supabase
+  const db = await getDbClient()
+  const { data: existing } = await db
     .from('subtasks')
     .select('position')
     .eq('task_id', taskId)
@@ -673,7 +673,7 @@ export async function createSubtask(taskId: string, title: string) {
     .limit(1)
   const nextPosition = existing && existing.length > 0 ? existing[0].position + 1 : 0
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('subtasks')
     .insert({ task_id: taskId, title: title.trim(), position: nextPosition })
     .select()
@@ -684,8 +684,8 @@ export async function createSubtask(taskId: string, title: string) {
 }
 
 export async function updateSubtask(id: string, updates: { title?: string; done?: boolean }) {
-  const supabase = createClient()
-  const { data, error } = await supabase
+  const db = await getDbClient()
+  const { data, error } = await db
     .from('subtasks')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -697,24 +697,24 @@ export async function updateSubtask(id: string, updates: { title?: string; done?
 }
 
 export async function reorderSubtasks(items: { id: string; position: number }[]) {
-  const supabase = createClient()
+  const db = await getDbClient()
   await Promise.all(items.map(({ id, position }) =>
-    supabase.from('subtasks').update({ position }).eq('id', id)
+    db.from('subtasks').update({ position }).eq('id', id)
   ))
   return { ok: true }
 }
 
 export async function deleteSubtask(id: string) {
-  const supabase = createClient()
-  const { error } = await supabase.from('subtasks').delete().eq('id', id)
+  const db = await getDbClient()
+  const { error } = await db.from('subtasks').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/dashboard/tasks')
   return { ok: true }
 }
 
 export async function completeAllSubtasks(taskId: string) {
-  const supabase = createClient()
-  const { error } = await supabase
+  const db = await getDbClient()
+  const { error } = await db
     .from('subtasks')
     .update({ done: true, updated_at: new Date().toISOString() })
     .eq('task_id', taskId)

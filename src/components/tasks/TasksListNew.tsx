@@ -773,50 +773,67 @@ export function TasksListNew({
                     </div>
                   </div>
                 </div>
-                {/* Tarefas pendentes */}
+                {/* Tarefas pendentes — agrupadas por prioridade */}
                 <div>
                   {userPending.length === 0 && userDoneThisWeek.length === 0 && (
                     <div className="px-4 py-6 text-sm text-gray-400 text-center">Nenhuma tarefa pendente</div>
                   )}
-                  {userPending.map((task: any) => (
-                    <div
-                      key={task.id}
-                      onClick={() => setViewTask(task)}
-                      className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        onClick={e => e.stopPropagation()}
-                        onChange={() => handleCheckboxChange(task.id, task.status)}
-                        className="w-4 h-4 rounded border-gray-300 cursor-pointer shrink-0"
-                      />
-                      <span className="flex-1 text-sm text-gray-800 truncate">{task.title}</span>
-                      {task.subtasks && task.subtasks.length > 0 && (
-                        <span className="text-[10px] text-gray-400 shrink-0">
-                          {task.subtasks.filter((s: any) => s.done).length}/{task.subtasks.length} sub
+                  {(() => {
+                    const highTasks = userPending.filter((t: any) => t.priority === 'high')
+                    const otherTasks = userPending.filter((t: any) => t.priority !== 'high')
+                    const renderTask = (task: any) => (
+                      <div
+                        key={task.id}
+                        onClick={() => setViewTask(task)}
+                        className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                      >
+                        <button
+                          onClick={e => { e.stopPropagation(); handleCheckboxChange(task.id, task.status) }}
+                          className="w-4 h-4 rounded flex-shrink-0 border-2 border-gray-300 hover:border-emerald-400 flex items-center justify-center transition-colors"
+                        />
+                        <span className="flex-1 text-sm text-gray-800 truncate">{task.title}</span>
+                        {task.subtasks && task.subtasks.length > 0 && (
+                          <span className="text-[10px] text-gray-400 shrink-0">
+                            {task.subtasks.filter((s: any) => s.done).length}/{task.subtasks.length} sub
+                          </span>
+                        )}
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                          task.status === 'todo' ? 'bg-slate-100 text-slate-600' :
+                          task.status === 'doing' ? 'bg-blue-100 text-blue-700' :
+                          task.status === 'paused' ? 'bg-amber-100 text-amber-700' :
+                          'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {task.status === 'todo' ? 'A fazer' : task.status === 'doing' ? 'Em andamento' : task.status === 'paused' ? 'Pausada' : 'Concluída'}
                         </span>
-                      )}
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                        task.status === 'todo' ? 'bg-slate-100 text-slate-600' :
-                        task.status === 'doing' ? 'bg-blue-100 text-blue-700' :
-                        task.status === 'paused' ? 'bg-amber-100 text-amber-700' :
-                        'bg-emerald-100 text-emerald-700'
-                      }`}>
-                        {task.status === 'todo' ? 'A fazer' : task.status === 'doing' ? 'Em andamento' : task.status === 'paused' ? 'Pausada' : 'Concluída'}
-                      </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                        task.priority === 'high' ? 'bg-red-100 text-red-700' :
-                        task.priority === 'mid' ? 'bg-amber-100 text-amber-700' :
-                        'bg-gray-100 text-gray-500'
-                      }`}>
-                        {task.priority === 'high' ? 'Alta' : task.priority === 'mid' ? 'Média' : 'Baixa'}
-                      </span>
-                      {task.due_date && (
-                        <span className="text-[10px] text-gray-400 shrink-0">{formatDateDisplay(task.due_date)}</span>
-                      )}
-                    </div>
-                  ))}
+                        {task.due_date && (
+                          <span className="text-[10px] text-gray-400 shrink-0">{formatDateDisplay(task.due_date)}</span>
+                        )}
+                      </div>
+                    )
+                    return (
+                      <>
+                        {highTasks.length > 0 && (
+                          <>
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-red-50 border-b border-red-100">
+                              <span className="text-red-500 text-[10px]">●</span>
+                              <span className="text-[10px] font-bold text-red-700 uppercase tracking-wide">Alta prioridade</span>
+                              <span className="text-[10px] text-red-500">{highTasks.length}</span>
+                            </div>
+                            {highTasks.map(renderTask)}
+                          </>
+                        )}
+                        {otherTasks.length > 0 && (
+                          <>
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+                              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Em seguida</span>
+                              <span className="text-[10px] text-gray-400">{otherTasks.length}</span>
+                            </div>
+                            {otherTasks.map(renderTask)}
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                   {/* Concluídas da semana — clicável */}
                   {userDoneThisWeek.length > 0 && (
                     <button
@@ -996,7 +1013,7 @@ export function TasksListNew({
           {/* OUTRAS TAREFAS */}
           <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
             <div className="flex items-center gap-2 px-3 py-2 bg-gray-50">
-              <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Outras Tarefas</span>
+              <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Em seguida</span>
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-gray-200 text-gray-700">
                 {otherTasks.length}
               </span>
