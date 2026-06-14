@@ -168,50 +168,45 @@ export function TasksListNew() {
     return `${day} de ${months[parseInt(month) - 1]}`
   }
 
-  // Calcula início (segunda) e fim (domingo) da semana com offset
+  // Semana começa no domingo (day 0)
   const getWeekRange = (offset: number) => {
     const today = new Date()
-    const day = today.getDay()
-    const diffToMon = (day === 0 ? -6 : 1 - day)
-    const monday = new Date(today)
-    monday.setDate(today.getDate() + diffToMon + offset * 7)
-    monday.setHours(0, 0, 0, 0)
-    const sunday = new Date(monday)
-    sunday.setDate(monday.getDate() + 6)
-    sunday.setHours(23, 59, 59, 999)
-    return { monday, sunday }
+    const day = today.getDay() // 0=dom
+    const sunday = new Date(today)
+    sunday.setDate(today.getDate() - day + offset * 7)
+    sunday.setHours(0, 0, 0, 0)
+    const saturday = new Date(sunday)
+    saturday.setDate(sunday.getDate() + 6)
+    saturday.setHours(23, 59, 59, 999)
+    return { monday: sunday, sunday: saturday } // mantém nomes para compatibilidade
   }
 
-  // Converte uma data selecionada no input[type=week] para weekOffset
   const dateToWeekOffset = (dateStr: string) => {
-    // dateStr = "2025-W23"
+    // dateStr = "2025-W23" (ISO week, começa segunda — usamos apenas para jump aproximado)
     const [yearStr, weekStr] = dateStr.split('-W')
     const year = parseInt(yearStr)
     const week = parseInt(weekStr)
-    // Primeira segunda-feira do ano ISO
-    const jan4 = new Date(year, 0, 4)
-    const jan4Day = jan4.getDay() || 7
-    const firstMonday = new Date(jan4)
-    firstMonday.setDate(jan4.getDate() - jan4Day + 1)
-    const targetMonday = new Date(firstMonday)
-    targetMonday.setDate(firstMonday.getDate() + (week - 1) * 7)
+    const jan1 = new Date(year, 0, 1)
+    const firstSunday = new Date(jan1)
+    firstSunday.setDate(jan1.getDate() - jan1.getDay())
+    const targetSunday = new Date(firstSunday)
+    targetSunday.setDate(firstSunday.getDate() + (week - 1) * 7)
 
     const today = new Date()
-    const todayDay = today.getDay()
-    const diffToMon = (todayDay === 0 ? -6 : 1 - todayDay)
-    const thisMonday = new Date(today)
-    thisMonday.setDate(today.getDate() + diffToMon)
-    thisMonday.setHours(0, 0, 0, 0)
+    const thisSunday = new Date(today)
+    thisSunday.setDate(today.getDate() - today.getDay())
+    thisSunday.setHours(0, 0, 0, 0)
 
-    const diffMs = targetMonday.getTime() - thisMonday.getTime()
+    const diffMs = targetSunday.getTime() - thisSunday.getTime()
     return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000))
   }
 
-  // Retorna o valor "YYYY-Www" para o input[type=week] dado um weekOffset
   const weekOffsetToInputValue = (offset: number) => {
-    const { monday } = getWeekRange(offset)
+    // Para o input[type=week] ISO, usamos a segunda da semana selecionada
+    const { monday: sun } = getWeekRange(offset)
+    const monday = new Date(sun)
+    monday.setDate(sun.getDate() + 1) // domingo + 1 = segunda ISO
     const year = monday.getFullYear()
-    // Número da semana ISO
     const startOfYear = new Date(year, 0, 4)
     const startDay = startOfYear.getDay() || 7
     const firstMon = new Date(startOfYear)
@@ -221,16 +216,13 @@ export function TasksListNew() {
   }
 
   const formatWeekLabel = (offset: number) => {
-    const { monday, sunday } = getWeekRange(offset)
+    const { monday: start, sunday: end } = getWeekRange(offset)
     const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-    const monDay = monday.getDate()
-    const sunDay = sunday.getDate()
-    const monMonth = months[monday.getMonth()]
-    const sunMonth = months[sunday.getMonth()]
-    if (monday.getMonth() === sunday.getMonth()) {
-      return `${monDay} a ${sunDay} de ${monMonth.charAt(0).toUpperCase() + monMonth.slice(1)}`
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+    if (start.getMonth() === end.getMonth()) {
+      return `${start.getDate()} a ${end.getDate()} de ${cap(months[start.getMonth()])}`
     }
-    return `${monDay} de ${monMonth.charAt(0).toUpperCase() + monMonth.slice(1)} a ${sunDay} de ${sunMonth.charAt(0).toUpperCase() + sunMonth.slice(1)}`
+    return `${start.getDate()} de ${cap(months[start.getMonth()])} a ${end.getDate()} de ${cap(months[end.getMonth()])}`
   }
 
   const isCompletedInWeek = (completedAt: string | null | undefined, offset: number) => {
@@ -726,43 +718,45 @@ export function TasksListNew() {
               <div key={u.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 {/* Header do colaborador */}
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div
                         className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
                         style={{ backgroundColor: u.avatar_color || '#6366f1' }}
                       >
                         {u.name.charAt(0).toUpperCase()}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{u.name}</p>
                         <p className="text-xs text-gray-500">
                           {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} na semana
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => { setAdminTaskDefaultUser(u.id); setShowAdminTaskModal(true) }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100"
-                    >
-                      <Plus className="w-3 h-3" /> Nova tarefa
-                    </button>
-                  </div>
-                  {/* Barra de progresso do dia */}
-                  {userTodayPercent !== null && (
-                    <div className="mt-2.5 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-gray-400 font-medium">Progresso hoje</span>
-                        <span className="text-[10px] font-bold text-green-600">{userDoneToday.length}/{userTodayTotal} · {userTodayPercent}%</span>
-                      </div>
-                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${userTodayPercent}%`, backgroundColor: userTodayPercent === 100 ? '#22c55e' : '#3b82f6' }}
-                        />
-                      </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Barra de progresso compacta */}
+                      {userTodayPercent !== null && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400 whitespace-nowrap">{userDoneToday.length}/{userTodayTotal} hoje</span>
+                          <div className="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${userTodayPercent}%`, backgroundColor: userTodayPercent === 100 ? '#22c55e' : '#3b82f6' }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-semibold" style={{ color: userTodayPercent === 100 ? '#22c55e' : '#3b82f6' }}>
+                            {userTodayPercent}%
+                          </span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => { setAdminTaskDefaultUser(u.id); setShowAdminTaskModal(true) }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100"
+                      >
+                        <Plus className="w-3 h-3" /> Nova tarefa
+                      </button>
                     </div>
-                  )}
+                  </div>
                 </div>
                 {/* Tarefas pendentes */}
                 <div>
