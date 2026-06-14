@@ -71,6 +71,7 @@ export function TasksListNew({
   const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
   const weekPickerRef = useRef<HTMLInputElement>(null)
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
+  const tasksRef = useRef<Task[]>([])
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
   // Carregar tarefas (apenas para refresh após mutações ou troca de aba)
@@ -97,17 +98,6 @@ export function TasksListNew({
     }
   }, [])
 
-  // Safety net: garante limpeza se o browser perder o dragend do elemento
-  useEffect(() => {
-    if (draggedTask === null) return
-    const clear = () => {
-      setTasks(prev => { saveOrder(prev); return prev })
-      dragIndexRef.current = null
-      setDraggedTask(null)
-    }
-    window.addEventListener('dragend', clear)
-    return () => window.removeEventListener('dragend', clear)
-  }, [draggedTask])
 
   // Funções utilitárias de data (precisam ser definidas antes de usar)
   const getTodayString = () => {
@@ -328,8 +318,11 @@ export function TasksListNew({
 
   const dragIndexRef = useRef<number | null>(null)
 
+  // tasksRef espelha tasks para drag handlers sempre lerem o valor atual
+  useEffect(() => { tasksRef.current = tasks }, [tasks])
+
   const handleDragStart = (taskId: string) => {
-    const idx = tasks.findIndex(t => t.id === taskId)
+    const idx = tasksRef.current.findIndex(t => t.id === taskId)
     dragIndexRef.current = idx
     setDraggedTask(taskId)
   }
@@ -337,19 +330,19 @@ export function TasksListNew({
   const handleDragOverRow = (e: React.DragEvent, taskId: string) => {
     e.preventDefault()
     if (dragIndexRef.current === null) return
-    const targetIndex = tasks.findIndex(t => t.id === taskId)
+    const cur = tasksRef.current
+    const targetIndex = cur.findIndex(t => t.id === taskId)
     if (targetIndex === -1 || targetIndex === dragIndexRef.current) return
-    setTasks(prev => {
-      const next = [...prev]
-      const [moved] = next.splice(dragIndexRef.current!, 1)
-      next.splice(targetIndex, 0, moved)
-      dragIndexRef.current = targetIndex
-      return next
-    })
+    const next = [...cur]
+    const [moved] = next.splice(dragIndexRef.current, 1)
+    next.splice(targetIndex, 0, moved)
+    tasksRef.current = next
+    dragIndexRef.current = targetIndex
+    setTasks(next)
   }
 
   const handleDragEnd = () => {
-    saveOrder(tasks)
+    saveOrder(tasksRef.current)
     dragIndexRef.current = null
     setDraggedTask(null)
   }
@@ -407,6 +400,7 @@ export function TasksListNew({
     <div
       key={task.id}
       onDragOver={(e) => handleDragOverRow(e, task.id)}
+      onDragEnd={handleDragEnd}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
       className={`border-b p-2.5 transition-colors group flex items-center gap-3 ${
