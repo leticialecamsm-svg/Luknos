@@ -70,7 +70,7 @@ export function TasksListNew({
   const [weekOffset, setWeekOffset] = useState(0)
   const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
   const weekPickerRef = useRef<HTMLInputElement>(null)
-  const tasksRef = useRef<Task[]>([])
+  const tasksRef = useRef<Task[]>(initialMyTasks as Task[] ?? [])
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
   // Carregar tarefas (apenas para refresh após mutações ou troca de aba)
@@ -93,10 +93,14 @@ export function TasksListNew({
     if (!initialMyTasks) {
       loadTasks()
     } else {
-      setTasks(applyStoredOrder(initialMyTasks as Task[]))
+      const ordered = applyStoredOrder(initialMyTasks as Task[])
+      tasksRef.current = ordered
+      setTasks(ordered)
     }
   }, [])
 
+  // Mantém tasksRef em sincronia para casos onde tasks muda fora do drag (loadTasks, etc.)
+  useEffect(() => { tasksRef.current = tasks }, [tasks])
 
   // Funções utilitárias de data (precisam ser definidas antes de usar)
   const getTodayString = () => {
@@ -317,20 +321,10 @@ export function TasksListNew({
   }
 
   const dragIndexRef = useRef<number | null>(null)
-  const pendingSaveRef = useRef(false)
-
-  // Salva ordem no localStorage após o React processar o novo estado de tasks
-  useEffect(() => {
-    tasksRef.current = tasks
-    if (pendingSaveRef.current) {
-      pendingSaveRef.current = false
-      saveOrder(tasks)
-    }
-  }, [tasks])
 
   const handleDragStart = (taskId: string) => {
-    const idx = tasksRef.current.findIndex(t => t.id === taskId)
-    dragIndexRef.current = idx
+    // Sync tasksRef with latest state before drag begins
+    dragIndexRef.current = tasksRef.current.findIndex(t => t.id === taskId)
   }
 
   const handleDragOverRow = (e: React.DragEvent, taskId: string) => {
@@ -342,13 +336,15 @@ export function TasksListNew({
     const next = [...cur]
     const [moved] = next.splice(dragIndexRef.current, 1)
     next.splice(targetIndex, 0, moved)
+    // Update ref synchronously — this is the source of truth for saveOrder
     tasksRef.current = next
     dragIndexRef.current = targetIndex
     setTasks(next)
   }
 
   const handleDragEnd = () => {
-    pendingSaveRef.current = true
+    // tasksRef.current was updated synchronously in handleDragOverRow, always current
+    saveOrder(tasksRef.current)
     dragIndexRef.current = null
   }
 
