@@ -696,6 +696,14 @@ export async function updateSubtask(id: string, updates: { title?: string; done?
   return { data }
 }
 
+export async function reorderSubtasks(items: { id: string; position: number }[]) {
+  const supabase = createClient()
+  await Promise.all(items.map(({ id, position }) =>
+    supabase.from('subtasks').update({ position }).eq('id', id)
+  ))
+  return { ok: true }
+}
+
 export async function deleteSubtask(id: string) {
   const supabase = createClient()
   const { error } = await supabase.from('subtasks').delete().eq('id', id)

@@ -769,6 +769,11 @@ export function TasksListNew({
                         className="w-4 h-4 rounded border-gray-300 cursor-pointer shrink-0"
                       />
                       <span className="flex-1 text-sm text-gray-800 truncate">{task.title}</span>
+                      {task.subtasks && task.subtasks.length > 0 && (
+                        <span className="text-[10px] text-gray-400 shrink-0">
+                          {task.subtasks.filter((s: any) => s.done).length}/{task.subtasks.length} sub
+                        </span>
+                      )}
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                         task.status === 'todo' ? 'bg-slate-100 text-slate-600' :
                         task.status === 'doing' ? 'bg-blue-100 text-blue-700' :
