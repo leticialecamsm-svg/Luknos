@@ -39,7 +39,8 @@
       "Bash(sed -i '' 's/renderTaskRow\\(task, false\\)/<TaskRow task={task} isCompleted={false} \\\\/>/g' src/components/tasks/TasksListNew.tsx)",
       "Bash(sed -i '' 's/renderTaskRow\\(task, true\\)/<TaskRow task={task} isCompleted={true} \\\\/>/g' src/components/tasks/TasksListNew.tsx)",
       "Bash(sed -n '60,75p' /Users/leticiapimentel/Downloads/luknos/src/components/quotes/NewQuoteForm.tsx)",
-      "Bash(sed -n '210,235p' /Users/leticiapimentel/Downloads/luknos/src/components/quotes/NewQuoteForm.tsx)"
+      "Bash(sed -n '210,235p' /Users/leticiapimentel/Downloads/luknos/src/components/quotes/NewQuoteForm.tsx)",
+      "Bash(xargs ls)"
     ]
   }
 }

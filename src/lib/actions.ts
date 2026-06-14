@@ -732,11 +732,15 @@ export async function getAllTasks() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return []
 
-  // Verificar se é admin
+  // Verificar se é admin (usando cliente normal com RLS)
   const { data: me } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (me?.role !== 'admin') return []
 
-  const { data } = await supabase
+  // Usar admin client para bypassar RLS e buscar tarefas de todos os usuários
+  const { createAdminClient } = await import('@/lib/supabase/admin')
+  const adminSupabase = createAdminClient()
+
+  const { data } = await adminSupabase
     .from('tasks')
     .select('*, subtasks(id, done), users(name, avatar_color)')
     .order('due_date', { ascending: true, nullsFirst: false })
