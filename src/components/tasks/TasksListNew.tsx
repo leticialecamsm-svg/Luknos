@@ -7,7 +7,7 @@ import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
 import { AdminTaskModal } from './AdminTaskModal'
 import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
-import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
+import { Trash2, Edit2, Plus, Pencil, GripVertical } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { WeekPickerCalendar } from '@/components/ui/WeekPickerCalendar'
@@ -392,22 +392,32 @@ export function TasksListNew({
   // Componente separado para cada linha de tarefa
   const TaskRow = ({ task, isCompleted }: { task: Task; isCompleted: boolean }) => {
     const titleEditorRef = useRef<any>(null)
+    const [rowHovered, setRowHovered] = useState(false)
 
     return (
     <div
       key={task.id}
-      draggable={!isCompleted}
-      onDragStart={(e) => handleDragStart(e, task.id)}
       onDragOver={handleDragOver}
       onDrop={(e) => handleDrop(e, task.id)}
-      className={`border-b p-2.5 transition-colors group flex items-center gap-3 cursor-move ${
-        draggedTask === task.id ? 'opacity-50 bg-blue-50' : 'hover:bg-gray-50'
-      } ${
-        isCompleted
-          ? 'border-green-100'
-          : 'border-gray-200'
-      }`}
+      onMouseEnter={() => setRowHovered(true)}
+      onMouseLeave={() => setRowHovered(false)}
+      className={`border-b p-2.5 transition-colors group flex items-center gap-3 ${
+        draggedTask === task.id ? 'opacity-40 bg-blue-50' : 'hover:bg-gray-50'
+      } ${isCompleted ? 'border-green-100' : 'border-gray-200'}`}
     >
+      {/* Drag handle — only on non-completed tasks */}
+      {!isCompleted ? (
+        <span
+          draggable
+          onDragStart={(e) => handleDragStart(e as any, task.id)}
+          onDragEnd={() => setDraggedTask(null)}
+          className={`flex-shrink-0 cursor-grab transition-colors ${rowHovered ? 'text-gray-300' : 'text-transparent'}`}
+        >
+          <GripVertical className="w-4 h-4" />
+        </span>
+      ) : (
+        <div className="w-4 flex-shrink-0" />
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); handleCheckboxChange(task.id, task.status) }}
         className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
