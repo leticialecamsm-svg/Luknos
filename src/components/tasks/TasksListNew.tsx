@@ -32,62 +32,65 @@ const STATUS_LABELS = {
   done: 'Concluídas',
 }
 
-export function TasksListNew() {
+interface TasksListNewProps {
+  initialMyTasks?: Task[]
+  initialAllTasks?: Task[]
+  initialUsers?: { id: string; name: string; avatar_color: string }[]
+  initialUserName?: string
+  initialUserRole?: string
+}
+
+export function TasksListNew({
+  initialMyTasks,
+  initialAllTasks,
+  initialUsers,
+  initialUserName = 'Usuário',
+  initialUserRole = 'seller',
+}: TasksListNewProps = {}) {
   const toast = useToast()
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  const [tasks, setTasks] = useState<Task[]>(initialMyTasks ?? [])
+  const [loading, setLoading] = useState(!initialMyTasks)
   const [viewTask, setViewTask] = useState<Task | null>(null)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
   const [inlineTaskTitleHigh, setInlineTaskTitleHigh] = useState('')
   const [inlineTaskTitleOther, setInlineTaskTitleOther] = useState('')
   const [isPending, startTransition] = useTransition()
-  const [initialized, setInitialized] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterPriority, setFilterPriority] = useState<string>('')
   const [showAllCompleted, setShowAllCompleted] = useState(false)
-  const [userName, setUserName] = useState<string>('Usuário')
-  const [userRole, setUserRole] = useState<string>('seller')
+  const [userName] = useState<string>(initialUserName)
+  const [userRole] = useState<string>(initialUserRole)
   const [activeTab, setActiveTab] = useState<'mine' | 'all'>('mine')
-  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string }[]>([])
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string }[]>(initialUsers ?? [])
   const [showAdminTaskModal, setShowAdminTaskModal] = useState(false)
   const [adminTaskDefaultUser, setAdminTaskDefaultUser] = useState<string | undefined>()
-  const [weekOffset, setWeekOffset] = useState(0) // 0 = semana atual, -1 = semana passada, etc.
+  const [weekOffset, setWeekOffset] = useState(0)
   const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
   const weekPickerRef = useRef<HTMLInputElement>(null)
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
-  // Carregar tarefas
+  // Carregar tarefas (apenas para refresh após mutações ou troca de aba)
   const loadTasks = async (tab?: 'mine' | 'all') => {
     setLoading(true)
     const currentTab = tab ?? activeTab
-    const data = currentTab === 'all' ? await getAllTasks() : await getTasks()
-    setTasks(data as Task[])
+    if (currentTab === 'all') {
+      const [data, users] = await Promise.all([getAllTasks(), allUsers.length ? Promise.resolve(allUsers) : getActiveUsers()])
+      setTasks(data as Task[])
+      if (!allUsers.length) setAllUsers(users as any)
+    } else {
+      const data = await getTasks()
+      setTasks(data as Task[])
+    }
     setLoading(false)
   }
 
-  // Carregar nome e role do usuário
+  // Só faz fetch inicial se não recebeu dados via props (fallback)
   useEffect(() => {
-    const loadUser = async () => {
-      const user = await getCurrentUser()
-      if (user?.name) setUserName(user.name)
-      if (user?.role) {
-        setUserRole(user.role)
-        if (user.role === 'admin') {
-          const users = await getActiveUsers()
-          setAllUsers(users as any)
-        }
-      }
-    }
-    loadUser()
+    if (!initialMyTasks) loadTasks()
   }, [])
-
-  if (!initialized) {
-    setInitialized(true)
-    loadTasks()
-  }
 
   // Funções utilitárias de data (precisam ser definidas antes de usar)
   const getTodayString = () => {
@@ -515,7 +518,7 @@ export function TasksListNew() {
       {userRole === 'admin' && (
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
           <button
-            onClick={() => { setActiveTab('mine'); loadTasks('mine') }}
+            onClick={() => { setActiveTab('mine'); setTasks(initialMyTasks ? [...initialMyTasks] : []); if (!initialMyTasks) loadTasks('mine') }}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === 'mine' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
@@ -523,7 +526,7 @@ export function TasksListNew() {
             Minhas tarefas
           </button>
           <button
-            onClick={() => { setActiveTab('all'); loadTasks('all') }}
+            onClick={() => { setActiveTab('all'); if (initialAllTasks && tasks !== initialAllTasks) { setTasks(initialAllTasks as Task[]) } else { loadTasks('all') } }}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
@@ -738,39 +741,36 @@ export function TasksListNew() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{u.name}</p>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          {userTodo > 0 && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                              A fazer: {userTodo}
-                            </span>
-                          )}
-                          {userDoing > 0 && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                              Andamento: {userDoing}
-                            </span>
-                          )}
-                          {userPaused > 0 && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                              Pausada: {userPaused}
-                            </span>
-                          )}
-                          {userDoneThisWeek.length > 0 && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                              Concluídas: {userDoneThisWeek.length}
-                            </span>
-                          )}
-                          {userTodo === 0 && userDoing === 0 && userPaused === 0 && userDoneThisWeek.length === 0 && (
-                            <span className="text-[10px] text-gray-400">Sem tarefas</span>
-                          )}
-                        </div>
+                        <p className="text-xs text-gray-400">{userPending.length} pendente{userPending.length !== 1 ? 's' : ''}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      {/* Tags de status */}
+                      {userTodo > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">
+                          A fazer: {userTodo}
+                        </span>
+                      )}
+                      {userDoing > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 whitespace-nowrap">
+                          Andamento: {userDoing}
+                        </span>
+                      )}
+                      {userPaused > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">
+                          Pausada: {userPaused}
+                        </span>
+                      )}
+                      {userDoneThisWeek.length > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap">
+                          Concluídas: {userDoneThisWeek.length}
+                        </span>
+                      )}
                       {/* Barra de progresso compacta */}
                       {userTodayPercent !== null && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-gray-400 whitespace-nowrap">{userDoneToday.length}/{userTodayTotal} hoje</span>
-                          <div className="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-400 whitespace-nowrap">{userDoneToday.length}/{userTodayTotal}</span>
+                          <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{ width: `${userTodayPercent}%`, backgroundColor: userTodayPercent === 100 ? '#22c55e' : '#3b82f6' }}
