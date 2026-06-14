@@ -55,6 +55,7 @@ export function TasksListNew() {
   const [adminTaskDefaultUser, setAdminTaskDefaultUser] = useState<string | undefined>()
   const [weekOffset, setWeekOffset] = useState(0) // 0 = semana atual, -1 = semana passada, etc.
   const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
+  const weekPickerRef = useRef<HTMLInputElement>(null)
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
@@ -170,7 +171,7 @@ export function TasksListNew() {
   // Calcula início (segunda) e fim (domingo) da semana com offset
   const getWeekRange = (offset: number) => {
     const today = new Date()
-    const day = today.getDay() // 0=dom, 1=seg...
+    const day = today.getDay()
     const diffToMon = (day === 0 ? -6 : 1 - day)
     const monday = new Date(today)
     monday.setDate(today.getDate() + diffToMon + offset * 7)
@@ -179,6 +180,44 @@ export function TasksListNew() {
     sunday.setDate(monday.getDate() + 6)
     sunday.setHours(23, 59, 59, 999)
     return { monday, sunday }
+  }
+
+  // Converte uma data selecionada no input[type=week] para weekOffset
+  const dateToWeekOffset = (dateStr: string) => {
+    // dateStr = "2025-W23"
+    const [yearStr, weekStr] = dateStr.split('-W')
+    const year = parseInt(yearStr)
+    const week = parseInt(weekStr)
+    // Primeira segunda-feira do ano ISO
+    const jan4 = new Date(year, 0, 4)
+    const jan4Day = jan4.getDay() || 7
+    const firstMonday = new Date(jan4)
+    firstMonday.setDate(jan4.getDate() - jan4Day + 1)
+    const targetMonday = new Date(firstMonday)
+    targetMonday.setDate(firstMonday.getDate() + (week - 1) * 7)
+
+    const today = new Date()
+    const todayDay = today.getDay()
+    const diffToMon = (todayDay === 0 ? -6 : 1 - todayDay)
+    const thisMonday = new Date(today)
+    thisMonday.setDate(today.getDate() + diffToMon)
+    thisMonday.setHours(0, 0, 0, 0)
+
+    const diffMs = targetMonday.getTime() - thisMonday.getTime()
+    return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000))
+  }
+
+  // Retorna o valor "YYYY-Www" para o input[type=week] dado um weekOffset
+  const weekOffsetToInputValue = (offset: number) => {
+    const { monday } = getWeekRange(offset)
+    const year = monday.getFullYear()
+    // Número da semana ISO
+    const startOfYear = new Date(year, 0, 4)
+    const startDay = startOfYear.getDay() || 7
+    const firstMon = new Date(startOfYear)
+    firstMon.setDate(startOfYear.getDate() - startDay + 1)
+    const weekNum = Math.floor((monday.getTime() - firstMon.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1
+    return `${year}-W${String(weekNum).padStart(2, '0')}`
   }
 
   const formatWeekLabel = (offset: number) => {
@@ -634,26 +673,33 @@ export function TasksListNew() {
       {activeTab === 'all' && (
         <div className="space-y-4">
           {/* Seletor de semana */}
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 w-fit">
+          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2 py-1.5 w-fit">
             <button
               onClick={() => setWeekOffset(w => w - 1)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
             >
               ‹
             </button>
-            <div className="flex items-center gap-2 px-2">
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="relative flex items-center gap-2 px-2">
+              {/* Input type=week invisível por baixo do ícone de calendário */}
+              <input
+                ref={weekPickerRef}
+                type="week"
+                value={weekOffsetToInputValue(weekOffset)}
+                onChange={e => { if (e.target.value) setWeekOffset(dateToWeekOffset(e.target.value)) }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full"
+              />
+              <svg className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="text-sm font-semibold text-gray-700 min-w-[160px] text-center">
+              <span className="text-sm font-semibold text-gray-700 pointer-events-none">
                 {weekOffset === 0 ? 'Esta semana' : weekOffset === -1 ? 'Semana passada' : formatWeekLabel(weekOffset)}
               </span>
-              <span className="text-xs text-gray-400">({formatWeekLabel(weekOffset)})</span>
+              <span className="text-xs text-gray-400 pointer-events-none">({formatWeekLabel(weekOffset)})</span>
             </div>
             <button
               onClick={() => setWeekOffset(w => w + 1)}
-              disabled={weekOffset >= 0}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
             >
               ›
             </button>
@@ -749,8 +795,15 @@ export function TasksListNew() {
 
       {/* Modal de concluídas da semana */}
       {completedModalUser && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div
+          style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 9999 }}
+          className="bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setCompletedModalUser(null)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div
@@ -771,33 +824,49 @@ export function TasksListNew() {
                 ✕
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
-              {completedModalUser.tasks.map((task: any) => (
-                <div key={task.id} className="flex items-start gap-3 px-6 py-3">
-                  <span className="text-green-500 text-base mt-0.5">✓</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-700 line-through decoration-gray-300">{task.title}</p>
-                    {task.description && (
-                      <p className="text-xs text-gray-400 truncate mt-0.5">{task.description}</p>
-                    )}
+            <div className="overflow-y-auto flex-1">
+              {(() => {
+                // Agrupar por dia de conclusão
+                const byDay: Record<string, any[]> = {}
+                completedModalUser.tasks.forEach((task: any) => {
+                  const key = task.completed_at
+                    ? new Date(task.completed_at).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
+                    : 'Sem data'
+                  if (!byDay[key]) byDay[key] = []
+                  byDay[key].push(task)
+                })
+                // Ordenar dias (mais recente primeiro)
+                const sortedDays = Object.keys(byDay).sort((a, b) => {
+                  const dateA = byDay[a][0]?.completed_at ? new Date(byDay[a][0].completed_at).getTime() : 0
+                  const dateB = byDay[b][0]?.completed_at ? new Date(byDay[b][0].completed_at).getTime() : 0
+                  return dateB - dateA
+                })
+                return sortedDays.map(day => (
+                  <div key={day}>
+                    <div className="px-6 py-2 bg-gray-50 border-y border-gray-100 sticky top-0">
+                      <p className="text-xs font-semibold text-gray-500 capitalize">{day}</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {byDay[day].map((task: any) => (
+                        <div key={task.id} className="flex items-start gap-3 px-6 py-3">
+                          <span className="text-green-500 text-base mt-0.5 shrink-0">✓</span>
+                          <p className="flex-1 text-sm text-gray-700 line-through decoration-gray-300">{task.title}</p>
+                          {task.completed_at && (
+                            <p className="text-[11px] text-gray-400 shrink-0 mt-0.5">
+                              {new Date(task.completed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    {task.completed_at && (
-                      <p className="text-xs font-medium text-gray-500">
-                        {new Date(task.completed_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                      </p>
-                    )}
-                    {task.completed_at && (
-                      <p className="text-[10px] text-gray-400">
-                        {new Date(task.completed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))
+              })()}
             </div>
             <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
-              <p className="text-xs text-gray-500 text-center">{completedModalUser.tasks.length} tarefa{completedModalUser.tasks.length !== 1 ? 's' : ''} concluída{completedModalUser.tasks.length !== 1 ? 's' : ''} nesta semana</p>
+              <p className="text-xs text-gray-500 text-center">
+                {completedModalUser.tasks.length} tarefa{completedModalUser.tasks.length !== 1 ? 's' : ''} concluída{completedModalUser.tasks.length !== 1 ? 's' : ''} nesta semana
+              </p>
             </div>
           </div>
         </div>
