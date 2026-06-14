@@ -314,34 +314,31 @@ export function TasksListNew({
     } catch {}
   }
 
-  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+  const dragIndexRef = useRef<number | null>(null)
+
+  const handleDragStart = (taskId: string) => {
+    const idx = tasks.findIndex(t => t.id === taskId)
+    dragIndexRef.current = idx
     setDraggedTask(taskId)
-    e.dataTransfer.effectAllowed = 'move'
   }
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOverRow = (e: React.DragEvent, taskId: string) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    if (dragIndexRef.current === null) return
+    const targetIndex = tasks.findIndex(t => t.id === taskId)
+    if (targetIndex === -1 || targetIndex === dragIndexRef.current) return
+    setTasks(prev => {
+      const next = [...prev]
+      const [moved] = next.splice(dragIndexRef.current!, 1)
+      next.splice(targetIndex, 0, moved)
+      dragIndexRef.current = targetIndex
+      return next
+    })
   }
 
-  const handleDrop = (e: React.DragEvent, targetTaskId: string) => {
-    e.preventDefault()
-    if (!draggedTask || draggedTask === targetTaskId) {
-      setDraggedTask(null)
-      return
-    }
-
-    const draggedIndex = tasks.findIndex(t => t.id === draggedTask)
-    const targetIndex = tasks.findIndex(t => t.id === targetTaskId)
-
-    if (draggedIndex !== -1 && targetIndex !== -1) {
-      const newTasks = [...tasks]
-      const [removed] = newTasks.splice(draggedIndex, 1)
-      newTasks.splice(targetIndex, 0, removed)
-      setTasks(newTasks)
-      saveOrder(newTasks)
-    }
-
+  const handleDragEnd = () => {
+    saveOrder(tasks)
+    dragIndexRef.current = null
     setDraggedTask(null)
   }
 
@@ -397,8 +394,7 @@ export function TasksListNew({
     return (
     <div
       key={task.id}
-      onDragOver={handleDragOver}
-      onDrop={(e) => handleDrop(e, task.id)}
+      onDragOver={(e) => handleDragOverRow(e, task.id)}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
       className={`border-b p-2.5 transition-colors group flex items-center gap-3 ${
@@ -409,8 +405,8 @@ export function TasksListNew({
       {!isCompleted ? (
         <span
           draggable
-          onDragStart={(e) => handleDragStart(e as any, task.id)}
-          onDragEnd={() => setDraggedTask(null)}
+          onDragStart={() => handleDragStart(task.id)}
+          onDragEnd={handleDragEnd}
           className={`flex-shrink-0 cursor-grab transition-colors ${rowHovered ? 'text-gray-300' : 'text-transparent'}`}
         >
           <GripVertical className="w-4 h-4" />
