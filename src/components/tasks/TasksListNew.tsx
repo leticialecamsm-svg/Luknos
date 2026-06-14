@@ -53,6 +53,8 @@ export function TasksListNew() {
   const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string }[]>([])
   const [showAdminTaskModal, setShowAdminTaskModal] = useState(false)
   const [adminTaskDefaultUser, setAdminTaskDefaultUser] = useState<string | undefined>()
+  const [weekOffset, setWeekOffset] = useState(0) // 0 = semana atual, -1 = semana passada, etc.
+  const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
@@ -163,6 +165,40 @@ export function TasksListNew() {
     const [year, month, day] = datePart.split('-')
     const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
     return `${day} de ${months[parseInt(month) - 1]}`
+  }
+
+  // Calcula início (segunda) e fim (domingo) da semana com offset
+  const getWeekRange = (offset: number) => {
+    const today = new Date()
+    const day = today.getDay() // 0=dom, 1=seg...
+    const diffToMon = (day === 0 ? -6 : 1 - day)
+    const monday = new Date(today)
+    monday.setDate(today.getDate() + diffToMon + offset * 7)
+    monday.setHours(0, 0, 0, 0)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+    return { monday, sunday }
+  }
+
+  const formatWeekLabel = (offset: number) => {
+    const { monday, sunday } = getWeekRange(offset)
+    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    const monDay = monday.getDate()
+    const sunDay = sunday.getDate()
+    const monMonth = months[monday.getMonth()]
+    const sunMonth = months[sunday.getMonth()]
+    if (monday.getMonth() === sunday.getMonth()) {
+      return `${monDay} a ${sunDay} de ${monMonth.charAt(0).toUpperCase() + monMonth.slice(1)}`
+    }
+    return `${monDay} de ${monMonth.charAt(0).toUpperCase() + monMonth.slice(1)} a ${sunDay} de ${sunMonth.charAt(0).toUpperCase() + sunMonth.slice(1)}`
+  }
+
+  const isCompletedInWeek = (completedAt: string | null | undefined, offset: number) => {
+    if (!completedAt) return false
+    const { monday, sunday } = getWeekRange(offset)
+    const d = new Date(completedAt)
+    return d >= monday && d <= sunday
   }
 
   const isTodayCompleted = (completedAt: string | null | undefined) => {
@@ -597,13 +633,39 @@ export function TasksListNew() {
       {/* Visão "Todos os colaboradores" — agrupado por usuário */}
       {activeTab === 'all' && (
         <div className="space-y-4">
+          {/* Seletor de semana */}
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 w-fit">
+            <button
+              onClick={() => setWeekOffset(w => w - 1)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
+            >
+              ‹
+            </button>
+            <div className="flex items-center gap-2 px-2">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-sm font-semibold text-gray-700 min-w-[160px] text-center">
+                {weekOffset === 0 ? 'Esta semana' : weekOffset === -1 ? 'Semana passada' : formatWeekLabel(weekOffset)}
+              </span>
+              <span className="text-xs text-gray-400">({formatWeekLabel(weekOffset)})</span>
+            </div>
+            <button
+              onClick={() => setWeekOffset(w => w + 1)}
+              disabled={weekOffset >= 0}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ›
+            </button>
+          </div>
+
           {allUsers.length === 0 && (
             <div className="text-center py-12 text-sm text-gray-400">Carregando colaboradores...</div>
           )}
           {allUsers.map(u => {
             const userTasks = tasks.filter((t: any) => t.user_id === u.id)
             const userPending = userTasks.filter((t: any) => t.status !== 'done')
-            const userDone = userTasks.filter((t: any) => t.status === 'done')
+            const userDoneThisWeek = userTasks.filter((t: any) => t.status === 'done' && isCompletedInWeek(t.completed_at, weekOffset))
             return (
               <div key={u.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 {/* Header do colaborador */}
@@ -618,7 +680,7 @@ export function TasksListNew() {
                     <div>
                       <p className="text-sm font-semibold text-gray-900">{u.name}</p>
                       <p className="text-xs text-gray-500">
-                        {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDone.length} concluída{userDone.length !== 1 ? 's' : ''}
+                        {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} na semana
                       </p>
                     </div>
                   </div>
@@ -629,20 +691,20 @@ export function TasksListNew() {
                     <Plus className="w-3 h-3" /> Nova tarefa
                   </button>
                 </div>
-                {/* Tarefas do colaborador */}
+                {/* Tarefas pendentes */}
                 <div>
-                  {userPending.length === 0 && userDone.length === 0 && (
-                    <div className="px-4 py-6 text-sm text-gray-400 text-center">Nenhuma tarefa atribuída</div>
+                  {userPending.length === 0 && userDoneThisWeek.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-gray-400 text-center">Nenhuma tarefa pendente</div>
                   )}
                   {userPending.map((task: any) => (
                     <div
                       key={task.id}
                       onClick={() => setViewTask(task)}
-                      className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer group"
+                      className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                     >
                       <input
                         type="checkbox"
-                        checked={task.status === 'done'}
+                        checked={false}
                         onClick={e => e.stopPropagation()}
                         onChange={() => handleCheckboxChange(task.id, task.status)}
                         className="w-4 h-4 rounded border-gray-300 cursor-pointer shrink-0"
@@ -660,15 +722,76 @@ export function TasksListNew() {
                       )}
                     </div>
                   ))}
-                  {userDone.length > 0 && (
-                    <div className="flex items-center gap-3 px-4 py-2 bg-green-50/50">
-                      <span className="text-xs text-green-600 font-medium">✓ {userDone.length} concluída{userDone.length !== 1 ? 's' : ''}</span>
-                    </div>
+                  {/* Concluídas da semana — clicável */}
+                  {userDoneThisWeek.length > 0 && (
+                    <button
+                      onClick={() => setCompletedModalUser({ ...u, tasks: userDoneThisWeek })}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 bg-green-50/60 hover:bg-green-50 transition-colors text-left"
+                    >
+                      <span className="text-xs text-green-600 font-semibold">✓ {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} esta semana</span>
+                      <span className="text-[10px] text-green-500 ml-auto">Ver detalhes →</span>
+                    </button>
                   )}
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Modal de concluídas da semana */}
+      {completedModalUser && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+                  style={{ backgroundColor: completedModalUser.avatar_color || '#6366f1' }}
+                >
+                  {completedModalUser.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{completedModalUser.name}</p>
+                  <p className="text-xs text-gray-500">Concluídas · {formatWeekLabel(weekOffset)}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCompletedModalUser(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
+              {completedModalUser.tasks.map((task: any) => (
+                <div key={task.id} className="flex items-start gap-3 px-6 py-3">
+                  <span className="text-green-500 text-base mt-0.5">✓</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-700 line-through decoration-gray-300">{task.title}</p>
+                    {task.description && (
+                      <p className="text-xs text-gray-400 truncate mt-0.5">{task.description}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    {task.completed_at && (
+                      <p className="text-xs font-medium text-gray-500">
+                        {new Date(task.completed_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                      </p>
+                    )}
+                    {task.completed_at && (
+                      <p className="text-[10px] text-gray-400">
+                        {new Date(task.completed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <p className="text-xs text-gray-500 text-center">{completedModalUser.tasks.length} tarefa{completedModalUser.tasks.length !== 1 ? 's' : ''} concluída{completedModalUser.tasks.length !== 1 ? 's' : ''} nesta semana</p>
+            </div>
+          </div>
         </div>
       )}
 
