@@ -70,7 +70,6 @@ export function TasksListNew({
   const [weekOffset, setWeekOffset] = useState(0)
   const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
   const weekPickerRef = useRef<HTMLInputElement>(null)
-  const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const tasksRef = useRef<Task[]>([])
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
@@ -296,7 +295,8 @@ export function TasksListNew({
     })
   }
 
-  const TASK_ORDER_KEY = `luknos_task_order_${initialUserName}`
+  // Chave estável — não depende do nome do usuário (que pode variar antes do auth carregar)
+  const TASK_ORDER_KEY = 'luknos_task_order_mine'
 
   const applyStoredOrder = (taskList: Task[]) => {
     try {
@@ -324,7 +324,6 @@ export function TasksListNew({
   const handleDragStart = (taskId: string) => {
     const idx = tasksRef.current.findIndex(t => t.id === taskId)
     dragIndexRef.current = idx
-    setDraggedTask(taskId)
   }
 
   const handleDragOverRow = (e: React.DragEvent, taskId: string) => {
@@ -344,7 +343,6 @@ export function TasksListNew({
   const handleDragEnd = () => {
     saveOrder(tasksRef.current)
     dragIndexRef.current = null
-    setDraggedTask(null)
   }
 
   const handleDelete = (taskId: string) => {
@@ -395,24 +393,24 @@ export function TasksListNew({
   const TaskRow = ({ task, isCompleted }: { task: Task; isCompleted: boolean }) => {
     const titleEditorRef = useRef<any>(null)
     const [rowHovered, setRowHovered] = useState(false)
+    const [isDragging, setIsDragging] = useState(false)
 
     return (
     <div
       key={task.id}
       onDragOver={(e) => handleDragOverRow(e, task.id)}
-      onDragEnd={handleDragEnd}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
       className={`border-b p-2.5 transition-colors group flex items-center gap-3 ${
-        draggedTask === task.id ? 'opacity-40 bg-blue-50' : 'hover:bg-gray-50'
+        isDragging ? 'opacity-40 bg-blue-50' : 'hover:bg-gray-50'
       } ${isCompleted ? 'border-green-100' : 'border-gray-200'}`}
     >
       {/* Drag handle — only on non-completed tasks */}
       {!isCompleted ? (
         <span
           draggable
-          onDragStart={() => handleDragStart(task.id)}
-          onDragEnd={handleDragEnd}
+          onDragStart={() => { setIsDragging(true); handleDragStart(task.id) }}
+          onDragEnd={() => { setIsDragging(false); handleDragEnd() }}
           className={`flex-shrink-0 cursor-grab transition-colors ${rowHovered ? 'text-gray-300' : 'text-transparent'}`}
         >
           <GripVertical className="w-4 h-4" />
