@@ -83,14 +83,18 @@ export function TasksListNew({
       if (!allUsers.length) setAllUsers(users as any)
     } else {
       const data = await getTasks()
-      setTasks(data as Task[])
+      setTasks(applyStoredOrder(data as Task[]))
     }
     setLoading(false)
   }
 
   // Só faz fetch inicial se não recebeu dados via props (fallback)
   useEffect(() => {
-    if (!initialMyTasks) loadTasks()
+    if (!initialMyTasks) {
+      loadTasks()
+    } else {
+      setTasks(applyStoredOrder(initialMyTasks as Task[]))
+    }
   }, [])
 
   // Funções utilitárias de data (precisam ser definidas antes de usar)
@@ -290,6 +294,26 @@ export function TasksListNew({
     })
   }
 
+  const TASK_ORDER_KEY = `luknos_task_order_${initialUserName}`
+
+  const applyStoredOrder = (taskList: Task[]) => {
+    try {
+      const stored = localStorage.getItem(TASK_ORDER_KEY)
+      if (!stored) return taskList
+      const order: string[] = JSON.parse(stored)
+      const map = new Map(taskList.map(t => [t.id, t]))
+      const ordered = order.map(id => map.get(id)).filter(Boolean) as Task[]
+      const remaining = taskList.filter(t => !order.includes(t.id))
+      return [...ordered, ...remaining]
+    } catch { return taskList }
+  }
+
+  const saveOrder = (taskList: Task[]) => {
+    try {
+      localStorage.setItem(TASK_ORDER_KEY, JSON.stringify(taskList.map(t => t.id)))
+    } catch {}
+  }
+
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     setDraggedTask(taskId)
     e.dataTransfer.effectAllowed = 'move'
@@ -307,7 +331,6 @@ export function TasksListNew({
       return
     }
 
-    // Reordenar tarefas: mover dragged para posição de target
     const draggedIndex = tasks.findIndex(t => t.id === draggedTask)
     const targetIndex = tasks.findIndex(t => t.id === targetTaskId)
 
@@ -316,6 +339,7 @@ export function TasksListNew({
       const [removed] = newTasks.splice(draggedIndex, 1)
       newTasks.splice(targetIndex, 0, removed)
       setTasks(newTasks)
+      saveOrder(newTasks)
     }
 
     setDraggedTask(null)
@@ -384,19 +408,18 @@ export function TasksListNew({
           : 'border-gray-200'
       }`}
     >
-      <input
-        type="checkbox"
-        checked={isCompleted}
-        onChange={(e) => {
-          e.stopPropagation()
-          handleCheckboxChange(task.id, task.status)
-        }}
-        className={`w-5 h-5 rounded-md cursor-pointer flex-shrink-0 ${
-          isCompleted
-            ? 'border-green-400 bg-green-500 accent-green-500'
-            : 'border-gray-300'
+      <button
+        onClick={(e) => { e.stopPropagation(); handleCheckboxChange(task.id, task.status) }}
+        className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+          isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 hover:border-emerald-400'
         }`}
-      />
+      >
+        {isCompleted && (
+          <svg viewBox="0 0 10 10" className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1.5,5 4,7.5 8.5,2.5" />
+          </svg>
+        )}
+      </button>
       <div
         onClick={() => setViewTask(task)}
         className="flex-1 min-w-0 cursor-pointer group"
