@@ -97,21 +97,16 @@ export function TasksListNew({
     }
   }, [])
 
-  // Safety net: se o browser perder o dragend (por reordenação de DOM), limpa o estado
+  // Safety net: garante limpeza se o browser perder o dragend do elemento
   useEffect(() => {
+    if (draggedTask === null) return
     const clear = () => {
-      if (dragIndexRef.current !== null || draggedTask !== null) {
-        setTasks(prev => { saveOrder(prev); return prev })
-        dragIndexRef.current = null
-        setDraggedTask(null)
-      }
+      setTasks(prev => { saveOrder(prev); return prev })
+      dragIndexRef.current = null
+      setDraggedTask(null)
     }
     window.addEventListener('dragend', clear)
-    window.addEventListener('mouseup', clear)
-    return () => {
-      window.removeEventListener('dragend', clear)
-      window.removeEventListener('mouseup', clear)
-    }
+    return () => window.removeEventListener('dragend', clear)
   }, [draggedTask])
 
   // Funções utilitárias de data (precisam ser definidas antes de usar)
