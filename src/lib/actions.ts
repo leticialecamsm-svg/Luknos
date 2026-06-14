@@ -728,6 +728,35 @@ export async function getCurrentUser() {
   return userData
 }
 
+export async function createTaskForUser(userId: string, formData: {
+  title: string
+  description?: string
+  priority: string
+  status: string
+  due_date?: string
+}) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const { data: me } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (me?.role !== 'admin') return { error: 'Sem permissão' }
+
+  const adminSupabase = createAdminClient()
+  const { error } = await adminSupabase.from('tasks').insert({
+    user_id: userId,
+    title: formData.title,
+    description: formData.description || null,
+    priority: formData.priority,
+    status: formData.status,
+    due_date: formData.due_date || null,
+    checklist: [],
+  })
+
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
 export async function getAllTasks() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()

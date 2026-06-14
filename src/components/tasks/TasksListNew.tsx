@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
-import { getTasks, getAllTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
+import { getTasks, getAllTasks, getActiveUsers, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
+import { AdminTaskModal } from './AdminTaskModal'
 import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitleEditor } from './InlineTaskEditor'
 import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
@@ -49,6 +50,9 @@ export function TasksListNew() {
   const [userName, setUserName] = useState<string>('Usuário')
   const [userRole, setUserRole] = useState<string>('seller')
   const [activeTab, setActiveTab] = useState<'mine' | 'all'>('mine')
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string }[]>([])
+  const [showAdminTaskModal, setShowAdminTaskModal] = useState(false)
+  const [adminTaskDefaultUser, setAdminTaskDefaultUser] = useState<string | undefined>()
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
@@ -66,7 +70,13 @@ export function TasksListNew() {
     const loadUser = async () => {
       const user = await getCurrentUser()
       if (user?.name) setUserName(user.name)
-      if (user?.role) setUserRole(user.role)
+      if (user?.role) {
+        setUserRole(user.role)
+        if (user.role === 'admin') {
+          const users = await getActiveUsers()
+          setAllUsers(users as any)
+        }
+      }
     }
     loadUser()
   }, [])
@@ -420,7 +430,14 @@ export function TasksListNew() {
           </p>
         </div>
         <button
-          onClick={() => setShowNewTaskModal(true)}
+          onClick={() => {
+            if (activeTab === 'all') {
+              setAdminTaskDefaultUser(undefined)
+              setShowAdminTaskModal(true)
+            } else {
+              setShowNewTaskModal(true)
+            }
+          }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
         >
           + Nova tarefa
@@ -483,8 +500,8 @@ export function TasksListNew() {
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="flex gap-2 flex-wrap items-center">
+      {/* Filtros (apenas na aba "Minhas tarefas") */}
+      {activeTab === 'mine' && <div className="flex gap-2 flex-wrap items-center">
         <button
           onClick={() => { setFilterPriority(''); setFilterStatus('') }}
           className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
@@ -575,7 +592,88 @@ export function TasksListNew() {
         >
           Concluídas
         </button>
-      </div>
+      </div>}
+
+      {/* Visão "Todos os colaboradores" — agrupado por usuário */}
+      {activeTab === 'all' && (
+        <div className="space-y-4">
+          {allUsers.length === 0 && (
+            <div className="text-center py-12 text-sm text-gray-400">Carregando colaboradores...</div>
+          )}
+          {allUsers.map(u => {
+            const userTasks = tasks.filter((t: any) => t.user_id === u.id)
+            const userPending = userTasks.filter((t: any) => t.status !== 'done')
+            const userDone = userTasks.filter((t: any) => t.status === 'done')
+            return (
+              <div key={u.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {/* Header do colaborador */}
+                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+                      style={{ backgroundColor: u.avatar_color || '#6366f1' }}
+                    >
+                      {u.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{u.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDone.length} concluída{userDone.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setAdminTaskDefaultUser(u.id); setShowAdminTaskModal(true) }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100"
+                  >
+                    <Plus className="w-3 h-3" /> Nova tarefa
+                  </button>
+                </div>
+                {/* Tarefas do colaborador */}
+                <div>
+                  {userPending.length === 0 && userDone.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-gray-400 text-center">Nenhuma tarefa atribuída</div>
+                  )}
+                  {userPending.map((task: any) => (
+                    <div
+                      key={task.id}
+                      onClick={() => setViewTask(task)}
+                      className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer group"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={task.status === 'done'}
+                        onClick={e => e.stopPropagation()}
+                        onChange={() => handleCheckboxChange(task.id, task.status)}
+                        className="w-4 h-4 rounded border-gray-300 cursor-pointer shrink-0"
+                      />
+                      <span className="flex-1 text-sm text-gray-800 truncate">{task.title}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                        task.priority === 'high' ? 'bg-red-100 text-red-700' :
+                        task.priority === 'mid' ? 'bg-amber-100 text-amber-700' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>
+                        {task.priority === 'high' ? 'Alta' : task.priority === 'mid' ? 'Média' : 'Baixa'}
+                      </span>
+                      {task.due_date && (
+                        <span className="text-[10px] text-gray-400 shrink-0">{formatDateDisplay(task.due_date)}</span>
+                      )}
+                    </div>
+                  ))}
+                  {userDone.length > 0 && (
+                    <div className="flex items-center gap-3 px-4 py-2 bg-green-50/50">
+                      <span className="text-xs text-green-600 font-medium">✓ {userDone.length} concluída{userDone.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Visão "Minhas tarefas" — seções normais */}
+      {activeTab === 'mine' && <>
 
       {/* Quando há filtro de prioridade, mostrar apenas as tarefas daquela prioridade */}
       {filterPriority && filterStatus !== 'done' && (
@@ -742,7 +840,17 @@ export function TasksListNew() {
         )
       })()}
 
+      </> /* fim activeTab === 'mine' */}
+
       {/* Modais */}
+      {showAdminTaskModal && (
+        <AdminTaskModal
+          users={allUsers}
+          defaultUserId={adminTaskDefaultUser}
+          onClose={() => setShowAdminTaskModal(false)}
+          onSuccess={() => { setShowAdminTaskModal(false); loadTasks() }}
+        />
+      )}
       {showNewTaskModal && <TasksModal onClose={() => setShowNewTaskModal(false)} onSuccess={() => { setShowNewTaskModal(false); loadTasks() }} />}
       {viewTask && <TasksViewModal task={viewTask} onClose={() => { setViewTask(null); loadTasks() }} onEdit={(task) => { setViewTask(null); setEditTask(task) }} onStatusChange={loadTasks} />}
       {editTask && <TasksEditModal task={editTask} onClose={() => setEditTask(null)} onSuccess={() => { loadTasks(); setEditTask(null) }} />}
