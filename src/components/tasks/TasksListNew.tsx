@@ -669,9 +669,16 @@ export function TasksListNew() {
             {/* Input week escondido — acionado via showPicker() */}
             <input
               ref={weekPickerRef}
-              type="week"
-              value={weekOffsetToInputValue(weekOffset)}
-              onChange={e => { if (e.target.value) setWeekOffset(dateToWeekOffset(e.target.value)) }}
+              type="date"
+              value={(() => { const { monday: s } = getWeekRange(weekOffset); return `${s.getFullYear()}-${String(s.getMonth()+1).padStart(2,'0')}-${String(s.getDate()).padStart(2,'0')}` })()}
+              onChange={e => {
+                if (!e.target.value) return
+                const picked = new Date(e.target.value + 'T12:00:00')
+                const today = new Date()
+                const thisSun = new Date(today); thisSun.setDate(today.getDate() - today.getDay()); thisSun.setHours(0,0,0,0)
+                const pickedSun = new Date(picked); pickedSun.setDate(picked.getDate() - picked.getDay()); pickedSun.setHours(0,0,0,0)
+                setWeekOffset(Math.round((pickedSun.getTime() - thisSun.getTime()) / (7*24*60*60*1000)))
+              }}
               className="sr-only"
               tabIndex={-1}
             />
@@ -708,6 +715,9 @@ export function TasksListNew() {
             const userTasks = tasks.filter((t: any) => t.user_id === u.id)
             const userPending = userTasks.filter((t: any) => t.status !== 'done')
             const userDoneThisWeek = userTasks.filter((t: any) => t.status === 'done' && isCompletedInWeek(t.completed_at, weekOffset))
+            const userTodo = userTasks.filter((t: any) => t.status === 'todo').length
+            const userDoing = userTasks.filter((t: any) => t.status === 'doing').length
+            const userPaused = userTasks.filter((t: any) => t.status === 'paused').length
             // Progresso do dia: concluídas hoje / (pendentes com prazo hoje ou passado + concluídas hoje)
             const todayStr = getTodayString()
             const userDoneToday = userTasks.filter((t: any) => t.status === 'done' && t.completed_at && t.completed_at.split('T')[0] === todayStr)
@@ -728,9 +738,31 @@ export function TasksListNew() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{u.name}</p>
-                        <p className="text-xs text-gray-500">
-                          {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} na semana
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {userTodo > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              A fazer: {userTodo}
+                            </span>
+                          )}
+                          {userDoing > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                              Andamento: {userDoing}
+                            </span>
+                          )}
+                          {userPaused > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                              Pausada: {userPaused}
+                            </span>
+                          )}
+                          {userDoneThisWeek.length > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              Concluídas: {userDoneThisWeek.length}
+                            </span>
+                          )}
+                          {userTodo === 0 && userDoing === 0 && userPaused === 0 && userDoneThisWeek.length === 0 && (
+                            <span className="text-[10px] text-gray-400">Sem tarefas</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
