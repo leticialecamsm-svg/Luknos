@@ -711,6 +711,14 @@ export function TasksListNew() {
                       />
                       <span className="flex-1 text-sm text-gray-800 truncate">{task.title}</span>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                        task.status === 'todo' ? 'bg-slate-100 text-slate-600' :
+                        task.status === 'doing' ? 'bg-blue-100 text-blue-700' :
+                        task.status === 'paused' ? 'bg-amber-100 text-amber-700' :
+                        'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        {task.status === 'todo' ? 'A fazer' : task.status === 'doing' ? 'Em andamento' : task.status === 'paused' ? 'Pausada' : 'Concluída'}
+                      </span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                         task.priority === 'high' ? 'bg-red-100 text-red-700' :
                         task.priority === 'mid' ? 'bg-amber-100 text-amber-700' :
                         'bg-gray-100 text-gray-500'
