@@ -317,9 +317,16 @@ export function TasksListNew({
   }
 
   const dragIndexRef = useRef<number | null>(null)
+  const pendingSaveRef = useRef(false)
 
-  // tasksRef espelha tasks para drag handlers sempre lerem o valor atual
-  useEffect(() => { tasksRef.current = tasks }, [tasks])
+  // Salva ordem no localStorage após o React processar o novo estado de tasks
+  useEffect(() => {
+    tasksRef.current = tasks
+    if (pendingSaveRef.current) {
+      pendingSaveRef.current = false
+      saveOrder(tasks)
+    }
+  }, [tasks])
 
   const handleDragStart = (taskId: string) => {
     const idx = tasksRef.current.findIndex(t => t.id === taskId)
@@ -341,7 +348,7 @@ export function TasksListNew({
   }
 
   const handleDragEnd = () => {
-    saveOrder(tasksRef.current)
+    pendingSaveRef.current = true
     dragIndexRef.current = null
   }
 
