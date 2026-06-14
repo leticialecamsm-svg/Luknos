@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 
 export async function getMyQuotes() {
@@ -737,16 +738,29 @@ export async function getAllTasks() {
   if (me?.role !== 'admin') return []
 
   // Usar admin client para bypassar RLS e buscar tarefas de todos os usuários
-  const { createAdminClient } = await import('@/lib/supabase/admin')
   const adminSupabase = createAdminClient()
 
-  const { data } = await adminSupabase
+  const { data: tasks } = await adminSupabase
     .from('tasks')
-    .select('*, subtasks(id, done), users(name, avatar_color)')
+    .select('*, subtasks(id, done)')
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 
-  return data ?? []
+  if (!tasks || tasks.length === 0) return []
+
+  // Buscar dados dos usuários (public.users tem name e avatar_color)
+  const userIds = Array.from(new Set(tasks.map((t: any) => t.user_id).filter(Boolean)))
+  const { data: usersData } = await adminSupabase
+    .from('users')
+    .select('id, name, avatar_color')
+    .in('id', userIds)
+
+  const usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u]))
+
+  return tasks.map((t: any) => ({
+    ...t,
+    users: usersMap[t.user_id] ?? null,
+  }))
 }
 
 // ── Shipments (Expedição) ────────────────────────────────────
