@@ -541,8 +541,8 @@ export function TasksListNew() {
         </div>
       )}
 
-      {/* Top Stats Bar */}
-      <div className="flex gap-3 items-stretch">
+      {/* Top Stats Bar — apenas na aba "Minhas tarefas" */}
+      {activeTab === 'mine' && <div className="flex gap-3 items-stretch">
         {/* Stat Cards */}
         <div className="grid grid-cols-4 gap-2">
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
@@ -573,7 +573,7 @@ export function TasksListNew() {
             <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${progressPercent}%` }}></div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Filtros (apenas na aba "Minhas tarefas") */}
       {activeTab === 'mine' && <div className="flex gap-2 flex-wrap items-center">
@@ -674,29 +674,33 @@ export function TasksListNew() {
         <div className="space-y-4">
           {/* Seletor de semana */}
           <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2 py-1.5 w-fit">
+            {/* Input week escondido — acionado via showPicker() */}
+            <input
+              ref={weekPickerRef}
+              type="week"
+              value={weekOffsetToInputValue(weekOffset)}
+              onChange={e => { if (e.target.value) setWeekOffset(dateToWeekOffset(e.target.value)) }}
+              className="sr-only"
+              tabIndex={-1}
+            />
             <button
               onClick={() => setWeekOffset(w => w - 1)}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
             >
               ‹
             </button>
-            <div className="relative flex items-center gap-2 px-2">
-              {/* Input type=week invisível por baixo do ícone de calendário */}
-              <input
-                ref={weekPickerRef}
-                type="week"
-                value={weekOffsetToInputValue(weekOffset)}
-                onChange={e => { if (e.target.value) setWeekOffset(dateToWeekOffset(e.target.value)) }}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full"
-              />
-              <svg className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button
+              onClick={() => weekPickerRef.current?.showPicker?.()}
+              className="flex items-center gap-2 px-2 hover:bg-gray-50 rounded-lg py-1 transition-colors"
+            >
+              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="text-sm font-semibold text-gray-700 pointer-events-none">
+              <span className="text-sm font-semibold text-gray-700">
                 {weekOffset === 0 ? 'Esta semana' : weekOffset === -1 ? 'Semana passada' : formatWeekLabel(weekOffset)}
               </span>
-              <span className="text-xs text-gray-400 pointer-events-none">({formatWeekLabel(weekOffset)})</span>
-            </div>
+              <span className="text-xs text-gray-400">({formatWeekLabel(weekOffset)})</span>
+            </button>
             <button
               onClick={() => setWeekOffset(w => w + 1)}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
@@ -712,30 +716,53 @@ export function TasksListNew() {
             const userTasks = tasks.filter((t: any) => t.user_id === u.id)
             const userPending = userTasks.filter((t: any) => t.status !== 'done')
             const userDoneThisWeek = userTasks.filter((t: any) => t.status === 'done' && isCompletedInWeek(t.completed_at, weekOffset))
+            // Progresso do dia: concluídas hoje / (pendentes com prazo hoje ou passado + concluídas hoje)
+            const todayStr = getTodayString()
+            const userDoneToday = userTasks.filter((t: any) => t.status === 'done' && t.completed_at && t.completed_at.split('T')[0] === todayStr)
+            const userDueTodayOrOverdue = userTasks.filter((t: any) => t.status !== 'done' && t.due_date && t.due_date.split('T')[0] <= todayStr)
+            const userTodayTotal = userDoneToday.length + userDueTodayOrOverdue.length
+            const userTodayPercent = userTodayTotal > 0 ? Math.round((userDoneToday.length / userTodayTotal) * 100) : null
             return (
               <div key={u.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 {/* Header do colaborador */}
-                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-                      style={{ backgroundColor: u.avatar_color || '#6366f1' }}
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+                        style={{ backgroundColor: u.avatar_color || '#6366f1' }}
+                      >
+                        {u.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{u.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} na semana
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setAdminTaskDefaultUser(u.id); setShowAdminTaskModal(true) }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100"
                     >
-                      {u.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{u.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {userPending.length} pendente{userPending.length !== 1 ? 's' : ''} · {userDoneThisWeek.length} concluída{userDoneThisWeek.length !== 1 ? 's' : ''} na semana
-                      </p>
-                    </div>
+                      <Plus className="w-3 h-3" /> Nova tarefa
+                    </button>
                   </div>
-                  <button
-                    onClick={() => { setAdminTaskDefaultUser(u.id); setShowAdminTaskModal(true) }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100"
-                  >
-                    <Plus className="w-3 h-3" /> Nova tarefa
-                  </button>
+                  {/* Barra de progresso do dia */}
+                  {userTodayPercent !== null && (
+                    <div className="mt-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400 font-medium">Progresso hoje</span>
+                        <span className="text-[10px] font-bold text-green-600">{userDoneToday.length}/{userTodayTotal} · {userTodayPercent}%</span>
+                      </div>
+                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${userTodayPercent}%`, backgroundColor: userTodayPercent === 100 ? '#22c55e' : '#3b82f6' }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {/* Tarefas pendentes */}
                 <div>
