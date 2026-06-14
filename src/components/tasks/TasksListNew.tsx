@@ -10,6 +10,7 @@ import { InlineStatusEditor, InlineDateEditor, InlinePriorityEditor, InlineTitle
 import { Trash2, Edit2, Plus, Pencil } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { WeekPickerCalendar } from '@/components/ui/WeekPickerCalendar'
 
 interface Task {
   id: string
@@ -668,48 +669,7 @@ export function TasksListNew({
       {activeTab === 'all' && (
         <div className="space-y-4">
           {/* Seletor de semana */}
-          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2 py-1.5 w-fit">
-            {/* Input week escondido — acionado via showPicker() */}
-            <input
-              ref={weekPickerRef}
-              type="date"
-              value={(() => { const { monday: s } = getWeekRange(weekOffset); return `${s.getFullYear()}-${String(s.getMonth()+1).padStart(2,'0')}-${String(s.getDate()).padStart(2,'0')}` })()}
-              onChange={e => {
-                if (!e.target.value) return
-                const picked = new Date(e.target.value + 'T12:00:00')
-                const today = new Date()
-                const thisSun = new Date(today); thisSun.setDate(today.getDate() - today.getDay()); thisSun.setHours(0,0,0,0)
-                const pickedSun = new Date(picked); pickedSun.setDate(picked.getDate() - picked.getDay()); pickedSun.setHours(0,0,0,0)
-                setWeekOffset(Math.round((pickedSun.getTime() - thisSun.getTime()) / (7*24*60*60*1000)))
-              }}
-              className="sr-only"
-              tabIndex={-1}
-            />
-            <button
-              onClick={() => setWeekOffset(w => w - 1)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
-            >
-              ‹
-            </button>
-            <button
-              onClick={() => weekPickerRef.current?.showPicker?.()}
-              className="flex items-center gap-2 px-2 hover:bg-gray-50 rounded-lg py-1 transition-colors"
-            >
-              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span className="text-sm font-semibold text-gray-700">
-                {weekOffset === 0 ? 'Esta semana' : weekOffset === -1 ? 'Semana passada' : formatWeekLabel(weekOffset)}
-              </span>
-              <span className="text-xs text-gray-400">({formatWeekLabel(weekOffset)})</span>
-            </button>
-            <button
-              onClick={() => setWeekOffset(w => w + 1)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
-            >
-              ›
-            </button>
-          </div>
+          <WeekPickerCalendar weekOffset={weekOffset} onChange={setWeekOffset} />
 
           {allUsers.length === 0 && (
             <div className="text-center py-12 text-sm text-gray-400">Carregando colaboradores...</div>
