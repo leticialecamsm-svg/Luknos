@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
-import { getTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
+import { getTasks, getAllTasks, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
@@ -21,6 +21,7 @@ interface Task {
   checklist?: { text: string; done: boolean }[]
   subtasks?: { id: string; done: boolean }[]
   created_at: string
+  users?: { name: string; avatar_color: string }
 }
 
 const STATUS_LABELS = {
@@ -46,24 +47,26 @@ export function TasksListNew() {
   const [filterPriority, setFilterPriority] = useState<string>('')
   const [showAllCompleted, setShowAllCompleted] = useState(false)
   const [userName, setUserName] = useState<string>('Usuário')
+  const [userRole, setUserRole] = useState<string>('seller')
+  const [activeTab, setActiveTab] = useState<'mine' | 'all'>('mine')
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
 
   // Carregar tarefas
-  const loadTasks = async () => {
+  const loadTasks = async (tab?: 'mine' | 'all') => {
     setLoading(true)
-    const data = await getTasks()
+    const currentTab = tab ?? activeTab
+    const data = currentTab === 'all' ? await getAllTasks() : await getTasks()
     setTasks(data as Task[])
     setLoading(false)
   }
 
-  // Carregar nome do usuário
+  // Carregar nome e role do usuário
   useEffect(() => {
     const loadUser = async () => {
       const user = await getCurrentUser()
-      if (user?.name) {
-        setUserName(user.name)
-      }
+      if (user?.name) setUserName(user.name)
+      if (user?.role) setUserRole(user.role)
     }
     loadUser()
   }, [])
@@ -93,7 +96,7 @@ export function TasksListNew() {
   const doingCount = tasks.filter(t => t.status === 'doing').length
   const pendingCount = tasks.filter(t => t.status === 'paused').length
   const doneCount = tasks.filter(t => t.status === 'done').length
-  const totalTasks = tasks.length
+  const totalTasks = tasks.filter(t => t.status !== 'done').length
 
   // Para o progresso, considerar apenas tarefas de hoje ou atrasadas
   const todayOrOverdueTasks = tasks.filter(t => isTaskTodayOrOverdue(t.due_date) && t.status !== 'done')
@@ -347,6 +350,17 @@ export function TasksListNew() {
             {task.subtasks.filter((s: { done: boolean }) => s.done).length}/{task.subtasks.length} subtarefas · {STATUS_LABELS[task.status as keyof typeof STATUS_LABELS] || task.status}
           </p>
         )}
+        {activeTab === 'all' && task.users && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <div
+              className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0"
+              style={{ backgroundColor: task.users.avatar_color || '#6366f1' }}
+            >
+              {task.users.name?.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-xs text-gray-400">{task.users.name}</span>
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">
         {!isCompleted && (
@@ -398,8 +412,12 @@ export function TasksListNew() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Minhas tarefas</h1>
-          <p className="text-sm text-gray-600">{userName} · {totalTasks} tarefas · {pendingCount} pausadas</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {activeTab === 'all' ? 'Todas as tarefas' : 'Minhas tarefas'}
+          </h1>
+          <p className="text-sm text-gray-600">
+            {activeTab === 'mine' ? `${userName} · ` : ''}{totalTasks} {totalTasks === 1 ? 'tarefa pendente' : 'tarefas pendentes'} · {pendingCount} pausadas
+          </p>
         </div>
         <button
           onClick={() => setShowNewTaskModal(true)}
@@ -408,6 +426,28 @@ export function TasksListNew() {
           + Nova tarefa
         </button>
       </div>
+
+      {/* Tabs (apenas admin) */}
+      {userRole === 'admin' && (
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => { setActiveTab('mine'); loadTasks('mine') }}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'mine' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Minhas tarefas
+          </button>
+          <button
+            onClick={() => { setActiveTab('all'); loadTasks('all') }}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Todos os colaboradores
+          </button>
+        </div>
+      )}
 
       {/* Top Stats Bar */}
       <div className="flex gap-3 items-stretch">

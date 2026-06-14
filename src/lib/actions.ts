@@ -720,11 +720,29 @@ export async function getCurrentUser() {
 
   const { data: userData } = await supabase
     .from('users')
-    .select('id, email, name')
+    .select('id, email, name, role')
     .eq('id', user.id)
     .single()
 
   return userData
+}
+
+export async function getAllTasks() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  // Verificar se é admin
+  const { data: me } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (me?.role !== 'admin') return []
+
+  const { data } = await supabase
+    .from('tasks')
+    .select('*, subtasks(id, done), users(name, avatar_color)')
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false })
+
+  return data ?? []
 }
 
 // ── Shipments (Expedição) ────────────────────────────────────
