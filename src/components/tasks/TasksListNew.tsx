@@ -97,6 +97,23 @@ export function TasksListNew({
     }
   }, [])
 
+  // Safety net: se o browser perder o dragend (por reordenação de DOM), limpa o estado
+  useEffect(() => {
+    const clear = () => {
+      if (dragIndexRef.current !== null || draggedTask !== null) {
+        setTasks(prev => { saveOrder(prev); return prev })
+        dragIndexRef.current = null
+        setDraggedTask(null)
+      }
+    }
+    window.addEventListener('dragend', clear)
+    window.addEventListener('mouseup', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('mouseup', clear)
+    }
+  }, [draggedTask])
+
   // Funções utilitárias de data (precisam ser definidas antes de usar)
   const getTodayString = () => {
     const today = new Date()
