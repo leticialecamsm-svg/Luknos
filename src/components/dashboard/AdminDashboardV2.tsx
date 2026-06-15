@@ -48,9 +48,9 @@ export function AdminDashboardV2({
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   const hotValue = quotes
-    .filter(q => q.temperature === 'hot' && q.status !== 'done')
+    .filter(q => q.temperature === 'hot')
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
-  const hotCount = quotes.filter(q => q.temperature === 'hot' && q.status !== 'done').length
+  const hotCount = quotes.filter(q => q.temperature === 'hot').length
 
   // Faturamento mensal (últimos 6 meses)
   const monthlyData = Array.from({ length: 6 }).map((_, i) => {
