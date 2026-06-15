@@ -297,18 +297,19 @@ export async function updateContact(id: string, data: {
   return { data: contact }
 }
 
-export async function getProspectionsThisMonth(userId: string) {
+export async function getProspectionsThisMonth(userId?: string) {
   const supabase = createClient()
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
-  const { count } = await supabase
+  let query = supabase
     .from('contacts')
     .select('id', { count: 'exact', head: true })
     .eq('new_prospection', true)
-    .eq('created_by', userId)
     .gte('prospection_date', start)
     .lte('prospection_date', end)
+  if (userId) query = query.eq('assigned_to', userId)
+  const { count } = await query
   return count ?? 0
 }
 
@@ -487,7 +488,7 @@ export async function createUserAdmin(data: {
   name: string
   email: string
   password: string
-  role: 'admin' | 'seller'
+  role: 'admin' | 'seller' | 'logistics'
   avatar_color: string
 }) {
   const supabase = createClient()
@@ -992,7 +993,7 @@ export async function updateShipment(
   updates: {
     delivery_type?: 'delivery' | 'pickup'
     delivery_date?: string
-    separation_status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material'
+    separation_status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material' | 'delivered'
     priority?: 'low' | 'mid' | 'high'
   }
 ) {

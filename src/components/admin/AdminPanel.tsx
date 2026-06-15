@@ -23,7 +23,7 @@ export function AdminPanel({ users, goals }: Props) {
   const [showNewUser, setShowNewUser] = useState(false)
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
-  const [newRole, setNewRole] = useState<'admin' | 'seller'>('seller')
+  const [newRole, setNewRole] = useState<'admin' | 'seller' | 'logistics'>('seller')
   const [newPassword, setNewPassword] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
   const [createSuccess, setCreateSuccess] = useState(false)
@@ -157,6 +157,7 @@ export function AdminPanel({ users, goals }: Props) {
                   <select value={newRole} onChange={e => setNewRole(e.target.value as any)} className="select">
                     <option value="seller">Vendedor</option>
                     <option value="admin">Administrador</option>
+                    <option value="logistics">Logística</option>
                   </select>
                 </div>
               </div>
@@ -381,6 +382,7 @@ function UserRow({ user: u }: { user: User }) {
             <select value={role} onChange={e => setRole(e.target.value as any)} className="select text-sm py-1 w-32">
               <option value="seller">Vendedor</option>
               <option value="admin">Admin</option>
+              <option value="logistics">Logística</option>
             </select>
             <button onClick={handleSave} disabled={saving} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Salvar">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -395,8 +397,8 @@ function UserRow({ user: u }: { user: User }) {
               <p className="text-sm font-medium">{u.name}</p>
               <p className="text-xs text-gray-400">{u.email}</p>
             </div>
-            <span className={`badge text-xs ${u.role === 'admin' ? 'bg-brand-50 text-brand-500' : 'bg-gray-100 text-gray-500'}`}>
-              {u.role === 'admin' ? 'Admin' : 'Vendedor'}
+            <span className={`badge text-xs ${u.role === 'admin' ? 'bg-brand-50 text-brand-500' : u.role === 'logistics' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+              {u.role === 'admin' ? 'Admin' : u.role === 'logistics' ? 'Logística' : 'Vendedor'}
             </span>
             {!u.active && <span className="badge text-xs bg-red-50 text-red-500">Inativo</span>}
             <button onClick={() => { setShowPwd(!showPwd); setPwdMsg(null) }} className="p-1.5 text-gray-300 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors" title="Alterar senha">

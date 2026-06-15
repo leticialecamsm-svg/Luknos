@@ -12,11 +12,13 @@ export function AdminDashboardV2({
   users,
   sales,
   funnel,
+  prospectionsThisMonth = 0,
 }: {
   quotes: any[]
   users: any[]
   sales: any[]
   funnel: any[]
+  prospectionsThisMonth?: number
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -44,6 +46,11 @@ export function AdminDashboardV2({
   const perdidas = quotes
     .filter(q => q.temperature === 'lost')
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
+
+  const hotValue = quotes
+    .filter(q => q.temperature === 'hot' && q.status !== 'done')
+    .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
+  const hotCount = quotes.filter(q => q.temperature === 'hot' && q.status !== 'done').length
 
   // Faturamento mensal (últimos 6 meses)
   const monthlyData = Array.from({ length: 6 }).map((_, i) => {
@@ -201,8 +208,8 @@ export function AdminDashboardV2({
         </div>
       </div>
 
-      {/* KPI Cards (5 colunas) */}
-      <div className="grid grid-cols-5 gap-3">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento do mês</p>
@@ -244,6 +251,20 @@ export function AdminDashboardV2({
           <p className="text-xl font-bold text-red-500 mt-2">{quotes.filter(q => q.temperature === 'lost').length}</p>
           <p className="text-xs text-gray-500 mt-1">{formatCurrency(perdidas)} em oportunidades</p>
           <p className="text-xs text-green-600 font-semibold mt-1">✓ Melhor que maio</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-orange-500"></div>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Orç. quentes</p>
+          <p className="text-xl font-bold text-orange-500 mt-2">{formatCurrency(hotValue)}</p>
+          <p className="text-xs text-gray-500 mt-1">{hotCount} orçamento{hotCount !== 1 ? 's' : ''} quente{hotCount !== 1 ? 's' : ''}</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-teal-500"></div>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Prospecções</p>
+          <p className="text-xl font-bold text-teal-600 mt-2">{prospectionsThisMonth}</p>
+          <p className="text-xs text-gray-500 mt-1">novos parceiros este mês</p>
         </div>
       </div>
 

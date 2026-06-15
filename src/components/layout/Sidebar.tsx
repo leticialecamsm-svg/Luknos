@@ -62,6 +62,17 @@ export function Sidebar({ user }: { user: User | null }) {
   }
 
   const isAdmin = user?.role === 'admin'
+  const isLogistics = user?.role === 'logistics'
+
+  const ROLE_LABEL: Record<string, string> = {
+    admin: 'Administrador',
+    seller: 'Vendedor',
+    logistics: 'Logística',
+  }
+
+  const visibleNav = isLogistics
+    ? NAV.filter(item => ['/dashboard', '/dashboard/tasks', '/shipping'].includes(item.href))
+    : NAV
 
   if (!mounted) return null
 
@@ -79,7 +90,7 @@ export function Sidebar({ user }: { user: User | null }) {
 
         {/* Nav */}
         <nav className={`flex-1 space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
-          {NAV.map(item => {
+          {visibleNav.map(item => {
             const active = pathname === item.href || (pathname.startsWith(item.href + '/') && item.href !== '/dashboard')
             const isPartners = item.href === '/partners'
             const partnersActive = pathname.startsWith('/partners')
@@ -159,7 +170,7 @@ export function Sidebar({ user }: { user: User | null }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">{user?.name ?? '—'}</p>
                 <p className="text-[10px] text-white/35 truncate">
-                  {user?.role === 'admin' ? 'Administrador' : 'Vendedor'}
+                  {ROLE_LABEL[user?.role ?? 'seller'] ?? 'Vendedor'}
                 </p>
               </div>
               <button onClick={handleLogout} className="text-white/30 hover:text-white transition-colors" title="Sair">

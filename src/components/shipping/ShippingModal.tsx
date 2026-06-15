@@ -162,6 +162,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
               <option value="in_progress">Em andamento</option>
               <option value="awaiting_material">Aguardando material</option>
               <option value="completed">Concluída</option>
+              <option value="delivered">Entregue/Retirada</option>
             </select>
           </div>
 
