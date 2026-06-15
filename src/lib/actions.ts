@@ -249,11 +249,12 @@ export async function createContact(data: {
   name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string
 }) {
   const supabase = createClient()
+  const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const prospection_date = data.new_prospection ? new Date().toISOString() : null
   const assigned_to = data.assigned_to ?? user.id
-  const { data: contact, error } = await supabase
+  const { data: contact, error } = await admin
     .from('contacts')
     .insert({ ...data, created_by: user.id, prospection_date, assigned_to })
     .select('*')
@@ -265,12 +266,12 @@ export async function createContact(data: {
 export async function updateContact(id: string, data: {
   name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string
 }) {
-  const supabase = createClient()
+  const admin = createAdminClient()
   const updates: Record<string, unknown> = { ...data }
   if ('new_prospection' in data) {
     updates.prospection_date = data.new_prospection ? new Date().toISOString() : null
   }
-  const { data: contact, error } = await supabase
+  const { data: contact, error } = await admin
     .from('contacts')
     .update(updates)
     .eq('id', id)
@@ -296,8 +297,7 @@ export async function getProspectionsThisMonth(userId: string) {
 }
 
 export async function deleteContact(id: string) {
-  const supabase = createClient()
-  const { error } = await supabase.from('contacts').delete().eq('id', id)
+  const { error } = await createAdminClient().from('contacts').delete().eq('id', id)
   if (error) return { error: error.message }
   return { ok: true }
 }
