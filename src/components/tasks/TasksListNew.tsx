@@ -397,23 +397,35 @@ export function TasksListNew({
     const titleEditorRef = useRef<any>(null)
     const [rowHovered, setRowHovered] = useState(false)
     const [isDragging, setIsDragging] = useState(false)
+    // draggable only activates when mousedown on handle
+    const dragAllowedRef = useRef(false)
 
     return (
     <div
       key={task.id}
+      draggable={!isCompleted}
+      onDragStart={(e) => {
+        if (!dragAllowedRef.current) { e.preventDefault(); return }
+        setIsDragging(true)
+        handleDragStart(task.id)
+      }}
       onDragOver={(e) => handleDragOverRow(e, task.id)}
+      onDragEnd={() => {
+        setIsDragging(false)
+        dragAllowedRef.current = false
+        handleDragEnd()
+      }}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
       className={`border-b p-2.5 transition-colors group flex items-center gap-3 ${
         isDragging ? 'opacity-40 bg-blue-50' : 'hover:bg-gray-50'
       } ${isCompleted ? 'border-green-100' : 'border-gray-200'}`}
     >
-      {/* Drag handle — only on non-completed tasks */}
+      {/* Drag handle — sets dragAllowedRef on mousedown */}
       {!isCompleted ? (
         <span
-          draggable
-          onDragStart={() => { setIsDragging(true); handleDragStart(task.id) }}
-          onDragEnd={() => { setIsDragging(false); handleDragEnd() }}
+          onMouseDown={() => { dragAllowedRef.current = true }}
+          onMouseUp={() => { dragAllowedRef.current = false }}
           className={`flex-shrink-0 cursor-grab transition-colors ${rowHovered ? 'text-gray-300' : 'text-transparent'}`}
         >
           <GripVertical className="w-4 h-4" />
