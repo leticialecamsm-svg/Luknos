@@ -624,7 +624,17 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
   if (filter?.status) query = query.eq('status', filter.status)
   if (filter?.priority) query = query.eq('priority', filter.priority)
 
-  const { data } = await query
+  const { data, error } = await query
+  if (error) {
+    // Fallback sem o join de quote (caso a migration ainda não foi aplicada)
+    const { data: fallback } = await supabase
+      .from('tasks')
+      .select('*, subtasks(id, done)')
+      .eq('user_id', user.id)
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+    return fallback ?? []
+  }
   return data ?? []
 }
 
@@ -639,11 +649,12 @@ export async function getQuotesList() {
 
 export async function getTasksByQuote(quoteId: string) {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('tasks')
     .select('*, subtasks(id, done), users:users(name, avatar_color)')
     .eq('quote_id', quoteId)
     .order('created_at', { ascending: false })
+  if (error) return [] // coluna quote_id ainda não existe
   return data ?? []
 }
 
