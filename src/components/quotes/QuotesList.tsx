@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle, LayoutList, LayoutGrid } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
+import { QuotesKanban } from './QuotesKanban'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
@@ -17,6 +18,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
   const [view, setView] = useState<'mine' | 'all'>(isAdmin ? 'all' : 'mine')
+  const [layout, setLayout] = useState<'list' | 'kanban'>('list')
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
@@ -191,6 +193,20 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
           )}
 
           <p className="text-xs text-gray-400 ml-2">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
+
+          {/* Layout toggle */}
+          <div className="ml-auto flex gap-1 bg-surface-secondary rounded-lg p-1">
+            <button onClick={() => setLayout('list')}
+              title="Lista"
+              className={cn('p-1.5 rounded-md transition-all', layout === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600')}>
+              <LayoutList className="w-4 h-4" />
+            </button>
+            <button onClick={() => setLayout('kanban')}
+              title="Kanban"
+              className={cn('p-1.5 rounded-md transition-all', layout === 'kanban' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600')}>
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {selected.size > 0 && (
@@ -216,8 +232,13 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
         )}
       </div>
 
+      {/* Kanban */}
+      {layout === 'kanban' && (
+        <QuotesKanban myQuotes={myQuotes} allQuotes={allQuotes} isAdmin={isAdmin} />
+      )}
+
       {/* Tabela */}
-      <div className="card overflow-hidden">
+      {layout === 'list' && <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
@@ -388,7 +409,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
             <p className="text-gray-500">Nenhum orçamento encontrado</p>
           </div>
         )}
-      </div>
+      </div>}
       {ConfirmDialog}
     </div>
   )

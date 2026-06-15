@@ -4,95 +4,91 @@ import { useState } from 'react'
 import { ShippingCard } from './ShippingCard'
 import { ShippingModal } from './ShippingModal'
 import type { Shipment, ShipmentStatus } from '@/types'
-import { SHIPMENT_STATUS_LABEL } from '@/types'
+import { SHIPMENT_STATUS_LABEL, SHIPMENT_STATUS_COLOR } from '@/types'
+import { cn } from '@/lib/utils'
 
 interface ShippingBoardProps {
-  initialShipments: Shipment[]
+  initialShipments: any[]
 }
 
-const COLUMNS: ShipmentStatus[] = ['queued', 'in_progress', 'awaiting_material', 'completed']
+const COLUMNS: { status: ShipmentStatus; color: string; bg: string; header: string; text: string }[] = [
+  { status: 'queued',            color: 'border-blue-200',   bg: 'bg-blue-50/50',   header: 'bg-blue-100',   text: 'text-blue-700' },
+  { status: 'in_progress',       color: 'border-amber-200',  bg: 'bg-amber-50/50',  header: 'bg-amber-100',  text: 'text-amber-700' },
+  { status: 'awaiting_material', color: 'border-orange-200', bg: 'bg-orange-50/50', header: 'bg-orange-100', text: 'text-orange-700' },
+  { status: 'completed',         color: 'border-green-200',  bg: 'bg-green-50/50',  header: 'bg-green-100',  text: 'text-green-700' },
+  { status: 'delivered',         color: 'border-emerald-200',bg: 'bg-emerald-50/50',header: 'bg-emerald-100',text: 'text-emerald-700' },
+]
 
 export function ShippingBoard({ initialShipments }: ShippingBoardProps) {
-  const [shipments, setShipments] = useState(initialShipments)
-  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
-  const [draggedShipment, setDraggedShipment] = useState<Shipment | null>(null)
+  const [shipments, setShipments] = useState<any[]>(initialShipments)
+  const [selectedShipment, setSelectedShipment] = useState<any | null>(null)
+  const [draggedId, setDraggedId] = useState<string | null>(null)
 
-  const handleDragStart = (e: React.DragEvent, shipment: Shipment) => {
-    setDraggedShipment(shipment)
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id)
     e.dataTransfer.effectAllowed = 'move'
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
   }
 
   const handleDrop = async (e: React.DragEvent, status: ShipmentStatus) => {
     e.preventDefault()
-    if (!draggedShipment) return
-
-    setShipments(prev =>
-      prev.map(s =>
-        s.id === draggedShipment.id ? { ...s, separation_status: status } : s
-      )
-    )
-    setDraggedShipment(null)
-
-    // Update in database (async, no await to avoid blocking UI)
+    if (!draggedId) return
+    setShipments(prev => prev.map(s => s.id === draggedId ? { ...s, separation_status: status } : s))
+    const id = draggedId
+    setDraggedId(null)
     const { updateShipment } = await import('@/lib/actions')
-    updateShipment(draggedShipment.id, { separation_status: status }).catch(console.error)
+    updateShipment(id, { separation_status: status }).catch(console.error)
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {COLUMNS.map(status => {
-          const statusShipments = shipments.filter(s => s.separation_status === status && !s.is_completed)
-          const count = statusShipments.length
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {COLUMNS.map(col => {
+          const cards = shipments.filter(s => s.separation_status === col.status)
 
           return (
-            <div key={status} className="space-y-3">
-              {/* Column Header */}
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">{SHIPMENT_STATUS_LABEL[status]}</h3>
-                <span className="inline-block bg-gray-200 text-gray-700 text-xs font-bold px-2.5 py-1 rounded-full">
-                  {count}
-                </span>
+            <div key={col.status}
+              className={cn('rounded-xl border-2 flex flex-col transition-all min-w-[220px] w-[220px] flex-shrink-0', col.color, col.bg)}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => handleDrop(e, col.status)}
+            >
+              <div className={cn('px-3 py-2.5 rounded-t-xl', col.header)}>
+                <div className="flex items-center justify-between">
+                  <span className={cn('text-xs font-semibold', col.text)}>{SHIPMENT_STATUS_LABEL[col.status]}</span>
+                  <span className={cn('text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/70', col.text)}>{cards.length}</span>
+                </div>
               </div>
 
-              {/* Drop Zone */}
-              <div
-                onDragOver={handleDragOver}
-                onDrop={e => handleDrop(e, status)}
-                className="space-y-2 min-h-96 bg-surface rounded-lg p-3 border-2 border-dashed border-surface-border hover:border-brand-300 transition-colors"
-              >
-                {statusShipments.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                    Arraste expedições aqui
+              <div className="p-2 space-y-2 flex-1 min-h-[500px]">
+                {cards.length === 0 && (
+                  <div className="h-16 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center">
+                    <p className="text-xs text-gray-300">Arraste expedições aqui</p>
                   </div>
-                ) : (
-                  statusShipments.map(shipment => (
-                    <div key={shipment.id} onClick={() => setSelectedShipment(shipment)}>
-                      <ShippingCard
-                        shipment={shipment}
-                        draggable={true}
-                        onDragStart={(e) => handleDragStart(e, shipment)}
-                      />
-                    </div>
-                  ))
                 )}
+                {cards.map(shipment => (
+                  <div
+                    key={shipment.id}
+                    draggable
+                    onDragStart={e => handleDragStart(e, shipment.id)}
+                    onClick={() => setSelectedShipment(shipment)}
+                    className={cn('cursor-grab active:cursor-grabbing', draggedId === shipment.id && 'opacity-50')}
+                  >
+                    <ShippingCard shipment={shipment} draggable={false} onDragStart={() => {}} />
+                  </div>
+                ))}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Modal */}
       {selectedShipment && (
         <ShippingModal
           shipment={selectedShipment}
           onClose={() => setSelectedShipment(null)}
-          onSave={() => setSelectedShipment(null)}
+          onSave={(updated) => {
+            setShipments(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
+            setSelectedShipment(null)
+          }}
           onComplete={() => {
             setShipments(prev => prev.map(s =>
               s.id === selectedShipment.id ? { ...s, is_completed: true, completed_at: new Date().toISOString() } : s
