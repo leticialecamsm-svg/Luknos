@@ -24,7 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
-      <FloatingActionButton />
+      <FloatingActionButton currentUserId={user.id} />
     </div>
   )
 }

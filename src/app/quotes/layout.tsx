@@ -23,7 +23,7 @@ export default async function QuotesLayout({ children }: { children: React.React
           {children}
         </div>
       </main>
-      <FloatingActionButton />
+      <FloatingActionButton currentUserId={user.id} />
     </div>
   )
 }

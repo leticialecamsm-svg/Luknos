@@ -19,7 +19,7 @@ export default async function ShippingLayout({ children }: { children: React.Rea
           {children}
         </div>
       </main>
-      <FloatingActionButton />
+      <FloatingActionButton currentUserId={user.id} />
     </div>
   )
 }

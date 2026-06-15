@@ -28,7 +28,7 @@ const TYPE_COLOR: Record<string, string> = {
   client: 'bg-green-50 text-green-700',
   other: 'bg-gray-100 text-gray-600',
 }
-const TYPE_KEYS = ['architect','engineer','designer','electrician','plasterer','carpenter','client','other']
+const TYPE_KEYS = ['architect','engineer','designer','electrician','plasterer','carpenter','client']
 
 interface AppUser { id: string; name: string; avatar_color?: string }
 interface Contact {
@@ -364,7 +364,7 @@ export function PartnersPage({
           <p className="text-sm text-gray-500 mt-0.5">{contacts.length} contatos cadastrados</p>
         </div>
         <button onClick={() => { setShowNewModal(true); setEditingId(null) }} className="btn-primary">
-          <Plus className="w-4 h-4" /> Novo contato
+          <Plus className="w-4 h-4" /> Novo Parceiro
         </button>
       </div>
 
@@ -404,7 +404,7 @@ export function PartnersPage({
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
             <ContactForm
-              title="Novo contato"
+              title="Novo Parceiro"
               initial={{ assigned_to: currentUserId }}
               onSave={handleCreate}
               onCancel={() => setShowNewModal(false)}

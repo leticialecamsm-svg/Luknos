@@ -24,7 +24,7 @@ export default async function SchedulesLayout({ children }: { children: React.Re
           {children}
         </div>
       </main>
-      <FloatingActionButton />
+      <FloatingActionButton currentUserId={user.id} />
     </div>
   )
 }

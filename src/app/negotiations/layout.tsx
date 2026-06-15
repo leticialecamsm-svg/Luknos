@@ -14,7 +14,7 @@ export default async function NegotiationsLayout({ children }: { children: React
       <main className="flex-1 overflow-y-auto bg-surface">
         <div className="max-w-full mx-auto p-6">{children}</div>
       </main>
-      <FloatingActionButton />
+      <FloatingActionButton currentUserId={user.id} />
     </div>
   )
 }
