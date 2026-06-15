@@ -166,19 +166,10 @@ export async function closeSale(quoteId: string, data: {
   const { error: updateError } = await supabase.from('quotes').update({ status: 'done' }).eq('id', quoteId)
   if (updateError) return { error: updateError.message }
 
-  // Create shipment automatically after closing sale
-  const { data: shipmentData, error: shipmentError } = await supabase
+  // Create shipment automatically after closing sale (use admin to bypass RLS)
+  await createAdminClient()
     .from('shipments')
-    .insert({ quote_id: quoteId })
-    .select()
-    .single()
-
-  if (shipmentError) {
-    console.error('Failed to create shipment:', shipmentError)
-    // Still return success for the sale, shipment creation is secondary
-  } else {
-    console.log('Shipment created:', shipmentData)
-  }
+    .upsert({ quote_id: quoteId }, { onConflict: 'quote_id' })
 
   // Create commission if quote has a partner with commission_rate > 0
   const admin = createAdminClient()
@@ -946,13 +937,32 @@ export async function createShipment(quoteId: string) {
 }
 
 export async function getShipments() {
-  const supabase = createClient()
-  const { data, error } = await supabase
+  const admin = createAdminClient()
+  const { data: shipments, error } = await admin
     .from('shipments')
     .select('*')
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
-  return data || []
+  if (!shipments || shipments.length === 0) return []
+
+  // Enriquecer com dados do orçamento (quotes_full tem client_name)
+  const quoteIds = shipments.map((s: any) => s.quote_id).filter(Boolean)
+  const { data: quotes } = await admin
+    .from('quotes_full')
+    .select('id, number, quoted_value, final_value, client_name, architect_name')
+    .in('id', quoteIds)
+  const quotesMap = Object.fromEntries((quotes ?? []).map((q: any) => [q.id, q]))
+
+  return shipments.map((s: any) => {
+    const q = quotesMap[s.quote_id] ?? {}
+    return {
+      ...s,
+      quote_number: q.number,
+      quoted_value: q.final_value ?? q.quoted_value,
+      client_name: q.client_name ?? '—',
+      architect_name: q.architect_name ?? null,
+    }
+  })
 }
 
 export async function getShipmentQuoteData(quoteId: string) {

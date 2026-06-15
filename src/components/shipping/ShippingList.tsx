@@ -166,7 +166,19 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
             <tbody>
               {filtered.map((shipment, idx) => (
                 <tr key={shipment.id} onClick={() => setSelectedShipment(shipment)} className={cn('border-b border-surface-border hover:bg-surface transition-colors group cursor-pointer', idx === filtered.length - 1 && 'border-0')}>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{shipment.client_name}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold shrink-0">
+                        {(shipment.client_name ?? '?').split(' ').slice(0,2).map((w: string) => w[0]).join('').toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{shipment.client_name ?? '—'}</p>
+                        {shipment.architect_name && (
+                          <p className="text-xs text-gray-400">Arq. {shipment.architect_name}</p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600">#{shipment.quote_number}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-brand-600">
                     R$ {(shipment.quoted_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}

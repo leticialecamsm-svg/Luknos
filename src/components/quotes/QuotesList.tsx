@@ -277,6 +277,11 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
               // Format deadline status message
               const getDeadlineStatus = (days: number | null) => {
                 if (days === null) return ''
+                if (q.status === 'done') {
+                  // Concluído: não mostra alerta, apenas registra atraso se houve
+                  if (days < 0) return `concluído com ${Math.abs(days)} dia${Math.abs(days) > 1 ? 's' : ''} de atraso`
+                  return ''
+                }
                 if (days < 0) return `Venceu a ${Math.abs(days)} dia${Math.abs(days) > 1 ? 's' : ''}`
                 if (days === 0) return 'Vence hoje'
                 if (days === 1) return 'Vence amanhã'
@@ -336,15 +341,16 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex flex-col">
-                        <span className={`text-sm font-medium ${overdue ? 'text-red-600' : 'text-gray-900'}`}>
+                        <span className="text-sm font-medium text-gray-900">
                           {q.deadline ? formatDate(q.deadline) : '—'}
                         </span>
                         {q.deadline && (
                           <div className="flex items-center gap-1">
-                            {daysUntil !== null && daysUntil < 0 && (
+                            {daysUntil !== null && daysUntil < 0 && q.status !== 'done' && (
                               <AlertTriangle className="w-3 h-3 text-red-600" />
                             )}
                             <span className={`text-xs font-medium ${
+                              q.status === 'done' ? 'text-gray-400' :
                               daysUntil !== null && daysUntil < 0 ? 'text-red-600' :
                               daysUntil === 0 ? 'text-orange-500' :
                               daysUntil === 1 ? 'text-purple-600' :
