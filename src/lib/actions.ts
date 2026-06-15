@@ -18,8 +18,7 @@ export async function getMyQuotes() {
 }
 
 export async function getAllQuotes() {
-  const supabase = createClient()
-  const { data } = await supabase
+  const { data } = await createAdminClient()
     .from('quotes_full')
     .select('*')
     .order('created_at', { ascending: false })
