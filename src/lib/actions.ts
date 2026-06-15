@@ -180,9 +180,34 @@ export async function closeSale(quoteId: string, data: {
     console.log('Shipment created:', shipmentData)
   }
 
+  // Create commission if quote has a partner with commission_rate > 0
+  const admin = createAdminClient()
+  const { data: quote } = await admin.from('quotes').select('architect_id, quoted_value').eq('id', quoteId).single()
+  if (quote?.architect_id) {
+    const { data: contact } = await admin.from('contacts').select('commission_rate').eq('id', quote.architect_id).single()
+    const rate = Number(contact?.commission_rate ?? 0)
+    if (rate > 0) {
+      const saleValue = data.final_value || Number(quote.quoted_value ?? 0)
+      const amount = parseFloat(((saleValue * rate) / 100).toFixed(2))
+      const closedAt = new Date()
+      const dueDate = new Date(closedAt)
+      dueDate.setDate(dueDate.getDate() + 30)
+      await admin.from('commissions').upsert({
+        contact_id: quote.architect_id,
+        quote_id: quoteId,
+        quote_value: saleValue,
+        rate,
+        amount,
+        due_date: dueDate.toISOString().split('T')[0],
+        status: 'scheduled',
+      }, { onConflict: 'quote_id,contact_id' })
+    }
+  }
+
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
   revalidatePath('/shipping')
+  revalidatePath('/partners')
   return { ok: true }
 }
 
@@ -246,7 +271,7 @@ export async function getAllContacts(type?: string) {
 }
 
 export async function createContact(data: {
-  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string
+  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null
 }) {
   const supabase = createClient()
   const admin = createAdminClient()
@@ -264,7 +289,7 @@ export async function createContact(data: {
 }
 
 export async function updateContact(id: string, data: {
-  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string
+  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null
 }) {
   const admin = createAdminClient()
   const updates: Record<string, unknown> = { ...data }
@@ -1015,4 +1040,61 @@ export async function deleteMaterialFile(shipmentId: string, fileUrl: string) {
 
   revalidatePath('/shipping')
   return { ok: true }
+}
+// ── Commissions ───────────────────────────────────────────────────────────────
+
+export async function getCommissions(year: number, month: number) {
+  const admin = createAdminClient()
+  const start = `${year}-${String(month).padStart(2,'0')}-01`
+  const end = new Date(year, month, 0).toISOString().split('T')[0]
+
+  // Auto-mark overdue
+  const today = new Date().toISOString().split('T')[0]
+  await admin.from('commissions').update({ status: 'overdue' })
+    .eq('status', 'scheduled').lt('due_date', today)
+
+  const { data, error } = await admin
+    .from('commissions')
+    .select('*, contact:contacts(id, name, commission_rate), quote:quotes(number, quoted_value)')
+    .gte('due_date', start)
+    .lte('due_date', end)
+    .order('due_date')
+  if (error) return []
+  return data ?? []
+}
+
+export async function updateCommissionStatus(id: string, status: 'scheduled' | 'paid' | 'overdue') {
+  const admin = createAdminClient()
+  const updates: Record<string, unknown> = { status }
+  if (status === 'paid') updates.paid_at = new Date().toISOString()
+  const { error } = await admin.from('commissions').update(updates).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/partners/commissions')
+  return { ok: true }
+}
+
+export async function getContactSalesTotal(contactId: string, year?: number, month?: number) {
+  const admin = createAdminClient()
+  let q = admin
+    .from('commissions')
+    .select('quote_value, amount, due_date, status, quote:quotes(number)')
+    .eq('contact_id', contactId)
+  if (year && month) {
+    const start = `${year}-${String(month).padStart(2,'0')}-01`
+    const end = new Date(year, month, 0).toISOString().split('T')[0]
+    q = q.gte('due_date', start).lte('due_date', end)
+  }
+  const { data } = await q.order('due_date', { ascending: false })
+  return data ?? []
+}
+
+export async function getContactTotalSales(contactId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('commissions')
+    .select('quote_value, amount')
+    .eq('contact_id', contactId)
+  const totalSales = (data ?? []).reduce((s, r) => s + Number(r.quote_value ?? 0), 0)
+  const totalCommissions = (data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
+  return { totalSales, totalCommissions, count: (data ?? []).length }
 }

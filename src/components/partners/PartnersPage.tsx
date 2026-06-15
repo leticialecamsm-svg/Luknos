@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createContact, updateContact, deleteContact } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
-import { Search, Plus, Trash2, X, User2, Building2, Pencil, ChevronDown, Phone, Mail, Calendar, Users } from 'lucide-react'
+import { Search, Plus, Trash2, X, User2, Building2, Pencil, ChevronDown, ChevronLeft, ChevronRight, Phone, Mail, Calendar, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export const TYPE_LABEL: Record<string, string> = {
@@ -45,6 +45,7 @@ interface Contact {
   assigned_to?: string
   assigned_user?: AppUser | null
   creator?: AppUser | null
+  commission_rate?: number | null
 }
 
 // ── Avatar helper ─────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ function Avatar({ user, size = 'sm' }: { user: AppUser; size?: 'sm' | 'md' }) {
 
 // ── Formulário reutilizável ───────────────────────────────────────────────────
 function ContactForm({
-  initial, onSave, onCancel, pending, title, users, currentUserId,
+  initial, onSave, onCancel, pending, title, users, currentUserId, isAdmin,
 }: {
   initial: Partial<Contact>
   onSave: (data: Omit<Contact, 'id' | 'assigned_user' | 'creator'>) => void
@@ -73,6 +74,7 @@ function ContactForm({
   title: string
   users: AppUser[]
   currentUserId: string
+  isAdmin?: boolean
 }) {
   const [name, setName]           = useState(initial.name ?? '')
   const [phone, setPhone]         = useState(initial.phone ?? '')
@@ -81,11 +83,17 @@ function ContactForm({
   const [company, setCompany]     = useState(initial.company ?? '')
   const [prospection, setProsp]   = useState(initial.new_prospection ?? false)
   const [assignedTo, setAssigned] = useState<string>(initial.assigned_to ?? currentUserId)
+  const [commRate, setCommRate]   = useState(initial.commission_rate != null ? String(initial.commission_rate) : '')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
-    onSave({ name: name.trim(), phone: phone || undefined, email: email || undefined, type, company: company || undefined, new_prospection: prospection, assigned_to: assignedTo })
+    onSave({
+      name: name.trim(), phone: phone || undefined, email: email || undefined,
+      type, company: company || undefined, new_prospection: prospection,
+      assigned_to: assignedTo,
+      commission_rate: isAdmin && commRate !== '' ? parseFloat(commRate) : initial.commission_rate,
+    })
   }
 
   return (
@@ -168,6 +176,24 @@ function ContactForm({
           <span className="text-sm font-medium text-gray-700">Nova prospecção</span>
         </label>
 
+        {/* Taxa de comissão — admin only */}
+        {isAdmin && (
+          <div>
+            <label className="label">Taxa de comissão (%)</label>
+            <div className="relative">
+              <input
+                type="number" min="0" max="100" step="0.1"
+                value={commRate}
+                onChange={e => setCommRate(e.target.value)}
+                placeholder="Ex: 5"
+                className="input pr-8"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Percentual de comissão sobre vendas fechadas</p>
+          </div>
+        )}
+
         <div className="flex gap-2 pt-1">
           <button type="submit" disabled={pending} className="btn-primary">Salvar contato</button>
           <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>
@@ -178,83 +204,182 @@ function ContactForm({
 }
 
 // ── Modal de visualização ─────────────────────────────────────────────────────
-function ContactModal({ contact, onClose, onEdit }: { contact: Contact; onClose: () => void; onEdit: () => void }) {
+function ContactModal({ contact, onClose, onEdit, isAdmin }: {
+  contact: Contact; onClose: () => void; onEdit: () => void; isAdmin?: boolean
+}) {
+  const now = new Date()
+  const [viewYear, setViewYear]   = useState(now.getFullYear())
+  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1)
+  const [commData, setCommData]   = useState<any[] | null>(null)
+  const [loadingComm, setLoadingComm] = useState(false)
+
+  const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+  useEffect(() => {
+    if (!isAdmin || !(contact as any).commission_rate) return
+    loadComm(viewYear, viewMonth)
+  }, [])
+
+  async function loadComm(y: number, m: number) {
+    setLoadingComm(true)
+    const { getContactSalesTotal } = await import('@/lib/actions')
+    const data = await getContactSalesTotal(contact.id, y, m)
+    setCommData(data as any[])
+    setLoadingComm(false)
+  }
+
+  function prevMonth() {
+    const nm = viewMonth === 1 ? 12 : viewMonth - 1
+    const ny = viewMonth === 1 ? viewYear - 1 : viewYear
+    setViewMonth(nm); setViewYear(ny); loadComm(ny, nm)
+  }
+  function nextMonth() {
+    const nm = viewMonth === 12 ? 1 : viewMonth + 1
+    const ny = viewMonth === 12 ? viewYear + 1 : viewYear
+    setViewMonth(nm); setViewYear(ny); loadComm(ny, nm)
+  }
+
   function fmt(iso?: string) {
     if (!iso) return '—'
     return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
+
+  function fmtCurrency(v: number) {
+    return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  }
+
+  const commRate = Number((contact as any).commission_rate ?? 0)
+  const monthTotal = (commData ?? []).reduce((s, r) => s + Number(r.quote_value ?? 0), 0)
+  const commTotal  = (commData ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-surface-secondary flex items-center justify-center">
-              <span className="text-base font-bold text-gray-600">
-                {contact.name.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase()}
-              </span>
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">{contact.name}</h2>
-              <span className={cn('inline-block badge text-xs mt-0.5', TYPE_COLOR[contact.type] ?? 'bg-gray-100 text-gray-600')}>
-                {TYPE_LABEL[contact.type] ?? contact.type}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-50" title="Editar">
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-50">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {contact.new_prospection && (
-          <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg flex items-center gap-2">
-            <span className="text-amber-600 text-xs font-semibold">✦ Nova prospecção</span>
-            {contact.prospection_date && (
-              <span className="text-amber-500 text-xs">· registrado em {fmt(contact.prospection_date)}</span>
-            )}
-          </div>
-        )}
-
-        <dl className="space-y-3 text-sm">
-          {contact.company && (
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="p-6">
+          <div className="flex items-start justify-between mb-5">
             <div className="flex items-center gap-3">
-              <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-gray-700">{contact.company}</span>
-            </div>
-          )}
-          {contact.phone && (
-            <div className="flex items-center gap-3">
-              <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <a href={`tel:${contact.phone}`} className="text-brand-600 hover:text-brand-700">{contact.phone}</a>
-            </div>
-          )}
-          {contact.email && (
-            <div className="flex items-center gap-3">
-              <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <a href={`mailto:${contact.email}`} className="text-brand-600 hover:text-brand-700">{contact.email}</a>
-            </div>
-          )}
-          {contact.assigned_user && (
-            <div className="flex items-center gap-3">
-              <Users className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <div className="flex items-center gap-2">
-                <Avatar user={contact.assigned_user} size="sm" />
-                <span className="text-gray-700">{contact.assigned_user.name}</span>
+              <div className="w-12 h-12 rounded-full bg-surface-secondary flex items-center justify-center">
+                <span className="text-base font-bold text-gray-600">
+                  {contact.name.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase()}
+                </span>
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">{contact.name}</h2>
+                <span className={cn('inline-block badge text-xs mt-0.5', TYPE_COLOR[contact.type] ?? 'bg-gray-100 text-gray-600')}>
+                  {TYPE_LABEL[contact.type] ?? contact.type}
+                </span>
               </div>
             </div>
-          )}
-          {contact.created_at && (
-            <div className="flex items-center gap-3">
-              <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-gray-500">Cadastrado em {fmt(contact.created_at)}</span>
+            <div className="flex items-center gap-2">
+              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-50" title="Editar">
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-50">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {contact.new_prospection && (
+            <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg flex items-center gap-2">
+              <span className="text-amber-600 text-xs font-semibold">✦ Nova prospecção</span>
+              {contact.prospection_date && (
+                <span className="text-amber-500 text-xs">· registrado em {fmt(contact.prospection_date)}</span>
+              )}
             </div>
           )}
-        </dl>
+
+          <dl className="space-y-3 text-sm">
+            {contact.company && (
+              <div className="flex items-center gap-3">
+                <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-700">{contact.company}</span>
+              </div>
+            )}
+            {contact.phone && (
+              <div className="flex items-center gap-3">
+                <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <a href={`tel:${contact.phone}`} className="text-brand-600 hover:text-brand-700">{contact.phone}</a>
+              </div>
+            )}
+            {contact.email && (
+              <div className="flex items-center gap-3">
+                <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <a href={`mailto:${contact.email}`} className="text-brand-600 hover:text-brand-700">{contact.email}</a>
+              </div>
+            )}
+            {contact.assigned_user && (
+              <div className="flex items-center gap-3">
+                <Users className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <div className="flex items-center gap-2">
+                  <Avatar user={contact.assigned_user} size="sm" />
+                  <span className="text-gray-700">{contact.assigned_user.name}</span>
+                </div>
+              </div>
+            )}
+            {contact.created_at && (
+              <div className="flex items-center gap-3">
+                <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-500">Cadastrado em {fmt(contact.created_at)}</span>
+              </div>
+            )}
+          </dl>
+
+          {/* Painel de comissões — admin only */}
+          {isAdmin && commRate > 0 && (
+            <div className="mt-5 border-t border-surface-border pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Comissões</h3>
+                {/* Seletor de mês */}
+                <div className="flex items-center gap-1">
+                  <button onClick={prevMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400">
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-xs font-medium text-gray-600 w-20 text-center">
+                    {MONTHS_SHORT[viewMonth-1]} {viewYear}
+                  </span>
+                  <button onClick={nextMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400">
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {loadingComm ? (
+                <div className="text-xs text-gray-400 py-2">Carregando...</div>
+              ) : commData && commData.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase">Total vendas</p>
+                      <p className="text-base font-bold text-gray-900 mt-0.5">{fmtCurrency(monthTotal)}</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-3">
+                      <p className="text-[10px] font-semibold text-amber-600 uppercase">Comissão ({commRate}%)</p>
+                      <p className="text-base font-bold text-amber-700 mt-0.5">{fmtCurrency(commTotal)}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {commData.map((r: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-gray-50">
+                        <span className="text-gray-500">Orç. #{r.quote?.number ?? '—'}</span>
+                        <span className="font-medium text-gray-700">{fmtCurrency(Number(r.amount ?? 0))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">Nenhuma comissão neste mês.</p>
+              )}
+            </div>
+          )}
+
+          {isAdmin && commRate === 0 && (
+            <div className="mt-5 border-t border-surface-border pt-4">
+              <p className="text-xs text-gray-400">Taxa de comissão não definida. Edite o parceiro para configurar.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -262,11 +387,12 @@ function ContactModal({ contact, onClose, onEdit }: { contact: Contact; onClose:
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export function PartnersPage({
-  initialContacts, users, currentUserId,
+  initialContacts, users, currentUserId, isAdmin,
 }: {
   initialContacts: any[]
   users: AppUser[]
   currentUserId: string
+  isAdmin?: boolean
 }) {
   const toast = useToast()
   const router = useRouter()
@@ -277,6 +403,7 @@ export function PartnersPage({
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string[]>([])
   const [typeDropOpen, setTypeDropOpen] = useState(false)
+  const [userFilter, setUserFilter] = useState<string>('all')
   const [showNewModal, setShowNewModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [viewingContact, setViewingContact] = useState<Contact | null>(null)
@@ -300,7 +427,8 @@ export function PartnersPage({
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
       (c.phone ?? '').includes(search) || (c.company ?? '').toLowerCase().includes(search.toLowerCase())
     const matchType = typeFilter.length === 0 || typeFilter.includes(c.type)
-    return matchSearch && matchType
+    const matchUser = userFilter === 'all' || c.assigned_to === userFilter
+    return matchSearch && matchType && matchUser
   })
 
   function toggleTypeFilter(t: string) {
@@ -411,6 +539,7 @@ export function PartnersPage({
               pending={pending}
               users={users}
               currentUserId={currentUserId}
+              isAdmin={isAdmin}
             />
           </div>
         </div>
@@ -482,6 +611,33 @@ export function PartnersPage({
             Limpar
           </button>
         )}
+
+        {/* Filtro de responsável — pills */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setUserFilter('all')}
+            className={cn('px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+              userFilter === 'all' ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
+            )}
+          >
+            Todos
+          </button>
+          {users.map(u => (
+            <button
+              key={u.id}
+              onClick={() => setUserFilter(userFilter === u.id ? 'all' : u.id)}
+              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                userFilter === u.id ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
+              )}
+            >
+              <div className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                style={{ backgroundColor: u.avatar_color ?? '#6366f1' }}>
+                {u.name[0]}
+              </div>
+              {u.name.split(' ')[0]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Lista */}
@@ -591,6 +747,7 @@ export function PartnersPage({
                             pending={pending}
                             users={users}
                             currentUserId={currentUserId}
+                            isAdmin={isAdmin}
                           />
                         </td>
                       </tr>
@@ -609,6 +766,7 @@ export function PartnersPage({
           contact={viewingContact}
           onClose={() => setViewingContact(null)}
           onEdit={() => { setEditingId(viewingContact.id); setViewingContact(null) }}
+          isAdmin={isAdmin}
         />
       )}
 
