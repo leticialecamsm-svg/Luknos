@@ -79,7 +79,7 @@ function ContactForm({
   const [type, setType]           = useState(initial.type ?? 'architect')
   const [company, setCompany]     = useState(initial.company ?? '')
   const [prospection, setProsp]   = useState(initial.new_prospection ?? false)
-  const [assignedTo, setAssigned] = useState(initial.assigned_to ?? currentUserId)
+  const [assignedTo, setAssigned] = useState<string>(initial.assigned_to ?? currentUserId)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -93,7 +93,8 @@ function ContactForm({
         <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
         <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Linha 1: Nome + Tipo */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Nome *</label>
@@ -105,6 +106,10 @@ function ContactForm({
               {TYPE_KEYS.map(k => <option key={k} value={k}>{TYPE_LABEL[k]}</option>)}
             </select>
           </div>
+        </div>
+
+        {/* Linha 2: Telefone + Email */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Telefone</label>
             <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(82) 99999-9999" className="input" />
@@ -113,29 +118,55 @@ function ContactForm({
             <label className="label">Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" className="input" />
           </div>
-          <div className="col-span-2">
-            <label className="label">Empresa / Escritório</label>
-            <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Nome do escritório (opcional)" className="input" />
-          </div>
-          <div>
-            <label className="label">Responsável</label>
-            <select value={assignedTo} onChange={e => setAssigned(e.target.value)} className="select">
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          </div>
-          <div className="flex items-end pb-1">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
+        </div>
+
+        {/* Linha 3: Empresa */}
+        <div>
+          <label className="label">Empresa / Escritório</label>
+          <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Nome do escritório (opcional)" className="input" />
+        </div>
+
+        {/* Responsável — seletor pill igual ao de orçamentos */}
+        <div>
+          <label className="label">Responsável</label>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {users.map(u => (
               <button
+                key={u.id}
                 type="button"
-                onClick={() => setProsp(p => !p)}
-                className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0', prospection ? 'bg-brand-500' : 'bg-gray-200')}
+                onClick={() => setAssigned(u.id)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all',
+                  assignedTo === u.id
+                    ? 'bg-brand-500 text-white border-brand-500'
+                    : 'bg-white text-gray-600 border-surface-border hover:border-brand-300'
+                )}
               >
-                <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', prospection ? 'translate-x-4' : 'translate-x-0.5')} />
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                  style={{ backgroundColor: u.avatar_color ?? '#6366f1' }}
+                >
+                  {u.name[0]}
+                </div>
+                {u.name.split(' ')[0]}
+                {u.id === currentUserId && <span className="text-[10px] opacity-70">(você)</span>}
               </button>
-              <span className="text-sm font-medium text-gray-700">Nova prospecção</span>
-            </label>
+            ))}
           </div>
         </div>
+
+        {/* Nova prospecção toggle */}
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <button
+            type="button"
+            onClick={() => setProsp(p => !p)}
+            className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0', prospection ? 'bg-brand-500' : 'bg-gray-200')}
+          >
+            <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', prospection ? 'translate-x-4' : 'translate-x-0.5')} />
+          </button>
+          <span className="text-sm font-medium text-gray-700">Nova prospecção</span>
+        </label>
+
         <div className="flex gap-2 pt-1">
           <button type="submit" disabled={pending} className="btn-primary">Salvar contato</button>
           <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>
