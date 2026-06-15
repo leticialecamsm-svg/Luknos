@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createTask } from '@/lib/actions'
+import { createTask, getQuotesList } from '@/lib/actions'
 import { X } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 
@@ -26,7 +26,7 @@ export function TasksModal({ onClose, onSuccess, defaultQuoteId, defaultQuoteLab
   })
 
   useEffect(() => {
-    import('@/lib/actions').then(m => m.getQuotesList?.().then((q: any[]) => setQuotes(q ?? [])))
+    getQuotesList().then(q => setQuotes(q as any[]))
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {

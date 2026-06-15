@@ -616,7 +616,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 
   let query = supabase
     .from('tasks')
-    .select('*, subtasks(id, done), quote:quotes(number, client_name)')
+    .select('*, subtasks(id, done)')
     .eq('user_id', user.id)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -624,18 +624,20 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
   if (filter?.status) query = query.eq('status', filter.status)
   if (filter?.priority) query = query.eq('priority', filter.priority)
 
-  const { data, error } = await query
-  if (error) {
-    // Fallback sem o join de quote (caso a migration ainda não foi aplicada)
-    const { data: fallback } = await supabase
-      .from('tasks')
-      .select('*, subtasks(id, done)')
-      .eq('user_id', user.id)
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false })
-    return fallback ?? []
+  const { data: tasks } = await query
+  if (!tasks) return []
+
+  // Enriquecer com info do orçamento
+  const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
+  let quotesMap: Record<string, any> = {}
+  if (quoteIds.length > 0) {
+    const { data: quotes } = await supabase
+      .from('quotes')
+      .select('id, number, client_name')
+      .in('id', quoteIds)
+    if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
   }
-  return data ?? []
+  return tasks.map((t: any) => ({ ...t, quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null }))
 }
 
 export async function getQuotesList() {
@@ -651,11 +653,19 @@ export async function getTasksByQuote(quoteId: string) {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, subtasks(id, done), users:users(name, avatar_color)')
+    .select('*, subtasks(id, done)')
     .eq('quote_id', quoteId)
     .order('created_at', { ascending: false })
-  if (error) return [] // coluna quote_id ainda não existe
-  return data ?? []
+  if (error) return []
+  if (!data || data.length === 0) return []
+  // Enriquecer com info do usuário
+  const userIds = Array.from(new Set(data.map((t: any) => t.user_id).filter(Boolean)))
+  let usersMap: Record<string, any> = {}
+  if (userIds.length > 0) {
+    const { data: users } = await supabase.from('users').select('id, name, avatar_color').in('id', userIds)
+    if (users) usersMap = Object.fromEntries(users.map((u: any) => [u.id, u]))
+  }
+  return data.map((t: any) => ({ ...t, users: t.user_id ? (usersMap[t.user_id] ?? null) : null }))
 }
 
 export async function createTask(formData: {
