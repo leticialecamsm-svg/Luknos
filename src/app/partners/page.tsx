@@ -10,6 +10,9 @@ export default async function Partners() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'admin'
+
   const [contacts, users] = await Promise.all([
     getAllContacts(),
     getActiveUsers(),
@@ -20,6 +23,7 @@ export default async function Partners() {
       initialContacts={contacts}
       users={users}
       currentUserId={user.id}
+      isAdmin={isAdmin}
     />
   )
 }

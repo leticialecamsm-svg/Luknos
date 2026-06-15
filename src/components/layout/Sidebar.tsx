@@ -81,22 +81,40 @@ export function Sidebar({ user }: { user: User | null }) {
         <nav className={`flex-1 space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
           {NAV.map(item => {
             const active = pathname === item.href || (pathname.startsWith(item.href + '/') && item.href !== '/dashboard')
+            const isPartners = item.href === '/partners'
+            const partnersActive = pathname.startsWith('/partners')
             return (
-              <Link key={item.href} href={item.href}
-                title={collapsed ? item.label : undefined}
-                className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
-                  collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
-                  active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:text-white hover:bg-white/8'
+              <div key={item.href}>
+                <Link href={item.href}
+                  title={collapsed ? item.label : undefined}
+                  className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
+                    collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
+                    active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:text-white hover:bg-white/8'
+                  )}
+                >
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  {!collapsed && (
+                    <>
+                      {item.label}
+                      {active && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
+                    </>
+                  )}
+                </Link>
+                {/* Sub-menu Comissões (admin only, parceiros expandido) */}
+                {isPartners && isAdmin && !collapsed && partnersActive && (
+                  <Link
+                    href="/partners/commissions"
+                    className={cn(
+                      'flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                      pathname.startsWith('/partners/commissions')
+                        ? 'text-white font-medium'
+                        : 'text-white/50 hover:text-white/80'
+                    )}
+                  >
+                    Comissões
+                  </Link>
                 )}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                {!collapsed && (
-                  <>
-                    {item.label}
-                    {active && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
-                  </>
-                )}
-              </Link>
+              </div>
             )
           })}
 
