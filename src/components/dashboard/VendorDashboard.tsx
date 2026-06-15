@@ -8,7 +8,7 @@ import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth
 }: {
   myGoal: number
   myQuotes: any[]
@@ -18,6 +18,7 @@ export function VendorDashboard({
   allQuotes?: any[]
   users?: any[]
   currentUserId?: string
+  prospectionsThisMonth?: number
 }) {
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
 
@@ -132,7 +133,7 @@ export function VendorDashboard({
       {activeTab === 'meu' && (
         <>
       {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Vendido no mês</p>
@@ -162,6 +163,13 @@ export function VendorDashboard({
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Urgentes</p>
           <p className="text-2xl font-bold text-red-500 mt-2">{urgent}</p>
           <p className="text-xs text-gray-500 mt-2">precisam de atenção</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-amber-400"></div>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Novas Prospecções</p>
+          <p className="text-2xl font-bold text-amber-600 mt-2">{prospectionsThisMonth ?? 0}</p>
+          <p className="text-xs text-gray-500 mt-2">parceiros este mês</p>
         </div>
       </div>
 

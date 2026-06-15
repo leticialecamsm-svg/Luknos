@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/layout/Sidebar'
+import { FloatingActionButton } from '@/components/ui/FloatingActionButton'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -18,6 +19,8 @@ export default async function ShippingLayout({ children }: { children: React.Rea
           {children}
         </div>
       </main>
+      <FloatingActionButton />
     </div>
   )
 }
+

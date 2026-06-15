@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { formatCurrency } from '@/lib/utils'
@@ -14,7 +14,7 @@ export default async function DashboardPage() {
   const isAdmin = profile?.role === 'admin'
 
   const now = new Date()
-  const [stats, myQuotes, allUsers, goals, myGoalRes, allQuotes] = await Promise.all([
+  const [stats, myQuotes, allUsers, goals, myGoalRes, allQuotes, prospectionsCount] = await Promise.all([
     getDashboardStats(isAdmin ? undefined : user.id),
     getMyQuotes(),
     getActiveUsers(),
@@ -25,6 +25,7 @@ export default async function DashboardPage() {
       ? supabase.from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).single()
       : Promise.resolve({ data: null }),
     getAllQuotes(),
+    !isAdmin ? getProspectionsThisMonth(user.id) : Promise.resolve(0),
   ])
 
   const myGoal = myGoalRes.data?.target ?? 0
@@ -52,6 +53,7 @@ export default async function DashboardPage() {
           sales={totalSold}
           userName={profile?.name ?? 'Vendedor'}
           currentUserId={user.id}
+          prospectionsThisMonth={prospectionsCount as number}
         />
       )}
     </>

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { FloatingActionButton } from '@/components/ui/FloatingActionButton'
 
 export default async function SchedulesLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
@@ -23,6 +24,8 @@ export default async function SchedulesLayout({ children }: { children: React.Re
           {children}
         </div>
       </main>
+      <FloatingActionButton />
     </div>
   )
 }
+

@@ -40,7 +40,10 @@
       "Bash(sed -i '' 's/renderTaskRow\\(task, true\\)/<TaskRow task={task} isCompleted={true} \\\\/>/g' src/components/tasks/TasksListNew.tsx)",
       "Bash(sed -n '60,75p' /Users/leticiapimentel/Downloads/luknos/src/components/quotes/NewQuoteForm.tsx)",
       "Bash(sed -n '210,235p' /Users/leticiapimentel/Downloads/luknos/src/components/quotes/NewQuoteForm.tsx)",
-      "Bash(xargs ls)"
+      "Bash(xargs ls)",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\(p.dependencies.next\\)\")",
+      "Bash(curl -s -X POST https://dpobbflxgrjbfpxmtehg.supabase.co/rest/v1/rpc/exec_sql -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwb2JiZmx4Z3JqYmZweG10ZWhnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc4NzA3OCwiZXhwIjoyMDk2MzYzMDc4fQ.sVAQk3mdu_Ufa_3unFpqKvuUx-UTAttyCiJfbdG-fgc' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwb2JiZmx4Z3JqYmZweG10ZWhnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc4NzA3OCwiZXhwIjoyMDk2MzYzMDc4fQ.sVAQk3mdu_Ufa_3unFpqKvuUx-UTAttyCiJfbdG-fgc' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT column_name FROM information_schema.columns WHERE table_name = '\\\\''tasks'\\\\'' AND table_schema = '\\\\''public'\\\\''\"}')",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

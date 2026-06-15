@@ -218,30 +218,34 @@ export async function searchContacts(query: string, type?: string) {
 
 export async function getAllContacts(type?: string) {
   const supabase = createClient()
-  let q = supabase.from('contacts').select('*').order('name')
+  let q = supabase
+    .from('contacts')
+    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
+    .order('name')
   if (type) q = q.eq('type', type)
   const { data } = await q
   return data ?? []
 }
 
 export async function createContact(data: {
-  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean
+  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string
 }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const prospection_date = data.new_prospection ? new Date().toISOString() : null
+  const assigned_to = data.assigned_to ?? user.id
   const { data: contact, error } = await supabase
     .from('contacts')
-    .insert({ ...data, created_by: user.id, prospection_date })
-    .select()
+    .insert({ ...data, created_by: user.id, prospection_date, assigned_to })
+    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
     .single()
   if (error) return { error: error.message }
   return { data: contact }
 }
 
 export async function updateContact(id: string, data: {
-  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean
+  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string
 }) {
   const supabase = createClient()
   const updates: Record<string, unknown> = { ...data }
@@ -252,10 +256,25 @@ export async function updateContact(id: string, data: {
     .from('contacts')
     .update(updates)
     .eq('id', id)
-    .select()
+    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
     .single()
   if (error) return { error: error.message }
   return { data: contact }
+}
+
+export async function getProspectionsThisMonth(userId: string) {
+  const supabase = createClient()
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+  const { count } = await supabase
+    .from('contacts')
+    .select('id', { count: 'exact', head: true })
+    .eq('new_prospection', true)
+    .eq('created_by', userId)
+    .gte('prospection_date', start)
+    .lte('prospection_date', end)
+  return count ?? 0
 }
 
 export async function deleteContact(id: string) {
