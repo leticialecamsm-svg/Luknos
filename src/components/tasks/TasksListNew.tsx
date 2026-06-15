@@ -2,6 +2,36 @@
 
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { getTasks, getAllTasks, getActiveUsers, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
+
+// ── Order cache (module-level) ───────────────────────────────────────────────
+// Survives SPA navigation without closure/timing issues.
+// localStorage is the fallback for hard reloads (F5).
+const LS_KEY = 'luknos_task_order_mine'
+let _orderCache: string[] = []
+
+function saveOrder(ids: string[]) {
+  _orderCache = ids
+  try { localStorage.setItem(LS_KEY, JSON.stringify(ids)) } catch {}
+}
+
+function loadOrder(): string[] {
+  if (_orderCache.length) return _orderCache
+  try {
+    const s = localStorage.getItem(LS_KEY)
+    if (s) { _orderCache = JSON.parse(s) }
+  } catch {}
+  return _orderCache
+}
+
+function applyOrder<T extends { id: string }>(tasks: T[]): T[] {
+  const order = loadOrder()
+  if (!order.length) return tasks
+  const map = new Map(tasks.map(t => [t.id, t]))
+  const sorted = order.map(id => map.get(id)).filter(Boolean) as T[]
+  const rest = tasks.filter(t => !order.includes(t.id))
+  return [...sorted, ...rest]
+}
+// ─────────────────────────────────────────────────────────────────────────────
 import { TasksViewModal } from './TasksViewModal'
 import { TasksEditModal } from './TasksEditModal'
 import { TasksModal } from './TasksModal'
@@ -83,7 +113,7 @@ export function TasksListNew({
       if (!allUsers.length) setAllUsers(users as any)
     } else {
       const data = await getTasks()
-      setTasks(applyStoredOrder(data as Task[]))
+      setTasks(applyOrder(data as Task[]))
     }
     setLoading(false)
   }
@@ -93,7 +123,7 @@ export function TasksListNew({
     if (!initialMyTasks) {
       loadTasks()
     } else {
-      const ordered = applyStoredOrder(initialMyTasks as Task[])
+      const ordered = applyOrder(initialMyTasks as Task[])
       tasksRef.current = ordered
       setTasks(ordered)
     }
@@ -299,27 +329,6 @@ export function TasksListNew({
     })
   }
 
-  // Chave estável — não depende do nome do usuário (que pode variar antes do auth carregar)
-  const TASK_ORDER_KEY = 'luknos_task_order_mine'
-
-  const applyStoredOrder = (taskList: Task[]) => {
-    try {
-      const stored = localStorage.getItem(TASK_ORDER_KEY)
-      if (!stored) return taskList
-      const order: string[] = JSON.parse(stored)
-      const map = new Map(taskList.map(t => [t.id, t]))
-      const ordered = order.map(id => map.get(id)).filter(Boolean) as Task[]
-      const remaining = taskList.filter(t => !order.includes(t.id))
-      return [...ordered, ...remaining]
-    } catch { return taskList }
-  }
-
-  const saveOrder = (taskList: Task[]) => {
-    try {
-      localStorage.setItem(TASK_ORDER_KEY, JSON.stringify(taskList.map(t => t.id)))
-    } catch {}
-  }
-
   const dragIndexRef = useRef<number | null>(null)
 
   const handleDragStart = (taskId: string) => {
@@ -343,8 +352,7 @@ export function TasksListNew({
   }
 
   const handleDragEnd = () => {
-    // tasksRef.current was updated synchronously in handleDragOverRow, always current
-    saveOrder(tasksRef.current)
+    saveOrder(tasksRef.current.map(t => t.id))
     dragIndexRef.current = null
   }
 
