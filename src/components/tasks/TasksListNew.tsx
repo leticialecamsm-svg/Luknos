@@ -55,6 +55,8 @@ interface Task {
   subtasks?: { id: string; done: boolean }[]
   created_at: string
   users?: { name: string; avatar_color: string }
+  quote?: { number: number; client_name: string } | null
+  quote_id?: string | null
 }
 
 const STATUS_LABELS = {
@@ -508,6 +510,11 @@ export function TasksListNew({
             </div>
             <span className="text-xs text-gray-400">{task.users.name}</span>
           </div>
+        )}
+        {task.quote && (
+          <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+            #{task.quote.number} · {task.quote.client_name}
+          </span>
         )}
       </div>
       <div className="flex items-center gap-3 ml-auto flex-shrink-0">

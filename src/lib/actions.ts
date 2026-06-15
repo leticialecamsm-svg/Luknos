@@ -616,7 +616,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 
   let query = supabase
     .from('tasks')
-    .select('*, subtasks(id, done)')
+    .select('*, subtasks(id, done), quote:quotes(number, client_name)')
     .eq('user_id', user.id)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -628,6 +628,25 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
   return data ?? []
 }
 
+export async function getQuotesList() {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('quotes')
+    .select('id, number, client_name')
+    .order('number', { ascending: false })
+  return data ?? []
+}
+
+export async function getTasksByQuote(quoteId: string) {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('tasks')
+    .select('*, subtasks(id, done), users:users(name, avatar_color)')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
 export async function createTask(formData: {
   title: string
   description?: string
@@ -635,6 +654,7 @@ export async function createTask(formData: {
   status: string
   due_date?: string
   checklist?: { text: string; done: boolean }[]
+  quote_id?: string | null
 }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -648,6 +668,7 @@ export async function createTask(formData: {
     status: formData.status,
     due_date: formData.due_date,
     checklist: formData.checklist || [],
+    quote_id: formData.quote_id || null,
   })
 
   if (error) return { error: error.message }

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
+import { QuoteTasks } from './QuoteTasks'
 
 export function QuoteDetail({ quote, activities }: { quote: any; activities: any[] }) {
   const router = useRouter()
@@ -389,6 +390,9 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           </a>
         </div>
       )}
+
+      {/* Tarefas do orçamento */}
+      <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
 
       {/* Timeline / Atividades */}
       <div className="card p-4">

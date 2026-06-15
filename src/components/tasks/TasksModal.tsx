@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createTask } from '@/lib/actions'
 import { X } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
@@ -8,10 +8,13 @@ import { useToast } from '@/components/ui/Toast'
 interface TasksModalProps {
   onClose: () => void
   onSuccess: () => void
+  defaultQuoteId?: string
+  defaultQuoteLabel?: string
 }
 
-export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
+export function TasksModal({ onClose, onSuccess, defaultQuoteId, defaultQuoteLabel }: TasksModalProps) {
   const [loading, setLoading] = useState(false)
+  const [quotes, setQuotes] = useState<{ id: string; number: number; client_name: string }[]>([])
   const toast = useToast()
   const [formData, setFormData] = useState({
     title: '',
@@ -19,7 +22,12 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
     priority: 'mid',
     status: 'todo',
     due_date: '',
+    quote_id: defaultQuoteId ?? '',
   })
+
+  useEffect(() => {
+    import('@/lib/actions').then(m => m.getQuotesList?.().then((q: any[]) => setQuotes(q ?? [])))
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,6 +52,7 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
       priority: formData.priority,
       status: formData.status,
       due_date: formData.due_date || getTodayString(),
+      quote_id: formData.quote_id || null,
     })
 
     setLoading(false)
@@ -157,6 +166,30 @@ export function TasksModal({ onClose, onSuccess }: TasksModalProps) {
               onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
+          </div>
+
+          {/* Orçamento vinculado */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Orçamento (opcional)
+            </label>
+            {defaultQuoteId && defaultQuoteLabel ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                <span className="font-medium">{defaultQuoteLabel}</span>
+                <span className="text-blue-400 text-xs">(fixo)</span>
+              </div>
+            ) : (
+              <select
+                value={formData.quote_id}
+                onChange={(e) => setFormData({ ...formData, quote_id: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">— Nenhum orçamento —</option>
+                {quotes.map(q => (
+                  <option key={q.id} value={q.id}>#{q.number} · {q.client_name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </form>
 

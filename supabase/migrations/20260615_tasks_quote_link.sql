@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS quote_id UUID REFERENCES quotes(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_quote_id ON tasks(quote_id);
