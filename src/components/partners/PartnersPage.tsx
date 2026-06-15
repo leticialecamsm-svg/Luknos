@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createContact, updateContact, deleteContact } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -268,16 +269,26 @@ export function PartnersPage({
   currentUserId: string
 }) {
   const toast = useToast()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
   const [contacts, setContacts] = useState<Contact[]>(initialContacts)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<string[]>([])
   const [typeDropOpen, setTypeDropOpen] = useState(false)
-  const [showForm, setShowForm] = useState(false)
+  const [showNewModal, setShowNewModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [viewingContact, setViewingContact] = useState<Contact | null>(null)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  // Abre modal de novo parceiro se vier de ?new=1 (FAB)
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowNewModal(true)
+      router.replace('/partners')
+    }
+  }, [])
 
   // Contadores por tipo
   const typeCounts = TYPE_KEYS.reduce((acc, k) => {
@@ -310,7 +321,7 @@ export function PartnersPage({
       if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
       setContacts(prev => [...prev, enrichContact(res.data)].sort((a, b) => a.name.localeCompare(b.name)))
       toast.success('TUDO CERTO!', `${data.name} adicionado(a) com sucesso!`)
-      setShowForm(false)
+      setShowNewModal(false)
     })
   }
 
@@ -352,7 +363,7 @@ export function PartnersPage({
           <h1 className="text-xl font-semibold text-gray-900">Parceiros & Contatos</h1>
           <p className="text-sm text-gray-500 mt-0.5">{contacts.length} contatos cadastrados</p>
         </div>
-        <button onClick={() => { setShowForm(true); setEditingId(null) }} className="btn-primary">
+        <button onClick={() => { setShowNewModal(true); setEditingId(null) }} className="btn-primary">
           <Plus className="w-4 h-4" /> Novo contato
         </button>
       </div>
@@ -387,17 +398,22 @@ export function PartnersPage({
         </div>
       )}
 
-      {/* Form novo contato */}
-      {showForm && !editingId && (
-        <ContactForm
-          title="Novo contato"
-          initial={{ assigned_to: currentUserId }}
-          onSave={handleCreate}
-          onCancel={() => setShowForm(false)}
-          pending={pending}
-          users={users}
-          currentUserId={currentUserId}
-        />
+      {/* Modal novo contato */}
+      {showNewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowNewModal(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <ContactForm
+              title="Novo contato"
+              initial={{ assigned_to: currentUserId }}
+              onSave={handleCreate}
+              onCancel={() => setShowNewModal(false)}
+              pending={pending}
+              users={users}
+              currentUserId={currentUserId}
+            />
+          </div>
+        </div>
       )}
 
       {/* Busca + filtro tipo dropdown */}
@@ -547,7 +563,7 @@ export function PartnersPage({
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
                           <button
-                            onClick={() => { setEditingId(editingId === c.id ? null : c.id); setShowForm(false) }}
+                            onClick={() => { setEditingId(editingId === c.id ? null : c.id); setShowNewModal(false) }}
                             className="text-gray-300 hover:text-brand-500 transition-colors"
                             title="Editar"
                           >

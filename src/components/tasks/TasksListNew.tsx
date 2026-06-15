@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { getTasks, getAllTasks, getActiveUsers, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
 
 // ── Order cache (module-level) ───────────────────────────────────────────────
@@ -79,6 +80,8 @@ export function TasksListNew({
   initialUserRole = 'seller',
 }: TasksListNewProps = {}) {
   const toast = useToast()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>(initialMyTasks ?? [])
   const [loading, setLoading] = useState(!initialMyTasks)
@@ -117,6 +120,14 @@ export function TasksListNew({
     }
     setLoading(false)
   }
+
+  // Abre modal de nova tarefa se vier do FAB (?new=1)
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowNewTaskModal(true)
+      router.replace('/dashboard/tasks')
+    }
+  }, [])
 
   // Só faz fetch inicial se não recebeu dados via props (fallback)
   useEffect(() => {
