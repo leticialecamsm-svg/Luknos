@@ -150,8 +150,14 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           const daysOpen = createdDate
             ? Math.floor((Date.now() - new Date(createdDate.includes('T') ? createdDate : createdDate + 'T00:00:00').getTime()) / 86400000)
             : null
-          const daysOverdue = quote.deadline && quote.status !== 'done'
-            ? Math.floor((Date.now() - new Date(quote.deadline + 'T23:59:59').getTime()) / 86400000)
+          const deadlineMs = quote.deadline ? new Date(quote.deadline + 'T23:59:59').getTime() : null
+          const daysOverdue = deadlineMs && quote.status !== 'done'
+            ? Math.floor((Date.now() - deadlineMs) / 86400000)
+            : null
+          // Se concluído com atraso: calcula usando closed_at ou updated_at
+          const closedAt = quote.closed_at ?? quote.updated_at
+          const daysLate = quote.status === 'done' && deadlineMs && closedAt
+            ? Math.floor((new Date(closedAt).getTime() - deadlineMs) / 86400000)
             : null
           const lastActivity = activities?.[0]?.created_at ?? quote.updated_at ?? quote.created_at
           const daysSinceUpdate = lastActivity
@@ -167,6 +173,11 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
               {daysOverdue !== null && daysOverdue > 0 && (
                 <span className="flex items-center gap-1 text-red-500 font-semibold bg-red-50 px-2 py-0.5 rounded-full">
                   ⚠️ {daysOverdue} dia{daysOverdue !== 1 ? 's' : ''} em atraso
+                </span>
+              )}
+              {daysLate !== null && daysLate > 0 && (
+                <span className="text-[11px] text-gray-400">
+                  concluído com {daysLate} dia{daysLate !== 1 ? 's' : ''} de atraso
                 </span>
               )}
               {daysSinceUpdate !== null && (

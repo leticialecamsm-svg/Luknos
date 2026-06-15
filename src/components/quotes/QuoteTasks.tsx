@@ -4,6 +4,8 @@ import { useState, useTransition, useEffect } from 'react'
 import { getTasksByQuote, updateTaskStatus, createTask, deleteTask } from '@/lib/actions'
 import { CheckCircle2, Circle, Plus, Loader2, ListTodo, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { TasksViewModal } from '@/components/tasks/TasksViewModal'
+import { TasksEditModal } from '@/components/tasks/TasksEditModal'
 
 const PRIORITY_COLOR = {
   high: 'bg-red-100 text-red-700',
@@ -28,6 +30,8 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
   const [showForm, setShowForm]   = useState(false)
   const [title, setTitle]         = useState('')
   const [priority, setPriority]   = useState('mid')
+  const [viewingTask, setViewingTask] = useState<any | null>(null)
+  const [editingTask, setEditingTask] = useState<any | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -126,10 +130,11 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
           {[...open, ...done].map(task => (
             <div
               key={task.id}
-              className="flex items-center gap-3 py-2 px-1 rounded-lg hover:bg-gray-50 transition-colors group"
+              className="flex items-center gap-3 py-2 px-1 rounded-lg hover:bg-gray-50 transition-colors group cursor-pointer"
+              onClick={() => setViewingTask({ ...task, quote: { number: parseInt(quoteLabel.match(/#(\d+)/)?.[1] ?? '0'), client_name: quoteLabel.split('· ')[1] ?? '' } })}
             >
               <button
-                onClick={() => toggle(task.id, task.status)}
+                onClick={e => { e.stopPropagation(); toggle(task.id, task.status) }}
                 disabled={pending}
                 className="shrink-0 text-gray-300 hover:text-brand-500 transition-colors"
               >
@@ -145,7 +150,7 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
                 {PRIORITY_LABEL[task.priority as keyof typeof PRIORITY_LABEL] ?? task.priority}
               </span>
               <button
-                onClick={() => remove(task.id)}
+                onClick={e => { e.stopPropagation(); remove(task.id) }}
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 ml-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -153,6 +158,22 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
             </div>
           ))}
         </div>
+      )}
+
+      {viewingTask && (
+        <TasksViewModal
+          task={viewingTask}
+          onClose={() => setViewingTask(null)}
+          onEdit={t => { setViewingTask(null); setEditingTask(t) }}
+          onStatusChange={load}
+        />
+      )}
+      {editingTask && (
+        <TasksEditModal
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+          onSuccess={() => { setEditingTask(null); load() }}
+        />
       )}
     </div>
   )

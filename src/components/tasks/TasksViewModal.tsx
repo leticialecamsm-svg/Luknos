@@ -17,6 +17,8 @@ interface Task {
   completed_at?: string | null
   checklist?: { text: string; done: boolean }[]
   created_at: string
+  quote?: { number: number; client_name: string } | null
+  quote_id?: string | null
 }
 
 interface TasksViewModalProps {
@@ -127,6 +129,11 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
                 </span>
               </div>
               <h2 className="text-xl font-bold text-gray-900">{localTask.title}</h2>
+              {localTask.quote && (
+                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                  #{localTask.quote.number} · {localTask.quote.client_name}
+                </span>
+              )}
             </div>
 
             {/* Right side: Edit and Close buttons */}
