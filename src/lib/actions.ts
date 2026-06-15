@@ -218,13 +218,31 @@ export async function searchContacts(query: string, type?: string) {
 
 export async function getAllContacts(type?: string) {
   const supabase = createClient()
-  let q = supabase
-    .from('contacts')
-    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
-    .order('name')
+  let q = supabase.from('contacts').select('*').order('name')
   if (type) q = q.eq('type', type)
-  const { data } = await q
-  return data ?? []
+  const { data: contacts, error } = await q
+  if (!contacts || error) return []
+
+  // Busca usuários separadamente para evitar dependência de nome de FK
+  const userIds = Array.from(new Set([
+    ...contacts.map((c: any) => c.assigned_to).filter(Boolean),
+    ...contacts.map((c: any) => c.created_by).filter(Boolean),
+  ]))
+
+  let usersMap: Record<string, any> = {}
+  if (userIds.length > 0) {
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, name, avatar_color')
+      .in('id', userIds)
+    if (users) usersMap = Object.fromEntries(users.map((u: any) => [u.id, u]))
+  }
+
+  return contacts.map((c: any) => ({
+    ...c,
+    assigned_user: c.assigned_to ? usersMap[c.assigned_to] ?? null : null,
+    creator: c.created_by ? usersMap[c.created_by] ?? null : null,
+  }))
 }
 
 export async function createContact(data: {
@@ -238,7 +256,7 @@ export async function createContact(data: {
   const { data: contact, error } = await supabase
     .from('contacts')
     .insert({ ...data, created_by: user.id, prospection_date, assigned_to })
-    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
+    .select('*')
     .single()
   if (error) return { error: error.message }
   return { data: contact }
@@ -256,7 +274,7 @@ export async function updateContact(id: string, data: {
     .from('contacts')
     .update(updates)
     .eq('id', id)
-    .select('*, assigned_user:users!contacts_assigned_to_fkey(id, name, avatar_color), creator:users!contacts_created_by_fkey(id, name, avatar_color)')
+    .select('*')
     .single()
   if (error) return { error: error.message }
   return { data: contact }

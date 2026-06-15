@@ -265,11 +265,19 @@ export function PartnersPage({
     setTypeFilter(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])
   }
 
+  function enrichContact(raw: any): Contact {
+    return {
+      ...raw,
+      assigned_user: raw.assigned_to ? users.find(u => u.id === raw.assigned_to) ?? null : null,
+      creator: null,
+    }
+  }
+
   function handleCreate(data: Omit<Contact, 'id' | 'assigned_user' | 'creator'>) {
     startTransition(async () => {
       const res = await createContact(data as any)
       if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
-      setContacts(prev => [...prev, res.data as Contact].sort((a, b) => a.name.localeCompare(b.name)))
+      setContacts(prev => [...prev, enrichContact(res.data)].sort((a, b) => a.name.localeCompare(b.name)))
       toast.success('TUDO CERTO!', `${data.name} adicionado(a) com sucesso!`)
       setShowForm(false)
     })
@@ -279,10 +287,11 @@ export function PartnersPage({
     startTransition(async () => {
       const res = await updateContact(id, data as any)
       if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
-      setContacts(prev => prev.map(c => c.id === id ? (res.data as Contact) : c).sort((a, b) => a.name.localeCompare(b.name)))
+      const enriched = enrichContact(res.data)
+      setContacts(prev => prev.map(c => c.id === id ? enriched : c).sort((a, b) => a.name.localeCompare(b.name)))
       toast.success('TUDO CERTO!', `${data.name} atualizado(a)!`)
       setEditingId(null)
-      if (viewingContact?.id === id) setViewingContact(res.data as Contact)
+      if (viewingContact?.id === id) setViewingContact(enriched)
     })
   }
 
