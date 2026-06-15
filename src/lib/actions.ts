@@ -641,8 +641,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 }
 
 export async function getQuotesList() {
-  const supabase = createClient()
-  const { data } = await supabase
+  const { data } = await createAdminClient()
     .from('quotes')
     .select('id, number, client_name')
     .order('number', { ascending: false })
@@ -918,9 +917,18 @@ export async function getAllTasks() {
 
   const usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u]))
 
+  // Enriquecer com info do orçamento
+  const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
+  let quotesMap: Record<string, any> = {}
+  if (quoteIds.length > 0) {
+    const { data: quotes } = await adminSupabase.from('quotes').select('id, number, client_name').in('id', quoteIds)
+    if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
+  }
+
   return tasks.map((t: any) => ({
     ...t,
     users: usersMap[t.user_id] ?? null,
+    quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null,
   }))
 }
 

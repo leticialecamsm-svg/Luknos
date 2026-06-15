@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { getTasksByQuote, updateTaskStatus, createTask } from '@/lib/actions'
-import { CheckCircle2, Circle, Plus, Loader2, ListTodo } from 'lucide-react'
+import { getTasksByQuote, updateTaskStatus, createTask, deleteTask } from '@/lib/actions'
+import { CheckCircle2, Circle, Plus, Loader2, ListTodo, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const PRIORITY_COLOR = {
@@ -41,9 +41,12 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
   function toggle(id: string, status: string) {
     const next = status === 'done' ? 'todo' : 'done'
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: next } : t))
-    start(async () => {
-      await updateTaskStatus(id, next)
-    })
+    start(async () => { await updateTaskStatus(id, next) })
+  }
+
+  function remove(id: string) {
+    setTasks(prev => prev.filter(t => t.id !== id))
+    start(async () => { await deleteTask(id) })
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -144,6 +147,12 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
               {task.due_date && (
                 <span className="text-[10px] text-gray-400">{task.due_date.split('-').reverse().join('/')}</span>
               )}
+              <button
+                onClick={() => remove(task.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 ml-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           ))}
         </div>
