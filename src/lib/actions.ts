@@ -631,8 +631,8 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
   const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
   let quotesMap: Record<string, any> = {}
   if (quoteIds.length > 0) {
-    const { data: quotes } = await supabase
-      .from('quotes')
+    const { data: quotes } = await createAdminClient()
+      .from('quotes_full')
       .select('id, number, client_name')
       .in('id', quoteIds)
     if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
@@ -642,7 +642,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 
 export async function getQuotesList() {
   const { data } = await createAdminClient()
-    .from('quotes')
+    .from('quotes_full')
     .select('id, number, client_name')
     .order('number', { ascending: false })
   return data ?? []
@@ -921,7 +921,7 @@ export async function getAllTasks() {
   const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
   let quotesMap: Record<string, any> = {}
   if (quoteIds.length > 0) {
-    const { data: quotes } = await adminSupabase.from('quotes').select('id, number, client_name').in('id', quoteIds)
+    const { data: quotes } = await adminSupabase.from('quotes_full').select('id, number, client_name').in('id', quoteIds)
     if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
   }
 

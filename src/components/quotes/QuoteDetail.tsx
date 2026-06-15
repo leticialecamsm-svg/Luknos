@@ -48,7 +48,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
   const TEMPS = ['cold','warm','hot','closed','lost'] as const
 
   return (
-    <div className="space-y-4 max-w-6xl">
+    <div className="max-w-6xl">
       {/* Breadcrumb */}
       <div className="flex items-center justify-between">
         <button
@@ -78,6 +78,9 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         </div>
       </div>
 
+      {/* Grid: conteúdo esquerda + tarefas direita */}
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
+      <div className="space-y-4">
       {/* Header card */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-4">
@@ -391,10 +394,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         </div>
       )}
 
-      {/* Duas colunas: histórico + tarefas */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-        {/* Timeline / Atividades */}
+      {/* Timeline / Atividades */}
       <div className="card p-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
           <Clock className="w-4 h-4" />
@@ -484,14 +484,15 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           })}
         </div>
       </div>
-        </div>{/* fim col-span-2 */}
 
-        {/* Coluna direita: Tarefas */}
-        <div className="lg:col-span-1">
-          <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
-        </div>
+      </div>{/* fim col esquerda */}
+
+      {/* Coluna direita: Tarefas */}
+      <div className="sticky top-4">
+        <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
+      </div>
+
       </div>{/* fim grid */}
-
       {ConfirmDialog}
     </div>
   )

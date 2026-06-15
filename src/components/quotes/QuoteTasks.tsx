@@ -141,12 +141,9 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
               <span className={cn('text-sm flex-1', task.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700')}>
                 {task.title}
               </span>
-              <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', PRIORITY_COLOR[task.priority as keyof typeof PRIORITY_COLOR] ?? 'bg-gray-100 text-gray-400')}>
+              <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', PRIORITY_COLOR[task.priority as keyof typeof PRIORITY_COLOR] ?? 'bg-gray-100 text-gray-400')}>
                 {PRIORITY_LABEL[task.priority as keyof typeof PRIORITY_LABEL] ?? task.priority}
               </span>
-              {task.due_date && (
-                <span className="text-[10px] text-gray-400">{task.due_date.split('-').reverse().join('/')}</span>
-              )}
               <button
                 onClick={() => remove(task.id)}
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 ml-1"
