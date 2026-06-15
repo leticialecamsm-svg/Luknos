@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { createContact, deleteContact, searchContacts } from '@/lib/actions'
+import { createContact, updateContact, deleteContact } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
-import { Search, Plus, Trash2, X, User2, Building2 } from 'lucide-react'
+import { Search, Plus, Trash2, X, User2, Building2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TYPE_LABEL: Record<string, string> = {
@@ -28,22 +28,134 @@ const TYPE_COLOR: Record<string, string> = {
   other: 'bg-gray-100 text-gray-600',
 }
 
+const TYPES = ['all','architect','engineer','designer','electrician','plasterer','carpenter','client','other']
+
+interface Contact {
+  id: string
+  name: string
+  phone?: string
+  email?: string
+  type: string
+  company?: string
+  new_prospection?: boolean
+  prospection_date?: string
+  created_by?: string
+}
+
+function ContactForm({
+  initial,
+  onSave,
+  onCancel,
+  pending,
+  title,
+}: {
+  initial: Partial<Contact>
+  onSave: (data: Omit<Contact, 'id'>) => void
+  onCancel: () => void
+  pending: boolean
+  title: string
+}) {
+  const [name, setName]             = useState(initial.name ?? '')
+  const [phone, setPhone]           = useState(initial.phone ?? '')
+  const [email, setEmail]           = useState(initial.email ?? '')
+  const [type, setType]             = useState(initial.type ?? 'architect')
+  const [company, setCompany]       = useState(initial.company ?? '')
+  const [prospection, setProspection] = useState(initial.new_prospection ?? false)
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+    onSave({
+      name: name.trim(),
+      phone: phone || undefined,
+      email: email || undefined,
+      type,
+      company: company || undefined,
+      new_prospection: prospection,
+    })
+  }
+
+  return (
+    <div className="card p-5 border-brand-200 border">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
+        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Nome *</label>
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Ex: Arq. Mariana Silva" className="input" />
+          </div>
+          <div>
+            <label className="label">Tipo</label>
+            <select value={type} onChange={e => setType(e.target.value)} className="select">
+              <option value="architect">Arquiteto</option>
+              <option value="engineer">Engenheiro</option>
+              <option value="designer">Designer</option>
+              <option value="electrician">Eletricista</option>
+              <option value="plasterer">Gesseiro</option>
+              <option value="carpenter">Marceneiro</option>
+              <option value="client">Cliente</option>
+              <option value="other">Outro</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Telefone</label>
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(82) 99999-9999" className="input" />
+          </div>
+          <div>
+            <label className="label">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" className="input" />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Empresa / Escritório</label>
+            <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Nome do escritório (opcional)" className="input" />
+          </div>
+          <div className="col-span-2">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <button
+                type="button"
+                onClick={() => setProspection(p => !p)}
+                className={cn(
+                  'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
+                  prospection ? 'bg-brand-500' : 'bg-gray-200'
+                )}
+              >
+                <span className={cn(
+                  'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+                  prospection ? 'translate-x-4' : 'translate-x-0.5'
+                )} />
+              </button>
+              <span className="text-sm font-medium text-gray-700">Nova prospecção</span>
+            </label>
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button type="submit" disabled={pending} className="btn-primary">
+            Salvar contato
+          </button>
+          <button type="button" onClick={onCancel} className="btn-secondary">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
-  const [contacts, setContacts] = useState(initialContacts)
+  const [contacts, setContacts] = useState<Contact[]>(initialContacts)
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-
-  // Form state
-  const [name, setName]       = useState('')
-  const [phone, setPhone]     = useState('')
-  const [email, setEmail]     = useState('')
-  const [type, setType]       = useState('architect')
-  const [company, setCompany] = useState('')
 
   const filtered = contacts.filter(c => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -52,15 +164,23 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
     return matchSearch && matchType
   })
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) return
+  function handleCreate(data: Omit<Contact, 'id'>) {
     startTransition(async () => {
-      const res = await createContact({ name: name.trim(), phone: phone || undefined, email: email || undefined, type, company: company || undefined })
+      const res = await createContact(data as any)
       if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
-      setContacts(prev => [...prev, res.data].sort((a,b) => a.name.localeCompare(b.name)))
-      toast.success('TUDO CERTO!', `${name} adicionado(a) com sucesso!`)
-      setName(''); setPhone(''); setEmail(''); setCompany(''); setShowForm(false)
+      setContacts(prev => [...prev, res.data as Contact].sort((a, b) => a.name.localeCompare(b.name)))
+      toast.success('TUDO CERTO!', `${data.name} adicionado(a) com sucesso!`)
+      setShowForm(false)
+    })
+  }
+
+  function handleUpdate(id: string, data: Omit<Contact, 'id'>) {
+    startTransition(async () => {
+      const res = await updateContact(id, data as any)
+      if (res.error) { setMsg({ type: 'err', text: res.error }); toast.error('OCORREU UM ERRO', res.error); return }
+      setContacts(prev => prev.map(c => c.id === id ? (res.data as Contact) : c).sort((a, b) => a.name.localeCompare(b.name)))
+      toast.success('TUDO CERTO!', `${data.name} atualizado(a) com sucesso!`)
+      setEditingId(null)
     })
   }
 
@@ -75,8 +195,6 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
     })
   }
 
-  const TYPES = ['all','architect','engineer','designer','electrician','plasterer','carpenter','client','other']
-
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -85,7 +203,7 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
           <h1 className="text-xl font-semibold text-gray-900">Parceiros & Contatos</h1>
           <p className="text-sm text-gray-500 mt-0.5">{contacts.length} contatos cadastrados</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary">
+        <button onClick={() => { setShowForm(true); setEditingId(null) }} className="btn-primary">
           <Plus className="w-4 h-4" /> Novo contato
         </button>
       </div>
@@ -100,56 +218,14 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
       )}
 
       {/* Form novo contato */}
-      {showForm && (
-        <div className="card p-5 border-brand-200 border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-gray-700">Novo contato</h2>
-            <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <form onSubmit={handleCreate} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Nome *</label>
-                <input value={name} onChange={e => setName(e.target.value)} required placeholder="Ex: Arq. Mariana Silva" className="input" />
-              </div>
-              <div>
-                <label className="label">Tipo</label>
-                <select value={type} onChange={e => setType(e.target.value)} className="select">
-                  <option value="architect">Arquiteto</option>
-                  <option value="engineer">Engenheiro</option>
-                  <option value="designer">Designer</option>
-                  <option value="electrician">Eletricista</option>
-                  <option value="plasterer">Gesseiro</option>
-                  <option value="carpenter">Marceneiro</option>
-                  <option value="client">Cliente</option>
-                  <option value="other">Outro</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Telefone</label>
-                <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(82) 99999-9999" className="input" />
-              </div>
-              <div>
-                <label className="label">Email</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" className="input" />
-              </div>
-              <div className="col-span-2">
-                <label className="label">Empresa / Escritório</label>
-                <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Nome do escritório (opcional)" className="input" />
-              </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button type="submit" disabled={pending} className="btn-primary">
-                Salvar contato
-              </button>
-              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </div>
+      {showForm && !editingId && (
+        <ContactForm
+          title="Novo contato"
+          initial={{}}
+          onSave={handleCreate}
+          onCancel={() => setShowForm(false)}
+          pending={pending}
+        />
       )}
 
       {/* Filtros e busca */}
@@ -208,59 +284,98 @@ export function PartnersPage({ initialContacts }: { initialContacts: any[] }) {
               </thead>
               <tbody>
                 {filtered.map((c, idx) => (
-                  <tr key={c.id} className={cn('border-b border-surface-border hover:bg-surface transition-colors group', idx === filtered.length - 1 && 'border-0')}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center shrink-0">
-                          <span className="text-xs font-semibold text-gray-600">
-                            {c.name.split(' ').slice(0,2).map((w: string) => w[0]).join('').toUpperCase()}
-                          </span>
+                  <>
+                    <tr
+                      key={c.id}
+                      className={cn(
+                        'border-b border-surface-border hover:bg-surface transition-colors group',
+                        editingId === c.id ? 'bg-surface' : '',
+                        idx === filtered.length - 1 && editingId !== c.id ? 'border-0' : ''
+                      )}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center shrink-0">
+                            <span className="text-xs font-semibold text-gray-600">
+                              {c.name.split(' ').slice(0,2).map((w: string) => w[0]).join('').toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{c.name}</p>
+                            {c.new_prospection && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full mt-0.5">
+                                ✦ Nova prospecção
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-sm font-medium text-gray-900">{c.name}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn('inline-block badge text-xs', TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-600')}>
-                        {TYPE_LABEL[c.type] ?? c.type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.company ? (
-                        <div className="flex items-center gap-1 text-sm text-gray-600">
-                          <Building2 className="w-3 h-3 shrink-0" />
-                          <span>{c.company}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn('inline-block badge text-xs', TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-600')}>
+                          {TYPE_LABEL[c.type] ?? c.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.company ? (
+                          <div className="flex items-center gap-1 text-sm text-gray-600">
+                            <Building2 className="w-3 h-3 shrink-0" />
+                            <span>{c.company}</span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.phone ? (
+                          <a href={`tel:${c.phone}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
+                            {c.phone}
+                          </a>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.email ? (
+                          <a href={`mailto:${c.email}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
+                            {c.email}
+                          </a>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={() => { setEditingId(editingId === c.id ? null : c.id); setShowForm(false) }}
+                            className="text-gray-300 hover:text-brand-500 transition-colors"
+                            title="Editar"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(c.id, c.name)}
+                            className="text-gray-300 hover:text-red-500 transition-colors"
+                            title="Excluir"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.phone ? (
-                        <a href={`tel:${c.phone}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
-                          {c.phone}
-                        </a>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.email ? (
-                        <a href={`mailto:${c.email}`} className="text-sm text-brand-600 hover:text-brand-700 transition-colors">
-                          {c.email}
-                        </a>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDelete(c.id, c.name)}
-                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                    {editingId === c.id && (
+                      <tr key={`edit-${c.id}`} className={cn('border-b border-surface-border', idx === filtered.length - 1 ? 'border-0' : '')}>
+                        <td colSpan={6} className="px-4 py-3">
+                          <ContactForm
+                            title="Editar contato"
+                            initial={c}
+                            onSave={(data) => handleUpdate(c.id, data)}
+                            onCancel={() => setEditingId(null)}
+                            pending={pending}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>

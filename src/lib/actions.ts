@@ -225,14 +225,33 @@ export async function getAllContacts(type?: string) {
 }
 
 export async function createContact(data: {
-  name: string; phone?: string; email?: string; type: string; company?: string
+  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean
 }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
+  const prospection_date = data.new_prospection ? new Date().toISOString() : null
   const { data: contact, error } = await supabase
     .from('contacts')
-    .insert({ ...data, created_by: user.id })
+    .insert({ ...data, created_by: user.id, prospection_date })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  return { data: contact }
+}
+
+export async function updateContact(id: string, data: {
+  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean
+}) {
+  const supabase = createClient()
+  const updates: Record<string, unknown> = { ...data }
+  if ('new_prospection' in data) {
+    updates.prospection_date = data.new_prospection ? new Date().toISOString() : null
+  }
+  const { data: contact, error } = await supabase
+    .from('contacts')
+    .update(updates)
+    .eq('id', id)
     .select()
     .single()
   if (error) return { error: error.message }
