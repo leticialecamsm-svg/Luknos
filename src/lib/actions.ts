@@ -1000,14 +1000,13 @@ export async function updateShipment(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Não autenticado')
 
-  const { data, error } = await supabase
+  const { data, error } = await createAdminClient()
     .from('shipments')
     .update({ ...updates, updated_by: user.id, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()
   if (error) throw new Error(error.message)
-  revalidatePath('/shipping')
   return data
 }
 
@@ -1016,7 +1015,7 @@ export async function completeShipment(id: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Não autenticado')
 
-  const { data, error } = await supabase
+  const { data, error } = await createAdminClient()
     .from('shipments')
     .update({
       is_completed: true,
@@ -1028,7 +1027,6 @@ export async function completeShipment(id: string) {
     .select()
     .single()
   if (error) throw new Error(error.message)
-  revalidatePath('/shipping')
   return data
 }
 

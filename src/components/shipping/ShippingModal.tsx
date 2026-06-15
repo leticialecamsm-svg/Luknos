@@ -9,9 +9,9 @@ import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 
 interface ShippingModalProps {
-  shipment: Shipment
+  shipment: any
   onClose: () => void
-  onSave: () => void
+  onSave: (updated: any) => void
   onComplete: () => void
 }
 
@@ -41,7 +41,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
           priority,
         })
         toast.success('TUDO CERTO!', 'Expedição atualizada com sucesso.')
-        onSave()
+        onSave({ ...shipment, delivery_type: deliveryType, delivery_date: deliveryDate, separation_status: status, priority })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erro ao salvar'
         setError(msg)
@@ -86,7 +86,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
     startTransition(async () => {
       try {
         await deleteMaterialFile(shipment.id, fileUrl)
-        setFiles(files.filter(f => f.url !== fileUrl))
+        setFiles((files as any[]).filter((f: any) => f.url !== fileUrl))
         toast.success('TUDO CERTO!', 'Arquivo removido.')
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erro ao deletar arquivo'
@@ -198,7 +198,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
               {/* File List */}
               {files && files.length > 0 && (
                 <div className="space-y-2">
-                  {files.map((file, idx) => (
+                  {(files as any[]).map((file: any, idx: number) => (
                     <div key={idx} className="flex items-center justify-between p-2 bg-surface rounded-lg border border-surface-border">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <Download className="w-4 h-4 text-gray-400 shrink-0" />

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
-import { completeShipment, getShipmentQuoteData } from '@/lib/actions'
+import { useState, useTransition } from 'react'
+import { completeShipment } from '@/lib/actions'
 import type { Shipment } from '@/types'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 import { ShippingModal } from './ShippingModal'
@@ -13,34 +13,14 @@ interface ShippingListProps {
 }
 
 export function ShippingList({ initialShipments }: ShippingListProps) {
-  const [shipments, setShipments] = useState(initialShipments)
-  const [enrichedShipments, setEnrichedShipments] = useState<any[]>([])
+  const [shipments, setShipments] = useState<any[]>(initialShipments)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [filterDeliveryType, setFilterDeliveryType] = useState<string | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [pending, startTransition] = useTransition()
 
-  // Load quote data for each shipment
-  useEffect(() => {
-    const loadQuoteData = async () => {
-      const enriched = await Promise.all(
-        shipments.map(async (s) => {
-          const quoteData = await getShipmentQuoteData(s.quote_id)
-          return {
-            ...s,
-            client_name: quoteData?.client_name || 'Cliente',
-            quote_number: quoteData?.number || 0,
-            quoted_value: quoteData?.final_value ?? quoteData?.quoted_value ?? 0,
-          }
-        })
-      )
-      setEnrichedShipments(enriched)
-    }
-    loadQuoteData()
-  }, [shipments])
-
-  const filtered = enrichedShipments.filter(s => {
+  const filtered = shipments.filter(s => {
     const matchSearch = (s.client_name || '').toLowerCase().includes(search.toLowerCase())
     const matchStatus = filterStatus ? s.separation_status === filterStatus : true
     const matchDelivery = filterDeliveryType ? s.delivery_type === filterDeliveryType : true
@@ -228,9 +208,9 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
         <ShippingModal
           shipment={selectedShipment}
           onClose={() => setSelectedShipment(null)}
-          onSave={() => {
+          onSave={(updated) => {
+            setShipments(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
             setSelectedShipment(null)
-            // Refresh list
           }}
           onComplete={() => handleComplete(selectedShipment.id)}
         />
