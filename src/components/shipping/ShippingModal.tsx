@@ -37,7 +37,7 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
           separation_status: status,
           priority,
           drive_link: driveLink || null,
-        })
+        } as any)
         toast.success('TUDO CERTO!', 'Expedição atualizada.')
         onSave({ ...shipment, delivery_type: deliveryType, delivery_date: deliveryDate, separation_status: status, priority, drive_link: driveLink || null })
       } catch (err) {
