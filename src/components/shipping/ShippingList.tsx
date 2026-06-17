@@ -4,7 +4,8 @@ import { useState, useTransition } from 'react'
 import { completeShipment } from '@/lib/actions'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 import { ShippingModal } from './ShippingModal'
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ShippingViewModal } from './ShippingViewModal'
+import { Search, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -27,6 +28,7 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
   const [shipments, setShipments] = useState<any[]>(initialShipments)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
+  const [viewingShipment, setViewingShipment] = useState<any | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<any | null>(null)
   const [filterYear, setFilterYear] = useState(now.getFullYear())
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1) // 1-based
@@ -152,7 +154,7 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Data entrega</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Prioridade</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Ações</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 w-10"></th>
               </tr>
             </thead>
             <tbody>
@@ -167,7 +169,7 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                 const statusColor = SHIPMENT_STATUS_COLOR[shipment.separation_status as keyof typeof SHIPMENT_STATUS_COLOR]
                 const priorityColor = SHIPMENT_PRIORITY_COLOR[shipment.priority as keyof typeof SHIPMENT_PRIORITY_COLOR]
                 return (
-                  <tr key={shipment.id} onClick={() => setSelectedShipment(shipment)}
+                  <tr key={shipment.id} onClick={() => setViewingShipment(shipment)}
                     className={cn('border-b border-surface-border hover:bg-surface transition-colors cursor-pointer', idx === filtered.length - 1 && 'border-0')}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -209,8 +211,12 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                      <button onClick={() => setSelectedShipment(shipment)} className="text-sm text-brand-600 hover:text-brand-700 font-medium">
-                        Editar
+                      <button
+                        onClick={() => setSelectedShipment(shipment)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-400 hover:text-gray-700"
+                        title="Editar"
+                      >
+                        <Pencil className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
@@ -220,6 +226,14 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
           </table>
         </div>
       </div>
+
+      {viewingShipment && !selectedShipment && (
+        <ShippingViewModal
+          shipment={viewingShipment}
+          onClose={() => setViewingShipment(null)}
+          onEdit={() => { setSelectedShipment(viewingShipment); setViewingShipment(null) }}
+        />
+      )}
 
       {selectedShipment && (
         <ShippingModal

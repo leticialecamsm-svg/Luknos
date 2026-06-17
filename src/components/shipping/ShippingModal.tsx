@@ -1,10 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { updateShipment, completeShipment, uploadMaterialFile, deleteMaterialFile } from '@/lib/actions'
-import type { Shipment } from '@/types'
-import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL } from '@/types'
-import { X, Upload, Download, Trash2, Loader2 } from 'lucide-react'
+import { updateShipment, completeShipment } from '@/lib/actions'
+import { X, Loader2, ExternalLink, Folder } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 
@@ -18,11 +16,11 @@ interface ShippingModalProps {
 export function ShippingModal({ shipment, onClose, onSave, onComplete }: ShippingModalProps) {
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup' | null>(shipment.delivery_type)
   const [deliveryDate, setDeliveryDate] = useState(shipment.delivery_date || '')
-  const [status, setStatus] = useState(shipment.separation_status)
-  const [priority, setPriority] = useState(shipment.priority)
-  const [files, setFiles] = useState(shipment.material_files || [])
-  const [error, setError] = useState<string | null>(null)
-  const [pending, startTransition] = useTransition()
+  const [status, setStatus]             = useState(shipment.separation_status)
+  const [priority, setPriority]         = useState(shipment.priority)
+  const [driveLink, setDriveLink]       = useState(shipment.drive_link || '')
+  const [error, setError]               = useState<string | null>(null)
+  const [pending, startTransition]      = useTransition()
   const toast = useToast()
 
   const handleSave = () => {
@@ -30,7 +28,6 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
       setError('Tipo de entrega e data são obrigatórios')
       return
     }
-
     setError(null)
     startTransition(async () => {
       try {
@@ -39,9 +36,10 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
           delivery_date: deliveryDate,
           separation_status: status,
           priority,
+          drive_link: driveLink || null,
         })
-        toast.success('TUDO CERTO!', 'Expedição atualizada com sucesso.')
-        onSave({ ...shipment, delivery_type: deliveryType, delivery_date: deliveryDate, separation_status: status, priority })
+        toast.success('TUDO CERTO!', 'Expedição atualizada.')
+        onSave({ ...shipment, delivery_type: deliveryType, delivery_date: deliveryDate, separation_status: status, priority, drive_link: driveLink || null })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erro ao salvar'
         setError(msg)
@@ -54,110 +52,54 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
     startTransition(async () => {
       try {
         await completeShipment(shipment.id)
-        toast.success('TUDO CERTO!', 'Expedição marcada como concluída.')
+        toast.success('TUDO CERTO!', 'Marcada como entregue.')
         onComplete()
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Erro ao finalizar'
-        setError(msg)
-        toast.error('OCORREU UM ERRO', msg)
-      }
-    })
-  }
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    startTransition(async () => {
-      try {
-        await uploadMaterialFile(shipment.id, file)
-        setFiles([...files, { name: file.name, url: '' }])
-        toast.success('TUDO CERTO!', 'Arquivo enviado com sucesso.')
-        e.target.value = ''
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Erro ao fazer upload'
-        setError(msg)
-        toast.error('OCORREU UM ERRO', msg)
-      }
-    })
-  }
-
-  const handleDeleteFile = (fileUrl: string) => {
-    startTransition(async () => {
-      try {
-        await deleteMaterialFile(shipment.id, fileUrl)
-        setFiles((files as any[]).filter((f: any) => f.url !== fileUrl))
-        toast.success('TUDO CERTO!', 'Arquivo removido.')
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Erro ao deletar arquivo'
-        setError(msg)
-        toast.error('OCORREU UM ERRO', msg)
+        toast.error('OCORREU UM ERRO', err instanceof Error ? err.message : 'Erro')
       }
     })
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-surface-border p-6 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Editar Expedição</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <h2 className="text-base font-semibold text-gray-900">Editar Expedição</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {error && (
-            <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">
-              {error}
-            </div>
-          )}
+        <div className="p-6 space-y-5">
+          {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
 
-          {/* Delivery Type */}
+          {/* Tipo de entrega */}
           <div>
-            <label className="label mb-3">Tipo de Entrega *</label>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 border border-surface-border rounded-lg cursor-pointer hover:bg-surface transition-colors">
-                <input
-                  type="radio"
-                  value="delivery"
-                  checked={deliveryType === 'delivery'}
-                  onChange={(e) => setDeliveryType(e.target.value as 'delivery')}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-gray-900">Entrega</span>
-              </label>
-              <label className="flex items-center gap-3 p-3 border border-surface-border rounded-lg cursor-pointer hover:bg-surface transition-colors">
-                <input
-                  type="radio"
-                  value="pickup"
-                  checked={deliveryType === 'pickup'}
-                  onChange={(e) => setDeliveryType(e.target.value as 'pickup')}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-gray-900">Retirada</span>
-              </label>
+            <label className="label mb-2">Tipo de entrega *</label>
+            <div className="flex gap-2">
+              {(['delivery', 'pickup'] as const).map(t => (
+                <button key={t} type="button"
+                  onClick={() => setDeliveryType(t)}
+                  className={cn('flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all',
+                    deliveryType === t ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-600 border-surface-border hover:border-brand-300'
+                  )}>
+                  {t === 'delivery' ? 'Entrega' : 'Retirada'}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Delivery Date */}
+          {/* Data */}
           <div>
-            <label className="label">Data de Entrega *</label>
-            <input
-              type="date"
-              value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-              className="input mt-1"
-              required
-            />
+            <label className="label">Data de entrega *</label>
+            <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="input mt-1" />
           </div>
 
           {/* Status */}
           <div>
-            <label className="label">Status de Separação</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="select mt-1">
+            <label className="label">Status de separação</label>
+            <select value={status} onChange={e => setStatus(e.target.value as any)} className="select mt-1">
               <option value="queued">Na fila</option>
               <option value="in_progress">Em andamento</option>
               <option value="awaiting_material">Aguardando material</option>
@@ -166,91 +108,57 @@ export function ShippingModal({ shipment, onClose, onSave, onComplete }: Shippin
             </select>
           </div>
 
-          {/* Priority */}
+          {/* Prioridade */}
           <div>
             <label className="label">Prioridade</label>
-            <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="select mt-1">
-              <option value="low">Baixa</option>
-              <option value="mid">Média</option>
-              <option value="high">Alta</option>
-            </select>
+            <div className="flex gap-2 mt-1">
+              {([['low','Baixa'],['mid','Média'],['high','Alta']] as const).map(([v,l]) => (
+                <button key={v} type="button"
+                  onClick={() => setPriority(v)}
+                  className={cn('flex-1 py-2 rounded-xl text-sm font-medium border transition-all',
+                    priority === v
+                      ? v === 'high' ? 'bg-red-100 text-red-700 border-red-300'
+                        : v === 'mid' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                        : 'bg-gray-100 text-gray-700 border-gray-300'
+                      : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
+                  )}>
+                  {l}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Material Files */}
+          {/* Link de separação */}
           <div>
-            <label className="label mb-3">Arquivos de Separação</label>
-            <div className="space-y-3">
-              {/* Upload */}
-              <div className="border-2 border-dashed border-surface-border rounded-lg p-4">
-                <label className="flex flex-col items-center justify-center cursor-pointer">
-                  <Upload className="w-6 h-6 text-gray-400 mb-2" />
-                  <span className="text-sm font-medium text-gray-700">Clique para fazer upload</span>
-                  <span className="text-xs text-gray-500 mt-1">PDF, imagens</span>
-                  <input
-                    type="file"
-                    onChange={handleFileUpload}
-                    disabled={pending}
-                    className="hidden"
-                    accept=".pdf,.jpg,.jpeg,.png,.gif"
-                  />
-                </label>
-              </div>
-
-              {/* File List */}
-              {files && files.length > 0 && (
-                <div className="space-y-2">
-                  {(files as any[]).map((file: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-surface rounded-lg border border-surface-border">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <Download className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span className="text-sm text-gray-700 truncate">{file.name}</span>
-                      </div>
-                      {file.url && (
-                        <div className="flex gap-1 shrink-0">
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-brand-600 hover:text-brand-700 px-2 py-1"
-                          >
-                            Download
-                          </a>
-                          <button
-                            onClick={() => handleDeleteFile(file.url)}
-                            disabled={pending}
-                            className="text-gray-400 hover:text-red-500 disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+            <label className="label">Link de separação (Drive)</label>
+            <div className="relative mt-1">
+              <Folder className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="url"
+                value={driveLink}
+                onChange={e => setDriveLink(e.target.value)}
+                placeholder="https://drive.google.com/..."
+                className="input pl-9"
+              />
             </div>
+            {driveLink && (
+              <a href={driveLink} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-1.5 text-xs text-brand-600 hover:text-brand-700">
+                <ExternalLink className="w-3 h-3" /> Abrir link
+              </a>
+            )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t border-surface-border p-6 flex gap-3 justify-between">
-          <button
-            onClick={handleComplete}
-            disabled={pending || shipment.is_completed}
-            className="btn-secondary"
-          >
-            {pending && <Loader2 className="w-4 h-4 animate-spin" />}
-            {shipment.is_completed ? '✓ Finalizada' : 'Marcar como Entregue'}
+        <div className="sticky bottom-0 bg-white border-t border-surface-border px-6 py-4 flex justify-between rounded-b-2xl">
+          <button onClick={handleComplete} disabled={pending || shipment.is_completed} className="btn-secondary text-sm">
+            {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {shipment.is_completed ? '✓ Já entregue' : 'Marcar como entregue'}
           </button>
-          <div className="flex gap-3">
-            <button onClick={onClose} className="btn-secondary">
-              Cancelar
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={pending}
-              className="btn-primary flex items-center gap-2"
-            >
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-secondary text-sm">Cancelar</button>
+            <button onClick={handleSave} disabled={pending} className="btn-primary text-sm flex items-center gap-2">
               {pending && <Loader2 className="w-4 h-4 animate-spin" />}
               Salvar
             </button>
