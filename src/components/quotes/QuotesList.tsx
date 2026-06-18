@@ -23,12 +23,25 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
   const [dateFilter, setDateFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [ownerFilter, setOwnerFilter] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
 
   const quotes = view === 'mine' ? myQuotes : allQuotes
 
-  // Filtra por busca e data
+  // All unique owners across allQuotes for the dropdown
+  const allOwners: { id: string; name: string }[] = []
+  const ownersSeen = new Set<string>()
+  for (const q of allQuotes) {
+    for (const o of (q.owners ?? [])) {
+      if (!ownersSeen.has(o.user_id)) {
+        ownersSeen.add(o.user_id)
+        allOwners.push({ id: o.user_id, name: o.name })
+      }
+    }
+  }
+
   const filtered = quotes.filter(q => {
     const matchesSearch = !search ||
       q.client_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -37,9 +50,18 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
     const matchesDate = !dateFilter ||
       (q.deadline && q.deadline.startsWith(dateFilter)) ||
-      (q.quote_date && q.quote_date.startsWith(dateFilter))
+      (q.quote_date && q.quote_date.startsWith(dateFilter)) ||
+      (q.closed_at && q.closed_at.startsWith(dateFilter))
 
-    return matchesSearch && matchesDate
+    const matchesStatus = !statusFilter || (() => {
+      if (statusFilter === 'urgent') return q.temperature === 'hot' && q.status !== 'done'
+      return q.status === statusFilter
+    })()
+
+    const matchesOwner = !ownerFilter ||
+      (q.owners ?? []).some((o: any) => o.user_id === ownerFilter)
+
+    return matchesSearch && matchesDate && matchesStatus && matchesOwner
   })
 
   // Ordena
@@ -61,11 +83,12 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     return sortOrder === 'asc' ? cmp : -cmp
   })
 
+  // Totals always from current view (before status filter so counts stay stable)
   const totals = {
-    'queue': quotes.filter(q => q.status === 'queue').length,
+    'queue':       quotes.filter(q => q.status === 'queue').length,
     'in_progress': quotes.filter(q => q.status === 'in_progress').length,
-    'urgent': quotes.filter(q => q.temperature === 'hot' && q.status !== 'done').length,
-    'done': quotes.filter(q => q.status === 'done').length,
+    'urgent':      quotes.filter(q => q.temperature === 'hot' && q.status !== 'done').length,
+    'done':        quotes.filter(q => q.status === 'done').length,
   }
 
   function toggleSort(field: SortField) {
@@ -139,23 +162,23 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
   return (
     <div className="space-y-4">
-      {/* Totalizadores */}
-      {!isAdmin && (
-        <div className="flex gap-3">
-          {([['queue', 'Na fila'], ['in_progress', 'Em andamento'], ['urgent', 'Urgentes'], ['done', 'Fechados']] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setView('mine')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                key === 'urgent'
-                  ? 'bg-red-50 text-red-700 border border-red-200'
-                  : key === 'done'
-                  ? 'bg-green-50 text-green-700 border border-green-200'
-                  : 'bg-gray-50 text-gray-700 border border-gray-200'
-              }`}>
-              {label} <span className="ml-2 font-bold">{totals[key]}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Totalizadores / filtros rápidos */}
+      <div className="flex gap-2 flex-wrap">
+        {([
+          ['queue',       'Na fila',      'bg-gray-50 text-gray-700 border-gray-200',    'bg-gray-700 text-white border-gray-700'],
+          ['in_progress', 'Em andamento', 'bg-gray-50 text-gray-700 border-gray-200',    'bg-gray-700 text-white border-gray-700'],
+          ['urgent',      'Urgentes',     'bg-red-50 text-red-700 border-red-200',       'bg-red-600 text-white border-red-600'],
+          ['done',        'Fechados',     'bg-green-50 text-green-700 border-green-200', 'bg-green-600 text-white border-green-600'],
+        ] as const).map(([key, label, defaultCls, activeCls]) => (
+          <button key={key}
+            onClick={() => setStatusFilter(statusFilter === key ? null : key)}
+            className={cn('px-4 py-2 rounded-lg text-sm font-medium border transition-all',
+              statusFilter === key ? activeCls : defaultCls
+            )}>
+            {label} <span className="ml-1.5 font-bold">{totals[key]}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Abas + Filtros */}
       <div className="flex flex-col gap-3">
@@ -172,8 +195,8 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
           </div>
         )}
 
-        <div className="flex gap-2 items-center">
-          <div className="relative flex-1 max-w-xs">
+        <div className="flex gap-2 items-center flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Buscar cliente, arquiteto..." className="input pl-9 pr-8" />
@@ -184,15 +207,34 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
             )}
           </div>
 
-          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-            className="input max-w-xs" placeholder="Filtrar por data" />
-          {dateFilter && (
-            <button onClick={() => setDateFilter('')} className="text-gray-400 hover:text-gray-600">
-              <X className="w-4 h-4" />
-            </button>
+          {/* Filtro de responsável (aba Todos ou admin) */}
+          {(view === 'all' || isAdmin) && allOwners.length > 0 && (
+            <div className="relative">
+              <select value={ownerFilter ?? ''} onChange={e => setOwnerFilter(e.target.value || null)}
+                className={cn('select pr-8', ownerFilter ? 'border-brand-400 text-brand-700 bg-brand-50' : '')}>
+                <option value="">Responsável</option>
+                {allOwners.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              {ownerFilter && (
+                <button onClick={() => setOwnerFilter(null)} className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           )}
 
-          <p className="text-xs text-gray-400 ml-2">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
+          {/* Filtro de data */}
+          <div className="relative">
+            <input type="month" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              className={cn('input', dateFilter ? 'border-brand-400 text-brand-700 bg-brand-50' : '')} />
+            {dateFilter && (
+              <button onClick={() => setDateFilter('')} className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-400">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
 
           {/* Layout toggle */}
           <div className="ml-auto flex gap-1 bg-surface-secondary rounded-lg p-1">
