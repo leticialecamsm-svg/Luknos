@@ -88,7 +88,7 @@ export function TasksEditModal({ task, onClose, onSuccess }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
@@ -184,7 +184,7 @@ export function TasksEditModal({ task, onClose, onSuccess }: Props) {
                 )}
               </div>
               {showQuoteList && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-surface-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-10 mt-1 w-full bg-white border border-surface-border rounded-xl shadow-lg max-h-64 overflow-y-auto">
                   <div className="px-3 py-1.5 text-xs text-gray-400 border-b border-surface-border cursor-pointer hover:bg-gray-50"
                     onClick={clearQuote}>— Nenhum orçamento —</div>
                   {filteredQuotes.length === 0 ? (

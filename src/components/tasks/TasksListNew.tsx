@@ -168,8 +168,13 @@ export function TasksListNew({
   const totalTasks = tasks.filter(t => t.status !== 'done').length
 
   // Para o progresso, considerar apenas tarefas de hoje ou atrasadas
+  const todayString = getTodayString()
   const todayOrOverdueTasks = tasks.filter(t => isTaskTodayOrOverdue(t.due_date) && t.status !== 'done')
-  const todayOrOverdueDoneCount = tasks.filter(t => isTaskTodayOrOverdue(t.due_date) && t.status === 'done').length
+  // Conta apenas tarefas concluídas HOJE (completed_at = hoje)
+  const todayOrOverdueDoneCount = tasks.filter(t =>
+    isTaskTodayOrOverdue(t.due_date) && t.status === 'done' &&
+    (t as any).completed_at?.startsWith(todayString)
+  ).length
   const todayOrOverdueTotalTasks = todayOrOverdueTasks.length + todayOrOverdueDoneCount
 
   const progressPercent = todayOrOverdueTotalTasks > 0 ? Math.round((todayOrOverdueDoneCount / todayOrOverdueTotalTasks) * 100) : 0
@@ -630,6 +635,7 @@ export function TasksListNew({
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
             <div className="text-xs font-semibold text-gray-600 mb-0.5">Concluídas</div>
             <div className="text-lg font-bold text-green-600">{doneCount}</div>
+            <div className="text-[10px] text-gray-400">total</div>
           </div>
         </div>
 

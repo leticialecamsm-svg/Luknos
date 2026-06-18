@@ -751,9 +751,12 @@ export async function updateTask(id: string, formData: {
   quote_id?: string | null
 }) {
   const db = await getDbClient()
+  const extra: Record<string, unknown> = {}
+  if (formData.status === 'done') extra.completed_at = new Date().toISOString()
+  else if (formData.status) extra.completed_at = null
   const { error } = await db
     .from('tasks')
-    .update({ ...formData, updated_at: new Date().toISOString() })
+    .update({ ...formData, ...extra, updated_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return { error: error.message }
