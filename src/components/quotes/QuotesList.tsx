@@ -276,7 +276,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
       {/* Kanban */}
       {layout === 'kanban' && (
-        <QuotesKanban myQuotes={myQuotes} allQuotes={allQuotes} isAdmin={isAdmin} />
+        <QuotesKanban initialQuotes={sorted} />
       )}
 
       {/* Tabela */}

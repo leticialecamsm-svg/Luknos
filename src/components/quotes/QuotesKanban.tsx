@@ -16,18 +16,10 @@ const COLUMNS = [
   { key: 'done',        label: 'Concluído',     color: 'border-green-200',  bg: 'bg-green-50/50',  header: 'bg-green-100',  text: 'text-green-700' },
 ] as const
 
-export function QuotesKanban({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; allQuotes: any[]; isAdmin: boolean }) {
+export function QuotesKanban({ initialQuotes }: { initialQuotes: any[] }) {
   const router = useRouter()
-  const [view, setView] = useState<'mine' | 'all'>(isAdmin ? 'all' : 'mine')
-  const initialQuotes = view === 'mine' ? myQuotes : allQuotes
   const [quotes, setQuotes] = useState(initialQuotes)
   const [search, setSearch] = useState('')
-
-  // Sincroniza quando muda de aba
-  const handleViewChange = (v: 'mine' | 'all') => {
-    setView(v)
-    setQuotes(v === 'mine' ? myQuotes : allQuotes)
-  }
   const { confirm, ConfirmDialog } = useConfirm()
   const [dragging, setDragging] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -70,23 +62,6 @@ export function QuotesKanban({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]
 
   return (
     <div className="space-y-4">
-      {/* Abas */}
-      {!isAdmin && (
-        <div className="flex gap-1 bg-surface-secondary rounded-lg p-1 w-fit">
-          {([['mine', 'Meus orçamentos'], ['all', 'Todos']] as const).map(([v, label]) => (
-            <button key={v} onClick={() => handleViewChange(v)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                view === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}>
-              {label}
-              <span className="ml-1.5 text-xs opacity-60">
-                {v === 'mine' ? myQuotes.length : allQuotes.length}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
