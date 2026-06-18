@@ -24,9 +24,11 @@ export function LogisticsDashboard({ shipments, tasks, userName }: LogisticsDash
         <p className="text-sm text-gray-500 mt-0.5">Painel de logística</p>
       </div>
 
+      {/* Working days banner */}
+      <WorkingDaysCard />
+
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <WorkingDaysCard />
         <div className="card p-4 flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
             <Package className="w-5 h-5 text-blue-600" />

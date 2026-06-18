@@ -133,9 +133,11 @@ export function VendorDashboard({
       {/* Aba: Meu Dashboard */}
       {activeTab === 'meu' && (
         <>
+      {/* Working days banner */}
+      <WorkingDaysCard />
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-5 gap-4">
-        <WorkingDaysCard />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Vendido no mês</p>
