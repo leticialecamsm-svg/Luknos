@@ -149,23 +149,47 @@ export function CloseSaleForm({ quoteId, quotedValue, onConfirm, onCancel }: Pro
 
       {/* Desconto máximo permitido */}
       {fv > 0 && splits.some(s => s.amount > 0) && (
-        <div className={cn('rounded-lg px-3 py-2.5 flex items-start gap-2',
+        <div className={cn('rounded-lg px-3 py-2.5 space-y-2',
           overDiscount ? 'bg-red-50 border border-red-200' : 'bg-white border border-green-200')}>
-          {overDiscount && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
-          <div className="text-xs space-y-0.5">
-            {quotedValue && (
-              <p className="text-gray-500">
-                Preço sugerido: <strong>R$ {quotedValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+
+          {/* Breakdown por método (só quando há mais de 1) */}
+          {splits.filter(s => s.amount > 0).length > 1 && (
+            <div className="space-y-1 pb-2 border-b border-gray-100">
+              {splits.filter(s => s.amount > 0).map((split, i) => {
+                const rate = rates.find(r => r.method_key === split.method_key)
+                if (!rate) return null
+                const minForMethod = split.amount * (1 - rate.max_discount_pct / 100)
+                return (
+                  <div key={i} className="flex items-center justify-between text-xs text-gray-500">
+                    <span>{rate.label} <span className="text-gray-400">(R$ {split.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span></span>
+                    <span>
+                      desc. máx. <strong className="text-gray-700">{formatPct(rate.max_discount_pct)}</strong>
+                      {' · '}mín. <strong className="text-gray-700">R$ {minForMethod.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Totais */}
+          <div className="flex items-start gap-2">
+            {overDiscount && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
+            <div className="text-xs space-y-0.5">
+              {quotedValue && (
+                <p className="text-gray-500">
+                  Preço sugerido: <strong>R$ {quotedValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                </p>
+              )}
+              <p className={overDiscount ? 'text-red-700 font-semibold' : 'text-gray-700'}>
+                Desconto máximo {splits.filter(s => s.amount > 0).length > 1 ? 'ponderado' : 'permitido'}: <strong>{formatPct(maxDisc)}</strong>
               </p>
-            )}
-            <p className={overDiscount ? 'text-red-700 font-semibold' : 'text-gray-700'}>
-              Desconto máximo permitido: <strong>{formatPct(maxDisc)}</strong>
-            </p>
-            {minPrice !== null && (
-              <p className="text-gray-500">
-                Preço mínimo aceitável: <strong>R$ {minPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-              </p>
-            )}
+              {minPrice !== null && (
+                <p className="text-gray-500">
+                  Preço mínimo aceitável: <strong>R$ {minPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
