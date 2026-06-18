@@ -6,6 +6,7 @@ import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscou
 import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
+import { PaymentMethodPicker } from './PaymentMethodPicker'
 
 interface Props {
   quoteId: string
@@ -86,18 +87,23 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
         </div>
 
         {splits.map((split, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <select value={split.method_key} onChange={e => updateSplit(i, 'method_key', e.target.value)} className="select flex-1">
-              {rates.map(r => <option key={r.method_key} value={r.method_key}>{r.label}</option>)}
-            </select>
-            <input type="number" step="0.01" min="0"
-              value={split.amount || ''}
-              onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
-              className={cn('input w-28', splits.length === 1 && 'bg-gray-50 text-gray-500')}
-              readOnly={splits.length === 1}
-            />
+          <div key={i} className="flex items-start gap-2">
+            <div className="flex-1 space-y-2">
+              <PaymentMethodPicker
+                value={split.method_key}
+                onChange={v => updateSplit(i, 'method_key', v)}
+              />
+              {splits.length > 1 && (
+                <input type="number" step="0.01" min="0"
+                  value={split.amount || ''}
+                  onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
+                  className="input"
+                  placeholder="R$ 0,00"
+                />
+              )}
+            </div>
             {splits.length > 1 && (
-              <button type="button" onClick={() => removeSplit(i)} className="text-gray-400 hover:text-red-500">
+              <button type="button" onClick={() => removeSplit(i)} className="mt-1.5 text-gray-400 hover:text-red-500">
                 <Trash2 className="w-4 h-4" />
               </button>
             )}

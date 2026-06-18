@@ -5,6 +5,7 @@ import { closeSale, getPaymentRates } from '@/lib/actions'
 import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct } from '@/lib/payment-rates'
 import { Plus, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PaymentMethodPicker } from './PaymentMethodPicker'
 
 interface Props {
   quoteId: string
@@ -106,38 +107,31 @@ export function CloseSaleForm({ quoteId, quotedValue, onConfirm, onCancel }: Pro
           )}
         </div>
 
-        {splits.map((split, i) => {
-          const rate = rates.find(r => r.method_key === split.method_key)
-          return (
-            <div key={i} className="flex items-start gap-2">
-              <div className="flex-1 grid grid-cols-[1fr_120px] gap-2">
-                <select
-                  value={split.method_key}
-                  onChange={e => updateSplit(i, 'method_key', e.target.value)}
-                  className="select"
-                >
-                  {rates.map(r => (
-                    <option key={r.method_key} value={r.method_key}>{r.label}</option>
-                  ))}
-                </select>
+        {splits.map((split, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <div className="flex-1 space-y-2">
+              <PaymentMethodPicker
+                value={split.method_key}
+                onChange={v => updateSplit(i, 'method_key', v)}
+              />
+              {splits.length > 1 && (
                 <input
                   type="number" step="0.01" min="0"
                   value={split.amount || ''}
                   onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
-                  className={cn('input', splits.length === 1 && 'bg-gray-50 text-gray-500')}
+                  className="input"
                   placeholder="R$ 0,00"
-                  readOnly={splits.length === 1}
                 />
-              </div>
-              {splits.length > 1 && (
-                <button type="button" onClick={() => removeSplit(i)}
-                  className="mt-1 p-1.5 text-gray-400 hover:text-red-500 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
               )}
             </div>
-          )
-        })}
+            {splits.length > 1 && (
+              <button type="button" onClick={() => removeSplit(i)}
+                className="mt-1.5 p-1.5 text-gray-400 hover:text-red-500 transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        ))}
 
         {splits.length > 1 && (
           <div className={cn('text-xs font-medium flex items-center justify-end gap-1',
