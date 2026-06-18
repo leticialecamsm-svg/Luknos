@@ -122,13 +122,14 @@ export function TasksEditModal({ task, onClose, onSuccess }: Props) {
               <div className="flex gap-1.5 mt-1">
                 {(['high','mid','low'] as const).map(p => (
                   <button key={p} type="button" onClick={() => setForm({...form, priority: p})}
-                    className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all',
+                    className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1',
                       form.priority === p
                         ? p === 'high' ? 'bg-red-100 text-red-700 border-red-300'
                           : p === 'mid' ? 'bg-amber-100 text-amber-700 border-amber-300'
-                          : 'bg-gray-100 text-gray-700 border-gray-300'
-                        : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
+                          : 'bg-gray-100 text-gray-600 border-gray-300'
+                        : 'bg-white text-gray-400 border-surface-border hover:border-gray-300'
                     )}>
+                    <span className={cn('w-2 h-2 rounded-full', p === 'high' ? 'bg-red-500' : p === 'mid' ? 'bg-amber-400' : 'bg-gray-400')} />
                     {p === 'high' ? 'Alta' : p === 'mid' ? 'Média' : 'Baixa'}
                   </button>
                 ))}
@@ -136,12 +137,21 @@ export function TasksEditModal({ task, onClose, onSuccess }: Props) {
             </div>
             <div>
               <label className="label">Status</label>
-              <select value={form.status} onChange={e => setForm({...form, status: e.target.value})} className="select mt-1">
-                <option value="todo">A Fazer</option>
-                <option value="doing">Fazendo</option>
-                <option value="pending">Pausada</option>
-                <option value="done">Concluído</option>
-              </select>
+              <div className="grid grid-cols-2 gap-1.5 mt-1">
+                {([
+                  ['todo',    'A fazer',      'bg-slate-100 text-slate-600 border-slate-200'],
+                  ['doing',   'Em andamento', 'bg-blue-100 text-blue-700 border-blue-200'],
+                  ['pending', 'Pausada',      'bg-amber-100 text-amber-700 border-amber-200'],
+                  ['done',    'Concluído',    'bg-green-100 text-green-700 border-green-200'],
+                ] as const).map(([val, lbl, active]) => (
+                  <button key={val} type="button" onClick={() => setForm({...form, status: val})}
+                    className={cn('py-1.5 rounded-lg text-xs font-semibold border transition-all',
+                      form.status === val ? active : 'bg-white text-gray-400 border-surface-border hover:border-gray-300'
+                    )}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
