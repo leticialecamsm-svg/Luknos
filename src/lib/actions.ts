@@ -164,12 +164,19 @@ export async function updatePaymentRate(id: string, updates: { machine_fee_pct?:
   if (error) throw new Error(error.message)
 }
 
+function methodKeyToEnum(key: string): string {
+  if (key === 'pix') return 'pix'
+  if (key === 'debit') return 'card'
+  if (key.startsWith('credit')) return 'card'
+  return 'other'
+}
+
 export async function updateSalePayment(quoteId: string, data: {
   final_value: number
   payment_splits: { method_key: string; amount: number }[]
 }) {
   const supabase = createClient()
-  const primaryMethod = data.payment_splits[0]?.method_key ?? 'pix'
+  const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
   const { error } = await supabase
     .from('negotiations')
     .update({
@@ -194,7 +201,7 @@ export async function closeSale(quoteId: string, data: {
     .upsert({
       quote_id: quoteId, temperature: 'closed',
       final_value: data.final_value,
-      payment_method: data.payment_method,
+      payment_method: methodKeyToEnum(data.payment_method),
       payment_splits: data.payment_splits ?? [],
       closed_at: new Date().toISOString().split('T')[0], notes: data.notes || null,
     }, { onConflict: 'quote_id' })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
@@ -458,9 +458,9 @@ function PaymentRatesPanel() {
   const [loading, setLoading] = useState(true)
   const toast = useToast()
 
-  useState(() => {
+  useEffect(() => {
     getPaymentRates().then(r => { setRates(r.length ? r : DEFAULT_PAYMENT_RATES as any); setLoading(false) })
-  })
+  }, [])
 
   const handleSave = async (rate: any, fee: number, maxDisc: number) => {
     try {
