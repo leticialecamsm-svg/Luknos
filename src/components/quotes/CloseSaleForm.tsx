@@ -153,6 +153,11 @@ export function CloseSaleForm({ quoteId, quotedValue, onConfirm, onCancel }: Pro
           overDiscount ? 'bg-red-50 border border-red-200' : 'bg-white border border-green-200')}>
           {overDiscount && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
           <div className="text-xs space-y-0.5">
+            {quotedValue && (
+              <p className="text-gray-500">
+                Preço sugerido: <strong>R$ {quotedValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+              </p>
+            )}
             <p className={overDiscount ? 'text-red-700 font-semibold' : 'text-gray-700'}>
               Desconto máximo permitido: <strong>{formatPct(maxDisc)}</strong>
             </p>
