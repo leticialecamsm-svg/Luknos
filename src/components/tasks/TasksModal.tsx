@@ -1,211 +1,192 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createTask, getQuotesList } from '@/lib/actions'
-import { X } from 'lucide-react'
+import { X, Search, ChevronDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 
-interface TasksModalProps {
+interface Props {
   onClose: () => void
   onSuccess: () => void
   defaultQuoteId?: string
   defaultQuoteLabel?: string
 }
 
-export function TasksModal({ onClose, onSuccess, defaultQuoteId, defaultQuoteLabel }: TasksModalProps) {
+export function TasksModal({ onClose, onSuccess, defaultQuoteId, defaultQuoteLabel }: Props) {
   const [loading, setLoading] = useState(false)
   const [quotes, setQuotes] = useState<{ id: string; number: number; client_name: string }[]>([])
+  const [quoteSearch, setQuoteSearch] = useState(defaultQuoteLabel ?? '')
+  const [quoteId, setQuoteId] = useState(defaultQuoteId ?? '')
+  const [showQuoteList, setShowQuoteList] = useState(false)
+  const quoteRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    priority: 'mid',
-    status: 'todo',
-    due_date: '',
-    quote_id: defaultQuoteId ?? '',
+
+  const [form, setForm] = useState({
+    title: '', description: '', priority: 'mid', status: 'todo', due_date: '',
   })
 
   useEffect(() => {
     getQuotesList().then(q => setQuotes(q as any[]))
   }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!formData.title.trim()) {
-      alert('Título é obrigatório')
-      return
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (quoteRef.current && !quoteRef.current.contains(e.target as Node)) setShowQuoteList(false)
     }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
-    // Se não forneceu data, usar data de hoje (timezone local do cliente)
-    const getTodayString = () => {
-      const today = new Date()
-      const year = today.getFullYear()
-      const month = String(today.getMonth() + 1).padStart(2, '0')
-      const day = String(today.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
-    }
+  const filteredQuotes = quotes.filter(q =>
+    !quoteSearch ||
+    String(q.number).includes(quoteSearch) ||
+    q.client_name?.toLowerCase().includes(quoteSearch.toLowerCase())
+  )
 
+  const selectQuote = (q: { id: string; number: number; client_name: string }) => {
+    setQuoteId(q.id)
+    setQuoteSearch(`#${q.number} · ${q.client_name}`)
+    setShowQuoteList(false)
+  }
+
+  const clearQuote = () => { setQuoteId(''); setQuoteSearch('') }
+
+  const getTodayString = () => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  }
+
+  const handleSubmit = async () => {
+    if (!form.title.trim()) { toast.error('ERRO', 'Título é obrigatório'); return }
     setLoading(true)
     const result = await createTask({
-      title: formData.title,
-      description: formData.description || undefined,
-      priority: formData.priority,
-      status: formData.status,
-      due_date: formData.due_date || getTodayString(),
-      quote_id: formData.quote_id || null,
+      title: form.title, description: form.description || undefined,
+      priority: form.priority, status: form.status,
+      due_date: form.due_date || getTodayString(),
+      quote_id: quoteId || null,
     })
-
     setLoading(false)
-
-    if (result.error) {
-      toast.error('OCORREU UM ERRO', 'Não foi possível criar a tarefa.')
-    } else {
-      toast.success('TUDO CERTO!', 'Tarefa criada com sucesso.')
-      onSuccess()
-    }
+    if (result.error) toast.error('OCORREU UM ERRO', 'Não foi possível criar a tarefa.')
+    else { toast.success('TUDO CERTO!', 'Tarefa criada com sucesso.'); onSuccess() }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-900">Nova Tarefa</h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-600" />
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <h2 className="text-base font-semibold text-gray-900">Nova Tarefa</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
 
-        {/* Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div className="p-6 space-y-4">
+
           {/* Título */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Título <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Digite o título da tarefa"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
+            <label className="label">Título *</label>
+            <input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})}
+              placeholder="Digite o título da tarefa" className="input mt-1" autoFocus />
           </div>
 
           {/* Descrição */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Descrição
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Descrição detalhada da tarefa"
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-none"
-            />
+            <label className="label">Descrição</label>
+            <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
+              placeholder="Descrição detalhada (opcional)" rows={3}
+              className="input mt-1 resize-none" />
           </div>
 
-          {/* Prioridade */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Prioridade
-            </label>
-            <div className="flex gap-2">
-              {['high', 'mid', 'low'].map((pri) => (
-                <button
-                  key={pri}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, priority: pri })}
-                  className={`flex-1 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                    formData.priority === pri
-                      ? pri === 'high'
-                        ? 'bg-red-100 text-red-700 border border-red-200'
-                        : pri === 'mid'
-                          ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                          : 'bg-slate-100 text-slate-700 border border-slate-200'
-                      : 'bg-gray-50 text-gray-600 border border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  {pri === 'high' && 'Alta'}
-                  {pri === 'mid' && 'Média'}
-                  {pri === 'low' && 'Baixa'}
-                </button>
-              ))}
+          {/* Prioridade + Status */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Prioridade</label>
+              <div className="flex gap-1.5 mt-1">
+                {(['high','mid','low'] as const).map(p => (
+                  <button key={p} type="button" onClick={() => setForm({...form, priority: p})}
+                    className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all',
+                      form.priority === p
+                        ? p === 'high' ? 'bg-red-100 text-red-700 border-red-300'
+                          : p === 'mid' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                          : 'bg-gray-100 text-gray-700 border-gray-300'
+                        : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
+                    )}>
+                    {p === 'high' ? 'Alta' : p === 'mid' ? 'Média' : 'Baixa'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Status</label>
+              <select value={form.status} onChange={e => setForm({...form, status: e.target.value})} className="select mt-1">
+                <option value="todo">A Fazer</option>
+                <option value="doing">Fazendo</option>
+                <option value="pending">Pausada</option>
+                <option value="done">Concluído</option>
+              </select>
             </div>
           </div>
 
-          {/* Status */}
+          {/* Data de vencimento */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Status
-            </label>
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="todo">A Fazer</option>
-              <option value="doing">Fazendo</option>
-              <option value="pending">Pausada</option>
-              <option value="done">Concluído</option>
-            </select>
+            <label className="label">Data de vencimento</label>
+            <input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} className="input mt-1" />
           </div>
 
-          {/* Data de Vencimento */}
+          {/* Orçamento */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Data de Vencimento
-            </label>
-            <input
-              type="date"
-              value={formData.due_date}
-              onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-
-          {/* Orçamento vinculado */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Orçamento (opcional)
-            </label>
+            <label className="label">Orçamento (opcional)</label>
             {defaultQuoteId && defaultQuoteLabel ? (
-              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                <span className="font-medium">{defaultQuoteLabel}</span>
-                <span className="text-blue-400 text-xs">(fixo)</span>
+              <div className="mt-1 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 font-medium">
+                {defaultQuoteLabel}
               </div>
             ) : (
-              <select
-                value={formData.quote_id}
-                onChange={(e) => setFormData({ ...formData, quote_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">— Nenhum orçamento —</option>
-                {quotes.map(q => (
-                  <option key={q.id} value={q.id}>#{q.number} · {q.client_name}</option>
-                ))}
-              </select>
+              <div ref={quoteRef} className="relative mt-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={quoteSearch}
+                    onChange={e => { setQuoteSearch(e.target.value); setQuoteId(''); setShowQuoteList(true) }}
+                    onFocus={() => setShowQuoteList(true)}
+                    placeholder="Buscar por número ou cliente..."
+                    className="input pl-9 pr-8"
+                  />
+                  {quoteId ? (
+                    <button onClick={clearQuote} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  )}
+                </div>
+                {showQuoteList && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-surface-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="px-3 py-1.5 text-xs text-gray-400 border-b border-surface-border cursor-pointer hover:bg-gray-50"
+                      onClick={clearQuote}>— Nenhum orçamento —</div>
+                    {filteredQuotes.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-400">Nenhum resultado</div>
+                    ) : filteredQuotes.slice(0, 50).map(q => (
+                      <div key={q.id} onClick={() => selectQuote(q)}
+                        className="px-3 py-2 text-sm hover:bg-brand-50 cursor-pointer flex items-center gap-2">
+                        <span className="text-xs font-semibold text-brand-600 shrink-0">#{q.number}</span>
+                        <span className="text-gray-700 truncate">{q.client_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        </form>
+        </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 font-semibold rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={(e) => handleSubmit(e as any)}
-            disabled={loading}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
+        <div className="sticky bottom-0 bg-white border-t border-surface-border px-6 py-4 flex gap-2 rounded-b-2xl">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
+          <button onClick={handleSubmit} disabled={loading} className="btn-primary flex-1">
             {loading ? 'Criando...' : 'Criar'}
           </button>
         </div>
