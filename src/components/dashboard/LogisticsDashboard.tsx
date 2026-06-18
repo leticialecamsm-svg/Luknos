@@ -3,6 +3,7 @@
 import { Package, CheckSquare, Clock, Truck } from 'lucide-react'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR, SHIPMENT_PRIORITY_LABEL } from '@/types'
 import { cn } from '@/lib/utils'
+import { WorkingDaysCard } from './WorkingDaysCard'
 
 interface LogisticsDashboardProps {
   shipments: any[]
@@ -25,6 +26,7 @@ export function LogisticsDashboard({ shipments, tasks, userName }: LogisticsDash
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <WorkingDaysCard />
         <div className="card p-4 flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
             <Package className="w-5 h-5 text-blue-600" />

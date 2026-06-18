@@ -6,6 +6,7 @@ import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/type
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
+import { WorkingDaysCard } from './WorkingDaysCard'
 
 export function VendorDashboard({
   myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth
@@ -134,6 +135,7 @@ export function VendorDashboard({
         <>
       {/* KPI Cards */}
       <div className="grid grid-cols-5 gap-4">
+        <WorkingDaysCard />
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Vendido no mês</p>
