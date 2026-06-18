@@ -4,13 +4,13 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   updateQuoteStatus, updateTemperature,
-  closeSale, markAsLost, addActivity
+  markAsLost, addActivity
 } from '@/lib/actions'
 import {
   QUOTE_STATUS_LABEL, STATUS_COLOR,
   TEMPERATURE_LABEL, TEMPERATURE_COLOR,
   CATEGORY_LABEL, SIZE_LABEL, ORIGIN_LABEL,
-  PAYMENT_LABEL, LOSS_REASON_LABEL,
+  LOSS_REASON_LABEL,
 } from '@/types'
 import {
   formatCurrency, formatDate, formatRelative,
@@ -19,11 +19,15 @@ import {
 import {
   ChevronLeft, Flame, CheckCircle2, XCircle,
   Phone, MessageSquare, MapPin, Clock, Loader2,
-  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink
+  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink, Percent
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { QuoteTasks } from './QuoteTasks'
+import { CloseSaleForm } from './CloseSaleForm'
+import { DiscountTable } from './DiscountTable'
+import { EditPaymentForm } from './EditPaymentForm'
+import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
 export function QuoteDetail({ quote, activities }: { quote: any; activities: any[] }) {
   const router = useRouter()
@@ -33,9 +37,11 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
   const [noteType, setNoteType] = useState<'note'|'call'|'whatsapp'|'visit'>('note')
   const [showCloseSale, setShowCloseSale] = useState(false)
   const [showMarkLost, setShowMarkLost] = useState(false)
-  const [finalValue, setFinalValue] = useState(quote.quoted_value?.toString() ?? '')
-  const [payMethod, setPayMethod] = useState('pix')
+  const [showEditPayment, setShowEditPayment] = useState(false)
+  const [showDiscounts, setShowDiscounts] = useState(false)
   const [lossReason, setLossReason] = useState('price')
+  const [localFinalValue, setLocalFinalValue] = useState<number | null>(quote.final_value ?? null)
+  const [localSplits, setLocalSplits] = useState<any[]>(quote.payment_splits ?? [])
 
   const statusC = STATUS_COLOR[quote.status as keyof typeof STATUS_COLOR]
   const tempC   = quote.temperature ? TEMPERATURE_COLOR[quote.temperature as keyof typeof TEMPERATURE_COLOR] : null
@@ -259,14 +265,42 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
 
         {/* Venda fechada */}
         {quote.temperature === 'closed' && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3">
-            <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-green-800">Venda fechada</p>
-              <p className="text-xs text-green-700">
-                {formatCurrency(quote.final_value)} · {PAYMENT_LABEL[quote.payment_method as keyof typeof PAYMENT_LABEL]} · {formatDate(quote.closed_at)}
-              </p>
+          <div className="bg-green-50 border border-green-200 rounded-xl p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Venda fechada</p>
+                  <p className="text-xs text-green-700">
+                    {formatCurrency(localFinalValue ?? quote.final_value)}
+                    {localSplits.length > 0
+                      ? ' · ' + localSplits.map((s: any) => {
+                          const r = DEFAULT_PAYMENT_RATES.find(x => x.method_key === s.method_key)
+                          return `${r?.label ?? s.method_key} R$${Number(s.amount).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
+                        }).join(' + ')
+                      : quote.payment_method ? ` · ${quote.payment_method}` : ''}
+                    {' · '}{formatDate(quote.closed_at)}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowEditPayment(v => !v)}
+                className="p-1.5 hover:bg-green-100 rounded-lg transition-colors text-green-600" title="Editar pagamento">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
             </div>
+            {showEditPayment && (
+              <EditPaymentForm
+                quoteId={quote.id}
+                currentFinalValue={localFinalValue ?? quote.final_value ?? 0}
+                currentSplits={localSplits}
+                onSaved={(fv, splits) => {
+                  setLocalFinalValue(fv)
+                  setLocalSplits(splits)
+                  setShowEditPayment(false)
+                }}
+                onCancel={() => setShowEditPayment(false)}
+              />
+            )}
           </div>
         )}
 
@@ -285,47 +319,14 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           </div>
         )}
 
-        {/* Modal fechar venda */}
+        {/* Fechar venda */}
         {showCloseSale && (
-          <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-green-800">Fechar venda</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Valor final (R$) *</label>
-                <input
-                  type="number"
-                  value={finalValue}
-                  onChange={e => setFinalValue(e.target.value)}
-                  className="input"
-                  step="0.01"
-                />
-              </div>
-              <div>
-                <label className="label">Forma de pagamento</label>
-                <select value={payMethod} onChange={e => setPayMethod(e.target.value)} className="select">
-                  {Object.entries(PAYMENT_LABEL).map(([k,v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                disabled={pending || !finalValue}
-                onClick={() => act(() => closeSale(quote.id, {
-                  final_value: Number(finalValue),
-                  payment_method: payMethod,
-                }))}
-                className="btn-primary text-xs py-1.5"
-              >
-                {pending && <Loader2 className="w-3 h-3 animate-spin" />}
-                Confirmar
-              </button>
-              <button onClick={() => setShowCloseSale(false)} className="btn-secondary text-xs py-1.5">
-                Cancelar
-              </button>
-            </div>
-          </div>
+          <CloseSaleForm
+            quoteId={quote.id}
+            quotedValue={quote.quoted_value ?? null}
+            onConfirm={() => { setShowCloseSale(false); router.refresh() }}
+            onCancel={() => setShowCloseSale(false)}
+          />
         )}
 
         {/* Modal marcar perdida */}
@@ -349,6 +350,22 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
                 Cancelar
               </button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tabela de descontos */}
+      <div className="card p-4">
+        <button
+          onClick={() => setShowDiscounts(v => !v)}
+          className="w-full flex items-center justify-between text-sm font-semibold text-gray-700"
+        >
+          <span className="flex items-center gap-2"><Percent className="w-4 h-4" /> Tabela de descontos</span>
+          <span className="text-xs text-gray-400">{showDiscounts ? 'Ocultar' : 'Ver'}</span>
+        </button>
+        {showDiscounts && (
+          <div className="mt-3">
+            <DiscountTable quotedValue={quote.quoted_value ?? null} />
           </div>
         )}
       </div>

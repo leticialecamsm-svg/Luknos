@@ -148,9 +148,44 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
   return { ok: true }
 }
 
+export async function getPaymentRates() {
+  const { data } = await createAdminClient()
+    .from('payment_method_rates')
+    .select('*')
+    .order('sort_order')
+  return data ?? []
+}
+
+export async function updatePaymentRate(id: string, updates: { machine_fee_pct?: number; max_discount_pct?: number; label?: string }) {
+  const { error } = await createAdminClient()
+    .from('payment_method_rates')
+    .update(updates)
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function updateSalePayment(quoteId: string, data: {
+  final_value: number
+  payment_splits: { method_key: string; amount: number }[]
+}) {
+  const supabase = createClient()
+  const primaryMethod = data.payment_splits[0]?.method_key ?? 'pix'
+  const { error } = await supabase
+    .from('negotiations')
+    .update({
+      final_value: data.final_value,
+      payment_method: primaryMethod,
+      payment_splits: data.payment_splits,
+    })
+    .eq('quote_id', quoteId)
+  if (error) throw new Error(error.message)
+  revalidatePath('/quotes')
+}
+
 export async function closeSale(quoteId: string, data: {
   final_value: number
   payment_method: string
+  payment_splits?: { method_key: string; amount: number }[]
   notes?: string
 }) {
   const supabase = createClient()
@@ -158,7 +193,9 @@ export async function closeSale(quoteId: string, data: {
     .from('negotiations')
     .upsert({
       quote_id: quoteId, temperature: 'closed',
-      final_value: data.final_value, payment_method: data.payment_method,
+      final_value: data.final_value,
+      payment_method: data.payment_method,
+      payment_splits: data.payment_splits ?? [],
       closed_at: new Date().toISOString().split('T')[0], notes: data.notes || null,
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
@@ -994,6 +1031,7 @@ export async function updateShipment(
     delivery_date?: string
     separation_status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material' | 'delivered'
     priority?: 'low' | 'mid' | 'high'
+    drive_link?: string | null
   }
 ) {
   const supabase = createClient()

@@ -4,7 +4,8 @@ import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
-import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin } from '@/lib/actions'
+import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin, getPaymentRates, updatePaymentRate } from '@/lib/actions'
+import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
@@ -17,7 +18,7 @@ interface Props {
 
 export function AdminPanel({ users, goals }: Props) {
   const [pending, startTransition] = useTransition()
-  const [activeTab, setActiveTab] = useState<'users' | 'contacts' | 'goals'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'contacts' | 'goals' | 'rates'>('users')
 
   // ── Criar usuário ─────────────────────────────────────────
   const [showNewUser, setShowNewUser] = useState(false)
@@ -111,6 +112,7 @@ export function AdminPanel({ users, goals }: Props) {
           { key: 'users',    label: 'Colaboradores' },
           { key: 'contacts', label: 'Contatos' },
           { key: 'goals',    label: 'Metas' },
+          { key: 'rates',    label: 'Taxas' },
         ].map(t => (
           <button
             key={t.key}
@@ -309,6 +311,8 @@ export function AdminPanel({ users, goals }: Props) {
           </div>
         </div>
       )}
+      {/* ── ABA: TAXAS ─────────────────────────────────────── */}
+      {activeTab === 'rates' && <PaymentRatesPanel />}
     </div>
   )
 }
@@ -446,6 +450,78 @@ function UserRow({ user: u }: { user: User }) {
       </div>
       {ConfirmDialog}
     </div>
+  )
+}
+
+function PaymentRatesPanel() {
+  const [rates, setRates] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const toast = useToast()
+
+  useState(() => {
+    getPaymentRates().then(r => { setRates(r.length ? r : DEFAULT_PAYMENT_RATES as any); setLoading(false) })
+  })
+
+  const handleSave = async (rate: any, fee: number, maxDisc: number) => {
+    try {
+      if (rate.id && !rate.id.startsWith('default')) {
+        await updatePaymentRate(rate.id, { machine_fee_pct: fee, max_discount_pct: maxDisc })
+      }
+      setRates(prev => prev.map(r => r.method_key === rate.method_key ? { ...r, machine_fee_pct: fee, max_discount_pct: maxDisc } : r))
+      toast.success('TUDO CERTO!', 'Taxa atualizada.')
+    } catch {
+      toast.error('ERRO', 'Não foi possível salvar.')
+    }
+  }
+
+  if (loading) return <div className="card p-4 text-sm text-gray-400">Carregando...</div>
+
+  return (
+    <div className="card p-4">
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">Taxas da maquininha</h2>
+      <p className="text-xs text-gray-400 mb-4">Edite as taxas e o desconto máximo por forma de pagamento. Clique no valor para editar.</p>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-surface-border">
+            <th className="py-2 pr-4 text-left text-xs font-semibold text-gray-500">Forma</th>
+            <th className="py-2 pr-4 text-right text-xs font-semibold text-gray-500">Taxa maq.</th>
+            <th className="py-2 text-right text-xs font-semibold text-gray-500">Desc. máximo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rates.map(r => (
+            <tr key={r.method_key} className="border-b border-surface-border last:border-0">
+              <td className="py-2 pr-4 text-gray-800 font-medium">{r.label}</td>
+              <td className="py-2 pr-4 text-right">
+                <RateInput value={Number(r.machine_fee_pct)} suffix="%" onSave={v => handleSave(r, v, Number(r.max_discount_pct))} />
+              </td>
+              <td className="py-2 text-right">
+                <RateInput value={Number(r.max_discount_pct)} suffix="%" onSave={v => handleSave(r, Number(r.machine_fee_pct), v)} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RateInput({ value, suffix, onSave }: { value: number; suffix: string; onSave: (v: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(String(value))
+  if (editing) return (
+    <div className="inline-flex items-center gap-1 justify-end">
+      <input type="number" step="0.01" min="0" max="100"
+        value={val} onChange={e => setVal(e.target.value)}
+        className="input w-20 text-xs py-0.5 text-right" autoFocus />
+      <button onClick={() => { onSave(parseFloat(val) || 0); setEditing(false) }} className="btn-primary text-xs py-0.5 px-2">OK</button>
+    </div>
+  )
+  return (
+    <button onClick={() => { setVal(String(value)); setEditing(true) }}
+      className="text-sm font-semibold text-brand-600 hover:underline tabular-nums">
+      {value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{suffix}
+    </button>
   )
 }
 
