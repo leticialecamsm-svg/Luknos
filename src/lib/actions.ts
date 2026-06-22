@@ -1196,6 +1196,17 @@ export async function getContactSalesTotal(contactId: string, year?: number, mon
   return data ?? []
 }
 
+export async function getContactOpenQuotes(contactId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quotes_full')
+    .select('id, number, client_name, quoted_value, status, created_at')
+    .eq('architect_id', contactId)
+    .not('status', 'eq', 'closed')
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
 export async function getContactTotalSales(contactId: string) {
   const admin = createAdminClient()
   const { data } = await admin

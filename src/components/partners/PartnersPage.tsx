@@ -212,6 +212,8 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1)
   const [commData, setCommData]   = useState<any[] | null>(null)
   const [loadingComm, setLoadingComm] = useState(false)
+  const [openQuotes, setOpenQuotes] = useState<any[] | null>(null)
+  const [loadingQuotes, setLoadingQuotes] = useState(false)
 
   const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
@@ -219,6 +221,13 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
     if (!isAdmin || !(contact as any).commission_rate) return
     loadComm(viewYear, viewMonth)
   }, [])
+
+  useEffect(() => {
+    setLoadingQuotes(true)
+    import('@/lib/actions').then(({ getContactOpenQuotes }) =>
+      getContactOpenQuotes(contact.id).then(data => { setOpenQuotes(data as any[]); setLoadingQuotes(false) })
+    )
+  }, [contact.id])
 
   async function loadComm(y: number, m: number) {
     setLoadingComm(true)
@@ -325,6 +334,30 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
               </div>
             )}
           </dl>
+
+          {/* Orçamentos em aberto vinculados a este parceiro */}
+          <div className="mt-5 border-t border-surface-border pt-5">
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Orçamentos em aberto</h3>
+            {loadingQuotes ? (
+              <div className="text-xs text-gray-400 py-1">Carregando...</div>
+            ) : openQuotes && openQuotes.length > 0 ? (
+              <div className="space-y-2">
+                {openQuotes.map((q: any) => (
+                  <div key={q.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-brand-600">#{q.number}</span>
+                      <span className="text-xs text-gray-600 ml-2 truncate">{q.client_name ?? '—'}</span>
+                    </div>
+                    <span className="text-xs font-medium text-gray-700 shrink-0 ml-2">
+                      {q.quoted_value != null ? Number(q.quoted_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">Nenhum orçamento em aberto.</p>
+            )}
+          </div>
 
           {/* Painel de comissões — admin only */}
           {isAdmin && commRate > 0 && (
