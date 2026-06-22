@@ -103,6 +103,9 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
               {overdue && (
                 <span className="badge bg-red-50 text-red-600">⚠️ Prazo vencido</span>
               )}
+              {localSplits.some((s: any) => s.status === 'open') && (
+                <span className="badge bg-amber-100 text-amber-800">⏳ Pagamento Pendente</span>
+              )}
             </div>
             <h1 className="text-xl font-semibold text-gray-900">{quote.client_name}</h1>
             {quote.client_phone && (

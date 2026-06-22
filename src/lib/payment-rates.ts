@@ -6,9 +6,18 @@ export interface PaymentRate {
   sort_order: number
 }
 
+export type PaymentStatus = 'paid' | 'open'
+
 export interface PaymentSplit {
   method_key: string
   amount: number
+  status?: PaymentStatus
+  date?: string // YYYY-MM-DD
+}
+
+export function todayISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // Primary payment types shown in first selector

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { updateSalePayment, getPaymentRates } from '@/lib/actions'
-import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct } from '@/lib/payment-rates'
+import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct, todayISO } from '@/lib/payment-rates'
 import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
@@ -20,7 +20,9 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
   const [rates, setRates] = useState<PaymentRate[]>(DEFAULT_PAYMENT_RATES)
   const [finalValue, setFinalValue] = useState(String(currentFinalValue))
   const [splits, setSplits] = useState<PaymentSplit[]>(
-    currentSplits.length > 0 ? currentSplits : [{ method_key: 'pix', amount: currentFinalValue }]
+    currentSplits.length > 0
+      ? currentSplits.map(s => ({ ...s, status: s.status ?? 'paid', date: s.date ?? todayISO() }))
+      : [{ method_key: 'pix', amount: currentFinalValue, status: 'paid', date: todayISO() }]
   )
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -44,10 +46,10 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
 
   const addSplit = () => {
     const remaining = Math.max(0, fv - totalSplits)
-    setSplits(prev => [...prev, { method_key: 'pix', amount: remaining }])
+    setSplits(prev => [...prev, { method_key: 'pix', amount: remaining, status: 'paid', date: todayISO() }])
   }
   const removeSplit = (i: number) => setSplits(prev => prev.filter((_, idx) => idx !== i))
-  const updateSplit = (i: number, field: 'method_key' | 'amount', value: string | number) =>
+  const updateSplit = (i: number, field: keyof PaymentSplit, value: string | number) =>
     setSplits(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
 
   const handleSave = () => {
@@ -87,26 +89,41 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
         </div>
 
         {splits.map((split, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <div className="flex-1 space-y-2">
-              <PaymentMethodPicker
-                value={split.method_key}
-                onChange={v => updateSplit(i, 'method_key', v)}
+          <div key={i} className="rounded-lg border border-blue-100 bg-white p-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <PaymentMethodPicker
+                  value={split.method_key}
+                  onChange={v => updateSplit(i, 'method_key', v)}
+                />
+              </div>
+              <input type="number" step="0.01" min="0"
+                value={split.amount || ''}
+                onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
+                className="input w-32 shrink-0"
+                placeholder="R$ 0,00"
               />
               {splits.length > 1 && (
-                <input type="number" step="0.01" min="0"
-                  value={split.amount || ''}
-                  onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
-                  className="input"
-                  placeholder="R$ 0,00"
-                />
+                <button type="button" onClick={() => removeSplit(i)} className="text-gray-400 hover:text-red-500 shrink-0 p-1.5">
+                  <Trash2 className="w-4 h-4" />
+                </button>
               )}
             </div>
-            {splits.length > 1 && (
-              <button type="button" onClick={() => removeSplit(i)} className="mt-1.5 text-gray-400 hover:text-red-500">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <select
+                value={split.status ?? 'paid'}
+                onChange={e => updateSplit(i, 'status', e.target.value)}
+                className={cn('select text-sm flex-1', (split.status ?? 'paid') === 'open' ? 'text-amber-700' : 'text-green-700')}
+              >
+                <option value="paid">Pago</option>
+                <option value="open">Em aberto</option>
+              </select>
+              <input type="date"
+                value={split.date ?? todayISO()}
+                onChange={e => updateSplit(i, 'date', e.target.value)}
+                className="input text-sm flex-1"
+              />
+            </div>
           </div>
         ))}
 

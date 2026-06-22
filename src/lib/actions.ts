@@ -194,7 +194,7 @@ function methodKeyToEnum(key: string): string {
 
 export async function updateSalePayment(quoteId: string, data: {
   final_value: number
-  payment_splits: { method_key: string; amount: number }[]
+  payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
 }) {
   const supabase = createClient()
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
@@ -213,7 +213,7 @@ export async function updateSalePayment(quoteId: string, data: {
 export async function closeSale(quoteId: string, data: {
   final_value: number
   payment_method: string
-  payment_splits?: { method_key: string; amount: number }[]
+  payment_splits?: { method_key: string; amount: number; status?: string; date?: string }[]
   notes?: string
 }) {
   const supabase = createClient()
