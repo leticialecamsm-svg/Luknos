@@ -154,8 +154,8 @@ export async function deleteQuotes(quoteIds: string[]) {
 }
 
 export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
-  const supabase = createClient()
-  const { error } = await supabase.from('quotes').update({ status }).eq('id', quoteId)
+  // Admin client: qualquer colaborador pode atualizar qualquer orçamento (sem bloqueio de RLS)
+  const { error } = await createAdminClient().from('quotes').update({ status }).eq('id', quoteId)
   if (error) return { error: error.message }
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
@@ -163,8 +163,8 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
 }
 
 export async function updateTemperature(quoteId: string, temperature: NegTemperature) {
-  const supabase = createClient()
-  const { error } = await supabase
+  // Admin client: qualquer colaborador pode atualizar qualquer negociação
+  const { error } = await createAdminClient()
     .from('negotiations')
     .upsert({ quote_id: quoteId, temperature }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
@@ -201,9 +201,8 @@ export async function updateSalePayment(quoteId: string, data: {
   final_value: number
   payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
 }) {
-  const supabase = createClient()
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from('negotiations')
     .update({
       final_value: data.final_value,
@@ -221,7 +220,7 @@ export async function closeSale(quoteId: string, data: {
   payment_splits?: { method_key: string; amount: number; status?: string; date?: string }[]
   notes?: string
 }) {
-  const supabase = createClient()
+  const supabase = createAdminClient()
   const { error: negError } = await supabase
     .from('negotiations')
     .upsert({
@@ -277,8 +276,7 @@ export async function closeSale(quoteId: string, data: {
 }
 
 export async function markAsLost(quoteId: string, loss_reason: string) {
-  const supabase = createClient()
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from('negotiations')
     .upsert({ quote_id: quoteId, temperature: 'lost', loss_reason }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
@@ -442,7 +440,8 @@ export async function updateQuote(quoteId: string, data: {
   // Separa owner data dos dados da quote
   const { primary_owner_id, collaborator_ids, ...quoteData } = data
 
-  const { error } = await supabase.from('quotes').update(quoteData).eq('id', quoteId)
+  // Admin client: qualquer colaborador pode editar qualquer orçamento
+  const { error } = await createAdminClient().from('quotes').update(quoteData).eq('id', quoteId)
   if (error) return { error: error.message }
 
   // Monta descrição do diff
