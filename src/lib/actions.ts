@@ -663,27 +663,34 @@ async function enrichSchedules(schedules: any[]) {
   if (!schedules.length) return schedules
   const db = createClient()
 
-  const userIds = Array.from(new Set([
-    ...schedules.flatMap(s => (s.team_members ?? [])),
-    ...schedules.map(s => s.created_by),
-  ].filter(Boolean)))
   const partnerIds = Array.from(new Set(schedules.map(s => s.partner_id).filter(Boolean)))
   const quoteIds = Array.from(new Set(schedules.map(s => s.quote_id).filter(Boolean)))
 
+  // Busca todos os usuários: team_members pode conter UUIDs (novos) OU nomes (legado)
   const [usersRes, partnersRes, quotesRes] = await Promise.all([
-    userIds.length ? db.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds) : Promise.resolve({ data: [] }),
+    db.from('users').select('id, name, avatar_color, avatar_url'),
     partnerIds.length ? db.from('contacts').select('id, name').in('id', partnerIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? db.from('quotes_full').select('id, number, client_name').in('id', quoteIds) : Promise.resolve({ data: [] }),
   ])
-  const userMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u]))
+
+  const users = usersRes.data ?? []
+  const byId = new Map(users.map((u: any) => [u.id, u]))
+  const byName = new Map(users.map((u: any) => [String(u.name).trim().toLowerCase(), u]))
+  const byFirstName = new Map(users.map((u: any) => [String(u.name).trim().split(' ')[0].toLowerCase(), u]))
   const partnerMap = new Map((partnersRes.data ?? []).map((p: any) => [p.id, p.name]))
   const quoteMap = new Map((quotesRes.data ?? []).map((q: any) => [q.id, q]))
 
+  const resolveUser = (token: string) => {
+    if (!token) return null
+    const key = String(token).trim().toLowerCase()
+    return byId.get(token) ?? byName.get(key) ?? byFirstName.get(key) ?? null
+  }
+
   return schedules.map(s => ({
     ...s,
-    participants: (s.team_members ?? []).map((id: string) => userMap.get(id)).filter(Boolean),
+    participants: (s.team_members ?? []).map((t: string) => resolveUser(t)).filter(Boolean),
     partner_name: s.partner_id ? (partnerMap.get(s.partner_id) ?? null) : null,
-    creator: s.created_by ? (userMap.get(s.created_by) ?? null) : null,
+    creator: s.created_by ? (byId.get(s.created_by) ?? null) : null,
     quote: s.quote_id ? (quoteMap.get(s.quote_id) ?? null) : null,
   }))
 }
