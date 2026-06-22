@@ -1141,22 +1141,35 @@ export async function getShipments() {
   if (error) throw new Error(error.message)
   if (!shipments || shipments.length === 0) return []
 
-  // Enriquecer com dados do orçamento (quotes_full tem client_name)
+  // Enriquecer com dados do orçamento (quotes_full tem client_name e owners)
   const quoteIds = shipments.map((s: any) => s.quote_id).filter(Boolean)
   const { data: quotes } = await admin
     .from('quotes_full')
-    .select('id, number, quoted_value, final_value, client_name, architect_name')
+    .select('id, number, quoted_value, final_value, client_name, architect_name, owners')
     .in('id', quoteIds)
   const quotesMap = Object.fromEntries((quotes ?? []).map((q: any) => [q.id, q]))
 
+  // avatar_url dos responsáveis
+  const ownerIds = Array.from(new Set(
+    (quotes ?? []).flatMap((q: any) => (q.owners ?? []).map((o: any) => o.user_id)).filter(Boolean)
+  ))
+  const { data: ownerUsers } = ownerIds.length
+    ? await admin.from('users').select('id, avatar_url').in('id', ownerIds)
+    : { data: [] }
+  const avatarMap = new Map((ownerUsers ?? []).map((u: any) => [u.id, u.avatar_url]))
+
   return shipments.map((s: any) => {
     const q = quotesMap[s.quote_id] ?? {}
+    const owners = (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: avatarMap.get(o.user_id) ?? null }))
+    const primary = owners.find((o: any) => o.role === 'primary') ?? owners[0] ?? null
     return {
       ...s,
       quote_number: q.number,
       quoted_value: q.final_value ?? q.quoted_value,
       client_name: q.client_name ?? '—',
       architect_name: q.architect_name ?? null,
+      owners,
+      owner: primary,
     }
   })
 }

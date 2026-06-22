@@ -216,7 +216,8 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         </div>
       </div>
 
-      {/* Negociação */}
+      {/* Negociação + descontos — só aparecem quando o orçamento está concluído */}
+      {quote.status === 'done' && (<>
       <div className="card p-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">Negociação</h2>
 
@@ -368,6 +369,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           </div>
         )}
       </div>
+      </>)}
 
       {/* Visita */}
       {(quote.visit_status || quote.visit_address) && (
@@ -395,29 +397,6 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         <div className="card p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Observações</h2>
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{quote.notes}</p>
-        </div>
-      )}
-
-      {/* Arquivos */}
-      {quote.drive_link && (
-        <div className="card p-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <Folder className="w-4 h-4" />
-            Arquivos
-          </h2>
-          <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"
-            className="block p-4 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors group">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Folder className="w-6 h-6 text-blue-600 group-hover:text-blue-700" />
-                <div>
-                  <p className="font-medium text-blue-900">Pasta no Google Drive</p>
-                  <p className="text-xs text-blue-600">Clique para abrir</p>
-                </div>
-              </div>
-              <ExternalLink className="w-5 h-5 text-blue-400 group-hover:text-blue-600" />
-            </div>
-          </a>
         </div>
       )}
 
@@ -511,10 +490,30 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
 
       </div>{/* fim col esquerda */}
 
-      {/* Coluna direita: Tarefas + Agendamentos */}
+      {/* Coluna direita: Tarefas + Agendamentos + Arquivos */}
       <div className="sticky top-4 space-y-4">
         <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
         <QuoteSchedules quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
+        {quote.drive_link && (
+          <div className="card p-4">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <Folder className="w-4 h-4" /> Arquivos
+            </h2>
+            <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"
+              className="block p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors group">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Folder className="w-5 h-5 text-blue-600 group-hover:text-blue-700" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">Pasta no Google Drive</p>
+                    <p className="text-xs text-blue-600">Clique para abrir</p>
+                  </div>
+                </div>
+                <ExternalLink className="w-4 h-4 text-blue-400 group-hover:text-blue-600" />
+              </div>
+            </a>
+          </div>
+        )}
       </div>
 
       </div>{/* fim grid */}

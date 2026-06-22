@@ -2,6 +2,7 @@
 
 import { X, ExternalLink, Package, Truck, Calendar, MapPin, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 
 interface ShippingViewModalProps {
@@ -80,6 +81,17 @@ export function ShippingViewModal({ shipment, onClose, onEdit }: ShippingViewMod
               </p>
             </div>
           </div>
+
+          {/* Responsável */}
+          {shipment.owner && (
+            <div className="card p-4 flex items-center gap-3">
+              <Avatar user={shipment.owner} size={36} />
+              <div>
+                <p className="text-xs text-gray-400">Responsável pela venda</p>
+                <p className="text-sm font-semibold text-gray-900">{shipment.owner.name}</p>
+              </div>
+            </div>
+          )}
 
           {/* Entrega */}
           <div className="card p-4 space-y-3">

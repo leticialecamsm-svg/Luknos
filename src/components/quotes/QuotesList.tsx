@@ -26,6 +26,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [dateFilter, setDateFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null)
+  const [showDone, setShowDone] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
 
@@ -62,7 +63,10 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     const matchesOwner = !ownerFilter ||
       (q.owners ?? []).some((o: any) => o.user_id === ownerFilter)
 
-    return matchesSearch && matchesDate && matchesStatus && matchesOwner
+    // Esconde concluídos por padrão (a não ser que o usuário filtre por "done" ou ative o toggle)
+    const matchesDone = showDone || statusFilter === 'done' || q.status !== 'done'
+
+    return matchesSearch && matchesDate && matchesStatus && matchesOwner && matchesDone
   })
 
   // Ordena
@@ -234,6 +238,13 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
               </button>
             )}
           </div>
+
+          {/* Mostrar concluídos (escondidos por padrão) */}
+          <button onClick={() => setShowDone(v => !v)}
+            className={cn('px-3 py-2 rounded-lg text-xs font-medium border transition-all whitespace-nowrap',
+              showDone ? 'bg-green-50 text-green-700 border-green-200' : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
+            {showDone ? '✓ Concluídos' : 'Mostrar concluídos'}
+          </button>
 
           <p className="text-xs text-gray-400">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
 

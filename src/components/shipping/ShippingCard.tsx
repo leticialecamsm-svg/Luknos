@@ -2,9 +2,10 @@
 
 import { Shipment, SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 
 interface ShippingCardProps {
-  shipment: Shipment & { client_name?: string; quote_number?: number; quoted_value?: number }
+  shipment: Shipment & { client_name?: string; quote_number?: number; quoted_value?: number; owner?: any }
   onClick?: () => void
   draggable?: boolean
   onDragStart?: (e: React.DragEvent) => void
@@ -23,9 +24,14 @@ export function ShippingCard({ shipment, onClick, draggable = false, onDragStart
       )}
     >
       {/* Header */}
-      <div className="space-y-1">
-        <p className="text-sm font-semibold text-gray-900">{shipment.client_name || 'Cliente'}</p>
-        <p className="text-xs text-gray-500">Orçamento #{shipment.quote_number}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{shipment.client_name || 'Cliente'}</p>
+          <p className="text-xs text-gray-500">Orçamento #{shipment.quote_number}</p>
+        </div>
+        {(shipment as any).owner && (
+          <Avatar user={(shipment as any).owner} size={26} title={`Resp.: ${(shipment as any).owner.name}`} />
+        )}
       </div>
 
       {/* Valor */}

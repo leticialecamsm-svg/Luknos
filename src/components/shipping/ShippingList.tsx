@@ -7,6 +7,7 @@ import { ShippingModal } from './ShippingModal'
 import { ShippingViewModal } from './ShippingViewModal'
 import { Search, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 
 const STATUS_FILTER_OPTIONS = [
   { value: null,              label: 'Todos' },
@@ -127,13 +128,14 @@ export function ShippingList({ initialShipments, filterYear, filterMonth }: Ship
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Data entrega</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Prioridade</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Resp.</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 w-10"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">
                     Nenhuma expedição neste mês
                   </td>
                 </tr>
@@ -182,6 +184,11 @@ export function ShippingList({ initialShipments, filterYear, filterMonth }: Ship
                       <span className={cn('badge text-xs font-semibold', statusColor?.bg, statusColor?.text)}>
                         {SHIPMENT_STATUS_LABEL[shipment.separation_status as keyof typeof SHIPMENT_STATUS_LABEL] ?? '—'}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {shipment.owner
+                        ? <Avatar user={shipment.owner} size={26} title={shipment.owner.name} />
+                        : <span className="text-xs text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                       <button
