@@ -225,7 +225,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
   useEffect(() => {
     setLoadingQuotes(true)
     import('@/lib/actions').then(({ getContactOpenQuotes }) =>
-      getContactOpenQuotes(contact.id).then(data => { setOpenQuotes(data as any[]); setLoadingQuotes(false) })
+      getContactOpenQuotes(contact.id, contact.name).then(data => { setOpenQuotes(data as any[]); setLoadingQuotes(false) })
     )
   }, [contact.id])
 

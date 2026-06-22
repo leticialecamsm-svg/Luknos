@@ -1196,12 +1196,16 @@ export async function getContactSalesTotal(contactId: string, year?: number, mon
   return data ?? []
 }
 
-export async function getContactOpenQuotes(contactId: string) {
+export async function getContactOpenQuotes(contactId: string, contactName?: string) {
   const admin = createAdminClient()
+  // Busca pelo FK architect_id OU pelo nome (para orçamentos antigos sem FK)
+  const filter = contactName
+    ? `architect_id.eq.${contactId},architect_name.ilike.%${contactName}%`
+    : `architect_id.eq.${contactId}`
   const { data } = await admin
     .from('quotes_full')
     .select('id, number, client_name, quoted_value, status, created_at')
-    .eq('architect_id', contactId)
+    .or(filter)
     .not('status', 'eq', 'closed')
     .order('created_at', { ascending: false })
   return data ?? []
