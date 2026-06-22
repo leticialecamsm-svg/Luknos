@@ -683,7 +683,7 @@ export async function createSchedule(data: ScheduleInput) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
-  const { data: result, error } = await supabase.from('schedules').insert({
+  const { data: result, error } = await createAdminClient().from('schedules').insert({
     title: data.title,
     type: data.type,
     quote_id: data.quote_id || null,
@@ -716,7 +716,7 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
   if (data.location !== undefined) updates.location = data.location || null
   if (data.team_members !== undefined) updates.team_members = data.team_members
 
-  const { error } = await supabase.from('schedules').update(updates).eq('id', id)
+  const { error } = await createAdminClient().from('schedules').update(updates).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/schedules')
   revalidatePath('/dashboard')
@@ -724,8 +724,7 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
 }
 
 export async function getSchedules(startDate?: string, endDate?: string) {
-  const supabase = createClient()
-  let query = supabase.from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
+  let query = createAdminClient().from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
 
   if (startDate && endDate) {
     query = query.gte('scheduled_date', startDate).lte('scheduled_date', endDate)
@@ -736,8 +735,7 @@ export async function getSchedules(startDate?: string, endDate?: string) {
 }
 
 export async function getSchedulesByDate(date: string) {
-  const supabase = createClient()
-  const { data } = await supabase
+  const { data } = await createAdminClient()
     .from('schedules')
     .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
     .eq('scheduled_date', date)
@@ -746,8 +744,7 @@ export async function getSchedulesByDate(date: string) {
 }
 
 export async function getSchedulesByQuote(quoteId: string) {
-  const supabase = createClient()
-  const { data } = await supabase
+  const { data } = await createAdminClient()
     .from('schedules')
     .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
     .eq('quote_id', quoteId)
@@ -757,8 +754,7 @@ export async function getSchedulesByQuote(quoteId: string) {
 }
 
 export async function deleteSchedule(id: string) {
-  const supabase = createClient()
-  const { error } = await supabase.from('schedules').delete().eq('id', id)
+  const { error } = await createAdminClient().from('schedules').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/schedules')
   revalidatePath('/dashboard')
