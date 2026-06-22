@@ -128,8 +128,13 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
                         {s.location && <p className="text-xs text-gray-600 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {s.location}</p>}
                         {s.quote && <p className="text-xs text-gray-600 mt-1">Orç. <span className="font-semibold text-brand-600">#{s.quote.number}</span> · {s.quote.client_name}</p>}
                         {s.participants?.length > 0 && (
-                          <div className="flex gap-0.5 mt-2">
-                            {s.participants.slice(0, 4).map((p: any) => <Avatar key={p.id} user={p} size={22} className="ring-1 ring-white" />)}
+                          <div className="flex items-center flex-wrap gap-1.5 mt-2">
+                            {s.participants.map((p: any) => (
+                              <span key={p.id} className="inline-flex items-center gap-1 bg-white border border-surface-border rounded-full pl-0.5 pr-2 py-0.5">
+                                <Avatar user={p} size={18} />
+                                <span className="text-[11px] text-gray-600">{p.name.split(' ')[0]}</span>
+                              </span>
+                            ))}
                           </div>
                         )}
                       </div>
