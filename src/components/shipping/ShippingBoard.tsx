@@ -3,12 +3,15 @@
 import { useState } from 'react'
 import { ShippingCard } from './ShippingCard'
 import { ShippingModal } from './ShippingModal'
-import type { Shipment, ShipmentStatus } from '@/types'
-import { SHIPMENT_STATUS_LABEL, SHIPMENT_STATUS_COLOR } from '@/types'
+import { ShippingViewModal } from './ShippingViewModal'
+import type { ShipmentStatus } from '@/types'
+import { SHIPMENT_STATUS_LABEL } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface ShippingBoardProps {
   initialShipments: any[]
+  filterYear: number
+  filterMonth: number // 1-based
 }
 
 const COLUMNS: { status: ShipmentStatus; color: string; bg: string; header: string; text: string }[] = [
@@ -19,10 +22,16 @@ const COLUMNS: { status: ShipmentStatus; color: string; bg: string; header: stri
   { status: 'delivered',         color: 'border-emerald-200',bg: 'bg-emerald-50/50',header: 'bg-emerald-100',text: 'text-emerald-700' },
 ]
 
-export function ShippingBoard({ initialShipments }: ShippingBoardProps) {
+export function ShippingBoard({ initialShipments, filterYear, filterMonth }: ShippingBoardProps) {
   const [shipments, setShipments] = useState<any[]>(initialShipments)
-  const [selectedShipment, setSelectedShipment] = useState<any | null>(null)
+  const [viewingShipment, setViewingShipment] = useState<any | null>(null)
+  const [editingShipment, setEditingShipment] = useState<any | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
+
+  const monthShipments = shipments.filter(s => {
+    const d = s.created_at ? new Date(s.created_at) : null
+    return d ? (d.getFullYear() === filterYear && d.getMonth() + 1 === filterMonth) : true
+  })
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedId(id)
@@ -43,7 +52,7 @@ export function ShippingBoard({ initialShipments }: ShippingBoardProps) {
     <>
       <div className="flex gap-3 overflow-x-auto pb-2">
         {COLUMNS.map(col => {
-          const cards = shipments.filter(s => s.separation_status === col.status)
+          const cards = monthShipments.filter(s => s.separation_status === col.status)
 
           return (
             <div key={col.status}
@@ -69,7 +78,7 @@ export function ShippingBoard({ initialShipments }: ShippingBoardProps) {
                     key={shipment.id}
                     draggable
                     onDragStart={e => handleDragStart(e, shipment.id)}
-                    onClick={() => setSelectedShipment(shipment)}
+                    onClick={() => setViewingShipment(shipment)}
                     className={cn('cursor-grab active:cursor-grabbing', draggedId === shipment.id && 'opacity-50')}
                   >
                     <ShippingCard shipment={shipment} draggable={false} onDragStart={() => {}} />
@@ -81,19 +90,29 @@ export function ShippingBoard({ initialShipments }: ShippingBoardProps) {
         })}
       </div>
 
-      {selectedShipment && (
+      {/* Modal de visualização (abre ao clicar) */}
+      {viewingShipment && (
+        <ShippingViewModal
+          shipment={viewingShipment}
+          onClose={() => setViewingShipment(null)}
+          onEdit={() => { setEditingShipment(viewingShipment); setViewingShipment(null) }}
+        />
+      )}
+
+      {/* Modal de edição */}
+      {editingShipment && (
         <ShippingModal
-          shipment={selectedShipment}
-          onClose={() => setSelectedShipment(null)}
+          shipment={editingShipment}
+          onClose={() => setEditingShipment(null)}
           onSave={(updated) => {
             setShipments(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
-            setSelectedShipment(null)
+            setEditingShipment(null)
           }}
           onComplete={() => {
             setShipments(prev => prev.map(s =>
-              s.id === selectedShipment.id ? { ...s, is_completed: true, completed_at: new Date().toISOString() } : s
+              s.id === editingShipment.id ? { ...s, is_completed: true, completed_at: new Date().toISOString() } : s
             ))
-            setSelectedShipment(null)
+            setEditingShipment(null)
           }}
         />
       )}

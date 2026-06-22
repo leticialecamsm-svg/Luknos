@@ -5,10 +5,8 @@ import { completeShipment } from '@/lib/actions'
 import { SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL, SHIPMENT_STATUS_COLOR, SHIPMENT_PRIORITY_COLOR } from '@/types'
 import { ShippingModal } from './ShippingModal'
 import { ShippingViewModal } from './ShippingViewModal'
-import { Search, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
+import { Search, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
 const STATUS_FILTER_OPTIONS = [
   { value: null,              label: 'Todos' },
@@ -21,27 +19,17 @@ const STATUS_FILTER_OPTIONS = [
 
 interface ShippingListProps {
   initialShipments: any[]
+  filterYear: number
+  filterMonth: number // 1-based
 }
 
-export function ShippingList({ initialShipments }: ShippingListProps) {
-  const now = new Date()
+export function ShippingList({ initialShipments, filterYear, filterMonth }: ShippingListProps) {
   const [shipments, setShipments] = useState<any[]>(initialShipments)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [viewingShipment, setViewingShipment] = useState<any | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<any | null>(null)
-  const [filterYear, setFilterYear] = useState(now.getFullYear())
-  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1) // 1-based
   const [pending, startTransition] = useTransition()
-
-  function prevMonth() {
-    if (filterMonth === 1) { setFilterMonth(12); setFilterYear(y => y - 1) }
-    else setFilterMonth(m => m - 1)
-  }
-  function nextMonth() {
-    if (filterMonth === 12) { setFilterMonth(1); setFilterYear(y => y + 1) }
-    else setFilterMonth(m => m + 1)
-  }
 
   const filtered = shipments.filter(s => {
     const matchSearch = (s.client_name || '').toLowerCase().includes(search.toLowerCase())
@@ -76,22 +64,7 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
   }
 
   return (
-    <>
-      {/* Month filter */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-white border border-surface-border rounded-xl px-2 py-1.5">
-          <button onClick={prevMonth} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm font-semibold text-gray-700 px-2 min-w-[160px] text-center">
-            {MONTHS_PT[filterMonth - 1]} de {filterYear}
-          </span>
-          <button onClick={nextMonth} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
+    <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="card p-3">
@@ -246,6 +219,6 @@ export function ShippingList({ initialShipments }: ShippingListProps) {
           onComplete={() => handleComplete(selectedShipment.id)}
         />
       )}
-    </>
+    </div>
   )
 }

@@ -231,9 +231,14 @@ export async function closeSale(quoteId: string, data: {
   if (updateError) return { error: updateError.message }
 
   // Create shipment automatically after closing sale (use admin to bypass RLS)
-  await createAdminClient()
-    .from('shipments')
-    .upsert({ quote_id: quoteId }, { onConflict: 'quote_id' })
+  // Insere só se ainda não existir (evita depender de unique constraint p/ upsert)
+  {
+    const adminShip = createAdminClient()
+    const { data: existingShip } = await adminShip.from('shipments').select('id').eq('quote_id', quoteId).maybeSingle()
+    if (!existingShip) {
+      await adminShip.from('shipments').insert({ quote_id: quoteId })
+    }
+  }
 
   // Create commission if quote has a partner with commission_rate > 0
   const admin = createAdminClient()
@@ -1194,6 +1199,7 @@ export async function updateShipment(
     .select()
     .single()
   if (error) throw new Error(error.message)
+  revalidatePath('/shipping')
   return data
 }
 
@@ -1214,6 +1220,7 @@ export async function completeShipment(id: string) {
     .select()
     .single()
   if (error) throw new Error(error.message)
+  revalidatePath('/shipping')
   return data
 }
 
