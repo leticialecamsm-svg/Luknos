@@ -67,7 +67,10 @@
       "Bash(echo \"exit=$?\")",
       "Bash(pkill -f \"next dev\")",
       "Bash(npm i *)",
-      "Bash(sudo npm i -g vercel)"
+      "Bash(sudo npm i -g vercel)",
+      "Bash(sed -n '/export async function getQuotesList/,/^}/p' src/lib/actions.ts)",
+      "Bash(sed -n '/export async function searchContacts/,/^}/p' src/lib/actions.ts)",
+      "Bash(sed -n '/export async function getTasksByQuote/,/^}/p' src/lib/actions.ts)"
     ]
   }
 }

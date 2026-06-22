@@ -644,15 +644,41 @@ export async function createUserAdmin(data: {
 }
 
 // Schedules (Agendamentos)
-export async function createSchedule(data: {
+interface ScheduleInput {
   title: string
   type: 'visita' | 'reuniao' | 'follow_up'
-  quote_id?: string
+  quote_id?: string | null
+  partner_id?: string | null
   scheduled_date: string
-  scheduled_time: string
-  location: string
+  scheduled_time?: string | null
+  location?: string | null
   team_members: string[]
-}) {
+}
+
+// Enriquece agendamentos com objetos de participantes (users) e nome do parceiro
+async function enrichSchedules(schedules: any[]) {
+  if (!schedules.length) return schedules
+  const admin = createAdminClient()
+  const userIds = Array.from(new Set(
+    schedules.flatMap(s => (s.team_members ?? [])).filter(Boolean)
+  ))
+  const partnerIds = Array.from(new Set(schedules.map(s => s.partner_id).filter(Boolean)))
+
+  const [usersRes, partnersRes] = await Promise.all([
+    userIds.length ? admin.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds) : Promise.resolve({ data: [] }),
+    partnerIds.length ? admin.from('contacts').select('id, name').in('id', partnerIds) : Promise.resolve({ data: [] }),
+  ])
+  const userMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u]))
+  const partnerMap = new Map((partnersRes.data ?? []).map((p: any) => [p.id, p.name]))
+
+  return schedules.map(s => ({
+    ...s,
+    participants: (s.team_members ?? []).map((id: string) => userMap.get(id)).filter(Boolean),
+    partner_name: s.partner_id ? (partnerMap.get(s.partner_id) ?? null) : null,
+  }))
+}
+
+export async function createSchedule(data: ScheduleInput) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
@@ -661,9 +687,10 @@ export async function createSchedule(data: {
     title: data.title,
     type: data.type,
     quote_id: data.quote_id || null,
+    partner_id: data.partner_id || null,
     scheduled_date: data.scheduled_date,
-    scheduled_time: data.scheduled_time,
-    location: data.location,
+    scheduled_time: data.scheduled_time || null,
+    location: data.location || null,
     created_by: user.id,
     team_members: data.team_members,
   }).select()
@@ -672,6 +699,28 @@ export async function createSchedule(data: {
   revalidatePath('/schedules')
   revalidatePath('/dashboard')
   return { ok: true, id: result?.[0]?.id }
+}
+
+export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const updates: Record<string, any> = {}
+  if (data.title !== undefined) updates.title = data.title
+  if (data.type !== undefined) updates.type = data.type
+  if (data.quote_id !== undefined) updates.quote_id = data.quote_id || null
+  if (data.partner_id !== undefined) updates.partner_id = data.partner_id || null
+  if (data.scheduled_date !== undefined) updates.scheduled_date = data.scheduled_date
+  if (data.scheduled_time !== undefined) updates.scheduled_time = data.scheduled_time || null
+  if (data.location !== undefined) updates.location = data.location || null
+  if (data.team_members !== undefined) updates.team_members = data.team_members
+
+  const { error } = await supabase.from('schedules').update(updates).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/schedules')
+  revalidatePath('/dashboard')
+  return { ok: true }
 }
 
 export async function getSchedules(startDate?: string, endDate?: string) {
@@ -683,7 +732,7 @@ export async function getSchedules(startDate?: string, endDate?: string) {
   }
 
   const { data } = await query
-  return data ?? []
+  return enrichSchedules(data ?? [])
 }
 
 export async function getSchedulesByDate(date: string) {
@@ -693,7 +742,18 @@ export async function getSchedulesByDate(date: string) {
     .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
     .eq('scheduled_date', date)
     .order('scheduled_time', { ascending: true })
-  return data ?? []
+  return enrichSchedules(data ?? [])
+}
+
+export async function getSchedulesByQuote(quoteId: string) {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('schedules')
+    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
+    .eq('quote_id', quoteId)
+    .order('scheduled_date', { ascending: true })
+    .order('scheduled_time', { ascending: true })
+  return enrichSchedules(data ?? [])
 }
 
 export async function deleteSchedule(id: string) {

@@ -25,6 +25,7 @@ import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
+import { QuoteSchedules } from './QuoteSchedules'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
@@ -507,9 +508,10 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
 
       </div>{/* fim col esquerda */}
 
-      {/* Coluna direita: Tarefas */}
-      <div className="sticky top-4">
+      {/* Coluna direita: Tarefas + Agendamentos */}
+      <div className="sticky top-4 space-y-4">
         <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
+        <QuoteSchedules quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
       </div>
 
       </div>{/* fim grid */}
