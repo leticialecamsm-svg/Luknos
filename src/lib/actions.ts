@@ -1198,17 +1198,30 @@ export async function getContactSalesTotal(contactId: string, year?: number, mon
 
 export async function getContactOpenQuotes(contactId: string, contactName?: string) {
   const admin = createAdminClient()
-  // Busca pelo FK architect_id OU pelo nome (para orçamentos antigos sem FK)
+  // Busca pelo FK architect_id OU pelo nome (para orçamentos com nome textual)
   const filter = contactName
     ? `architect_id.eq.${contactId},architect_name.ilike.%${contactName}%`
     : `architect_id.eq.${contactId}`
-  const { data } = await admin
+  const { data, error } = await admin
     .from('quotes_full')
-    .select('id, number, client_name, quoted_value, status, created_at')
+    .select('id, number, client_name, quoted_value, status, created_at, architect_id, architect_name')
     .or(filter)
     .not('status', 'eq', 'closed')
     .order('created_at', { ascending: false })
-  return data ?? []
+  console.log('[getContactOpenQuotes]', { contactId, contactName, filter, count: data?.length, error, sample: data?.slice(0,2) })
+  return (data ?? []).map(({ architect_id: _a, architect_name: _b, ...rest }) => rest)
+}
+
+export async function debugContactQuotes(contactId: string) {
+  const admin = createAdminClient()
+  // Busca todos os orçamentos desse contato sem filtros, para diagnóstico
+  const { data: byId } = await admin.from('quotes_full')
+    .select('id, number, status, architect_id, architect_name').eq('architect_id', contactId).limit(5)
+  const { data: contact } = await admin.from('contacts').select('id, name').eq('id', contactId).single()
+  const { data: byName } = contact ? await admin.from('quotes_full')
+    .select('id, number, status, architect_id, architect_name')
+    .ilike('architect_name', `%${contact.name}%`).limit(5) : { data: [] }
+  return { contact, byId, byName }
 }
 
 export async function getContactTotalSales(contactId: string) {
