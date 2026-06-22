@@ -74,7 +74,8 @@
       "Bash(node -e ' *)",
       "Bash(perl -0pi -e \"s/\\\\.select\\\\\\('\\\\*, quote:quotes\\\\\\(number, client_name\\\\\\), creator:users\\\\\\(name, avatar_color, avatar_url\\\\\\)'\\\\\\)/.select\\('*'\\)/g\" src/lib/actions.ts)",
       "Bash(grep -n \"from\\('schedules'\\).select\\\\|from\\('schedules'\\)\\\\s*$\\\\|\\\\.from\\('schedules'\\)\" src/lib/actions.ts)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(grep -n \"import\\\\|return \\(\\\\|TasksCardDashboard\\\\|grid\\\\|</div>\\\\s*$\" src/components/dashboard/VendorDashboard.tsx)"
     ]
   }
 }

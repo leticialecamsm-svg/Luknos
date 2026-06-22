@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
 import type { User } from '@/types'
 
 const NAV = [
@@ -80,6 +81,7 @@ export function Sidebar({ user }: { user: User | null }) {
   return (
     // Wrapper relativo para o botão flutuante poder sair do aside
     <div className="relative shrink-0 flex">
+      <ScheduleNotifier />
       <aside
         className={`flex flex-col transition-all duration-300 ${collapsed ? 'w-16' : 'w-56'}`}
         style={{ background: '#1A1A2E', borderTopRightRadius: '43px' }}

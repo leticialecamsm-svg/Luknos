@@ -8,6 +8,7 @@ import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { WorkingDaysCard } from './WorkingDaysCard'
+import { DashboardAgenda } from './DashboardAgenda'
 
 export function VendorDashboard({
   myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth
@@ -231,6 +232,9 @@ export function VendorDashboard({
         {/* Minhas Tarefas */}
         <TasksCardDashboard />
       </div>
+
+      {/* Agenda */}
+      <DashboardAgenda />
 
       {/* Grid 2 colunas: Urgências + Orçamentos */}
       <div className="grid grid-cols-2 gap-4">

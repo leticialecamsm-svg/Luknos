@@ -8,6 +8,7 @@ import { WorkingDaysCard } from './WorkingDaysCard'
 import { useState } from 'react'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
+import { DashboardAgenda } from './DashboardAgenda'
 
 export function AdminDashboardV2({
   quotes,
@@ -521,6 +522,12 @@ export function AdminDashboardV2({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Agenda */}
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Agenda</h2>
+        <DashboardAgenda />
       </div>
 
       {/* Minhas Tarefas */}
