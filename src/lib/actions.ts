@@ -1421,3 +1421,119 @@ export async function getContactTotalSales(contactId: string) {
   const totalCommissions = (data ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0)
   return { totalSales, totalCommissions, count: (data ?? []).length }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FINANCEIRO (admin)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function ensureAdmin() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' as const }
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'Sem permissão' as const }
+  return { userId: user.id }
+}
+
+export async function getFinanceEntries() {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return []
+  try {
+    const { data } = await createAdminClient()
+      .from('finance_entries')
+      .select('*')
+      .order('due_date', { ascending: true })
+    return data ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function createFinanceEntry(data: {
+  description: string
+  type: 'payable' | 'receivable'
+  category?: string | null
+  counterparty?: string | null
+  amount: number
+  due_date: string
+  notes?: string | null
+  // parcelamento
+  installments?: number       // qtd de parcelas (>=1)
+  interval_days?: number      // intervalo entre parcelas (ex: 30)
+  split_amount?: boolean      // true = divide o valor entre as parcelas; false = valor por parcela
+}) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+
+  const n = Math.max(1, Math.floor(data.installments ?? 1))
+  const interval = Math.max(1, Math.floor(data.interval_days ?? 30))
+  const groupId = n > 1 ? crypto.randomUUID() : null
+  const perAmount = data.split_amount ? parseFloat((data.amount / n).toFixed(2)) : data.amount
+
+  const base = new Date(data.due_date + 'T00:00:00')
+  const rows = Array.from({ length: n }).map((_, i) => {
+    const d = new Date(base)
+    d.setDate(base.getDate() + i * interval)
+    return {
+      description: data.description,
+      type: data.type,
+      category: data.category || null,
+      counterparty: data.counterparty || null,
+      amount: perAmount,
+      due_date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      status: 'pending',
+      group_id: groupId,
+      installment_number: n > 1 ? i + 1 : null,
+      installments_total: n > 1 ? n : null,
+      notes: data.notes || null,
+      created_by: auth.userId,
+    }
+  })
+
+  const { error } = await admin.from('finance_entries').insert(rows)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true, count: rows.length }
+}
+
+export async function updateFinanceEntry(id: string, data: {
+  description?: string
+  type?: 'payable' | 'receivable'
+  category?: string | null
+  counterparty?: string | null
+  amount?: number
+  due_date?: string
+  notes?: string | null
+}) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient().from('finance_entries').update(data).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true }
+}
+
+export async function setFinancePaid(id: string, paid: boolean, paidAt?: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const updates = paid
+    ? { status: 'paid', paid_at: paidAt || new Date().toISOString().split('T')[0] }
+    : { status: 'pending', paid_at: null }
+  const { error } = await createAdminClient().from('finance_entries').update(updates).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true }
+}
+
+export async function deleteFinanceEntry(id: string, group?: string | null) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { error } = group
+    ? await admin.from('finance_entries').delete().eq('group_id', group)
+    : await admin.from('finance_entries').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true }
+}
