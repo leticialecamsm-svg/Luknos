@@ -657,9 +657,11 @@ interface ScheduleInput {
 
 // Enriquece agendamentos com participantes, criador, parceiro e orçamento.
 // (Sem joins embutidos: `quotes` não tem client_name — só a view quotes_full.)
+// Usa o cliente autenticado (não o admin) para ler `users`/`contacts`: em produção
+// o admin pode não furar RLS, mas o usuário autenticado lê essas tabelas normalmente.
 async function enrichSchedules(schedules: any[]) {
   if (!schedules.length) return schedules
-  const admin = createAdminClient()
+  const db = createClient()
 
   const userIds = Array.from(new Set([
     ...schedules.flatMap(s => (s.team_members ?? [])),
@@ -669,9 +671,9 @@ async function enrichSchedules(schedules: any[]) {
   const quoteIds = Array.from(new Set(schedules.map(s => s.quote_id).filter(Boolean)))
 
   const [usersRes, partnersRes, quotesRes] = await Promise.all([
-    userIds.length ? admin.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds) : Promise.resolve({ data: [] }),
-    partnerIds.length ? admin.from('contacts').select('id, name').in('id', partnerIds) : Promise.resolve({ data: [] }),
-    quoteIds.length ? admin.from('quotes_full').select('id, number, client_name').in('id', quoteIds) : Promise.resolve({ data: [] }),
+    userIds.length ? db.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds) : Promise.resolve({ data: [] }),
+    partnerIds.length ? db.from('contacts').select('id, name').in('id', partnerIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? db.from('quotes_full').select('id, number, client_name').in('id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const userMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u]))
   const partnerMap = new Map((partnersRes.data ?? []).map((p: any) => [p.id, p.name]))
