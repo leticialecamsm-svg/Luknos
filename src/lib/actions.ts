@@ -655,26 +655,34 @@ interface ScheduleInput {
   team_members: string[]
 }
 
-// Enriquece agendamentos com objetos de participantes (users) e nome do parceiro
+// Enriquece agendamentos com participantes, criador, parceiro e orçamento.
+// (Sem joins embutidos: `quotes` não tem client_name — só a view quotes_full.)
 async function enrichSchedules(schedules: any[]) {
   if (!schedules.length) return schedules
   const admin = createAdminClient()
-  const userIds = Array.from(new Set(
-    schedules.flatMap(s => (s.team_members ?? [])).filter(Boolean)
-  ))
-  const partnerIds = Array.from(new Set(schedules.map(s => s.partner_id).filter(Boolean)))
 
-  const [usersRes, partnersRes] = await Promise.all([
+  const userIds = Array.from(new Set([
+    ...schedules.flatMap(s => (s.team_members ?? [])),
+    ...schedules.map(s => s.created_by),
+  ].filter(Boolean)))
+  const partnerIds = Array.from(new Set(schedules.map(s => s.partner_id).filter(Boolean)))
+  const quoteIds = Array.from(new Set(schedules.map(s => s.quote_id).filter(Boolean)))
+
+  const [usersRes, partnersRes, quotesRes] = await Promise.all([
     userIds.length ? admin.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds) : Promise.resolve({ data: [] }),
     partnerIds.length ? admin.from('contacts').select('id, name').in('id', partnerIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('quotes_full').select('id, number, client_name').in('id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const userMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u]))
   const partnerMap = new Map((partnersRes.data ?? []).map((p: any) => [p.id, p.name]))
+  const quoteMap = new Map((quotesRes.data ?? []).map((q: any) => [q.id, q]))
 
   return schedules.map(s => ({
     ...s,
     participants: (s.team_members ?? []).map((id: string) => userMap.get(id)).filter(Boolean),
     partner_name: s.partner_id ? (partnerMap.get(s.partner_id) ?? null) : null,
+    creator: s.created_by ? (userMap.get(s.created_by) ?? null) : null,
+    quote: s.quote_id ? (quoteMap.get(s.quote_id) ?? null) : null,
   }))
 }
 
@@ -724,7 +732,7 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
 }
 
 export async function getSchedules(startDate?: string, endDate?: string) {
-  let query = createAdminClient().from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
+  let query = createAdminClient().from('schedules').select('*').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
 
   if (startDate && endDate) {
     query = query.gte('scheduled_date', startDate).lte('scheduled_date', endDate)
@@ -737,7 +745,7 @@ export async function getSchedules(startDate?: string, endDate?: string) {
 export async function getSchedulesByDate(date: string) {
   const { data } = await createAdminClient()
     .from('schedules')
-    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
+    .select('*')
     .eq('scheduled_date', date)
     .order('scheduled_time', { ascending: true })
   return enrichSchedules(data ?? [])
@@ -746,7 +754,7 @@ export async function getSchedulesByDate(date: string) {
 export async function getSchedulesByQuote(quoteId: string) {
   const { data } = await createAdminClient()
     .from('schedules')
-    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
+    .select('*')
     .eq('quote_id', quoteId)
     .order('scheduled_date', { ascending: true })
     .order('scheduled_time', { ascending: true })
