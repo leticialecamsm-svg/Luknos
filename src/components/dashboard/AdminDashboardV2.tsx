@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { DashboardAgenda } from './DashboardAgenda'
+import { SalesSuggestions } from './SalesSuggestions'
 
 export function AdminDashboardV2({
   quotes,
@@ -274,6 +275,9 @@ export function AdminDashboardV2({
           <p className="text-xs text-gray-500 mt-1">novos parceiros este mês</p>
         </div>
       </div>
+
+      {/* Sugestões do dia */}
+      <SalesSuggestions quotes={quotes} />
 
       {/* Grid 3 colunas: Gráfico + Ranking + Funil/Visitas */}
       <div className="grid grid-cols-3 gap-4">
