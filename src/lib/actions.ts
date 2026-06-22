@@ -1202,14 +1202,15 @@ export async function getContactOpenQuotes(contactId: string, contactName?: stri
   const filter = contactName
     ? `architect_id.eq.${contactId},architect_name.ilike.%${contactName}%`
     : `architect_id.eq.${contactId}`
-  const { data, error } = await admin
+  const { data } = await admin
     .from('quotes_full')
-    .select('id, number, client_name, quoted_value, status, created_at, architect_id, architect_name')
+    .select('id, number, client_name, quoted_value, status, temperature, created_at, architect_id, architect_name')
     .or(filter)
-    .not('status', 'eq', 'closed')
+    .neq('status', 'done')
     .order('created_at', { ascending: false })
-  console.log('[getContactOpenQuotes]', { contactId, contactName, filter, count: data?.length, error, sample: data?.slice(0,2) })
-  return (data ?? []).map(({ architect_id: _a, architect_name: _b, ...rest }) => rest)
+  // Em aberto = ainda não concluído (status != done) e negociação não fechada/perdida
+  const open = (data ?? []).filter(q => !['closed', 'lost'].includes(q.temperature ?? ''))
+  return open.map(({ architect_id: _a, architect_name: _b, temperature: _t, ...rest }) => rest)
 }
 
 export async function debugContactQuotes(contactId: string) {
