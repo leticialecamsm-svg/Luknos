@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 
 const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 const WEEKDAYS_SHORT = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
@@ -75,6 +76,18 @@ export function WeekView({
                       className={cn('w-full text-left rounded-md border-l-4 px-2 py-1.5 transition-all hover:shadow-sm', tc.bg, tc.border)}>
                       {s.scheduled_time && <p className={cn('text-[10px] font-bold', tc.text)}>{s.scheduled_time}</p>}
                       <p className="text-xs font-medium text-gray-800 leading-tight line-clamp-2">{s.title}</p>
+                      {s.quote && (
+                        <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">
+                          <span className="font-semibold text-brand-600">#{s.quote.number}</span> · {s.quote.client_name}
+                        </p>
+                      )}
+                      {s.participants?.length > 0 && (
+                        <div className="flex -space-x-1 mt-1">
+                          {s.participants.slice(0, 4).map((p: any) => (
+                            <Avatar key={p.id} user={p} size={18} className="ring-1 ring-white" />
+                          ))}
+                        </div>
+                      )}
                     </button>
                   )
                 })}
