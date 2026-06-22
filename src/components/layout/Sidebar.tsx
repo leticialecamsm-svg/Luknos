@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 import type { User } from '@/types'
 
 const NAV = [
@@ -163,10 +164,10 @@ export function Sidebar({ user }: { user: User | null }) {
             </button>
           ) : (
             <div className="flex items-center gap-2.5 px-2 py-1.5">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                style={{ backgroundColor: user?.avatar_color ?? '#185FA5' }}>
-                {getInitials(user?.name ?? 'U')}
-              </div>
+              {user ? <Avatar user={user} size={28} /> : (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                  style={{ backgroundColor: '#185FA5' }}>U</div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">{user?.name ?? '—'}</p>
                 <p className="text-[10px] text-white/35 truncate">

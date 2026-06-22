@@ -4,11 +4,13 @@ import { useState } from 'react'
 import { createTaskForUser } from '@/lib/actions'
 import { X } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
+import { Avatar } from '@/components/ui/Avatar'
 
 interface User {
   id: string
   name: string
   avatar_color: string
+  avatar_url?: string | null
 }
 
 interface AdminTaskModalProps {
@@ -87,11 +89,8 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
                 ))}
               </select>
               {selectedUser && (
-                <div
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold pointer-events-none"
-                  style={{ backgroundColor: selectedUser.avatar_color || '#6366f1' }}
-                >
-                  {selectedUser.name.charAt(0).toUpperCase()}
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <Avatar user={selectedUser} size={20} />
                 </div>
               )}
             </div>

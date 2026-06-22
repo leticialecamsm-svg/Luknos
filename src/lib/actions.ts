@@ -5,6 +5,24 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 
+// Injeta avatar_url nos owners dos orçamentos (a view quotes_full só traz avatar_color)
+async function enrichOwnersAvatars(quotes: any[]) {
+  if (!quotes.length) return quotes
+  const ids = Array.from(new Set(
+    quotes.flatMap(q => (q.owners ?? []).map((o: any) => o.user_id)).filter(Boolean)
+  ))
+  if (!ids.length) return quotes
+  const { data: users } = await createAdminClient()
+    .from('users')
+    .select('id, avatar_url')
+    .in('id', ids)
+  const map = new Map((users ?? []).map(u => [u.id, u.avatar_url]))
+  return quotes.map(q => ({
+    ...q,
+    owners: (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: map.get(o.user_id) ?? null })),
+  }))
+}
+
 export async function getMyQuotes() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -14,7 +32,7 @@ export async function getMyQuotes() {
     .select('*')
     .filter('owners', 'cs', JSON.stringify([{ user_id: user.id }]))
     .order('created_at', { ascending: false })
-  return data ?? []
+  return enrichOwnersAvatars(data ?? [])
 }
 
 export async function getAllQuotes() {
@@ -22,7 +40,7 @@ export async function getAllQuotes() {
     .from('quotes_full')
     .select('*')
     .order('created_at', { ascending: false })
-  return data ?? []
+  return enrichOwnersAvatars(data ?? [])
 }
 
 export async function getQuoteById(id: string) {
@@ -32,14 +50,16 @@ export async function getQuoteById(id: string) {
     .select('*')
     .eq('id', id)
     .single()
-  return data
+  if (!data) return data
+  const [enriched] = await enrichOwnersAvatars([data])
+  return enriched
 }
 
 export async function getQuoteActivities(quoteId: string) {
   const supabase = createClient()
   const { data } = await supabase
     .from('activities')
-    .select('*, user:users(name, avatar_color)')
+    .select('*, user:users(name, avatar_color, avatar_url)')
     .eq('quote_id', quoteId)
     .order('created_at', { ascending: false })
   return data ?? []
@@ -293,7 +313,7 @@ export async function getAllContacts(type?: string) {
   if (userIds.length > 0) {
     const { data: users } = await supabase
       .from('users')
-      .select('id, name, avatar_color')
+      .select('id, name, avatar_color, avatar_url')
       .in('id', userIds)
     if (users) usersMap = Object.fromEntries(users.map((u: any) => [u.id, u]))
   }
@@ -381,7 +401,7 @@ export async function getDashboardStats(userId?: string) {
 
 export async function getActiveUsers() {
   const supabase = createClient()
-  const { data } = await supabase.from('users').select('id, name, avatar_color, role').eq('active', true).order('name')
+  const { data } = await supabase.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true).order('name')
   return data ?? []
 }
 
@@ -528,6 +548,50 @@ export async function deleteUser(userId: string) {
   return { ok: true }
 }
 
+export async function uploadUserAvatar(userId: string, formData: FormData) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'Sem permissão' }
+
+  const file = formData.get('file') as File | null
+  if (!file) return { error: 'Arquivo não enviado' }
+
+  const admin = createAdminClient()
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${userId}/${Date.now()}.${ext}`
+
+  const { error: uploadError } = await admin.storage
+    .from('avatars')
+    .upload(path, file, { upsert: true, contentType: file.type })
+  if (uploadError) return { error: uploadError.message }
+
+  const { data: pub } = admin.storage.from('avatars').getPublicUrl(path)
+  const { error: updateError } = await admin.from('users').update({ avatar_url: pub.publicUrl }).eq('id', userId)
+  if (updateError) return { error: updateError.message }
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard')
+  return { ok: true, url: pub.publicUrl }
+}
+
+export async function removeUserAvatar(userId: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'Sem permissão' }
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('users').update({ avatar_url: null }).eq('id', userId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
 export async function createUserAdmin(data: {
   name: string
   email: string
@@ -612,7 +676,7 @@ export async function createSchedule(data: {
 
 export async function getSchedules(startDate?: string, endDate?: string) {
   const supabase = createClient()
-  let query = supabase.from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
+  let query = supabase.from('schedules').select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
 
   if (startDate && endDate) {
     query = query.gte('scheduled_date', startDate).lte('scheduled_date', endDate)
@@ -626,7 +690,7 @@ export async function getSchedulesByDate(date: string) {
   const supabase = createClient()
   const { data } = await supabase
     .from('schedules')
-    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color)')
+    .select('*, quote:quotes(number, client_name), creator:users(name, avatar_color, avatar_url)')
     .eq('scheduled_date', date)
     .order('scheduled_time', { ascending: true })
   return data ?? []
@@ -697,7 +761,7 @@ export async function getTasksByQuote(quoteId: string) {
   const userIds = Array.from(new Set(data.map((t: any) => t.user_id).filter(Boolean)))
   let usersMap: Record<string, any> = {}
   if (userIds.length > 0) {
-    const { data: users } = await supabase.from('users').select('id, name, avatar_color').in('id', userIds)
+    const { data: users } = await supabase.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds)
     if (users) usersMap = Object.fromEntries(users.map((u: any) => [u.id, u]))
   }
   return data.map((t: any) => ({ ...t, users: t.user_id ? (usersMap[t.user_id] ?? null) : null }))
@@ -952,7 +1016,7 @@ export async function getAllTasks() {
   const userIds = Array.from(new Set(tasks.map((t: any) => t.user_id).filter(Boolean)))
   const { data: usersData } = await adminSupabase
     .from('users')
-    .select('id, name, avatar_color')
+    .select('id, name, avatar_color, avatar_url')
     .in('id', userIds)
 
   const usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u]))

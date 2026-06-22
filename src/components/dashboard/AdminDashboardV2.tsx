@@ -1,6 +1,7 @@
 'use client'
 
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { WorkingDaysCard } from './WorkingDaysCard'
@@ -91,6 +92,7 @@ export function AdminDashboardV2({
       id: u.id,
       name: u.name,
       avatar_color: u.avatar_color,
+      avatar_url: u.avatar_url,
       vendido: totalVendido,
       meta: userGoal,
       percentMeta: userGoal > 0 ? (totalVendido / userGoal) * 100 : 0,
@@ -327,10 +329,7 @@ export function AdminDashboardV2({
                 <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                 </div>
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                  style={{ backgroundColor: u.avatar_color }}>
-                  {getInitials(u.name)}
-                </div>
+                <Avatar user={u} size={28} />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-gray-900">{u.name}</p>
                   <div className="h-1 bg-gray-200 rounded-full mt-1 overflow-hidden">

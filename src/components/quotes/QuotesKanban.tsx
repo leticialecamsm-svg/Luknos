@@ -8,6 +8,7 @@ import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/ut
 import { QUOTE_STATUS_LABEL, TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { Search, X, Trash2, Pencil } from 'lucide-react'
 import { useConfirm } from '@/components/ui/useConfirm'
+import { Avatar } from '@/components/ui/Avatar'
 
 const COLUMNS = [
   { key: 'queue',       label: 'Na fila',       color: 'border-blue-200',   bg: 'bg-blue-50/50',   header: 'bg-blue-100',   text: 'text-blue-700' },
@@ -170,11 +171,7 @@ function QuoteCard({ quote: q, onDragStart, isDragging, onDelete, onEdit }: {
         <div className="flex items-center justify-between mt-2">
           <div className="flex items-center gap-0.5">
             {q.owners?.slice(0,3).map((o: any) => (
-              <div key={o.user_id} title={o.name}
-                className="w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center ring-1 ring-white"
-                style={{ backgroundColor: o.avatar_color }}>
-                {getInitials(o.name)}
-              </div>
+              <Avatar key={o.user_id} user={o} size={20} className="ring-1 ring-white" />
             ))}
           </div>
           {q.deadline && (

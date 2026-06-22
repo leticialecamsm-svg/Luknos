@@ -4,6 +4,7 @@ import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { searchContacts, createContact, updateQuote } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
+import { Avatar } from '@/components/ui/Avatar'
 import { Search, X, Plus, Loader2 } from 'lucide-react'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -314,8 +315,7 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all ${
                   primaryOwner === u.id ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-600 border-surface-border hover:border-brand-300'
                 }`}>
-                <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
-                  style={{ backgroundColor: u.avatar_color }}>{u.name[0]}</div>
+                <Avatar user={u} size={20} />
                 {u.name.split(' ')[0]}
                 {u.id === currentUserId && <span className="text-[10px] opacity-70">(você)</span>}
               </button>
@@ -332,8 +332,7 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all ${
                     collaborators.includes(u.id) ? 'bg-gray-600 text-white border-gray-600' : 'bg-white text-gray-600 border-surface-border hover:border-gray-400'
                   }`}>
-                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
-                    style={{ backgroundColor: u.avatar_color }}>{u.name[0]}</div>
+                  <Avatar user={u} size={20} />
                   {u.name.split(' ')[0]}
                 </button>
               ))}

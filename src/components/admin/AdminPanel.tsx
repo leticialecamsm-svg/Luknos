@@ -3,11 +3,12 @@
 import { useState, useEffect, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
-import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound } from 'lucide-react'
+import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound, Camera } from 'lucide-react'
 import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin, getPaymentRates, updatePaymentRate } from '@/lib/actions'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
+import { Avatar } from '@/components/ui/Avatar'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import type { User, MonthlyGoal } from '@/types'
 
@@ -331,12 +332,28 @@ function UserRow({ user: u }: { user: User }) {
   const [pwdSaving, setPwdSaving] = useState(false)
 
   const [deleting, setDeleting] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
   async function handleSave() {
     setSaving(true)
     await updateUser(u.id, { name, role })
     setSaving(false)
     setEditing(false)
+    window.location.reload()
+  }
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingAvatar(true)
+    const { uploadUserAvatar } = await import('@/lib/actions')
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await uploadUserAvatar(u.id, fd)
+    setUploadingAvatar(false)
+    e.target.value = ''
+    if (res.error) { toast.error('OCORREU UM ERRO', res.error); return }
+    toast.success('TUDO CERTO!', 'Foto atualizada.')
     window.location.reload()
   }
 
@@ -368,12 +385,13 @@ function UserRow({ user: u }: { user: User }) {
   return (
     <div className={`rounded-lg ${u.active ? 'bg-surface' : 'bg-gray-50 opacity-60'}`}>
       <div className="flex items-center gap-3 p-3">
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-          style={{ backgroundColor: u.avatar_color }}
-        >
-          {getInitials(u.name)}
-        </div>
+        <label className="relative shrink-0 cursor-pointer group" title="Alterar foto">
+          <Avatar user={u} size={32} />
+          <div className="absolute inset-0 rounded-full bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            {uploadingAvatar ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <Camera className="w-3.5 h-3.5 text-white" />}
+          </div>
+          <input type="file" accept="image/*" onChange={handleAvatarChange} disabled={uploadingAvatar} className="hidden" />
+        </label>
 
         {editing ? (
           <div className="flex-1 flex items-center gap-2 min-w-0">

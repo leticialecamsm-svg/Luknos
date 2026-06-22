@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
+import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
@@ -123,14 +124,8 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           {/* Donos */}
           <div className="flex items-center gap-1.5 shrink-0">
             {quote.owners?.map((o: any) => (
-              <div
-                key={o.user_id}
-                title={`${o.name} (${o.role === 'primary' ? 'primário' : 'colaborador'})`}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold"
-                style={{ backgroundColor: o.avatar_color }}
-              >
-                {getInitials(o.name)}
-              </div>
+              <Avatar key={o.user_id} user={o} size={32}
+                title={`${o.name} (${o.role === 'primary' ? 'primário' : 'colaborador'})`} />
             ))}
           </div>
         </div>
@@ -493,11 +488,8 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
             }
             return (
               <div key={a.id} className="flex gap-3">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5"
-                  style={{ backgroundColor: a.user?.avatar_color ?? '#185FA5' }}
-                >
-                  {getInitials(a.user?.name ?? 'U')}
+                <div className="mt-0.5">
+                  <Avatar user={a.user ?? { name: 'U' }} size={28} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

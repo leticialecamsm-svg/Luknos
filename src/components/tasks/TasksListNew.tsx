@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getTasks, getAllTasks, getActiveUsers, updateTaskStatus, deleteTask, createTask, getCurrentUser } from '@/lib/actions'
+import { Avatar } from '@/components/ui/Avatar'
 
 // ── Order cache (module-level) ───────────────────────────────────────────────
 // Survives SPA navigation without closure/timing issues.
@@ -54,7 +55,7 @@ interface Task {
   checklist?: { text: string; done: boolean }[]
   subtasks?: { id: string; done: boolean }[]
   created_at: string
-  users?: { name: string; avatar_color: string }
+  users?: { name: string; avatar_color: string; avatar_url?: string | null }
   quote?: { number: number; client_name: string } | null
   quote_id?: string | null
 }
@@ -69,7 +70,7 @@ const STATUS_LABELS = {
 interface TasksListNewProps {
   initialMyTasks?: Task[]
   initialAllTasks?: Task[]
-  initialUsers?: { id: string; name: string; avatar_color: string }[]
+  initialUsers?: { id: string; name: string; avatar_color: string; avatar_url?: string | null }[]
   initialUserName?: string
   initialUserRole?: string
 }
@@ -99,11 +100,11 @@ export function TasksListNew({
   const [userName] = useState<string>(initialUserName)
   const [userRole] = useState<string>(initialUserRole)
   const [activeTab, setActiveTab] = useState<'mine' | 'all'>('mine')
-  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string }[]>(initialUsers ?? [])
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; avatar_color: string; avatar_url?: string | null }[]>(initialUsers ?? [])
   const [showAdminTaskModal, setShowAdminTaskModal] = useState(false)
   const [adminTaskDefaultUser, setAdminTaskDefaultUser] = useState<string | undefined>()
   const [weekOffset, setWeekOffset] = useState(0)
-  const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; tasks: any[] } | null>(null)
+  const [completedModalUser, setCompletedModalUser] = useState<{ id: string; name: string; avatar_color: string; avatar_url?: string | null; tasks: any[] } | null>(null)
   const weekPickerRef = useRef<HTMLInputElement>(null)
   const tasksRef = useRef<Task[]>(initialMyTasks as Task[] ?? [])
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false)
@@ -507,12 +508,7 @@ export function TasksListNew({
         )}
         {activeTab === 'all' && task.users && (
           <div className="flex items-center gap-1 mt-0.5">
-            <div
-              className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0"
-              style={{ backgroundColor: task.users.avatar_color || '#6366f1' }}
-            >
-              {task.users.name?.charAt(0).toUpperCase()}
-            </div>
+            <Avatar user={task.users} size={16} />
             <span className="text-xs text-gray-400">{task.users.name}</span>
           </div>
         )}
@@ -773,12 +769,7 @@ export function TasksListNew({
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-                        style={{ backgroundColor: u.avatar_color || '#6366f1' }}
-                      >
-                        {u.name.charAt(0).toUpperCase()}
-                      </div>
+                      <Avatar user={u} size={32} />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{u.name}</p>
                         <p className="text-xs text-gray-400">{userPending.length} pendente{userPending.length !== 1 ? 's' : ''}</p>
@@ -921,12 +912,7 @@ export function TasksListNew({
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div className="flex items-center gap-3">
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-                  style={{ backgroundColor: completedModalUser.avatar_color || '#6366f1' }}
-                >
-                  {completedModalUser.name.charAt(0).toUpperCase()}
-                </div>
+                <Avatar user={completedModalUser} size={36} />
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{completedModalUser.name}</p>
                   <p className="text-xs text-gray-500">Concluídas · {formatWeekLabel(weekOffset)}</p>

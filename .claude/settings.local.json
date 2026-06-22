@@ -43,7 +43,31 @@
       "Bash(xargs ls)",
       "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\(p.dependencies.next\\)\")",
       "Bash(curl -s -X POST https://dpobbflxgrjbfpxmtehg.supabase.co/rest/v1/rpc/exec_sql -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwb2JiZmx4Z3JqYmZweG10ZWhnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc4NzA3OCwiZXhwIjoyMDk2MzYzMDc4fQ.sVAQk3mdu_Ufa_3unFpqKvuUx-UTAttyCiJfbdG-fgc' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwb2JiZmx4Z3JqYmZweG10ZWhnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc4NzA3OCwiZXhwIjoyMDk2MzYzMDc4fQ.sVAQk3mdu_Ufa_3unFpqKvuUx-UTAttyCiJfbdG-fgc' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT column_name FROM information_schema.columns WHERE table_name = '\\\\''tasks'\\\\'' AND table_schema = '\\\\''public'\\\\''\"}')",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos add src/app/dashboard/page.tsx src/components/admin/AdminPanel.tsx src/components/dashboard/AdminDashboardV2.tsx src/components/dashboard/LogisticsDashboard.tsx src/components/layout/Sidebar.tsx src/components/shipping/ShippingList.tsx src/components/shipping/ShippingModal.tsx src/lib/actions.ts src/types/index.ts supabase/migrations/20260615_shipments_delivered_status.sql)",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos commit -m ' *)",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos add src/lib/actions.ts)",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos commit -m 'Fix getAllQuotes: use admin client to bypass RLS for full quote list *)",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos push origin main)",
+      "Bash(git -C /Users/leticiapimentel/Downloads/luknos add src/components/shipping/ShippingBoard.tsx src/components/quotes/QuotesList.tsx)",
+      "Read(//Users/leticiapimentel/Downloads/**)",
+      "Bash(python3 -c \"import ezdxf; print\\('ezdxf', ezdxf.__version__\\)\")",
+      "Read(//Applications/**)",
+      "Bash(brew list *)",
+      "Bash(pip3 show *)",
+      "Bash(brew install *)",
+      "Bash(dwg2dxf --version)",
+      "Bash(pip3 install *)",
+      "Bash(dwg2dxf -y \"DIOGO JATOBÁ \\(1\\).dwg\" -o \"diogo_jatoba.dxf\")",
+      "WebFetch(domain:www.opendesign.com)",
+      "Bash(mkdir -p /tmp/oda_in /tmp/oda_out)",
+      "Bash(cp \"/Users/leticiapimentel/Downloads/DIOGO JATOBÁ - ILUMINACAO.dxf\" /tmp/oda_in/)",
+      "Read(//tmp/**)",
+      "Bash(\"/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter\" \"/tmp/oda_in\" \"/tmp/oda_out\" \"ACAD2018\" \"DWG\" \"0\" \"1\" \"*.DXF\")",
+      "Bash(echo \"exit=$?\")",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npm i *)",
+      "Bash(sudo npm i -g vercel)"
     ]
   }
 }

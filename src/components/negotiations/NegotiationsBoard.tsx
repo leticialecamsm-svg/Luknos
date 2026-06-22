@@ -6,6 +6,7 @@ import { updateTemperature } from '@/lib/actions'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { Flame, TrendingUp, Search, X } from 'lucide-react'
+import { Avatar } from '@/components/ui/Avatar'
 
 const COLUMNS = [
   { key: 'cold',   label: 'Frio',          color: 'border-blue-200',  bg: 'bg-blue-50/50',  header: 'bg-blue-100',  text: 'text-blue-700' },
@@ -182,12 +183,7 @@ function KanbanCard({ quote: q, onDragStart, isDragging }: {
           {/* Donos */}
           <div className="flex items-center gap-0.5">
             {q.owners?.slice(0,3).map((o: any) => (
-              <div key={o.user_id} title={o.name}
-                className="w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center ring-1 ring-white"
-                style={{ backgroundColor: o.avatar_color }}
-              >
-                {getInitials(o.name)}
-              </div>
+              <Avatar key={o.user_id} user={o} size={20} className="ring-1 ring-white" />
             ))}
           </div>
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
 import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
@@ -87,6 +88,7 @@ export function VendorDashboard({
       id: u.id,
       name: u.name,
       avatar_color: u.avatar_color,
+      avatar_url: u.avatar_url,
       vendido: totalVendido,
       meta: userGoal,
       percentMeta: userGoal > 0 ? (totalVendido / userGoal) * 100 : 0,
@@ -389,10 +391,7 @@ export function VendorDashboard({
                     <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                     </div>
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                      style={{ backgroundColor: u.avatar_color }}>
-                      {getInitials(u.name)}
-                    </div>
+                    <Avatar user={u} size={28} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900">{u.name}</p>
                       <p className="text-xs text-gray-500">{Math.round(u.percentMeta)}% da meta</p>
@@ -418,10 +417,7 @@ export function VendorDashboard({
                     <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                     </div>
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                      style={{ backgroundColor: u.avatar_color }}>
-                      {getInitials(u.name)}
-                    </div>
+                    <Avatar user={u} size={28} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900">{u.name}</p>
                       <p className="text-xs text-gray-500">Vendido: {formatCurrency(u.vendido)}</p>
