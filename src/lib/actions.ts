@@ -154,8 +154,10 @@ export async function deleteQuotes(quoteIds: string[]) {
 }
 
 export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
-  // Admin client: qualquer colaborador pode atualizar qualquer orçamento (sem bloqueio de RLS)
-  const { error } = await createAdminClient().from('quotes').update({ status }).eq('id', quoteId)
+  // Cliente autenticado: o trigger de atividades precisa de auth.uid().
+  // A liberação p/ todos os colaboradores é feita via política de RLS (ver migração quotes_collab_rls).
+  const supabase = createClient()
+  const { error } = await supabase.from('quotes').update({ status }).eq('id', quoteId)
   if (error) return { error: error.message }
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
@@ -163,8 +165,8 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
 }
 
 export async function updateTemperature(quoteId: string, temperature: NegTemperature) {
-  // Admin client: qualquer colaborador pode atualizar qualquer negociação
-  const { error } = await createAdminClient()
+  const supabase = createClient()
+  const { error } = await supabase
     .from('negotiations')
     .upsert({ quote_id: quoteId, temperature }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
@@ -201,8 +203,9 @@ export async function updateSalePayment(quoteId: string, data: {
   final_value: number
   payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
 }) {
+  const supabase = createClient()
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
-  const { error } = await createAdminClient()
+  const { error } = await supabase
     .from('negotiations')
     .update({
       final_value: data.final_value,
@@ -220,7 +223,7 @@ export async function closeSale(quoteId: string, data: {
   payment_splits?: { method_key: string; amount: number; status?: string; date?: string }[]
   notes?: string
 }) {
-  const supabase = createAdminClient()
+  const supabase = createClient()
   const { error: negError } = await supabase
     .from('negotiations')
     .upsert({
@@ -276,7 +279,8 @@ export async function closeSale(quoteId: string, data: {
 }
 
 export async function markAsLost(quoteId: string, loss_reason: string) {
-  const { error } = await createAdminClient()
+  const supabase = createClient()
+  const { error } = await supabase
     .from('negotiations')
     .upsert({ quote_id: quoteId, temperature: 'lost', loss_reason }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
@@ -440,8 +444,7 @@ export async function updateQuote(quoteId: string, data: {
   // Separa owner data dos dados da quote
   const { primary_owner_id, collaborator_ids, ...quoteData } = data
 
-  // Admin client: qualquer colaborador pode editar qualquer orçamento
-  const { error } = await createAdminClient().from('quotes').update(quoteData).eq('id', quoteId)
+  const { error } = await supabase.from('quotes').update(quoteData).eq('id', quoteId)
   if (error) return { error: error.message }
 
   // Monta descrição do diff
