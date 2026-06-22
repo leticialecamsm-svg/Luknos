@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { createFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries } from '@/lib/actions'
+import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries } from '@/lib/actions'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays } from 'lucide-react'
+import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays, Pencil } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 
@@ -19,6 +19,7 @@ export function FinancePage({ initialEntries }: { initialEntries: any[] }) {
   const { confirm, ConfirmDialog } = useConfirm()
   const [entries, setEntries] = useState<any[]>(initialEntries)
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<any | null>(null)
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid'>('pending')
   const [filterType, setFilterType] = useState<'all' | 'payable' | 'receivable'>('payable')
 
@@ -185,7 +186,10 @@ export function FinancePage({ initialEntries }: { initialEntries: any[] }) {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => remove(e)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => setEditing(e)} className="text-gray-300 hover:text-brand-500" title="Editar"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => remove(e)} className="text-gray-300 hover:text-red-500" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -195,6 +199,7 @@ export function FinancePage({ initialEntries }: { initialEntries: any[] }) {
       </div>
 
       {showForm && <FinanceForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); reload() }} />}
+      {editing && <FinanceForm entry={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
       {ConfirmDialog}
     </div>
   )
@@ -218,15 +223,16 @@ function KpiCard({ label, value, color, alert }: { label: string; value: number;
   )
 }
 
-function FinanceForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function FinanceForm({ entry, onClose, onSaved }: { entry?: any; onClose: () => void; onSaved: () => void }) {
   const toast = useToast()
+  const isEdit = !!entry
   const [saving, setSaving] = useState(false)
-  const [type, setType] = useState<'payable' | 'receivable'>('payable')
-  const [description, setDescription] = useState('')
-  const [counterparty, setCounterparty] = useState('')
-  const [category, setCategory] = useState('')
-  const [amount, setAmount] = useState('')
-  const [dueDate, setDueDate] = useState(todayISO())
+  const [type, setType] = useState<'payable' | 'receivable'>(entry?.type ?? 'payable')
+  const [description, setDescription] = useState(entry?.description ?? '')
+  const [counterparty, setCounterparty] = useState(entry?.counterparty ?? '')
+  const [category, setCategory] = useState(entry?.category ?? '')
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '')
+  const [dueDate, setDueDate] = useState(entry?.due_date ?? todayISO())
   const [installmentsOn, setInstallmentsOn] = useState(false)
   const [installments, setInstallments] = useState('3')
   const [intervalDays, setIntervalDays] = useState('30')
@@ -239,16 +245,21 @@ function FinanceForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
     if (!description.trim()) { setError('Informe a descrição'); return }
     if (!amt || amt <= 0) { setError('Informe o valor'); return }
     setError(''); setSaving(true)
-    const res = await createFinanceEntry({
-      description: description.trim(), type, category: category || null, counterparty: counterparty || null,
-      amount: amt, due_date: dueDate,
-      installments: installmentsOn ? parseInt(installments) || 1 : 1,
-      interval_days: parseInt(intervalDays) || 30,
-      split_amount: splitAmount,
-    })
+    const res = isEdit
+      ? await updateFinanceEntry(entry.id, {
+          description: description.trim(), type, category: category || null,
+          counterparty: counterparty || null, amount: amt, due_date: dueDate,
+        })
+      : await createFinanceEntry({
+          description: description.trim(), type, category: category || null, counterparty: counterparty || null,
+          amount: amt, due_date: dueDate,
+          installments: installmentsOn ? parseInt(installments) || 1 : 1,
+          interval_days: parseInt(intervalDays) || 30,
+          split_amount: splitAmount,
+        })
     setSaving(false)
     if (res?.error) { setError(res.error); toast.error('OCORREU UM ERRO', res.error); return }
-    toast.success('TUDO CERTO!', 'Lançamento criado.')
+    toast.success('TUDO CERTO!', isEdit ? 'Lançamento atualizado.' : 'Lançamento criado.')
     onSaved()
   }
 
@@ -261,7 +272,7 @@ function FinanceForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
-          <h2 className="text-base font-semibold text-gray-900">Novo lançamento</h2>
+          <h2 className="text-base font-semibold text-gray-900">{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-4">
@@ -301,7 +312,8 @@ function FinanceForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
             </div>
           </div>
 
-          {/* Parcelamento */}
+          {/* Parcelamento (apenas na criação) */}
+          {!isEdit && (
           <div className="rounded-lg border border-surface-border p-3 space-y-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={installmentsOn} onChange={e => setInstallmentsOn(e.target.checked)} className="w-4 h-4" />
@@ -334,6 +346,7 @@ function FinanceForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
               </>
             )}
           </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancelar</button>

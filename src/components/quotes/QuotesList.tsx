@@ -9,6 +9,7 @@ import { deleteQuote, deleteQuotes } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { QuotesKanban } from './QuotesKanban'
+import { Avatar } from '@/components/ui/Avatar'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
@@ -369,7 +370,12 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                           {getInitials(q.client_name)}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-900">{q.client_name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-gray-900">{q.client_name}</span>
+                            {Array.isArray(q.payment_splits) && q.payment_splits.some((s: any) => s.status === 'open') && (
+                              <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">⏳ Pgto pendente</span>
+                            )}
+                          </div>
                           {q.architect_name && <span className="text-xs text-gray-500">Arq. {q.architect_name}</span>}
                         </div>
                       </div>
@@ -394,11 +400,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-1">
                         {q.owners?.slice(0, 3).map((o: any) => (
-                          <div key={o.user_id} title={o.name}
-                            className="w-6 h-6 rounded-full text-white text-[9px] font-bold flex items-center justify-center ring-1 ring-white"
-                            style={{ backgroundColor: o.avatar_color }}>
-                            {getInitials(o.name)}
-                          </div>
+                          <Avatar key={o.user_id} user={o} size={24} className="ring-1 ring-white" />
                         ))}
                       </div>
                     </td>

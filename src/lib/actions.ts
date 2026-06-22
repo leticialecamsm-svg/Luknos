@@ -5,21 +5,26 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 
-// Injeta avatar_url nos owners dos orçamentos (a view quotes_full só traz avatar_color)
+// Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
 async function enrichOwnersAvatars(quotes: any[]) {
   if (!quotes.length) return quotes
+  const admin = createAdminClient()
   const ids = Array.from(new Set(
     quotes.flatMap(q => (q.owners ?? []).map((o: any) => o.user_id)).filter(Boolean)
   ))
-  if (!ids.length) return quotes
-  const { data: users } = await createAdminClient()
-    .from('users')
-    .select('id, avatar_url')
-    .in('id', ids)
-  const map = new Map((users ?? []).map(u => [u.id, u.avatar_url]))
+  const quoteIds = quotes.map(q => q.id).filter(Boolean)
+
+  const [usersRes, negRes] = await Promise.all([
+    ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+  ])
+  const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
+  const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+
   return quotes.map(q => ({
     ...q,
-    owners: (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: map.get(o.user_id) ?? null })),
+    owners: (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: avatarMap.get(o.user_id) ?? null })),
+    payment_splits: splitsMap.get(q.id) ?? [],
   }))
 }
 
