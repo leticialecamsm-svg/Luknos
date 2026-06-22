@@ -9,7 +9,6 @@ import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
-import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import type { User, MonthlyGoal } from '@/types'
 
 interface Props {
@@ -460,12 +459,6 @@ function UserRow({ user: u }: { user: User }) {
           )}
         </div>
       )}
-
-      {/* Card de Tarefas do Admin */}
-      <div className="border-t border-gray-200 pt-6 mt-6">
-        <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
-        <TasksCardDashboard />
-      </div>
       {ConfirmDialog}
     </div>
   )

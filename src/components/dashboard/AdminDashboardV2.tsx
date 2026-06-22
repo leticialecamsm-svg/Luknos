@@ -383,37 +383,8 @@ export function AdminDashboardV2({
             </div>
           </div>
 
-          {/* Visitas */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Visitas da semana <span className="bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded ml-2">{visits.length}</span></h3>
-            </div>
-            <div className="p-4 space-y-2">
-              {visits.map(v => (
-                <div key={v.id} className="flex items-center gap-2 pb-2 border-b border-gray-100 last:border-0 last:pb-0">
-                  <div className="text-center shrink-0">
-                    <p className="text-sm font-bold text-gray-900">{new Date(v.date).getDate()}</p>
-                    <p className="text-xs text-gray-500">{new Date(v.date).toLocaleDateString('pt-BR', { month: 'short' })}</p>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-900">{v.client}</p>
-                    <p className="text-xs text-gray-500">{v.location}</p>
-                  </div>
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                    style={{ backgroundColor: v.owner_color }}>
-                    {getInitials(v.owner)}
-                  </div>
-                  <span className={cn('text-xs font-semibold px-2 py-1 rounded whitespace-nowrap', {
-                    'bg-green-50 text-green-700': v.status === 'scheduled',
-                    'bg-amber-50 text-amber-700': v.status === 'paused',
-                  })}>
-                    {v.status === 'scheduled' ? 'Agendada' : 'À agendar'}
-                  </span>
-                </div>
-              ))}
-              {visits.length === 0 && <p className="text-xs text-gray-500">Nenhuma visita agendada</p>}
-            </div>
-          </div>
+          {/* Agenda (no lugar das antigas "Visitas da semana") */}
+          <DashboardAgenda />
         </div>
       </div>
 
@@ -522,12 +493,6 @@ export function AdminDashboardV2({
             )}
           </div>
         </div>
-      </div>
-
-      {/* Agenda */}
-      <div className="border-t border-gray-200 pt-6">
-        <h2 className="text-sm font-semibold text-gray-700 mb-4">Agenda</h2>
-        <DashboardAgenda />
       </div>
 
       {/* Minhas Tarefas */}
