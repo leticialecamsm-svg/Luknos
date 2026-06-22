@@ -38,10 +38,6 @@ export const CREDIT_INSTALLMENTS = [
   { value: 'credit_4x', label: '4x' },
   { value: 'credit_5x', label: '5x' },
   { value: 'credit_6x', label: '6x' },
-  { value: 'credit_7x', label: '7x' },
-  { value: 'credit_8x', label: '8x' },
-  { value: 'credit_9x', label: '9x' },
-  { value: 'credit_10x', label: '10x' },
 ]
 
 /** Convert method_key to primary type for UI */
@@ -62,19 +58,15 @@ export function primaryToDefaultKey(primary: PrimaryMethod): string {
 
 // Default rates (used as fallback before DB loads)
 export const DEFAULT_PAYMENT_RATES: PaymentRate[] = [
-  { method_key: 'pix',        label: 'PIX',             machine_fee_pct: 0,    max_discount_pct: 18.49, sort_order: 1  },
-  { method_key: 'cash',       label: 'Dinheiro',        machine_fee_pct: 0,    max_discount_pct: 18.49, sort_order: 2  },
-  { method_key: 'debit',      label: 'Débito',          machine_fee_pct: 1.40, max_discount_pct: 15.94, sort_order: 3  },
-  { method_key: 'credit_1x',  label: 'Crédito à vista', machine_fee_pct: 4.74, max_discount_pct: 9.13,  sort_order: 4  },
-  { method_key: 'credit_2x',  label: '2x',              machine_fee_pct: 4.49, max_discount_pct: 9.65,  sort_order: 5  },
-  { method_key: 'credit_3x',  label: '3x',              machine_fee_pct: 5.08, max_discount_pct: 8.39,  sort_order: 6  },
-  { method_key: 'credit_4x',  label: '4x',              machine_fee_pct: 5.67, max_discount_pct: 7.11,  sort_order: 7  },
-  { method_key: 'credit_5x',  label: '5x',              machine_fee_pct: 6.26, max_discount_pct: 5.79,  sort_order: 8  },
-  { method_key: 'credit_6x',  label: '6x',              machine_fee_pct: 6.85, max_discount_pct: 4.43,  sort_order: 9  },
-  { method_key: 'credit_7x',  label: '7x',              machine_fee_pct: 7.76, max_discount_pct: 2.36,  sort_order: 10 },
-  { method_key: 'credit_8x',  label: '8x',              machine_fee_pct: 8.35, max_discount_pct: 0.96,  sort_order: 11 },
-  { method_key: 'credit_9x',  label: '9x',              machine_fee_pct: 8.94, max_discount_pct: 0,     sort_order: 12 },
-  { method_key: 'credit_10x', label: '10x',             machine_fee_pct: 9.53, max_discount_pct: 0,     sort_order: 13 },
+  { method_key: 'pix',        label: 'PIX',             machine_fee_pct: 0,    max_discount_pct: 13.38, sort_order: 1  },
+  { method_key: 'cash',       label: 'Dinheiro',        machine_fee_pct: 0,    max_discount_pct: 13.38, sort_order: 2  },
+  { method_key: 'debit',      label: 'Débito',          machine_fee_pct: 1.40, max_discount_pct: 10.67, sort_order: 3  },
+  { method_key: 'credit_1x',  label: 'Crédito à vista', machine_fee_pct: 4.74, max_discount_pct: 3.44,  sort_order: 4  },
+  { method_key: 'credit_2x',  label: '2x',              machine_fee_pct: 4.49, max_discount_pct: 3.99,  sort_order: 5  },
+  { method_key: 'credit_3x',  label: '3x',              machine_fee_pct: 5.08, max_discount_pct: 2.65,  sort_order: 6  },
+  { method_key: 'credit_4x',  label: '4x',              machine_fee_pct: 5.67, max_discount_pct: 1.28,  sort_order: 7  },
+  { method_key: 'credit_5x',  label: '5x',              machine_fee_pct: 6.26, max_discount_pct: 0,     sort_order: 8  },
+  { method_key: 'credit_6x',  label: '6x',              machine_fee_pct: 6.85, max_discount_pct: 0,     sort_order: 9  },
 ]
 
 /** Weighted max discount for a mixed-payment scenario */
