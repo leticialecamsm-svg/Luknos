@@ -1357,6 +1357,48 @@ export async function getContactOpenQuotes(contactId: string, contactName?: stri
   return open.map(({ architect_id: _a, architect_name: _b, temperature: _t, ...rest }) => rest)
 }
 
+// Todos os orçamentos de um parceiro (para o modal de visualização)
+export async function getContactAllQuotes(contactId: string, contactName?: string) {
+  const admin = createAdminClient()
+  const filter = contactName
+    ? `architect_id.eq.${contactId},architect_name.ilike.%${contactName}%`
+    : `architect_id.eq.${contactId}`
+  const { data } = await admin
+    .from('quotes_full')
+    .select('id, number, client_name, quoted_value, final_value, status, temperature, created_at')
+    .or(filter)
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
+// Estatísticas agregadas por parceiro (valor em negociação e total)
+export async function getPartnerQuoteStats() {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quotes_full')
+    .select('architect_id, architect_name, quoted_value, final_value, status, temperature')
+  const byId: Record<string, any> = {}
+  const byName: Record<string, any> = {}
+
+  for (const q of data ?? []) {
+    const isOpen = q.status !== 'done' && !['closed', 'lost'].includes(q.temperature ?? '')
+    const isClosed = q.temperature === 'closed'
+    const openVal = Number(q.quoted_value ?? 0)
+    const closedVal = Number(q.final_value ?? q.quoted_value ?? 0)
+
+    const bump = (bucket: Record<string, any>, key: string) => {
+      if (!key) return
+      const e = bucket[key] ?? (bucket[key] = { openValue: 0, openCount: 0, closedValue: 0, closedCount: 0, totalCount: 0 })
+      e.totalCount += 1
+      if (isOpen) { e.openValue += openVal; e.openCount += 1 }
+      if (isClosed) { e.closedValue += closedVal; e.closedCount += 1 }
+    }
+    if (q.architect_id) bump(byId, q.architect_id)
+    if (q.architect_name) bump(byName, String(q.architect_name).trim().toLowerCase())
+  }
+  return { byId, byName }
+}
+
 export async function debugContactQuotes(contactId: string) {
   const admin = createAdminClient()
   // Busca todos os orçamentos desse contato sem filtros, para diagnóstico

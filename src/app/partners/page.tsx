@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getAllContacts, getActiveUsers } from '@/lib/actions'
+import { getAllContacts, getActiveUsers, getPartnerQuoteStats } from '@/lib/actions'
 import { PartnersPage } from '@/components/partners/PartnersPage'
 
 export const dynamic = 'force-dynamic'
@@ -13,9 +13,10 @@ export default async function Partners() {
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
 
-  const [contacts, users] = await Promise.all([
+  const [contacts, users, partnerStats] = await Promise.all([
     getAllContacts(),
     getActiveUsers(),
+    getPartnerQuoteStats(),
   ])
 
   return (
@@ -24,6 +25,7 @@ export default async function Partners() {
       users={users}
       currentUserId={user.id}
       isAdmin={isAdmin}
+      partnerStats={partnerStats}
     />
   )
 }

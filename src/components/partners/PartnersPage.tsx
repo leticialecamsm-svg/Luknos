@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { Search, Plus, Trash2, X, User2, Building2, Pencil, ChevronDown, ChevronLeft, ChevronRight, Phone, Mail, Calendar, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PartnersDashboard, PartnerStats, statsFor } from './PartnersDashboard'
 
 export const TYPE_LABEL: Record<string, string> = {
   architect: 'Arquiteto',
@@ -224,8 +225,8 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
 
   useEffect(() => {
     setLoadingQuotes(true)
-    import('@/lib/actions').then(({ getContactOpenQuotes }) =>
-      getContactOpenQuotes(contact.id, contact.name).then(data => { setOpenQuotes(data as any[]); setLoadingQuotes(false) })
+    import('@/lib/actions').then(({ getContactAllQuotes }) =>
+      getContactAllQuotes(contact.id, contact.name).then(data => { setOpenQuotes(data as any[]); setLoadingQuotes(false) })
     )
   }, [contact.id])
 
@@ -335,27 +336,58 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
             )}
           </dl>
 
-          {/* Orçamentos em aberto vinculados a este parceiro */}
+          {/* Orçamentos vinculados a este parceiro */}
           <div className="mt-5 border-t border-surface-border pt-5">
-            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Orçamentos em aberto</h3>
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Orçamentos do parceiro</h3>
             {loadingQuotes ? (
               <div className="text-xs text-gray-400 py-1">Carregando...</div>
             ) : openQuotes && openQuotes.length > 0 ? (
-              <div className="space-y-2">
-                {openQuotes.map((q: any) => (
-                  <div key={q.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-                    <div className="min-w-0">
-                      <span className="text-xs font-semibold text-brand-600">#{q.number}</span>
-                      <span className="text-xs text-gray-600 ml-2 truncate">{q.client_name ?? '—'}</span>
+              <>
+                {(() => {
+                  const open = openQuotes.filter((q: any) => q.status !== 'done' && !['closed','lost'].includes(q.temperature ?? ''))
+                  const closed = openQuotes.filter((q: any) => q.temperature === 'closed')
+                  const openSum = open.reduce((s: number, q: any) => s + Number(q.quoted_value ?? 0), 0)
+                  const closedSum = closed.reduce((s: number, q: any) => s + Number(q.final_value ?? q.quoted_value ?? 0), 0)
+                  return (
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="rounded-lg bg-blue-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold text-blue-700 uppercase">Em negociação</p>
+                        <p className="text-sm font-bold text-blue-700">{openSum.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</p>
+                        <p className="text-[10px] text-gray-500">{open.length} orçamento(s)</p>
+                      </div>
+                      <div className="rounded-lg bg-emerald-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold text-emerald-700 uppercase">Fechado</p>
+                        <p className="text-sm font-bold text-emerald-700">{closedSum.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</p>
+                        <p className="text-[10px] text-gray-500">{closed.length} venda(s)</p>
+                      </div>
                     </div>
-                    <span className="text-xs font-medium text-gray-700 shrink-0 ml-2">
-                      {q.quoted_value != null ? Number(q.quoted_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  )
+                })()}
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {openQuotes.map((q: any) => {
+                    const isClosed = q.temperature === 'closed'
+                    const isLost = q.temperature === 'lost'
+                    const tag = isClosed ? { t: 'Fechada', c: 'bg-emerald-100 text-emerald-700' }
+                      : isLost ? { t: 'Perdida', c: 'bg-gray-100 text-gray-500' }
+                      : { t: 'Negociação', c: 'bg-blue-100 text-blue-700' }
+                    const val = isClosed ? (q.final_value ?? q.quoted_value) : q.quoted_value
+                    return (
+                      <div key={q.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <span className="text-xs font-semibold text-brand-600">#{q.number}</span>
+                          <span className="text-xs text-gray-600 truncate">{q.client_name ?? '—'}</span>
+                          <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', tag.c)}>{tag.t}</span>
+                        </div>
+                        <span className="text-xs font-medium text-gray-700 shrink-0 ml-2">
+                          {val != null ? Number(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             ) : (
-              <p className="text-xs text-gray-400">Nenhum orçamento em aberto.</p>
+              <p className="text-xs text-gray-400">Nenhum orçamento vinculado.</p>
             )}
           </div>
 
@@ -420,12 +452,13 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export function PartnersPage({
-  initialContacts, users, currentUserId, isAdmin,
+  initialContacts, users, currentUserId, isAdmin, partnerStats,
 }: {
   initialContacts: any[]
   users: AppUser[]
   currentUserId: string
   isAdmin?: boolean
+  partnerStats?: PartnerStats
 }) {
   const toast = useToast()
   const router = useRouter()
@@ -528,6 +561,9 @@ export function PartnersPage({
           <Plus className="w-4 h-4" /> Novo Parceiro
         </button>
       </div>
+
+      {/* Dashboard de parceiros */}
+      <PartnersDashboard contacts={contacts} stats={partnerStats} />
 
       {/* Contadores por tipo */}
       <div className="grid grid-cols-4 gap-3 sm:grid-cols-8">
@@ -715,11 +751,18 @@ export function PartnersPage({
                           </div>
                           <div>
                             <p className="text-sm font-medium text-gray-900">{c.name}</p>
-                            {c.new_prospection && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full mt-0.5">
-                                ✦ Nova prospecção
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {c.new_prospection && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                                  ✦ Nova prospecção
+                                </span>
+                              )}
+                              {(() => { const s = statsFor(c, partnerStats); return s.openValue > 0 ? (
+                                <span className="inline-flex items-center text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">
+                                  {s.openValue.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})} em neg.
+                                </span>
+                              ) : null })()}
+                            </div>
                           </div>
                         </div>
                       </td>
