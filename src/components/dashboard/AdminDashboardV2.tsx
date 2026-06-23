@@ -19,6 +19,7 @@ export function AdminDashboardV2({
   prospectionsThisMonth = 0,
   salesByUser,
   goalsByUser,
+  earnings,
 }: {
   quotes: any[]
   users: any[]
@@ -27,6 +28,7 @@ export function AdminDashboardV2({
   prospectionsThisMonth?: number
   salesByUser?: Record<string, number>
   goalsByUser?: Record<string, number>
+  earnings?: Record<string, any>
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -505,6 +507,49 @@ export function AdminDashboardV2({
           </div>
         </div>
       </div>
+
+      {/* Comissões a pagar no mês */}
+      {earnings && (() => {
+        const rows = Object.values(earnings).filter((r: any) => r.total > 0).sort((a: any, b: any) => b.total - a.total)
+        const totalGeral = rows.reduce((s: number, r: any) => s + r.total, 0)
+        if (!rows.length) return null
+        return (
+          <div className="border-t border-gray-200 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-700">Comissões a pagar no mês</h2>
+              <span className="text-sm font-bold text-emerald-700">Total: {formatCurrency(totalGeral)}</span>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-left">
+                    <th className="px-4 py-2.5 text-xs font-semibold text-gray-600">Colaborador</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-right">1% vendas</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-right">Projetista</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r: any) => (
+                    <tr key={r.user.id} className="border-b border-gray-100 last:border-0">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <Avatar user={r.user} size={26} />
+                          <span className="text-sm font-medium text-gray-800">{r.user.name}</span>
+                          {r.projetistaComm > 0 && <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-full">projetista</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-sm text-gray-600">{formatCurrency(r.sellerComm)}</td>
+                      <td className="px-4 py-2.5 text-right text-sm text-gray-600">{r.projetistaComm > 0 ? formatCurrency(r.projetistaComm) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold text-emerald-700">{formatCurrency(r.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Minhas Tarefas */}
       <div className="border-t border-gray-200 pt-6">

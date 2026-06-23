@@ -11,7 +11,7 @@ import { WorkingDaysCard } from './WorkingDaysCard'
 import { DashboardAgenda } from './DashboardAgenda'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings
 }: {
   myGoal: number
   myQuotes: any[]
@@ -24,6 +24,7 @@ export function VendorDashboard({
   prospectionsThisMonth?: number
   salesByUser?: Record<string, number>
   goalsByUser?: Record<string, number>
+  myEarnings?: any
 }) {
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
 
@@ -139,6 +140,35 @@ export function VendorDashboard({
         <>
       {/* Working days banner */}
       <WorkingDaysCard />
+
+      {/* Minha comissão do mês (privado) */}
+      {myEarnings && (
+        <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Minha comissão do mês</p>
+              <p className="text-3xl font-bold text-emerald-700 mt-1">{formatCurrency(myEarnings.total)}</p>
+            </div>
+            <div className="text-right text-xs text-gray-500 space-y-1">
+              <p>1% das minhas vendas: <strong className="text-gray-700">{formatCurrency(myEarnings.sellerComm)}</strong></p>
+              {myEarnings.projetistaComm > 0 && (
+                <p>Como projetista: <strong className="text-gray-700">{formatCurrency(myEarnings.projetistaComm)}</strong></p>
+              )}
+            </div>
+          </div>
+          {myEarnings.projetistaSales?.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-emerald-100 space-y-1">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase">Vendas como projetista</p>
+              {myEarnings.projetistaSales.map((p: any) => (
+                <div key={p.number} className="flex items-center justify-between text-xs text-gray-600">
+                  <span><span className="font-semibold text-brand-600">#{p.number}</span> {p.client_name} <span className="text-gray-400">({p.rate}%)</span></span>
+                  <span className="font-medium text-emerald-700">{formatCurrency(p.comm)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -382,58 +412,24 @@ export function VendorDashboard({
             </div>
           </div>
 
-          {/* Ranking de Vendas e Comissão */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Ranking de Vendas */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-900">Ranking — Vendas</h3>
-                <p className="text-xs text-gray-500">{monthName}</p>
-              </div>
-              <div className="p-4 space-y-3">
-                {userPerformance.map((u, i) => (
-                  <div key={u.id} className={`flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0 ${u.id === currentUserId ? 'bg-blue-50 -mx-4 px-4 py-3 rounded' : ''}`}>
-                    <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
-                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
-                    </div>
-                    <Avatar user={u} size={28} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900">{u.name}</p>
-                      <p className="text-xs text-gray-500">{Math.round(u.percentMeta)}% da meta</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-bold text-gray-900">{formatCurrency(u.vendido)}</p>
-                      <p className="text-xs text-gray-500">de {formatCurrency(u.meta)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Ranking de Vendas — apenas posições, sem valores (privacidade) */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Ranking de Vendas</h3>
+              <p className="text-xs text-gray-500">{monthName}</p>
             </div>
-
-            {/* Ranking de Comissão */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-900">Ranking — Comissão</h3>
-                <p className="text-xs text-gray-500 text-green-600 font-semibold">1% de cada venda</p>
-              </div>
-              <div className="p-4 space-y-3">
-                {userPerformance.sort((a, b) => b.comissao - a.comissao).map((u, i) => (
-                  <div key={u.id} className={`flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0 ${u.id === currentUserId ? 'bg-green-50 -mx-4 px-4 py-3 rounded' : ''}`}>
-                    <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
-                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
-                    </div>
-                    <Avatar user={u} size={28} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900">{u.name}</p>
-                      <p className="text-xs text-gray-500">Vendido: {formatCurrency(u.vendido)}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-bold text-green-600">{formatCurrency(u.comissao)}</p>
-                      <p className="text-xs text-gray-500">Comissão</p>
-                    </div>
+            <div className="p-4 space-y-2">
+              {userPerformance.map((u, i) => (
+                <div key={u.id} className={`flex items-center gap-3 py-2 ${u.id === currentUserId ? 'bg-blue-50 -mx-4 px-4 rounded' : ''}`}>
+                  <div className="text-base font-bold text-gray-400 w-7 shrink-0 text-center">
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}º`}
                   </div>
-                ))}
-              </div>
+                  <Avatar user={u} size={32} />
+                  <p className="text-sm font-medium text-gray-900 flex-1 min-w-0 truncate">
+                    {u.name}{u.id === currentUserId && <span className="text-xs text-blue-600 font-normal ml-1">(você)</span>}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

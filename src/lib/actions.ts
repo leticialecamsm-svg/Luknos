@@ -364,7 +364,7 @@ async function backfillCommissionsForContact(contactId: string, rate: number) {
 }
 
 export async function createContact(data: {
-  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null
+  name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null; linked_user_id?: string | null
 }) {
   const supabase = createClient()
   const admin = createAdminClient()
@@ -382,7 +382,7 @@ export async function createContact(data: {
 }
 
 export async function updateContact(id: string, data: {
-  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null
+  name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null; linked_user_id?: string | null
 }) {
   const admin = createAdminClient()
   const updates: Record<string, unknown> = { ...data }
@@ -1358,12 +1358,14 @@ export async function getCommissions(year: number, month: number) {
 
   const { data, error } = await admin
     .from('commissions')
-    .select('*, contact:contacts(id, name, commission_rate), quote:quotes(number, quoted_value)')
+    .select('*, contact:contacts(*), quote:quotes(number, quoted_value)')
     .gte('due_date', start)
     .lte('due_date', end)
     .order('due_date')
   if (error) return []
-  return data ?? []
+  // Exclui comissões de parceiros que são colaboradores vinculados (projetistas) —
+  // essas aparecem no painel de comissões do colaborador, evitando duplicidade.
+  return (data ?? []).filter((c: any) => !c.contact?.linked_user_id)
 }
 
 export async function updateCommissionStatus(id: string, status: 'scheduled' | 'paid' | 'overdue') {
@@ -1587,4 +1589,64 @@ export async function deleteFinanceEntry(id: string, group?: string | null) {
   if (error) return { error: error.message }
   revalidatePath('/finance')
   return { ok: true }
+}
+
+// ── Comissões dos colaboradores (1% das próprias vendas + 5% como projetista) ──
+const SELLER_COMMISSION_PCT = 1 // % sobre as vendas que o próprio colaborador fechou
+
+export async function getCommissionEarnings(year?: number, month?: number) {
+  const admin = createAdminClient()
+  const now = new Date()
+  const y = year ?? now.getFullYear()
+  const m = month ?? now.getMonth() + 1
+  const mStart = `${y}-${String(m).padStart(2, '0')}-01`
+  const mEnd = new Date(y, m, 0).toISOString().split('T')[0]
+
+  const [salesRes, contactsRes, quotesRes, usersRes] = await Promise.all([
+    admin.from('sales_by_month').select('user_id, total_sold').eq('year', y).eq('month', m),
+    admin.from('contacts').select('*').gt('commission_rate', 0),
+    admin.from('quotes_full').select('number, architect_id, final_value, quoted_value, closed_at, temperature, client_name')
+      .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
+    admin.from('users').select('id, name, avatar_color, avatar_url').eq('active', true),
+  ])
+
+  const linkedContacts = (contactsRes.data ?? []).filter((c: any) => c.linked_user_id)
+  const contactToUser = new Map(linkedContacts.map((c: any) => [c.id, c.linked_user_id]))
+  const contactRate = new Map(linkedContacts.map((c: any) => [c.id, Number(c.commission_rate)]))
+
+  const result: Record<string, any> = {}
+  for (const u of usersRes.data ?? []) {
+    result[u.id] = { user: u, sellerSales: 0, sellerComm: 0, projetistaComm: 0, projetistaSales: [], total: 0 }
+  }
+
+  // 1% das vendas próprias
+  for (const s of salesRes.data ?? []) {
+    if (!result[s.user_id]) continue
+    const sales = Number(s.total_sold ?? 0)
+    result[s.user_id].sellerSales = sales
+    result[s.user_id].sellerComm = parseFloat((sales * SELLER_COMMISSION_PCT / 100).toFixed(2))
+  }
+
+  // 5% (taxa do parceiro) das vendas em que o colaborador foi o projetista — mês do fechamento
+  for (const q of quotesRes.data ?? []) {
+    const uid = q.architect_id ? contactToUser.get(q.architect_id) : null
+    if (!uid || !result[uid]) continue
+    const rate = contactRate.get(q.architect_id) ?? 0
+    const value = Number(q.final_value ?? q.quoted_value ?? 0)
+    const comm = parseFloat((value * rate / 100).toFixed(2))
+    result[uid].projetistaComm += comm
+    result[uid].projetistaSales.push({ number: q.number, client_name: q.client_name, value, rate, comm })
+  }
+
+  for (const uid of Object.keys(result)) {
+    const r = result[uid]
+    r.projetistaComm = parseFloat(r.projetistaComm.toFixed(2))
+    r.total = parseFloat((r.sellerComm + r.projetistaComm).toFixed(2))
+  }
+
+  // ids de usuários que são projetistas vinculados (p/ excluir da página de parceiros e evitar duplicidade)
+  const projetistaUserIds = Array.from(new Set(linkedContacts.map((c: any) => c.linked_user_id)))
+  const linkedContactIds = linkedContacts.map((c: any) => c.id)
+
+  return { byUser: result, projetistaUserIds, linkedContactIds }
 }

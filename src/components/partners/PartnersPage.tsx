@@ -85,6 +85,7 @@ function ContactForm({
   const [prospection, setProsp]   = useState(initial.new_prospection ?? false)
   const [assignedTo, setAssigned] = useState<string>(initial.assigned_to ?? currentUserId)
   const [commRate, setCommRate]   = useState(initial.commission_rate != null ? String(initial.commission_rate) : '')
+  const [linkedUser, setLinkedUser] = useState<string>((initial as any).linked_user_id ?? '')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -94,7 +95,8 @@ function ContactForm({
       type, company: company || undefined, new_prospection: prospection,
       assigned_to: assignedTo,
       commission_rate: isAdmin && commRate !== '' ? parseFloat(commRate) : initial.commission_rate,
-    })
+      linked_user_id: isAdmin ? (linkedUser || null) : (initial as any).linked_user_id,
+    } as any)
   }
 
   return (
@@ -192,6 +194,21 @@ function ContactForm({
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
             </div>
             <p className="text-xs text-gray-400 mt-1">Percentual de comissão sobre vendas fechadas</p>
+          </div>
+        )}
+
+        {/* Vincular a colaborador (projetista) — admin only */}
+        {isAdmin && (
+          <div>
+            <label className="label">Vincular a colaborador (projetista)</label>
+            <select value={linkedUser} onChange={e => setLinkedUser(e.target.value)} className="select">
+              <option value="">Nenhum (parceiro externo)</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Se este parceiro também é um colaborador, a comissão dele entra no painel do colaborador
+              (1% das vendas dele + esta taxa nas vendas em que for projetista) — e deixa de aparecer aqui em Parceiros.
+            </p>
           </div>
         )}
 

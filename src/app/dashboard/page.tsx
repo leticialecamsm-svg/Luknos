@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
@@ -40,6 +40,10 @@ export default async function DashboardPage() {
     isAdmin ? getProspectionsThisMonth() : getProspectionsThisMonth(user.id),
   ])
 
+  // Comissões do mês (1% próprias vendas + 5% como projetista)
+  const earnings = await getCommissionEarnings()
+  const myEarnings = earnings.byUser[user.id] ?? null
+
   const myGoal = myGoalRes.data?.target ?? 0
 
   const totalSold = stats.sales
@@ -67,6 +71,7 @@ export default async function DashboardPage() {
           goalsByUser={goalsByUser}
           funnel={stats.funnel}
           prospectionsThisMonth={prospectionsCount as number}
+          earnings={earnings.byUser}
         />
       ) : (
         <VendorDashboard
@@ -81,6 +86,7 @@ export default async function DashboardPage() {
           userName={profile?.name ?? 'Vendedor'}
           currentUserId={user.id}
           prospectionsThisMonth={prospectionsCount as number}
+          myEarnings={myEarnings}
         />
       )}
     </>
