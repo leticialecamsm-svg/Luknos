@@ -337,6 +337,32 @@ export async function getAllContacts(type?: string) {
   }))
 }
 
+// Gera comissões retroativas para as vendas JÁ fechadas de um parceiro (quando a taxa é definida depois).
+async function backfillCommissionsForContact(contactId: string, rate: number) {
+  if (!contactId || !(rate > 0)) return
+  const admin = createAdminClient()
+  const today = new Date().toISOString().split('T')[0]
+  const { data: closed } = await admin
+    .from('quotes_full')
+    .select('id, final_value, quoted_value, closed_at')
+    .eq('architect_id', contactId)
+    .eq('temperature', 'closed')
+  if (!closed?.length) return
+  const { data: existing } = await admin.from('commissions').select('quote_id').eq('contact_id', contactId)
+  const has = new Set((existing ?? []).map((e: any) => e.quote_id))
+  const rows = closed.filter((q: any) => !has.has(q.id)).map((q: any) => {
+    const value = Number(q.final_value ?? q.quoted_value ?? 0)
+    const amount = parseFloat((value * rate / 100).toFixed(2))
+    const base = q.closed_at ? new Date(q.closed_at + 'T00:00:00') : new Date()
+    base.setDate(base.getDate() + 30)
+    const due = base.toISOString().split('T')[0]
+    return { contact_id: contactId, quote_id: q.id, quote_value: value, rate, amount, due_date: due, status: due < today ? 'overdue' : 'scheduled' }
+  })
+  if (rows.length) {
+    await admin.from('commissions').upsert(rows, { onConflict: 'quote_id,contact_id' })
+  }
+}
+
 export async function createContact(data: {
   name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null
 }) {
@@ -370,6 +396,11 @@ export async function updateContact(id: string, data: {
     .select('*')
     .single()
   if (error) return { error: error.message }
+  // Se a taxa de comissão foi definida/alterada para > 0, gera comissões das vendas já fechadas
+  if (data.commission_rate != null && Number(data.commission_rate) > 0) {
+    await backfillCommissionsForContact(id, Number(data.commission_rate))
+  }
+  revalidatePath('/partners')
   return { data: contact }
 }
 
