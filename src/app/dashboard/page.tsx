@@ -47,6 +47,11 @@ export default async function DashboardPage() {
     .filter((r: any) => isAdmin || r.user_id === user.id)
     .reduce((s: number, r: any) => s + Number(r.total_sold ?? 0), 0)
 
+  // Vendas do mês por usuário (mesma fonte do "Vendido no mês") — usado no ranking
+  const salesByUser: Record<string, number> = Object.fromEntries(
+    (stats.sales as any[]).map((r: any) => [r.user_id, Number(r.total_sold ?? 0)])
+  )
+
   return (
     <>
       {isAdmin ? (
@@ -54,6 +59,7 @@ export default async function DashboardPage() {
           quotes={allQuotes}
           users={allUsers}
           sales={stats.sales}
+          salesByUser={salesByUser}
           funnel={stats.funnel}
           prospectionsThisMonth={prospectionsCount as number}
         />
@@ -65,6 +71,7 @@ export default async function DashboardPage() {
           users={allUsers}
           funnel={stats.funnel}
           sales={totalSold}
+          salesByUser={salesByUser}
           userName={profile?.name ?? 'Vendedor'}
           currentUserId={user.id}
           prospectionsThisMonth={prospectionsCount as number}

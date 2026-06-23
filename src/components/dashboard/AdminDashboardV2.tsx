@@ -17,12 +17,14 @@ export function AdminDashboardV2({
   sales,
   funnel,
   prospectionsThisMonth = 0,
+  salesByUser,
 }: {
   quotes: any[]
   users: any[]
   sales: any[]
   funnel: any[]
   prospectionsThisMonth?: number
+  salesByUser?: Record<string, number>
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -77,9 +79,8 @@ export function AdminDashboardV2({
 
   // Ranking colaboradores
   const userPerformance = users.map(u => {
-    // Vendas fechadas
-    const closedQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && q.status === 'done' && q.temperature === 'closed')
-    const totalVendido = closedQuotes.reduce((sum, q) => sum + (q.final_value ?? 0), 0)
+    // Vendas do mês — mesma fonte do "Faturamento do mês" (sales_by_month), evita divergência
+    const totalVendido = salesByUser?.[u.id] ?? 0
 
     // Tudo em aberto (tudo que não é fechado ou perdido) - dividido pela quantidade de donos
     const openQuotes = quotes.filter(q => q.owners?.some((o: any) => o.user_id === u.id) && !['closed', 'lost'].includes(q.temperature ?? 'cold'))
