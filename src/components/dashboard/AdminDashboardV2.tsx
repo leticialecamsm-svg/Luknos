@@ -18,6 +18,7 @@ export function AdminDashboardV2({
   funnel,
   prospectionsThisMonth = 0,
   salesByUser,
+  goalsByUser,
 }: {
   quotes: any[]
   users: any[]
@@ -25,6 +26,7 @@ export function AdminDashboardV2({
   funnel: any[]
   prospectionsThisMonth?: number
   salesByUser?: Record<string, number>
+  goalsByUser?: Record<string, number>
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -89,7 +91,7 @@ export function AdminDashboardV2({
       return sum + ((q.quoted_value ?? 0) / numOwners)
     }, 0)
 
-    const userGoal = 70000
+    const userGoal = goalsByUser?.[u.id] ?? 0
 
     return {
       id: u.id,

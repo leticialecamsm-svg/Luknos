@@ -31,9 +31,7 @@ export default async function DashboardPage() {
     getDashboardStats(isAdmin ? undefined : user.id),
     getMyQuotes(),
     getActiveUsers(),
-    isAdmin
-      ? supabase.from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then(r => r.data ?? [])
-      : Promise.resolve([]),
+    supabase.from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then(r => r.data ?? []),
     !isAdmin
       ? supabase.from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).single()
       : Promise.resolve({ data: null }),
@@ -52,6 +50,11 @@ export default async function DashboardPage() {
     (stats.sales as any[]).map((r: any) => [r.user_id, Number(r.total_sold ?? 0)])
   )
 
+  // Metas cadastradas por usuário (mês atual) — usadas no ranking
+  const goalsByUser: Record<string, number> = Object.fromEntries(
+    (goals as any[]).filter((g: any) => g.user_id).map((g: any) => [g.user_id, Number(g.target ?? 0)])
+  )
+
   return (
     <>
       {isAdmin ? (
@@ -60,6 +63,7 @@ export default async function DashboardPage() {
           users={allUsers}
           sales={stats.sales}
           salesByUser={salesByUser}
+          goalsByUser={goalsByUser}
           funnel={stats.funnel}
           prospectionsThisMonth={prospectionsCount as number}
         />
@@ -72,6 +76,7 @@ export default async function DashboardPage() {
           funnel={stats.funnel}
           sales={totalSold}
           salesByUser={salesByUser}
+          goalsByUser={goalsByUser}
           userName={profile?.name ?? 'Vendedor'}
           currentUserId={user.id}
           prospectionsThisMonth={prospectionsCount as number}

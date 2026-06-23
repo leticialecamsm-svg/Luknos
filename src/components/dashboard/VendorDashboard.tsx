@@ -11,7 +11,7 @@ import { WorkingDaysCard } from './WorkingDaysCard'
 import { DashboardAgenda } from './DashboardAgenda'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser
 }: {
   myGoal: number
   myQuotes: any[]
@@ -23,6 +23,7 @@ export function VendorDashboard({
   currentUserId?: string
   prospectionsThisMonth?: number
   salesByUser?: Record<string, number>
+  goalsByUser?: Record<string, number>
 }) {
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
 
@@ -82,7 +83,7 @@ export function VendorDashboard({
   // Ranking de colaboradores — usa a MESMA fonte do card "Vendido no mês" (sales_by_month do mês atual)
   const userPerformance = (users ?? []).map(u => {
     const totalVendido = salesByUser?.[u.id] ?? 0
-    const userGoal = 70000
+    const userGoal = goalsByUser?.[u.id] ?? 0
     const comissao = Math.round(totalVendido * 0.01) // 1% de comissão
 
     return {
