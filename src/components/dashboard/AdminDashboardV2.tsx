@@ -32,16 +32,20 @@ export function AdminDashboardV2({
   const [currentMonth, setCurrentMonth] = useState(now)
 
   // KPIs
-  const totalFaturamento = quotes
-    .filter(q => q.status === 'done' && q.temperature === 'closed')
-    .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
+  // Faturamento do MÊS — usa a fonte oficial (sales_by_month), já filtrada pelo mês atual
+  const totalFaturamento = (sales ?? []).reduce((sum: number, r: any) => sum + Number(r.total_sold ?? 0), 0)
+  // Nº de vendas únicas do mês (deduplica vendas em dupla que aparecem 1x por dono)
+  const closedQuotes = (() => {
+    const mStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const mEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+    return quotes.filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd).length
+  })()
 
   // Oportunidades em aberto (tudo que não é fechado ou perdido = Frio + Morno + Quente)
   const oportunidades = quotes
     .filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
-  const closedQuotes = quotes.filter(q => q.status === 'done' && q.temperature === 'closed').length
   const ticketMedio = closedQuotes > 0
     ? totalFaturamento / closedQuotes
     : 0
