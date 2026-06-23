@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
@@ -31,9 +32,9 @@ export default async function DashboardPage() {
     getDashboardStats(isAdmin ? undefined : user.id),
     getMyQuotes(),
     getActiveUsers(),
-    supabase.from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then(r => r.data ?? []),
+    createAdminClient().from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then((r: any) => r.data ?? []),
     !isAdmin
-      ? supabase.from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).single()
+      ? createAdminClient().from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).maybeSingle()
       : Promise.resolve({ data: null }),
     getAllQuotes(),
     isAdmin ? getProspectionsThisMonth() : getProspectionsThisMonth(user.id),
