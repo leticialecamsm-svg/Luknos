@@ -1,23 +1,22 @@
--- Permite que QUALQUER colaborador autenticado atualize qualquer orçamento e negociação.
--- (Antes a RLS restringia a edição ao dono, bloqueando colegas.)
--- Mantemos o cliente autenticado nas actions para o trigger de atividades ter auth.uid().
+-- Objetivo: QUALQUER colaborador autenticado pode ler/editar QUALQUER orçamento,
+-- negociação e atividade. (O bloqueio era uma política antiga "só o dono".)
+-- Remove todas as políticas existentes dessas tabelas e recria uma única permissiva.
 
--- QUOTES: update liberado para autenticados
-DROP POLICY IF EXISTS "quotes_update_collab" ON quotes;
-CREATE POLICY "quotes_update_collab" ON quotes
-  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+DO $$
+DECLARE pol record;
+BEGIN
+  FOR pol IN
+    SELECT policyname, tablename FROM pg_policies
+    WHERE schemaname = 'public' AND tablename IN ('quotes', 'negotiations', 'activities')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
+  END LOOP;
+END $$;
 
--- NEGOTIATIONS: insert/update/select liberados para autenticados
-DROP POLICY IF EXISTS "negotiations_write_collab" ON negotiations;
-CREATE POLICY "negotiations_write_collab" ON negotiations
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+ALTER TABLE quotes        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE negotiations  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activities    ENABLE ROW LEVEL SECURITY;
 
--- ACTIVITIES: o trigger de histórico insere uma atividade a cada update.
--- Sem isso, o colaborador não-dono não consegue inserir a atividade e o update inteiro falha.
-DROP POLICY IF EXISTS "activities_insert_collab" ON activities;
-CREATE POLICY "activities_insert_collab" ON activities
-  FOR INSERT TO authenticated WITH CHECK (true);
-
-DROP POLICY IF EXISTS "activities_select_collab" ON activities;
-CREATE POLICY "activities_select_collab" ON activities
-  FOR SELECT TO authenticated USING (true);
+CREATE POLICY "quotes_all_auth"        ON quotes        FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "negotiations_all_auth"  ON negotiations  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "activities_all_auth"    ON activities    FOR ALL TO authenticated USING (true) WITH CHECK (true);
