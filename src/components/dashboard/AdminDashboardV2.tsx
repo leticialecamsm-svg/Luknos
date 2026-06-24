@@ -32,6 +32,7 @@ export function AdminDashboardV2({
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
+  const [detail, setDetail] = useState<{ title: string; items: any[]; field: 'final' | 'quoted' } | null>(null)
 
   // KPIs
   // Faturamento do MÊS — usa a fonte oficial (sales_by_month), já filtrada pelo mês atual
@@ -227,7 +228,8 @@ export function AdminDashboardV2({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Vendas fechadas no mês', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-green-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento do mês</p>
           <p className="text-xl font-bold text-green-600 mt-2">{formatCurrency(totalFaturamento)}</p>
@@ -238,7 +240,8 @@ export function AdminDashboardV2({
           <p className="text-xs text-gray-400 mt-1">↓ vs maio: R$ 0</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Oportunidades em aberto', items: quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')), field: 'quoted' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-blue-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Oportunidades</p>
           <p className="text-xl font-bold text-blue-600 mt-2">{formatCurrency(oportunidades)}</p>
@@ -246,7 +249,8 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length} oportunidades</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio)', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-amber-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ticket médio</p>
           <p className="text-xl font-bold text-amber-600 mt-2">{formatCurrency(ticketMedio)}</p>
@@ -254,7 +258,8 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ vs média histórica</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Vendas fechadas (taxa de conversão)', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-purple-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-purple-600"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Taxa de conversão</p>
           <p className="text-xl font-bold text-purple-600 mt-2">{conversionRate}%</p>
@@ -262,7 +267,8 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ +5pp vs maio</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Negociações perdidas', items: quotes.filter(q => q.temperature === 'lost'), field: 'quoted' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-red-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Perdidas no mês</p>
           <p className="text-xl font-bold text-red-500 mt-2">{quotes.filter(q => q.temperature === 'lost').length}</p>
@@ -270,7 +276,8 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">✓ Melhor que maio</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div onClick={() => setDetail({ title: 'Orçamentos quentes', items: quotes.filter(q => q.temperature === 'hot' && q.status !== 'done'), field: 'quoted' })}
+          className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-orange-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-orange-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Orç. quentes</p>
           <p className="text-xl font-bold text-orange-500 mt-2">{formatCurrency(hotValue)}</p>
@@ -556,6 +563,41 @@ export function AdminDashboardV2({
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
         <TasksCardDashboard />
       </div>
+
+      {/* Modal de detalhamento do card */}
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">{detail.title}</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {detail.items.length} {detail.items.length === 1 ? 'orçamento' : 'orçamentos'} ·{' '}
+                  Total: <strong className="text-gray-700">{formatCurrency(detail.items.reduce((s, q) => s + Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0), 0))}</strong>
+                </p>
+              </div>
+              <button onClick={() => setDetail(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">✕</button>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {detail.items.length === 0 && <p className="px-6 py-8 text-center text-sm text-gray-400">Nenhum orçamento</p>}
+              {detail.items.map((q: any) => (
+                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 px-6 py-3 hover:bg-gray-50">
+                  <span className="text-xs text-gray-400 w-12 shrink-0">#{String(q.number).padStart(3,'0')}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{q.client_name}</p>
+                    {q.architect_name && <p className="text-xs text-gray-400 truncate">Arq. {q.architect_name}</p>}
+                  </div>
+                  {q.owners?.slice(0,2).map((o: any) => <Avatar key={o.user_id} user={o} size={22} className="ring-1 ring-white" />)}
+                  <span className="text-sm font-semibold text-gray-800 shrink-0 ml-1">
+                    {formatCurrency(Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0))}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
