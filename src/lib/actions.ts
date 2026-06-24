@@ -1650,3 +1650,19 @@ export async function getCommissionEarnings(year?: number, month?: number) {
 
   return { byUser: result, projetistaUserIds, linkedContactIds }
 }
+
+export async function setMonthlyGoal(userId: string | null, target: number, year?: number, month?: number) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const now = new Date()
+  const { error } = await createAdminClient().from('monthly_goals').upsert({
+    user_id: userId,
+    year: year ?? now.getFullYear(),
+    month: month ?? now.getMonth() + 1,
+    target,
+  }, { onConflict: 'user_id,year,month' })
+  if (error) return { error: error.message }
+  revalidatePath('/dashboard')
+  revalidatePath('/admin')
+  return { ok: true }
+}

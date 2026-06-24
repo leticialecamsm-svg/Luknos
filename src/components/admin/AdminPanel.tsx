@@ -17,6 +17,7 @@ interface Props {
 }
 
 export function AdminPanel({ users, goals }: Props) {
+  const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<'users' | 'contacts' | 'goals' | 'rates'>('users')
 
@@ -84,18 +85,14 @@ export function AdminPanel({ users, goals }: Props) {
 
   // ── Metas ─────────────────────────────────────────────────
   async function handleGoalUpdate(userId: string | null, value: number) {
-    const supabase = createClient()
-    const now = new Date()
-    await supabase.from('monthly_goals').upsert({
-      user_id: userId,
-      year:    now.getFullYear(),
-      month:   now.getMonth() + 1,
-      target:  value,
-    }, { onConflict: 'user_id,year,month' })
+    const { setMonthlyGoal } = await import('@/lib/actions')
+    const res = await setMonthlyGoal(userId, value)
+    if (res?.error) { toast.error('OCORREU UM ERRO', res.error); return }
+    toast.success('TUDO CERTO!', 'Meta salva.')
   }
 
   const getGoal = (userId: string | null) =>
-    goals.find(g => g.user_id === userId)?.target ?? 70000
+    goals.find(g => g.user_id === userId)?.target ?? 0
 
   const TYPE_LABEL: Record<string, string> = {
     client: 'Cliente', architect: 'Arquiteto',
