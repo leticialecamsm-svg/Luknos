@@ -1,6 +1,6 @@
 'use client'
 
-import { X, Pencil, Trash2, Calendar, Clock, MapPin, Users, FileText, Briefcase } from 'lucide-react'
+import { X, Pencil, Trash2, Calendar, Clock, MapPin, Users, FileText, Briefcase, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 
@@ -71,13 +71,15 @@ export function ScheduleViewModal({
               <span className="text-gray-700">{schedule.partner_name}</span>
             </div>
           )}
-          {schedule.quote && (
-            <div className="flex items-center gap-3">
+          {schedule.quote && schedule.quote_id && (
+            <a href={`/quotes/${schedule.quote_id}`}
+              className="flex items-center gap-3 group rounded-lg -mx-2 px-2 py-1 hover:bg-brand-50 transition-colors">
               <FileText className="w-4 h-4 text-gray-400 shrink-0" />
-              <span className="text-gray-700">
+              <span className="text-gray-700 group-hover:text-brand-700">
                 <span className="font-semibold text-brand-600">#{schedule.quote.number}</span> · {schedule.quote.client_name}
               </span>
-            </div>
+              <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 ml-auto" />
+            </a>
           )}
           {schedule.participants && schedule.participants.length > 0 && (
             <div className="flex items-start gap-3">

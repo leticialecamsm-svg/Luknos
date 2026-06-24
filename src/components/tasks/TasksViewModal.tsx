@@ -1,6 +1,6 @@
 'use client'
 
-import { X, Edit2, Trash2 } from 'lucide-react'
+import { X, Edit2, Trash2, ExternalLink } from 'lucide-react'
 import { deleteTask, updateTaskStatus } from '@/lib/actions'
 import { useState } from 'react'
 import { SubtasksList } from './SubtasksList'
@@ -130,9 +130,17 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
               </div>
               <h2 className="text-xl font-bold text-gray-900">{localTask.title}</h2>
               {localTask.quote && (
-                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                  #{localTask.quote.number} · {localTask.quote.client_name}
-                </span>
+                localTask.quote_id ? (
+                  <a href={`/quotes/${localTask.quote_id}`}
+                    className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 transition-colors">
+                    #{localTask.quote.number} · {localTask.quote.client_name}
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                    #{localTask.quote.number} · {localTask.quote.client_name}
+                  </span>
+                )
               )}
             </div>
 

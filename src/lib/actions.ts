@@ -783,7 +783,18 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
   return { ok: true }
 }
 
+// Reuniões e visitas são visíveis a todos; follow-ups só para quem criou ou participa.
+function filterFollowups(schedules: any[], userId?: string) {
+  if (!userId) return schedules
+  return schedules.filter((s: any) =>
+    s.type !== 'follow_up' ||
+    s.created_by === userId ||
+    (s.team_members ?? []).includes(userId)
+  )
+}
+
 export async function getSchedules(startDate?: string, endDate?: string) {
+  const { data: { user } } = await createClient().auth.getUser()
   let query = createAdminClient().from('schedules').select('*').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true })
 
   if (startDate && endDate) {
@@ -791,26 +802,28 @@ export async function getSchedules(startDate?: string, endDate?: string) {
   }
 
   const { data } = await query
-  return enrichSchedules(data ?? [])
+  return enrichSchedules(filterFollowups(data ?? [], user?.id))
 }
 
 export async function getSchedulesByDate(date: string) {
+  const { data: { user } } = await createClient().auth.getUser()
   const { data } = await createAdminClient()
     .from('schedules')
     .select('*')
     .eq('scheduled_date', date)
     .order('scheduled_time', { ascending: true })
-  return enrichSchedules(data ?? [])
+  return enrichSchedules(filterFollowups(data ?? [], user?.id))
 }
 
 export async function getSchedulesByQuote(quoteId: string) {
+  const { data: { user } } = await createClient().auth.getUser()
   const { data } = await createAdminClient()
     .from('schedules')
     .select('*')
     .eq('quote_id', quoteId)
     .order('scheduled_date', { ascending: true })
     .order('scheduled_time', { ascending: true })
-  return enrichSchedules(data ?? [])
+  return enrichSchedules(filterFollowups(data ?? [], user?.id))
 }
 
 export async function deleteSchedule(id: string) {
