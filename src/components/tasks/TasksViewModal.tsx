@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { SubtasksList } from './SubtasksList'
 import { useToast } from '@/components/ui/Toast'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 interface Task {
   id: string
@@ -65,6 +66,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
   const [deleting, setDeleting] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
+  const [quoteModal, setQuoteModal] = useState<string | null>(null)
   const toast = useToast()
 
   const handleDelete = async () => {
@@ -131,11 +133,11 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
               <h2 className="text-xl font-bold text-gray-900">{localTask.title}</h2>
               {localTask.quote && (
                 localTask.quote_id ? (
-                  <a href={`/quotes/${localTask.quote_id}`}
+                  <button type="button" onClick={() => setQuoteModal(localTask.quote_id!)}
                     className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 transition-colors">
                     #{localTask.quote.number} · {localTask.quote.client_name}
                     <ExternalLink className="w-3 h-3" />
-                  </a>
+                  </button>
                 ) : (
                   <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
                     #{localTask.quote.number} · {localTask.quote.client_name}
@@ -261,6 +263,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           onCancel={() => setShowConfirmDelete(false)}
         />
       )}
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} />}
     </div>
   )
 }

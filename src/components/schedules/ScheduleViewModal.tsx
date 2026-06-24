@@ -1,8 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import { X, Pencil, Trash2, Calendar, Clock, MapPin, Users, FileText, Briefcase, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 const TYPE_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   visita:    { label: 'Visita',    bg: 'bg-blue-50',  text: 'text-blue-700' },
@@ -18,6 +20,7 @@ export function ScheduleViewModal({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const [quoteModal, setQuoteModal] = useState<string | null>(null)
   const type = TYPE_CONFIG[schedule.type] ?? { label: schedule.type, bg: 'bg-gray-50', text: 'text-gray-600' }
   const dateObj = new Date(schedule.scheduled_date + 'T00:00:00')
   const dateFmt = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(dateObj)
@@ -72,14 +75,14 @@ export function ScheduleViewModal({
             </div>
           )}
           {schedule.quote && schedule.quote_id && (
-            <a href={`/quotes/${schedule.quote_id}`}
-              className="flex items-center gap-3 group rounded-lg -mx-2 px-2 py-1 hover:bg-brand-50 transition-colors">
+            <button type="button" onClick={() => setQuoteModal(schedule.quote_id)}
+              className="w-full flex items-center gap-3 group rounded-lg -mx-2 px-2 py-1 hover:bg-brand-50 transition-colors text-left">
               <FileText className="w-4 h-4 text-gray-400 shrink-0" />
               <span className="text-gray-700 group-hover:text-brand-700">
                 <span className="font-semibold text-brand-600">#{schedule.quote.number}</span> · {schedule.quote.client_name}
               </span>
               <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 ml-auto" />
-            </a>
+            </button>
           )}
           {schedule.participants && schedule.participants.length > 0 && (
             <div className="flex items-start gap-3">
@@ -103,6 +106,7 @@ export function ScheduleViewModal({
           </div>
         )}
       </div>
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} />}
     </div>
   )
 }
