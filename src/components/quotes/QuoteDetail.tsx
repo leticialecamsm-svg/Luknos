@@ -26,6 +26,7 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
+import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS } from './OptionPills'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
@@ -135,18 +136,31 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         </div>
 
         {/* Detalhes rápidos */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-surface-border">
-          {[
-            ['Categoria', CATEGORY_LABEL[quote.category as keyof typeof CATEGORY_LABEL]],
-            ['Tamanho', quote.size ? SIZE_LABEL[quote.size as keyof typeof SIZE_LABEL] : '—'],
-            ['Prazo', formatDate(quote.deadline)],
-            ['Valor orçado', formatCurrency(quote.quoted_value)],
-          ].map(([k,v]) => (
-            <div key={k}>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">{k}</p>
-              <p className="text-sm font-medium mt-0.5">{v}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-surface-border">
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Categoria</p>
+            <div className="mt-1"><OptionTag options={CATEGORY_OPTS} value={quote.category} /></div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Tamanho</p>
+            <div className="mt-1"><OptionTag options={SIZE_OPTS} value={quote.size} /></div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Origem</p>
+            <div className="mt-1"><OptionTag options={ORIGIN_OPTS} value={quote.origin} /></div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Etapa da obra</p>
+            <div className="mt-1"><OptionTag options={STAGE_OPTS} value={quote.work_stage} /></div>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Prazo</p>
+            <p className="text-sm font-medium mt-0.5">{formatDate(quote.deadline)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Valor orçado</p>
+            <p className="text-sm font-medium mt-0.5">{formatCurrency(quote.quoted_value)}</p>
+          </div>
         </div>
 
         {/* Datas e tempo */}

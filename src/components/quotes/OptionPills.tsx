@@ -108,6 +108,18 @@ export function TagSelect({ name, label, defaultValue, options, placeholder, all
   )
 }
 
+// Tag somente-leitura (para a visualização) — usa o mesmo emoji/cor das opções
+export function OptionTag({ options, value }: { options: PillOption[]; value?: string | null }) {
+  const o = options.find(x => x.value === value)
+  if (!o) return <span className="text-sm text-gray-400">—</span>
+  const t = TONES[o.tone ?? 'gray']
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border', t.bg, t.text, t.border)}>
+      {o.emoji && <span className="leading-none">{o.emoji}</span>}{o.label}
+    </span>
+  )
+}
+
 // Presets reutilizáveis
 export const CATEGORY_OPTS: PillOption[] = [
   { value: 'lighting',   label: 'Iluminação',  emoji: '💡', tone: 'amber' },
