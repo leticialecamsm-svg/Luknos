@@ -21,7 +21,7 @@ export function QuoteQuickViewModal({ quoteId, onClose }: { quoteId: string; onC
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center p-3 sm:p-4 overflow-y-auto" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-6xl my-4" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-surface-border px-5 py-3 flex items-center justify-between rounded-t-2xl">
