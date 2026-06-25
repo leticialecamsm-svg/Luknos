@@ -11,6 +11,7 @@ import { QuoteSchedules } from './QuoteSchedules'
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { QUOTE_STATUS_LABEL, STATUS_COLOR } from '@/types'
 import { cn } from '@/lib/utils'
+import { OptionPills, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS, PRIORITY_OPTS } from './OptionPills'
 
 // Edição com o MESMO layout da tela de visualização (header + grid 2 colunas)
 export function EditQuoteFormV2({ quote, users, currentUserId }: any) {
@@ -64,14 +65,6 @@ export function EditQuoteFormV2({ quote, users, currentUserId }: any) {
     })
   }
 
-  const SELECTS = [
-    { name: 'origin',     label: 'Origem',     def: quote.origin,           opts: [['store','Loja'],['whatsapp','WhatsApp'],['visit','Visita'],['referral','Indicação'],['other','Outro']] },
-    { name: 'category',   label: 'Categoria',  def: quote.category,         opts: [['lighting','Iluminação'],['automation','Automação'],['both','Ilum. + Auto.']] },
-    { name: 'size',       label: 'Tamanho',    def: quote.size ?? '',       opts: [['','—'],['small','Pequeno'],['medium','Médio'],['large','Grande']] },
-    { name: 'work_stage', label: 'Etapa',      def: quote.work_stage ?? '', opts: [['','—'],['project','Projeto'],['execution','Em execução'],['finishing','Acabamento'],['delivered','Entregue']] },
-    { name: 'priority',   label: 'Prioridade', def: quote.priority,         opts: [['normal','Normal'],['high','Alta'],['urgent','Urgente']] },
-  ]
-
   return (
     <form onSubmit={handleSubmit}>
       {/* Top bar — igual à visualização */}
@@ -112,26 +105,18 @@ export function EditQuoteFormV2({ quote, users, currentUserId }: any) {
                 onSelect={setSelectedArch} />
             </div>
 
-            <div className="border-t border-surface-border pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <label className="label">Categoria</label>
-                <select name="category" defaultValue={quote.category} className="select mt-1">
-                  {SELECTS[1].opts.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Tamanho</label>
-                <select name="size" defaultValue={quote.size ?? ''} className="select mt-1">
-                  {SELECTS[2].opts.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Prazo</label>
-                <input type="date" name="deadline" defaultValue={quote.deadline ?? ''} className="input mt-1" />
-              </div>
-              <div>
-                <label className="label">Valor orçado (R$)</label>
-                <input type="number" name="quoted_value" step="0.01" min="0" defaultValue={quote.quoted_value ?? ''} className="input mt-1" />
+            <div className="border-t border-surface-border pt-4 space-y-4">
+              <OptionPills name="category" label="Categoria" defaultValue={quote.category} options={CATEGORY_OPTS} />
+              <OptionPills name="size" label="Tamanho" defaultValue={quote.size ?? ''} options={SIZE_OPTS} allowEmpty />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Prazo</label>
+                  <input type="date" name="deadline" defaultValue={quote.deadline ?? ''} className="input mt-1" />
+                </div>
+                <div>
+                  <label className="label">Valor orçado (R$)</label>
+                  <input type="number" name="quoted_value" step="0.01" min="0" defaultValue={quote.quoted_value ?? ''} className="input mt-1" />
+                </div>
               </div>
             </div>
           </div>
@@ -139,15 +124,10 @@ export function EditQuoteFormV2({ quote, users, currentUserId }: any) {
           {/* Detalhes */}
           <div className="card p-5 space-y-4">
             <h2 className="text-sm font-semibold text-gray-700">Detalhes</h2>
-            <div className="grid grid-cols-2 gap-3">
-              {[SELECTS[0], SELECTS[3], SELECTS[4]].map(f => (
-                <div key={f.name}>
-                  <label className="label">{f.label}</label>
-                  <select name={f.name} defaultValue={f.def} className="select mt-1">
-                    {f.opts.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
-              ))}
+            <OptionPills name="origin" label="Origem" defaultValue={quote.origin} options={ORIGIN_OPTS} />
+            <OptionPills name="work_stage" label="Etapa da obra" defaultValue={quote.work_stage ?? ''} options={STAGE_OPTS} allowEmpty />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+              <OptionPills name="priority" label="Prioridade" defaultValue={quote.priority} options={PRIORITY_OPTS} />
               <div>
                 <label className="label">Data do orçamento</label>
                 <input type="date" name="quote_date"
