@@ -19,12 +19,13 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export function ContactSearch({
-  label, required, placeholder, type, initialValue, onSelect
+  label, required, placeholder, type, excludeType, initialValue, onSelect
 }: {
   label: string
   required?: boolean
   placeholder: string
   type?: string
+  excludeType?: string
   initialValue?: { id: string; name: string } | null
   onSelect: (c: any | null) => void
 }) {
@@ -49,7 +50,7 @@ export function ContactSearch({
   async function handleSearch(q: string) {
     setSearch(q)
     if (q.length < 2) { setResults([]); setOpen(false); return }
-    const r = await searchContacts(q, type)
+    const r = await searchContacts(q, type, excludeType)
     setResults(r)
     setOpen(true)
   }

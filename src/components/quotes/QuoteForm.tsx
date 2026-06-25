@@ -28,7 +28,7 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
     quote?.architect_id ? { id: quote.architect_id, name: quote.architect_name } : null
   )
 
-  const currentPrimary = isEdit ? (quote.owners?.find((o: any) => o.role === 'primary')?.user_id ?? null) : currentUserId
+  const currentPrimary = isEdit ? (quote.owners?.find((o: any) => o.role === 'primary')?.user_id ?? null) : null
   const [primaryOwner, setPrimaryOwner] = useState<string | null>(currentPrimary)
   const [collaborators, setCollaborators] = useState<string[]>(
     quote?.owners?.filter((o: any) => o.role === 'collaborator').map((o: any) => o.user_id) ?? []
@@ -116,7 +116,7 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <ContactSearch label="Cliente" required placeholder="Buscar ou criar cliente..."
                 initialValue={isEdit ? { id: quote.client_id, name: quote.client_name } : null} onSelect={setSelectedClient} />
-              <ContactSearch label="Parceiro" placeholder="Buscar ou criar parceiro..." type="architect"
+              <ContactSearch label="Parceiro" placeholder="Buscar ou criar parceiro..." type="architect" excludeType="client"
                 initialValue={quote?.architect_id ? { id: quote.architect_id, name: quote.architect_name } : null}
                 onSelect={setSelectedArch} />
             </div>
@@ -125,27 +125,27 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
               {/* Categoria + Tamanho */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <OptionPills name="category" label="Categoria" defaultValue={quote?.category ?? 'lighting'} options={CATEGORY_OPTS} />
-                <OptionPills name="size" label="Tamanho" defaultValue={quote?.size ?? ''} options={SIZE_OPTS} allowEmpty />
+                <OptionPills name="size" label="Tamanho" defaultValue={quote?.size ?? 'small'} options={SIZE_OPTS} allowEmpty />
               </div>
-              {/* Prazo + Data da solicitação (ambas datas) */}
+              {/* Data da solicitação + Prazo (ambas datas) */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Prazo</label>
-                  <input type="date" name="deadline" defaultValue={quote?.deadline ?? ''} className="input mt-1" />
-                </div>
                 <div>
                   <label className="label">Data da solicitação</label>
                   <input type="date" name="quote_date"
                     defaultValue={quote?.quote_date ?? quote?.created_at?.split('T')[0] ?? today} className="input mt-1" />
                 </div>
+                <div>
+                  <label className="label">Prazo</label>
+                  <input type="date" name="deadline" defaultValue={quote?.deadline ?? ''} className="input mt-1" />
+                </div>
               </div>
-              {/* Valor + Prioridade */}
+              {/* Prioridade + Valor */}
               <div className="grid grid-cols-2 gap-4 items-start">
+                <TagSelect name="priority" label="Prioridade" defaultValue={quote?.priority ?? 'normal'} options={PRIORITY_OPTS} />
                 <div>
                   <label className="label">Valor orçado (R$)</label>
                   <input type="number" name="quoted_value" step="0.01" min="0" defaultValue={quote?.quoted_value ?? ''} className="input mt-1" placeholder="0,00" />
                 </div>
-                <TagSelect name="priority" label="Prioridade" defaultValue={quote?.priority ?? 'normal'} options={PRIORITY_OPTS} />
               </div>
             </div>
           </div>
@@ -155,7 +155,7 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
             <h2 className="text-sm font-semibold text-gray-700">Detalhes</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TagSelect name="origin" label="Origem" defaultValue={quote?.origin ?? 'store'} options={ORIGIN_OPTS} />
-              <TagSelect name="work_stage" label="Etapa da obra" defaultValue={quote?.work_stage ?? ''} options={STAGE_OPTS} placeholder="—" allowEmpty />
+              <TagSelect name="work_stage" label="Etapa da obra" defaultValue={quote?.work_stage ?? 'project'} options={STAGE_OPTS} placeholder="—" allowEmpty />
             </div>
             <div>
               <label className="label">Observações</label>

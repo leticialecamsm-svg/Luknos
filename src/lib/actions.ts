@@ -300,10 +300,11 @@ export async function addActivity(quoteId: string, description: string, type = '
   return { ok: true }
 }
 
-export async function searchContacts(query: string, type?: string) {
+export async function searchContacts(query: string, type?: string, excludeType?: string) {
   const supabase = createClient()
   let q = supabase.from('contacts').select('id, name, phone, type, company').ilike('name', `%${query}%`)
-  if (type) q = q.eq('type', type)
+  if (excludeType) q = q.neq('type', excludeType)
+  else if (type) q = q.eq('type', type)
   const { data } = await q.limit(10)
   return data ?? []
 }
