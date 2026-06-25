@@ -18,7 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   other: 'Outro',
 }
 
-function ContactSearch({
+export function ContactSearch({
   label, required, placeholder, type, initialValue, onSelect
 }: {
   label: string
