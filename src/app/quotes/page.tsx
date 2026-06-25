@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getAllQuotes, getMyQuotes } from '@/lib/actions'
 import { QuotesList } from '@/components/quotes/QuotesList'
+import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export default async function QuotesPage() {
   const supabase = createClient()
@@ -19,7 +20,7 @@ export default async function QuotesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Orçamentos</h1>
-        <a href="/quotes/new" className="btn-primary">+ Novo orçamento</a>
+        <NewQuoteButton className="btn-primary">+ Novo orçamento</NewQuoteButton>
       </div>
       <QuotesList myQuotes={myQuotes} allQuotes={allQuotes} isAdmin={isAdmin} />
     </div>

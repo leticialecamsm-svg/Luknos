@@ -14,7 +14,12 @@ import { cn } from '@/lib/utils'
 import { OptionPills, TagSelect, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS, PRIORITY_OPTS } from './OptionPills'
 
 // Form unificado de criação E edição, no layout da tela de visualização.
-export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users: any[]; currentUserId: string }) {
+export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSuccess }: {
+  quote?: any; users: any[]; currentUserId: string
+  inModal?: boolean
+  onCancel?: () => void
+  onSuccess?: (id?: string) => void
+}) {
   const router = useRouter()
   const toast = useToast()
   const isEdit = !!quote?.id
@@ -72,32 +77,37 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
         const res = await createQuote(payload as any)
         if (res.error) { setError(res.error); toast.error('OCORREU UM ERRO', 'Não foi possível criar.'); return }
         toast.success('TUDO CERTO!', 'Orçamento criado.')
-        router.push(`/quotes/${res.data?.id}`); router.refresh()
+        if (onSuccess) onSuccess(res.data?.id)
+        else { router.push(`/quotes/${res.data?.id}`); router.refresh() }
       }
     })
   }
 
   const today = new Date().toISOString().split('T')[0]
 
+  const cancel = () => { if (onCancel) onCancel(); else router.push(backTo) }
+
   return (
     <form onSubmit={handleSubmit}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={() => router.push(backTo)}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700">
-          <ChevronLeft className="w-4 h-4" /> Orçamentos
-        </button>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => router.push(backTo)} className="btn-secondary text-xs py-1.5">
-            <X className="w-3.5 h-3.5" /> Cancelar
+      {/* Top bar — escondida quando em modal (o modal tem seu próprio cabeçalho) */}
+      {!inModal && (
+        <div className="flex items-center justify-between">
+          <button type="button" onClick={() => router.push(backTo)}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700">
+            <ChevronLeft className="w-4 h-4" /> Orçamentos
           </button>
-          <button type="submit" disabled={pending} className="btn-primary text-xs py-1.5">
-            {pending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {isEdit ? 'Salvar' : 'Criar orçamento'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={cancel} className="btn-secondary text-xs py-1.5">
+              <X className="w-3.5 h-3.5" /> Cancelar
+            </button>
+            <button type="submit" disabled={pending} className="btn-primary text-xs py-1.5">
+              {pending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {isEdit ? 'Salvar' : 'Criar orçamento'}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={cn('mt-4 grid grid-cols-1 gap-4 items-start', isEdit && 'lg:grid-cols-[1fr_320px]')}>
+      <div className={cn('grid grid-cols-1 gap-4 items-start', !inModal && 'mt-4', isEdit && 'lg:grid-cols-[1fr_320px]')}>
         {/* Coluna esquerda */}
         <div className="space-y-4">
           {/* Header card */}
@@ -212,7 +222,7 @@ export function QuoteForm({ quote, users, currentUserId }: { quote?: any; users:
             <button type="submit" disabled={pending} className="btn-primary">
               {pending && <Loader2 className="w-4 h-4 animate-spin" />} {isEdit ? 'Salvar alterações' : 'Criar orçamento'}
             </button>
-            <button type="button" onClick={() => router.push(backTo)} className="btn-secondary">Cancelar</button>
+            <button type="button" onClick={cancel} className="btn-secondary">Cancelar</button>
           </div>
         </div>
 

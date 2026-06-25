@@ -6,13 +6,14 @@ import { Plus, FileText, Users, CheckSquare, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TasksModal } from '@/components/tasks/TasksModal'
 import { NewPartnerModal } from '@/components/partners/NewPartnerModal'
+import { NewQuoteModal } from '@/components/quotes/NewQuoteModal'
 
 export function FloatingActionButton({ currentUserId }: { currentUserId: string }) {
   const [open, setOpen] = useState(false)
-  const [modal, setModal] = useState<'task' | 'partner' | null>(null)
+  const [modal, setModal] = useState<'task' | 'partner' | 'quote' | null>(null)
   const router = useRouter()
 
-  function openModal(m: 'task' | 'partner') {
+  function openModal(m: 'task' | 'partner' | 'quote') {
     setOpen(false)
     setModal(m)
   }
@@ -27,7 +28,7 @@ export function FloatingActionButton({ currentUserId }: { currentUserId: string 
         {open && (
           <div className="flex flex-col items-end gap-2 mb-1">
             <button
-              onClick={() => { setOpen(false); router.push('/quotes/new') }}
+              onClick={() => openModal('quote')}
               className="flex items-center gap-3 px-4 py-2.5 rounded-full text-white text-sm font-medium shadow-lg bg-blue-500 hover:bg-blue-600 transition-all"
             >
               <FileText className="w-4 h-4" />
@@ -80,6 +81,10 @@ export function FloatingActionButton({ currentUserId }: { currentUserId: string 
           currentUserId={currentUserId}
           onClose={() => setModal(null)}
         />
+      )}
+
+      {modal === 'quote' && (
+        <NewQuoteModal onClose={() => setModal(null)} />
       )}
     </>
   )

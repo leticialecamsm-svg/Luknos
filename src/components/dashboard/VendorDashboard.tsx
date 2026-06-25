@@ -9,6 +9,7 @@ import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { WorkingDaysCard } from './WorkingDaysCard'
 import { DashboardAgenda } from './DashboardAgenda'
+import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export function VendorDashboard({
   myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings
@@ -109,9 +110,9 @@ export function VendorDashboard({
         </div>
         <div className="flex items-center gap-3">
           <QuickLinksMenu />
-          <a href="/quotes/new" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+          <NewQuoteButton className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
             + Novo orçamento
-          </a>
+          </NewQuoteButton>
         </div>
       </div>
 

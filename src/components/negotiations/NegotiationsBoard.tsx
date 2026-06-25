@@ -7,6 +7,7 @@ import { formatCurrency, formatDate, isOverdue, cn } from '@/lib/utils'
 import { Search, X, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
+import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 const COLUMNS = [
   { key: 'cold',   label: 'Frio',   accent: '#3B82F6' },
@@ -72,7 +73,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
           <h1 className="text-xl font-semibold text-gray-900">Negociações</h1>
           <p className="text-sm text-gray-400 mt-0.5">Arraste os cards entre as colunas para atualizar a negociação</p>
         </div>
-        <Link href="/quotes/new" className="btn-primary">+ Novo orçamento</Link>
+        <NewQuoteButton className="btn-primary">+ Novo orçamento</NewQuoteButton>
       </div>
 
       {/* KPIs */}
