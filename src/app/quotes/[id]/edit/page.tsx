@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { getQuoteById, getActiveUsers } from '@/lib/actions'
 import { createClient } from '@/lib/supabase/server'
-import { EditQuoteFormV2 } from '@/components/quotes/EditQuoteFormV2'
+import { QuoteForm } from '@/components/quotes/QuoteForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,5 +10,5 @@ export default async function EditQuotePage({ params }: { params: { id: string }
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!quote) notFound()
-  return <EditQuoteFormV2 quote={quote} users={users} currentUserId={user?.id ?? ''} />
+  return <QuoteForm quote={quote} users={users} currentUserId={user?.id ?? ''} />
 }
