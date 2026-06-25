@@ -78,7 +78,7 @@ export function ScheduleNotifier() {
   const unread = notifs.length
 
   return (
-    <div className="fixed top-4 right-4 z-[60]">
+    <div className="fixed top-4 right-4 z-30">
       <button
         onClick={() => setOpen(o => !o)}
         className="relative w-10 h-10 rounded-full bg-white shadow-md border border-surface-border flex items-center justify-center text-gray-600 hover:text-brand-600 transition-colors"
