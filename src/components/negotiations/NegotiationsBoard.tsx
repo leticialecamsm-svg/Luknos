@@ -6,6 +6,7 @@ import { updateTemperature } from '@/lib/actions'
 import { formatCurrency, formatDate, isOverdue, cn } from '@/lib/utils'
 import { Search, X, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 const COLUMNS = [
   { key: 'cold',   label: 'Frio',   accent: '#3B82F6' },
@@ -21,6 +22,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
   const [ownerFilter, setOwnerFilter] = useState<string>('all')
   const [pending, startTransition] = useTransition()
   const [dragging, setDragging] = useState<string | null>(null)
+  const [quoteModal, setQuoteModal] = useState<string | null>(null)
 
   // Lista única de responsáveis para o filtro
   const owners: { id: string; name: string }[] = []
@@ -142,32 +144,34 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
                   </div>
                 )}
                 {cards.map(q => (
-                  <KanbanCard key={q.id} quote={q} accent={col.accent} onDragStart={handleDragStart} isDragging={dragging === q.id} />
+                  <KanbanCard key={q.id} quote={q} accent={col.accent} onDragStart={handleDragStart} isDragging={dragging === q.id} onOpen={() => setQuoteModal(q.id)} />
                 ))}
               </div>
             </div>
           )
         })}
       </div>
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} />}
     </div>
   )
 }
 
-function KanbanCard({ quote: q, accent, onDragStart, isDragging }: {
+function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
   quote: any
   accent: string
   onDragStart: (e: React.DragEvent, id: string) => void
   isDragging: boolean
+  onOpen: () => void
 }) {
   const overdue = isOverdue(q.deadline) && q.status !== 'done'
 
   return (
-    <Link href={`/quotes/${q.id}`}>
       <div
         draggable
         onDragStart={e => onDragStart(e, q.id)}
+        onClick={onOpen}
         className={cn(
-          'group bg-white rounded-xl p-3 border border-gray-100 transition-all cursor-grab active:cursor-grabbing',
+          'group bg-white rounded-xl p-3 border border-gray-100 transition-all cursor-pointer',
           'hover:border-gray-200 hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]',
           isDragging && 'opacity-40'
         )}
@@ -201,6 +205,5 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging }: {
           </div>
         </div>
       </div>
-    </Link>
   )
 }

@@ -8,6 +8,7 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { Search, Plus, Trash2, X, User2, Building2, Pencil, ChevronDown, ChevronLeft, ChevronRight, Phone, Mail, Calendar, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PartnersDashboard, PartnerStats, statsFor } from './PartnersDashboard'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 export const TYPE_LABEL: Record<string, string> = {
   architect: 'Arquiteto',
@@ -232,6 +233,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
   const [loadingComm, setLoadingComm] = useState(false)
   const [openQuotes, setOpenQuotes] = useState<any[] | null>(null)
   const [loadingQuotes, setLoadingQuotes] = useState(false)
+  const [quoteModal, setQuoteModal] = useState<string | null>(null)
 
   const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
@@ -389,7 +391,8 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
                       : { t: 'Negociação', c: 'bg-blue-100 text-blue-700' }
                     const val = isClosed ? (q.final_value ?? q.quoted_value) : q.quoted_value
                     return (
-                      <div key={q.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                      <button key={q.id} type="button" onClick={() => setQuoteModal(q.id)}
+                        className="w-full flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors text-left">
                         <div className="min-w-0 flex items-center gap-2">
                           <span className="text-xs font-semibold text-brand-600">#{q.number}</span>
                           <span className="text-xs text-gray-600 truncate">{q.client_name ?? '—'}</span>
@@ -398,7 +401,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
                         <span className="text-xs font-medium text-gray-700 shrink-0 ml-2">
                           {val != null ? Number(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
                         </span>
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
@@ -463,6 +466,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
           )}
         </div>
       </div>
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} />}
     </div>
   )
 }
