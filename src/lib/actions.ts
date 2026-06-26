@@ -488,8 +488,8 @@ export async function updateQuote(quoteId: string, data: {
     category: 'Categoria', size: 'Tamanho', work_stage: 'Etapa', origin: 'Origem',
     quote_date: 'Data do orçamento', notes: 'Observações', drive_link: 'Pasta Google Drive',
   }
-  const PRIORITY_PT: Record<string, string> = { normal: 'Normal', high: 'Alta', urgent: 'Urgente' }
-  const ORIGIN_PT: Record<string, string> = { store: 'Loja', whatsapp: 'WhatsApp', visit: 'Visita', referral: 'Indicação', other: 'Outro' }
+  const PRIORITY_PT: Record<string, string> = { low: 'Baixa', normal: 'Média', high: 'Alta', urgent: 'Urgente' }
+  const ORIGIN_PT: Record<string, string> = { store: 'Frente de Loja', whatsapp: 'Arquiteto ou parceiro', visit: 'Tráfego Pago', referral: 'Indicação', other: 'Orgânico' }
   const CATEGORY_PT: Record<string, string> = { lighting: 'Iluminação', automation: 'Automação', both: 'Ilum. + Auto.' }
   const SIZE_PT: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
   const STAGE_PT: Record<string, string> = { project: 'Projeto', execution: 'Em execução', finishing: 'Acabamento', delivered: 'Entregue' }

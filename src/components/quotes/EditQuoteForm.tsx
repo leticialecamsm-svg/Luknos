@@ -250,7 +250,7 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
             { name: 'category',   label: 'Categoria', def: quote.category,    opts: [['lighting','Iluminação'],['automation','Automação'],['both','Ilum. + Auto.']] },
             { name: 'size',       label: 'Tamanho',   def: quote.size ?? '',  opts: [['','— selecione —'],['small','Pequeno'],['medium','Médio'],['large','Grande']] },
             { name: 'work_stage', label: 'Etapa',     def: quote.work_stage ?? '', opts: [['','— selecione —'],['project','Projeto'],['execution','Em execução'],['finishing','Acabamento'],['delivered','Entregue']] },
-            { name: 'priority',   label: 'Prioridade',def: quote.priority,    opts: [['normal','Normal'],['high','Alta'],['urgent','Urgente']] },
+            { name: 'priority',   label: 'Prioridade',def: quote.priority,    opts: [['low','Baixa'],['normal','Média'],['high','Alta'],['urgent','Urgente']] },
           ].map(f => (
             <div key={f.name}>
               <label className="label">{f.label}</label>

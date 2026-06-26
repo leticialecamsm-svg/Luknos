@@ -146,7 +146,8 @@ export const STAGE_OPTS: PillOption[] = [
   { value: 'delivered', label: 'Instalação Imediata', emoji: '✅', tone: 'emerald' },
 ]
 export const PRIORITY_OPTS: PillOption[] = [
-  { value: 'normal', label: 'Normal',  emoji: '⚪', tone: 'gray' },
+  { value: 'low',    label: 'Baixa',   emoji: '⚪', tone: 'gray' },
+  { value: 'normal', label: 'Média',   emoji: '🔵', tone: 'blue' },
   { value: 'high',   label: 'Alta',    emoji: '🟠', tone: 'orange' },
   { value: 'urgent', label: 'Urgente', emoji: '🔴', tone: 'red' },
 ]

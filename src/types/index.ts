@@ -6,7 +6,7 @@ export type QuoteOrigin = 'visit' | 'whatsapp' | 'store' | 'referral' | 'other'
 export type QuoteCategory = 'lighting' | 'automation' | 'both'
 export type QuoteSize = 'small' | 'medium' | 'large'
 export type WorkStage = 'project' | 'execution' | 'finishing' | 'delivered'
-export type QuotePriority = 'normal' | 'high' | 'urgent'
+export type QuotePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type QuoteStatus = 'queue' | 'in_progress' | 'review' | 'done'
 export type VisitStatus = 'to_schedule' | 'scheduled' | 'done' | 'not_needed'
 export type NegTemperature = 'cold' | 'warm' | 'hot' | 'closed' | 'lost'
@@ -258,7 +258,8 @@ export const SIZE_LABEL: Record<QuoteSize, string> = {
 }
 
 export const PRIORITY_LABEL: Record<QuotePriority, string> = {
-  normal: 'Normal',
+  low:    'Baixa',
+  normal: 'Média',
   high:   'Alta',
   urgent: 'Urgente',
 }
@@ -316,7 +317,8 @@ export const STATUS_COLOR: Record<QuoteStatus, { bg: string; text: string }> = {
 }
 
 export const PRIORITY_COLOR: Record<QuotePriority, { bg: string; text: string }> = {
-  normal: { bg: 'bg-gray-100',   text: 'text-gray-600' },
+  low:    { bg: 'bg-gray-100',   text: 'text-gray-600' },
+  normal: { bg: 'bg-blue-50',    text: 'text-blue-700' },
   high:   { bg: 'bg-orange-50',  text: 'text-orange-700' },
   urgent: { bg: 'bg-red-50',     text: 'text-red-700' },
 }
