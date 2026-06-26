@@ -1683,3 +1683,50 @@ export async function setMonthlyGoal(userId: string | null, target: number, year
   revalidatePath('/admin')
   return { ok: true }
 }
+
+export async function getQuoteProposals(quoteId: string) {
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('quote_proposals')
+    .select('*')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: true })
+  return data ?? []
+}
+
+export async function createQuoteProposal(quoteId: string, proposal: { value: number; date?: string; info?: string }) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('quote_proposals')
+    .insert({ quote_id: quoteId, ...proposal })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return { data }
+}
+
+export async function deleteQuoteProposal(id: string, quoteId: string) {
+  const supabase = createClient()
+  const { error } = await supabase.from('quote_proposals').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
+}
+
+export async function cancelSale(quoteId: string) {
+  const supabase = createClient()
+  // Reverte temperature para 'hot' (estava em negociação quente antes de fechar)
+  const { error: negErr } = await supabase
+    .from('negotiations')
+    .update({ temperature: 'hot', final_value: null, closed_at: null })
+    .eq('quote_id', quoteId)
+  if (negErr) return { error: negErr.message }
+  const { error: qErr } = await supabase
+    .from('quotes')
+    .update({ status: 'done' })
+    .eq('id', quoteId)
+  if (qErr) return { error: qErr.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
+}

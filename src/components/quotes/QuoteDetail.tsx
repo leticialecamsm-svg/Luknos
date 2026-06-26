@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   updateQuoteStatus, updateTemperature,
-  markAsLost, addActivity
+  markAsLost, addActivity,
+  getQuoteProposals, createQuoteProposal, deleteQuoteProposal, cancelSale
 } from '@/lib/actions'
 import {
   QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR,
@@ -19,7 +20,7 @@ import {
 import {
   ChevronLeft, Flame, CheckCircle2, XCircle,
   Phone, MessageSquare, MapPin, Clock, Loader2,
-  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink, Percent
+  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink, Percent, PlusCircle
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -45,6 +46,17 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
   const [lossReason, setLossReason] = useState('price')
   const [localFinalValue, setLocalFinalValue] = useState<number | null>(quote.final_value ?? null)
   const [localSplits, setLocalSplits] = useState<any[]>(quote.payment_splits ?? [])
+  const [proposals, setProposals] = useState<any[]>([])
+  const [showProposalForm, setShowProposalForm] = useState(false)
+  const [proposalValue, setProposalValue] = useState('')
+  const [proposalDate, setProposalDate] = useState('')
+  const [proposalInfo, setProposalInfo] = useState('')
+  const [savingProposal, setSavingProposal] = useState(false)
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
+
+  useEffect(() => {
+    getQuoteProposals(quote.id).then(setProposals)
+  }, [quote.id])
 
   const statusC = STATUS_COLOR[quote.status as keyof typeof STATUS_COLOR]
   const tempC   = quote.temperature ? TEMPERATURE_COLOR[quote.temperature as keyof typeof TEMPERATURE_COLOR] : null
@@ -165,9 +177,73 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Prazo</p>
             <p className="text-sm font-medium mt-0.5">{formatDate(quote.deadline)}</p>
           </div>
-          <div>
+          <div className="col-span-full sm:col-span-1">
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Valor orçado</p>
-            <p className="text-sm font-medium mt-0.5">{formatCurrency(quote.quoted_value)}</p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <p className="text-sm font-medium">{formatCurrency(quote.quoted_value)}</p>
+              {proposals.map((p, i) => (
+                <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200">
+                  Proposta {i + 1}: {formatCurrency(p.value)}
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowProposalForm(v => !v)}
+                className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                Registrar nova proposta
+              </button>
+            </div>
+            {/* Formulário inline de nova proposta */}
+            {showProposalForm && (
+              <div className="mt-3 p-3 bg-gray-50 rounded-xl border border-surface-border space-y-2">
+                <p className="text-xs font-semibold text-gray-700">Nova proposta</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="label text-[10px]">Valor (R$)</label>
+                    <input type="number" step="0.01" min="0" placeholder="0,00"
+                      value={proposalValue} onChange={e => setProposalValue(e.target.value)}
+                      className="input mt-0.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="label text-[10px]">Data</label>
+                    <input type="date" value={proposalDate} onChange={e => setProposalDate(e.target.value)}
+                      className="input mt-0.5 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="label text-[10px]">Informações</label>
+                  <textarea rows={2} placeholder="Detalhes desta proposta..."
+                    value={proposalInfo} onChange={e => setProposalInfo(e.target.value)}
+                    className="input mt-0.5 text-sm resize-none" />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    disabled={savingProposal || !proposalValue}
+                    onClick={async () => {
+                      setSavingProposal(true)
+                      const res = await createQuoteProposal(quote.id, {
+                        value: Number(proposalValue),
+                        date: proposalDate || undefined,
+                        info: proposalInfo || undefined,
+                      })
+                      if (!res.error) {
+                        const updated = await getQuoteProposals(quote.id)
+                        setProposals(updated)
+                        setProposalValue(''); setProposalDate(''); setProposalInfo('')
+                        setShowProposalForm(false)
+                      }
+                      setSavingProposal(false)
+                    }}
+                    className="btn-primary text-xs py-1.5"
+                  >
+                    {savingProposal ? 'Salvando...' : 'Salvar proposta'}
+                  </button>
+                  <button onClick={() => setShowProposalForm(false)} className="btn-secondary text-xs py-1.5">Cancelar</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -314,6 +390,17 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
                 className="p-1.5 hover:bg-green-100 rounded-lg transition-colors text-green-600" title="Editar pagamento">
                 <Pencil className="w-3.5 h-3.5" />
               </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('Cancelar a venda fechada? Isso irá reverter a negociação para status "Quente".')) return
+                  await cancelSale(quote.id)
+                  router.refresh()
+                }}
+                className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-red-400 hover:text-red-600"
+                title="Cancelar venda"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
             {showEditPayment && (
               <EditPaymentForm
@@ -351,6 +438,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           <CloseSaleForm
             quoteId={quote.id}
             quotedValue={quote.quoted_value ?? null}
+            proposals={proposals}
             onConfirm={() => { setShowCloseSale(false); router.refresh() }}
             onCancel={() => setShowCloseSale(false)}
           />
@@ -391,8 +479,43 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           <span className="text-xs text-gray-400">{showDiscounts ? 'Ocultar' : 'Ver'}</span>
         </button>
         {showDiscounts && (
-          <div className="mt-3">
-            <DiscountTable quotedValue={quote.quoted_value ?? null} />
+          <div className="mt-3 space-y-3">
+            {/* Tabs de propostas */}
+            {proposals.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setSelectedProposalId(null)}
+                  className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                    selectedProposalId === null
+                      ? 'bg-brand-50 text-brand-700 border-brand-300'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                  )}
+                >
+                  Valor orçado
+                </button>
+                {proposals.map((p, i) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedProposalId(p.id)}
+                    className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                      selectedProposalId === p.id
+                        ? 'bg-brand-50 text-brand-700 border-brand-300'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                    )}
+                    title={p.info ?? undefined}
+                  >
+                    Proposta {i + 1} · {formatCurrency(p.value)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <DiscountTable
+              quotedValue={
+                selectedProposalId
+                  ? (proposals.find(p => p.id === selectedProposalId)?.value ?? quote.quoted_value ?? null)
+                  : (quote.quoted_value ?? null)
+              }
+            />
           </div>
         )}
       </div>

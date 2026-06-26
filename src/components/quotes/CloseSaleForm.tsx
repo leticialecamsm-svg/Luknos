@@ -10,11 +10,12 @@ import { PaymentMethodPicker } from './PaymentMethodPicker'
 interface Props {
   quoteId: string
   quotedValue: number | null
+  proposals?: any[]
   onConfirm: () => void
   onCancel: () => void
 }
 
-export function CloseSaleForm({ quoteId, quotedValue, onConfirm, onCancel }: Props) {
+export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCancel }: Props) {
   const [rates, setRates] = useState<PaymentRate[]>(DEFAULT_PAYMENT_RATES)
   const [finalValue, setFinalValue] = useState(quotedValue ? String(quotedValue) : '')
   const [splits, setSplits] = useState<PaymentSplit[]>([{ method_key: 'pix', amount: 0, status: 'paid', date: todayISO() }])
@@ -69,9 +70,46 @@ export function CloseSaleForm({ quoteId, quotedValue, onConfirm, onCancel }: Pro
     })
   }
 
+  const hasProposals = proposals && proposals.length > 0
+
   return (
     <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 space-y-4">
       <h3 className="text-sm font-semibold text-green-800">Fechar venda</h3>
+
+      {/* Seletor de proposta */}
+      {hasProposals && (
+        <div>
+          <label className="label text-[10px] mb-1.5 block">Usar valor de</label>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFinalValue(quotedValue ? String(quotedValue) : '')}
+              className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                finalValue === String(quotedValue)
+                  ? 'bg-green-100 text-green-800 border-green-300'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+              )}
+            >
+              Valor orçado {quotedValue ? `· R$ ${Number(quotedValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+            </button>
+            {proposals!.map((p: any, i: number) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setFinalValue(String(p.value))}
+                className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                  finalValue === String(p.value)
+                    ? 'bg-green-100 text-green-800 border-green-300'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                )}
+                title={p.info ?? undefined}
+              >
+                Proposta {i + 1} · R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Valor final */}
       <div>
