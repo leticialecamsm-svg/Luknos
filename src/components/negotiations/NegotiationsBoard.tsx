@@ -233,10 +233,15 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
               )
             })()}
 
-            {/* Badge rebaixado automaticamente (últimas 48h) */}
+            {/* Badges de movimento de temperatura */}
             {q.last_auto_demoted_at && (Date.now() - new Date(q.last_auto_demoted_at).getTime()) < 48 * 60 * 60 * 1000 && (
               <div className="mt-1 inline-flex items-center gap-1">
                 <span className="text-[10px] text-orange-500 font-medium">⬇ Rebaixado</span>
+              </div>
+            )}
+            {q.last_promoted_at && (Date.now() - new Date(q.last_promoted_at).getTime()) < 24 * 60 * 60 * 1000 && (
+              <div className="mt-1 inline-flex items-center gap-1">
+                <span className="text-[10px] text-green-600 font-medium">⬆ Subiu</span>
               </div>
             )}
 

@@ -16,13 +16,14 @@ async function enrichOwnersAvatars(quotes: any[]) {
 
   const [usersRes, negRes, proposalsRes] = await Promise.all([
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
-    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at, last_promoted_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
   const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
   const tempUpdatedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.temperature_updated_at]))
   const lastAutoDemotedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.last_auto_demoted_at]))
+  const lastPromotedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.last_promoted_at]))
   const proposalCountMap = new Map<string, number>()
   for (const p of (proposalsRes.data ?? [])) {
     proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
@@ -35,6 +36,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
     proposal_count: proposalCountMap.get(q.id) ?? 0,
     temperature_updated_at: tempUpdatedMap.get(q.id) ?? null,
     last_auto_demoted_at: lastAutoDemotedMap.get(q.id) ?? null,
+    last_promoted_at: lastPromotedMap.get(q.id) ?? null,
   }))
 }
 
@@ -176,11 +178,13 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
   return { ok: true }
 }
 
+// Ordem de temperatura para determinar direção da mudança
+const TEMP_ORDER: Record<string, number> = { no_forecast: 0, cold: 1, warm: 2, hot: 3 }
+
 export async function updateTemperature(quoteId: string, temperature: NegTemperature) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Busca temperatura anterior
   const admin = createAdminClient()
   const { data: currentNeg } = await admin
     .from('negotiations')
@@ -189,12 +193,27 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
     .maybeSingle()
   const fromTemp = currentNeg?.temperature ?? null
 
+  // Determina direção: promoveu (subiu) ou rebaixou (desceu)
+  const fromOrder = fromTemp ? (TEMP_ORDER[fromTemp] ?? -1) : -1
+  const toOrder = TEMP_ORDER[temperature] ?? -1
+  const now = new Date().toISOString()
+  const promoted = toOrder > fromOrder
+  const demoted = toOrder < fromOrder
+
+  const negUpdate: Record<string, any> = {
+    quote_id: quoteId,
+    temperature,
+    temperature_updated_at: now,
+    // Limpa o badge oposto ao movimento
+    ...(promoted ? { last_promoted_at: now, last_auto_demoted_at: null } : {}),
+    ...(demoted  ? { last_auto_demoted_at: now, last_promoted_at: null } : {}),
+  }
+
   const { error } = await supabase
     .from('negotiations')
-    .upsert({ quote_id: quoteId, temperature, temperature_updated_at: new Date().toISOString() }, { onConflict: 'quote_id' })
+    .upsert(negUpdate, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
 
-  // Registra histórico
   await admin.from('neg_temperature_history').insert({
     quote_id: quoteId,
     from_temp: fromTemp,

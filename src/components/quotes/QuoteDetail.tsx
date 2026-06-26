@@ -438,7 +438,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         <h2 className="text-sm font-semibold text-gray-700 mb-3">Negociação</h2>
 
         {/* Temperatura */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-2">
           {TEMPS.filter(t => t !== 'closed' && t !== 'lost').map(t => {
             const c = TEMPERATURE_COLOR[t]
             const active = quote.temperature === t
@@ -458,6 +458,22 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
             )
           })}
         </div>
+
+        {/* Badges de movimento */}
+        {(() => {
+          const demotedAt = quote.last_auto_demoted_at ? new Date(quote.last_auto_demoted_at) : null
+          const promotedAt = quote.last_promoted_at ? new Date(quote.last_promoted_at) : null
+          const now = Date.now()
+          const showDemoted = demotedAt && (now - demotedAt.getTime()) < 48 * 60 * 60 * 1000
+          const showPromoted = promotedAt && (now - promotedAt.getTime()) < 24 * 60 * 60 * 1000
+          if (!showDemoted && !showPromoted) return null
+          return (
+            <div className="flex gap-2 mb-3">
+              {showDemoted && <span className="text-xs font-medium text-orange-500 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">⬇ Rebaixado</span>}
+              {showPromoted && <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">⬆ Subiu</span>}
+            </div>
+          )
+        })()}
 
         {/* CTA: fechar ou perder */}
         {quote.temperature !== 'closed' && quote.temperature !== 'lost' && (
