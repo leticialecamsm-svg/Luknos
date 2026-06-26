@@ -20,15 +20,15 @@ export function QuoteQuickViewModal({ quoteId, onClose }: { quoteId: string; onC
   }, [quoteId])
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center p-3 sm:p-4 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-6xl my-4" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-surface-border px-5 py-3 flex items-center justify-between rounded-t-2xl">
-          <h2 className="text-sm font-semibold text-gray-900">
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header fixo */}
+        <div className="shrink-0 bg-white border-b border-surface-border px-5 py-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-900 truncate pr-2">
             {quote ? `Orçamento #${String(quote.number).padStart(3, '0')} · ${quote.client_name}` : 'Orçamento'}
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <a href={`/quotes/${quoteId}`} className="btn-secondary text-xs py-1.5 gap-1.5">
               <ExternalLink className="w-3.5 h-3.5" /> Abrir página
             </a>
@@ -38,8 +38,8 @@ export function QuoteQuickViewModal({ quoteId, onClose }: { quoteId: string; onC
           </div>
         </div>
 
-        {/* Body — mesma tela de orçamento, dentro do modal */}
-        <div className="p-5">
+        {/* Body — rola só o conteúdo */}
+        <div className="flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>
           ) : quote ? (
