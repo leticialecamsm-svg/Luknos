@@ -139,10 +139,10 @@ export const ORIGIN_OPTS: PillOption[] = [
   { value: 'other',    label: 'Outro',     emoji: '•',  tone: 'gray' },
 ]
 export const STAGE_OPTS: PillOption[] = [
-  { value: 'project',   label: 'Projeto',     emoji: '📐', tone: 'blue' },
-  { value: 'execution', label: 'Em execução', emoji: '🚧', tone: 'orange' },
-  { value: 'finishing', label: 'Acabamento',  emoji: '🎨', tone: 'violet' },
-  { value: 'delivered', label: 'Entregue',    emoji: '✅', tone: 'emerald' },
+  { value: 'project',   label: 'Início (Etapa de Terreno)',    emoji: '📐', tone: 'blue' },
+  { value: 'execution', label: 'Pré Acabamentos (Etapa de Construção)', emoji: '🚧', tone: 'orange' },
+  { value: 'finishing', label: 'Fase do Gesso',  emoji: '🎨', tone: 'violet' },
+  { value: 'delivered', label: 'Instalação Imediata', emoji: '✅', tone: 'emerald' },
 ]
 export const PRIORITY_OPTS: PillOption[] = [
   { value: 'normal', label: 'Normal',  emoji: '⚪', tone: 'gray' },
