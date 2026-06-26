@@ -313,6 +313,8 @@ export async function backfillNegotiationTemperatures() {
 }
 
 export async function checkAndDemoteNegotiations() {
+  // Usa cliente autenticado para o UPDATE em negotiations (trigger de activities requer auth.uid())
+  const supabase = createClient()
   const admin = createAdminClient()
   const now = new Date()
 
@@ -345,9 +347,11 @@ export async function checkAndDemoteNegotiations() {
   if (!demotions.length) return { demoted: 0 }
 
   for (const d of demotions) {
-    await admin.from('negotiations')
+    // Cliente autenticado: trigger de activities precisa de auth.uid()
+    await supabase.from('negotiations')
       .update({ temperature: d.to_temp, temperature_updated_at: now.toISOString(), last_auto_demoted_at: now.toISOString() })
       .eq('quote_id', d.quote_id)
+    // Histórico sem trigger, pode usar admin
     await admin.from('neg_temperature_history').insert({
       quote_id: d.quote_id, from_temp: d.from_temp, to_temp: d.to_temp,
       auto_demoted: true, reason: 'auto',

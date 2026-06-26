@@ -73,7 +73,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
     startTransition(async () => { await fn(); router.refresh() })
   }
 
-  const TEMPS = ['cold','warm','hot','closed','lost'] as const
+  const TEMPS = ['no_forecast','cold','warm','hot','closed','lost'] as const
 
   return (
     <div className="max-w-6xl">
