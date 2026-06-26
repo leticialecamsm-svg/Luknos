@@ -7,7 +7,7 @@ import {
   markAsLost, addActivity
 } from '@/lib/actions'
 import {
-  QUOTE_STATUS_LABEL, STATUS_COLOR,
+  QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR,
   TEMPERATURE_LABEL, TEMPERATURE_COLOR,
   CATEGORY_LABEL, SIZE_LABEL, ORIGIN_LABEL,
   LOSS_REASON_LABEL,
@@ -218,28 +218,33 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         })()}
 
         {/* Status actions */}
-        <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-surface-border">
-          <span className="text-xs text-gray-400 self-center">Status:</span>
-          {(['queue','in_progress','review','done'] as const).map(s => (
-            <button
-              key={s}
-              disabled={pending || quote.status === s}
-              onClick={() => act(() => updateQuoteStatus(quote.id, s))}
-              className={cn(
-                'badge cursor-pointer transition-all',
-                quote.status === s
-                  ? cn(STATUS_COLOR[s].bg, STATUS_COLOR[s].text, 'ring-1 ring-current')
-                  : 'bg-surface-secondary text-gray-500 hover:bg-surface-border'
-              )}
-            >
-              {QUOTE_STATUS_LABEL[s]}
-            </button>
-          ))}
+        <div className="mt-4 pt-4 border-t border-surface-border space-y-2">
+          <span className="text-xs text-gray-400">Status:</span>
+          <div className="flex flex-wrap gap-2">
+            {(['queue','in_progress','paused','review','done','revision'] as const).map(s => (
+              <button
+                key={s}
+                disabled={pending || quote.status === s}
+                onClick={() => act(() => updateQuoteStatus(quote.id, s))}
+                title={QUOTE_STATUS_HINT[s]}
+                className={cn(
+                  'badge cursor-pointer transition-all',
+                  quote.status === s
+                    ? cn(STATUS_COLOR[s].bg, STATUS_COLOR[s].text, 'ring-1 ring-current')
+                    : 'bg-surface-secondary text-gray-500 hover:bg-surface-border'
+                )}
+              >
+                {QUOTE_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+          {/* Hint do status atual */}
+          <p className="text-xs text-gray-400 italic">{QUOTE_STATUS_HINT[quote.status as keyof typeof QUOTE_STATUS_HINT]}</p>
         </div>
       </div>
 
-      {/* Negociação + descontos — só aparecem quando o orçamento está concluído */}
-      {quote.status === 'done' && (<>
+      {/* Negociação + descontos — concluído ou elaborando nova versão */}
+      {(quote.status === 'done' || quote.status === 'revision') && (<>
       <div className="card p-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">Negociação</h2>
 

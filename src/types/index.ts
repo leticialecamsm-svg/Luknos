@@ -7,7 +7,7 @@ export type QuoteCategory = 'lighting' | 'automation' | 'both'
 export type QuoteSize = 'small' | 'medium' | 'large'
 export type WorkStage = 'project' | 'execution' | 'finishing' | 'delivered'
 export type QuotePriority = 'low' | 'normal' | 'high' | 'urgent'
-export type QuoteStatus = 'queue' | 'in_progress' | 'review' | 'done'
+export type QuoteStatus = 'queue' | 'in_progress' | 'paused' | 'review' | 'done' | 'revision'
 export type VisitStatus = 'to_schedule' | 'scheduled' | 'done' | 'not_needed'
 export type NegTemperature = 'cold' | 'warm' | 'hot' | 'closed' | 'lost'
 export type PaymentMethod = 'pix' | 'card' | 'cash' | 'invoice' | 'other'
@@ -225,8 +225,19 @@ export interface UserStats {
 export const QUOTE_STATUS_LABEL: Record<QuoteStatus, string> = {
   queue:       'Na fila',
   in_progress: 'Em andamento',
+  paused:      'Pausado',
   review:      'Revisão',
   done:        'Concluído',
+  revision:    'Elaborando nova versão',
+}
+
+export const QUOTE_STATUS_HINT: Record<QuoteStatus, string> = {
+  queue:       'À ser executado em breve',
+  in_progress: 'Sendo realizado',
+  paused:      'Por motivos de dúvidas, interrompido pelo arquiteto, interrupção na obra…',
+  review:      'Sendo revisado por alguém da equipe ou sendo revisado pelo arquiteto',
+  done:        'Orçamento concluído com sucesso!',
+  revision:    'Retomada do orçamento para refazer versão, ou por modificações por parte do cliente/arquiteto, ou por estratégia de negociação',
 }
 
 export const TEMPERATURE_LABEL: Record<NegTemperature, string> = {
@@ -312,8 +323,10 @@ export const TEMPERATURE_COLOR: Record<NegTemperature, { bg: string; text: strin
 export const STATUS_COLOR: Record<QuoteStatus, { bg: string; text: string }> = {
   queue:       { bg: 'bg-blue-50',   text: 'text-blue-700' },
   in_progress: { bg: 'bg-amber-50',  text: 'text-amber-700' },
+  paused:      { bg: 'bg-gray-100',  text: 'text-gray-600' },
   review:      { bg: 'bg-purple-50', text: 'text-purple-700' },
   done:        { bg: 'bg-green-50',  text: 'text-green-700' },
+  revision:    { bg: 'bg-orange-50', text: 'text-orange-700' },
 }
 
 export const PRIORITY_COLOR: Record<QuotePriority, { bg: string; text: string }> = {

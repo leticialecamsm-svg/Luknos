@@ -10,7 +10,7 @@ export default async function NegotiationsPage() {
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
   const all = isAdmin ? await getAllQuotes() : await getMyQuotes()
-  // Só orçamentos concluídos entram na negociação
-  const quotes = all.filter((q: any) => q.status === 'done')
+  // Concluídos + Elaborando nova versão entram na negociação
+  const quotes = all.filter((q: any) => q.status === 'done' || q.status === 'revision')
   return <NegotiationsBoard quotes={quotes} isAdmin={isAdmin} />
 }
