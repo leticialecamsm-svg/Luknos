@@ -255,75 +255,61 @@ export async function recordTemperatureDemotion(
 }
 
 export async function backfillNegotiationTemperatures() {
-  // Corrige temperature_updated_at usando o histórico de activities para negociações existentes
-  // Preenche neg_temperature_history com atividades antigas
+  // Corrige temperature_updated_at de todas as negociações usando o histórico de activities
+  // Busca em lote (2 queries totais) para não sobrecarregar
   const admin = createAdminClient()
 
-  // 1. Busca todas as negociações abertas
-  const { data: negs } = await admin
-    .from('negotiations')
-    .select('quote_id, temperature, created_at')
-    .not('temperature', 'in', '("closed","lost")')
+  const [{ data: negs }, { data: allActs }] = await Promise.all([
+    admin.from('negotiations').select('quote_id, temperature, created_at').not('temperature', 'in', '(closed,lost)'),
+    admin.from('activities').select('quote_id, created_at, user_id, description').like('description', 'Negociação %→%').order('created_at', { ascending: true }),
+  ])
+
   if (!negs?.length) return { updated: 0 }
 
-  let updated = 0
-  for (const neg of negs) {
-    // Busca última atividade de mudança para este status
-    const { data: acts } = await admin
-      .from('activities')
-      .select('created_at, user_id, description')
-      .eq('quote_id', neg.quote_id)
-      .like('description', `%→ ${neg.temperature}`)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    const lastChange = acts?.[0]
-    const newUpdatedAt = lastChange?.created_at ?? neg.created_at ?? new Date().toISOString()
-
-    await admin.from('negotiations')
-      .update({ temperature_updated_at: newUpdatedAt })
-      .eq('quote_id', neg.quote_id)
-
-    // Popula neg_temperature_history com atividades antigas se ainda não existir
-    const { data: allActs } = await admin
-      .from('activities')
-      .select('created_at, user_id, description')
-      .eq('quote_id', neg.quote_id)
-      .like('description', 'Negociação %→%')
-      .order('created_at', { ascending: true })
-
-    for (const act of allActs ?? []) {
-      const parts = act.description.replace('Negociação ', '').split('→')
-      if (parts.length < 2) continue
-      const fromTemp = parts[0].trim()
-      const toTemp = parts[1].trim()
-
-      // Evita duplicatas verificando se já existe entrada próxima
-      const { count } = await admin
-        .from('neg_temperature_history')
-        .select('id', { count: 'exact', head: true })
-        .eq('quote_id', neg.quote_id)
-        .eq('to_temp', toTemp)
-        .gte('created_at', new Date(new Date(act.created_at).getTime() - 5000).toISOString())
-        .lte('created_at', new Date(new Date(act.created_at).getTime() + 5000).toISOString())
-
-      if (!count || count === 0) {
-        await admin.from('neg_temperature_history').insert({
-          quote_id: neg.quote_id,
-          from_temp: fromTemp,
-          to_temp: toTemp,
-          auto_demoted: false,
-          created_at: act.created_at,
-          created_by: act.user_id ?? null,
-        })
-      }
-    }
-
-    updated++
+  // Indexa atividades por quote_id
+  const actsByQuote = new Map<string, typeof allActs>()
+  for (const act of allActs ?? []) {
+    if (!actsByQuote.has(act.quote_id)) actsByQuote.set(act.quote_id, [])
+    actsByQuote.get(act.quote_id)!.push(act)
   }
 
-  revalidatePath('/negotiations')
-  return { updated }
+  const updates: { quote_id: string; temperature_updated_at: string }[] = []
+  const historyInserts: object[] = []
+
+  for (const neg of negs) {
+    const acts = actsByQuote.get(neg.quote_id) ?? []
+
+    // Última atividade que mudou para o status atual
+    const lastChange = [...acts].reverse().find(a => a.description.endsWith(`→ ${neg.temperature}`))
+    const newUpdatedAt = lastChange?.created_at ?? neg.created_at ?? new Date().toISOString()
+    updates.push({ quote_id: neg.quote_id, temperature_updated_at: newUpdatedAt })
+
+    // Prepara inserções no histórico
+    for (const act of acts) {
+      const parts = act.description.replace('Negociação ', '').split('→')
+      if (parts.length < 2) continue
+      historyInserts.push({
+        quote_id: act.quote_id,
+        from_temp: parts[0].trim(),
+        to_temp: parts[1].trim(),
+        auto_demoted: false,
+        created_at: act.created_at,
+        created_by: act.user_id ?? null,
+      })
+    }
+  }
+
+  // Atualiza temperature_updated_at em lote (um por um pois não tem upsert multi-pk aqui)
+  for (const u of updates) {
+    await admin.from('negotiations').update({ temperature_updated_at: u.temperature_updated_at }).eq('quote_id', u.quote_id)
+  }
+
+  // Insere histórico ignorando conflitos (se já existir a coluna de unicidade)
+  if (historyInserts.length) {
+    await admin.from('neg_temperature_history').upsert(historyInserts as any, { ignoreDuplicates: true, onConflict: 'quote_id,created_at' })
+  }
+
+  return { updated: updates.length }
 }
 
 export async function checkAndDemoteNegotiations() {
@@ -333,7 +319,7 @@ export async function checkAndDemoteNegotiations() {
   const { data: negs } = await admin
     .from('negotiations')
     .select('quote_id, temperature, temperature_updated_at')
-    .not('temperature', 'in', '("closed","lost")')
+    .not('temperature', 'in', '(closed,lost)')
 
   if (!negs?.length) return { demoted: 0 }
 
@@ -381,7 +367,7 @@ export async function getCriticalNegotiations() {
     .from('quotes_full')
     .select('id, number, client_name, work_stage, priority, temperature')
     .in('work_stage', ['finishing', 'delivered'])
-    .not('temperature', 'in', '("closed","lost")')
+    .not('temperature', 'in', '(closed,lost)')
     .in('temperature', ['no_forecast', 'cold', 'warm'])
   return data ?? []
 }
