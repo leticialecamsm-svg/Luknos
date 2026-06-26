@@ -310,6 +310,9 @@ export function AdminPanel({ users, goals }: Props) {
       )}
       {/* ── ABA: TAXAS ─────────────────────────────────────── */}
       {activeTab === 'rates' && <PaymentRatesPanel />}
+
+      {/* ── AÇÕES DE MANUTENÇÃO ────────────────────────────── */}
+      <NegotiationMaintenancePanel />
     </div>
   )
 }
@@ -557,3 +560,47 @@ function GoalInput({ defaultValue, onSave }: { defaultValue: number; onSave: (v:
     </button>
   )
 }
+
+function NegotiationMaintenancePanel() {
+  const toast = useToast()
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
+  async function handleBackfillAndCheck() {
+    setRunning(true)
+    setResult(null)
+    try {
+      const { backfillNegotiationTemperatures, checkAndDemoteNegotiations } = await import('@/lib/actions')
+      const backfill = await backfillNegotiationTemperatures()
+      const check = await checkAndDemoteNegotiations()
+      const msg = `Histórico corrigido para ${backfill.updated} negociações. ${check.demoted} rebaixamento(s) automático(s) realizado(s).`
+      setResult(msg)
+      toast.success('CONCLUÍDO', msg)
+    } catch (e: any) {
+      toast.error('ERRO', e?.message ?? 'Erro desconhecido')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t border-surface-border pt-5">
+      <h3 className="text-sm font-semibold text-gray-700 mb-1">Manutenção — Negociações</h3>
+      <p className="text-xs text-gray-400 mb-3">
+        Corrige o contador de dias em cada negociação com base no histórico de atividades e processa rebaixamentos automáticos pendentes.
+      </p>
+      <button
+        onClick={handleBackfillAndCheck}
+        disabled={running}
+        className="btn-secondary text-sm py-2 flex items-center gap-2"
+      >
+        {running && <Loader2 className="w-4 h-4 animate-spin" />}
+        {running ? 'Processando...' : '🔄 Corrigir histórico e verificar rebaixamentos'}
+      </button>
+      {result && (
+        <p className="mt-2 text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">{result}</p>
+      )}
+    </div>
+  )
+}
+
