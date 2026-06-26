@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getAllQuotes, getMyQuotes, checkAndDemoteNegotiations, backfillNegotiationTemperatures } from '@/lib/actions'
+import { getAllQuotes, getMyQuotes, checkAndDemoteNegotiations } from '@/lib/actions'
 import { NegotiationsBoard } from '@/components/negotiations/NegotiationsBoard'
 
 export default async function NegotiationsPage() {
@@ -9,8 +9,7 @@ export default async function NegotiationsPage() {
   if (!user) redirect('/auth/login')
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
-  // Corrige timestamps históricos (usa activities como fonte de verdade) + rebaixa se necessário
-  await backfillNegotiationTemperatures()
+  // Rebaixa negociações que passaram do limite de tempo no status atual
   await checkAndDemoteNegotiations()
   const all = isAdmin ? await getAllQuotes() : await getMyQuotes()
   // Concluídos + Elaborando nova versão entram na negociação
