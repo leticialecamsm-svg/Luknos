@@ -27,6 +27,7 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
+import { NegotiationTracker } from '@/components/negotiations/NegotiationTracker'
 import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS } from './OptionPills'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
@@ -754,6 +755,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
 
       {/* Coluna direita: Tarefas + Agendamentos + Arquivos */}
       <div className="sticky top-4 space-y-4">
+        <NegotiationTracker quoteId={quote.id} temperature={quote.temperature} />
         <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
         <QuoteSchedules quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
         {quote.drive_link && (

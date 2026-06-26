@@ -10,6 +10,7 @@ import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 const COLUMNS = [
+  { key: 'no_forecast', label: 'Sem previsão', accent: '#94A3B8' },
   { key: 'cold',   label: 'Frio',   accent: '#3B82F6' },
   { key: 'warm',   label: 'Morno',  accent: '#F59E0B' },
   { key: 'hot',    label: 'Quente', accent: '#EF4444' },
@@ -112,7 +113,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
       </div>
 
       {/* Kanban */}
-      <div className="grid grid-cols-5 gap-3 min-h-[600px]">
+      <div className="grid grid-cols-6 gap-3 min-h-[600px]">
         {COLUMNS.map(col => {
           const cards = getColumn(col.key)
           const colValue = cards.reduce((s, q) => s + (q.final_value ?? q.quoted_value ?? 0), 0)
@@ -203,6 +204,41 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
                 </span>
               )}
             </div>
+
+            {/* Barra de urgência por tempo na temperatura */}
+            {(() => {
+              const LIMITS: Record<string, number> = { hot: 2, warm: 10, cold: 20 }
+              const daysInTemp = q.temperature_updated_at
+                ? Math.floor((Date.now() - new Date(q.temperature_updated_at).getTime()) / 86400000)
+                : null
+              const limit = LIMITS[q.temperature ?? '']
+              const urgencyPct = limit && daysInTemp !== null ? daysInTemp / limit : 0
+              if (daysInTemp === null || !limit) return null
+              return (
+                <div className="flex items-center gap-1 mt-1.5">
+                  <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-all',
+                        urgencyPct >= 1 ? 'bg-red-500' : urgencyPct >= 0.7 ? 'bg-orange-400' : 'bg-green-400'
+                      )}
+                      style={{ width: `${Math.min(urgencyPct * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span className={cn('text-[10px] font-medium shrink-0',
+                    urgencyPct >= 1 ? 'text-red-500' : 'text-gray-400'
+                  )}>
+                    {daysInTemp}d/{limit}d
+                  </span>
+                </div>
+              )
+            })()}
+
+            {/* Badge rebaixado automaticamente (últimas 48h) */}
+            {q.last_auto_demoted_at && (Date.now() - new Date(q.last_auto_demoted_at).getTime()) < 48 * 60 * 60 * 1000 && (
+              <div className="mt-1 inline-flex items-center gap-1">
+                <span className="text-[10px] text-orange-500 font-medium">⬇ Rebaixado</span>
+              </div>
+            )}
 
             {q.priority === 'urgent' && (
               <div className="mt-1.5 inline-flex items-center gap-1">

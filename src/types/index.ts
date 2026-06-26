@@ -9,7 +9,7 @@ export type WorkStage = 'project' | 'execution' | 'finishing' | 'delivered'
 export type QuotePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type QuoteStatus = 'queue' | 'in_progress' | 'paused' | 'review' | 'done' | 'revision'
 export type VisitStatus = 'to_schedule' | 'scheduled' | 'done' | 'not_needed'
-export type NegTemperature = 'cold' | 'warm' | 'hot' | 'closed' | 'lost'
+export type NegTemperature = 'cold' | 'warm' | 'hot' | 'closed' | 'lost' | 'no_forecast'
 export type PaymentMethod = 'pix' | 'card' | 'cash' | 'invoice' | 'other'
 export type LossReason = 'price' | 'competition' | 'gave_up' | 'no_reply' | 'other'
 export type ActivityType = 'note' | 'call' | 'whatsapp' | 'visit' | 'status_change' | 'temperature_change' | 'owner_added' | 'value_updated'
@@ -204,6 +204,7 @@ export interface DashboardStats {
 }
 
 export interface FunnelByTemp {
+  no_forecast?: { count: number; value: number }
   cold:   { count: number; value: number }
   warm:   { count: number; value: number }
   hot:    { count: number; value: number }
@@ -241,11 +242,26 @@ export const QUOTE_STATUS_HINT: Record<QuoteStatus, string> = {
 }
 
 export const TEMPERATURE_LABEL: Record<NegTemperature, string> = {
+  no_forecast: 'Sem previsão',
   cold:   'Frio',
   warm:   'Morno',
   hot:    'Quente',
   closed: 'Venda fechada',
   lost:   'Perdida',
+}
+
+// Limites de dias por temperatura antes do rebaixamento automático
+export const TEMP_DEMOTION_DAYS: Partial<Record<NegTemperature, number>> = {
+  hot: 2,
+  warm: 10,
+  cold: 20,
+}
+
+// Ordem de rebaixamento
+export const TEMP_DEMOTION_ORDER: Record<string, string> = {
+  hot: 'warm',
+  warm: 'cold',
+  cold: 'no_forecast',
 }
 
 export const ORIGIN_LABEL: Record<QuoteOrigin, string> = {
@@ -313,6 +329,7 @@ export const SHIPMENT_DELIVERY_TYPE_LABEL: Record<ShipmentDeliveryType, string> 
 // ── Cores por temperatura ─────────────────────────────────────
 
 export const TEMPERATURE_COLOR: Record<NegTemperature, { bg: string; text: string; border: string }> = {
+  no_forecast: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-200' },
   cold:   { bg: 'bg-blue-50',   text: 'text-blue-800',  border: 'border-blue-200' },
   warm:   { bg: 'bg-amber-50',  text: 'text-amber-800', border: 'border-amber-200' },
   hot:    { bg: 'bg-red-50',    text: 'text-red-800',   border: 'border-red-200' },

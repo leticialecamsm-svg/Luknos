@@ -20,6 +20,7 @@ export function AdminDashboardV2({
   salesByUser,
   goalsByUser,
   earnings,
+  criticalNegotiations = [],
 }: {
   quotes: any[]
   users: any[]
@@ -29,6 +30,7 @@ export function AdminDashboardV2({
   salesByUser?: Record<string, number>
   goalsByUser?: Record<string, number>
   earnings?: Record<string, any>
+  criticalNegotiations?: any[]
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -294,6 +296,35 @@ export function AdminDashboardV2({
 
       {/* Sugestões do dia */}
       <SalesSuggestions quotes={quotes} />
+
+      {/* Pontos de atenção: negociações críticas */}
+      {criticalNegotiations.length > 0 && (
+        <div className="bg-white rounded-lg border border-orange-200 overflow-hidden">
+          <div className="border-b border-orange-100 px-4 py-3 flex items-center gap-2">
+            <span className="text-base">⚠️</span>
+            <h2 className="text-sm font-semibold text-orange-800">Pontos de atenção</h2>
+            <span className="ml-auto text-xs text-orange-500 font-medium bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">{criticalNegotiations.length}</span>
+          </div>
+          <div className="p-3 space-y-2">
+            <p className="text-xs text-gray-400 mb-2">Orçamentos em etapa crítica (Fase do Gesso / Instalação Imediata) com temperatura morna, fria ou sem previsão.</p>
+            {criticalNegotiations.map((q: any) => (
+              <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-orange-50 transition-colors border border-gray-100">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">#{String(q.number).padStart(3,'0')} · {q.client_name}</p>
+                  <p className="text-xs text-gray-400">{q.work_stage === 'finishing' ? 'Fase do Gesso' : 'Instalação Imediata'}</p>
+                </div>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  q.temperature === 'no_forecast' ? 'bg-slate-100 text-slate-600' :
+                  q.temperature === 'cold' ? 'bg-blue-50 text-blue-700' :
+                  'bg-amber-50 text-amber-700'
+                }`}>
+                  {q.temperature === 'no_forecast' ? 'Sem previsão' : q.temperature === 'cold' ? 'Frio' : 'Morno'}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Grid 3 colunas: Gráfico + Ranking + Funil/Visitas */}
       <div className="grid grid-cols-3 gap-4">

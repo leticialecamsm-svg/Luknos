@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getAllQuotes, getMyQuotes } from '@/lib/actions'
+import { getAllQuotes, getMyQuotes, checkAndDemoteNegotiations } from '@/lib/actions'
 import { NegotiationsBoard } from '@/components/negotiations/NegotiationsBoard'
 
 export default async function NegotiationsPage() {
@@ -9,6 +9,8 @@ export default async function NegotiationsPage() {
   if (!user) redirect('/auth/login')
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
+  // Checa e rebaixa negociações automaticamente antes de carregar
+  await checkAndDemoteNegotiations()
   const all = isAdmin ? await getAllQuotes() : await getMyQuotes()
   // Concluídos + Elaborando nova versão entram na negociação
   const quotes = all.filter((q: any) => q.status === 'done' || q.status === 'revision')

@@ -16,11 +16,13 @@ async function enrichOwnersAvatars(quotes: any[]) {
 
   const [usersRes, negRes, proposalsRes] = await Promise.all([
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
-    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
   const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+  const tempUpdatedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.temperature_updated_at]))
+  const lastAutoDemotedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.last_auto_demoted_at]))
   const proposalCountMap = new Map<string, number>()
   for (const p of (proposalsRes.data ?? [])) {
     proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
@@ -31,6 +33,8 @@ async function enrichOwnersAvatars(quotes: any[]) {
     owners: (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: avatarMap.get(o.user_id) ?? null })),
     payment_splits: splitsMap.get(q.id) ?? [],
     proposal_count: proposalCountMap.get(q.id) ?? 0,
+    temperature_updated_at: tempUpdatedMap.get(q.id) ?? null,
+    last_auto_demoted_at: lastAutoDemotedMap.get(q.id) ?? null,
   }))
 }
 
@@ -174,13 +178,140 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus) {
 
 export async function updateTemperature(quoteId: string, temperature: NegTemperature) {
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Busca temperatura anterior
+  const admin = createAdminClient()
+  const { data: currentNeg } = await admin
+    .from('negotiations')
+    .select('temperature')
+    .eq('quote_id', quoteId)
+    .maybeSingle()
+  const fromTemp = currentNeg?.temperature ?? null
+
   const { error } = await supabase
     .from('negotiations')
-    .upsert({ quote_id: quoteId, temperature }, { onConflict: 'quote_id' })
+    .upsert({ quote_id: quoteId, temperature, temperature_updated_at: new Date().toISOString() }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
+
+  // Registra histórico
+  await admin.from('neg_temperature_history').insert({
+    quote_id: quoteId,
+    from_temp: fromTemp,
+    to_temp: temperature,
+    auto_demoted: false,
+    created_by: user?.id ?? null,
+  })
+
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
+  revalidatePath('/negotiations')
   return { ok: true }
+}
+
+export async function getNegotiationHistory(quoteId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('neg_temperature_history')
+    .select('*')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  return data ?? []
+}
+
+export async function getNegotiationTemperatureInfo(quoteId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('negotiations')
+    .select('temperature, temperature_updated_at')
+    .eq('quote_id', quoteId)
+    .maybeSingle()
+  return data ?? null
+}
+
+export async function recordTemperatureDemotion(
+  quoteId: string,
+  fromTemp: string,
+  toTemp: string,
+  reason?: string,
+  reasonText?: string
+) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error } = await supabase.from('negotiations')
+    .update({ temperature: toTemp, temperature_updated_at: new Date().toISOString() })
+    .eq('quote_id', quoteId)
+  if (error) return { error: error.message }
+  const admin = createAdminClient()
+  await admin.from('neg_temperature_history').insert({
+    quote_id: quoteId, from_temp: fromTemp, to_temp: toTemp,
+    auto_demoted: false, reason: reason ?? null, reason_text: reasonText ?? null,
+    created_by: user?.id ?? null,
+  })
+  revalidatePath(`/quotes/${quoteId}`)
+  revalidatePath('/negotiations')
+  return {}
+}
+
+export async function checkAndDemoteNegotiations() {
+  const admin = createAdminClient()
+  const now = new Date()
+
+  const { data: negs } = await admin
+    .from('negotiations')
+    .select('quote_id, temperature, temperature_updated_at')
+    .not('temperature', 'in', '("closed","lost")')
+
+  if (!negs?.length) return { demoted: 0 }
+
+  const LIMITS: Record<string, number> = { hot: 2, warm: 10, cold: 20 }
+  const NEXT: Record<string, string> = { hot: 'warm', warm: 'cold', cold: 'no_forecast' }
+
+  const demotions: { quote_id: string; from_temp: string; to_temp: string }[] = []
+
+  for (const neg of negs) {
+    const limit = LIMITS[neg.temperature]
+    if (!limit) continue
+    const updatedAt = neg.temperature_updated_at ? new Date(neg.temperature_updated_at) : null
+    if (!updatedAt) continue
+    const daysDiff = (now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24)
+    if (daysDiff >= limit) {
+      const nextTemp = NEXT[neg.temperature]
+      if (nextTemp) {
+        demotions.push({ quote_id: neg.quote_id, from_temp: neg.temperature, to_temp: nextTemp })
+      }
+    }
+  }
+
+  if (!demotions.length) return { demoted: 0 }
+
+  for (const d of demotions) {
+    await admin.from('negotiations')
+      .update({ temperature: d.to_temp, temperature_updated_at: now.toISOString(), last_auto_demoted_at: now.toISOString() })
+      .eq('quote_id', d.quote_id)
+    await admin.from('neg_temperature_history').insert({
+      quote_id: d.quote_id, from_temp: d.from_temp, to_temp: d.to_temp,
+      auto_demoted: true, reason: 'auto',
+      created_at: now.toISOString(),
+    })
+  }
+
+  revalidatePath('/negotiations')
+  revalidatePath('/dashboard')
+
+  return { demoted: demotions.length, demotions }
+}
+
+export async function getCriticalNegotiations() {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quotes_full')
+    .select('id, number, client_name, work_stage, priority, temperature')
+    .in('work_stage', ['finishing', 'delivered'])
+    .not('temperature', 'in', '("closed","lost")')
+    .in('temperature', ['no_forecast', 'cold', 'warm'])
+  return data ?? []
 }
 
 export async function getPaymentRates() {
