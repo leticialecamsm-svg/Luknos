@@ -18,6 +18,8 @@ interface Props {
 export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCancel }: Props) {
   const [rates, setRates] = useState<PaymentRate[]>(DEFAULT_PAYMENT_RATES)
   const [finalValue, setFinalValue] = useState(quotedValue ? String(quotedValue) : '')
+  // baseValue = valor de referência para desconto (muda ao selecionar proposta)
+  const [baseValue, setBaseValue] = useState<number | null>(quotedValue)
   const [splits, setSplits] = useState<PaymentSplit[]>([{ method_key: 'pix', amount: 0, status: 'paid', date: todayISO() }])
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -39,8 +41,8 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
   const fv = parseFloat(finalValue) || 0
   const splitsValid = splits.length === 1 || Math.abs(totalSplits - fv) < 0.01
   const maxDisc = calcWeightedMaxDiscount(splits.filter(s => s.amount > 0), rates)
-  const minPrice = fv > 0 ? fv * (1 - maxDisc / 100) : null
-  const actualDiscount = quotedValue && fv > 0 ? ((quotedValue - fv) / quotedValue) * 100 : null
+  const minPrice = baseValue && fv > 0 ? baseValue * (1 - maxDisc / 100) : null
+  const actualDiscount = baseValue && fv > 0 ? ((baseValue - fv) / baseValue) * 100 : null
   const overDiscount = actualDiscount !== null && actualDiscount > maxDisc + 0.001
 
   const addSplit = () => {
@@ -83,28 +85,28 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => setFinalValue(quotedValue ? String(quotedValue) : '')}
+              onClick={() => { setFinalValue(quotedValue ? String(quotedValue) : ''); setBaseValue(quotedValue) }}
               className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                finalValue === String(quotedValue)
+                baseValue === quotedValue
                   ? 'bg-green-100 text-green-800 border-green-300'
                   : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
               )}
             >
-              Valor orçado {quotedValue ? `· R$ ${Number(quotedValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+              Proposta 1 (orçado) {quotedValue ? `· R$ ${Number(quotedValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
             </button>
             {proposals!.map((p: any, i: number) => (
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setFinalValue(String(p.value))}
+                onClick={() => { setFinalValue(String(p.value)); setBaseValue(Number(p.value)) }}
                 className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                  finalValue === String(p.value)
+                  baseValue === Number(p.value) && finalValue === String(p.value)
                     ? 'bg-green-100 text-green-800 border-green-300'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
                 )}
                 title={p.info ?? undefined}
               >
-                Proposta {i + 1} · R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                Proposta {i + 2} · R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </button>
             ))}
           </div>
@@ -121,12 +123,12 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
           className="input mt-1"
           placeholder="0,00"
         />
-        {quotedValue && fv > 0 && (
+        {baseValue && fv > 0 && (
           <p className={cn('text-xs mt-1', overDiscount ? 'text-red-600 font-semibold' : 'text-gray-400')}>
             {actualDiscount !== null && actualDiscount > 0
-              ? `${formatPct(actualDiscount)} de desconto sobre o orçado`
+              ? `${formatPct(actualDiscount)} de desconto sobre a proposta`
               : actualDiscount !== null && actualDiscount < 0
-              ? `${formatPct(Math.abs(actualDiscount))} acima do orçado`
+              ? `${formatPct(Math.abs(actualDiscount))} acima da proposta`
               : 'Sem desconto'}
             {overDiscount && ' · ⚠️ acima do máximo permitido'}
           </p>
@@ -226,9 +228,9 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
           <div className="flex items-start gap-2">
             {overDiscount && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
             <div className="text-xs space-y-0.5">
-              {quotedValue && (
+              {baseValue && (
                 <p className="text-gray-500">
-                  Preço sugerido: <strong>R$ {quotedValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                  Preço sugerido: <strong>R$ {baseValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
                 </p>
               )}
               <p className={overDiscount ? 'text-red-700 font-semibold' : 'text-gray-700'}>

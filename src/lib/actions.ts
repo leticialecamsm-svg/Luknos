@@ -1719,12 +1719,12 @@ export async function cancelSale(quoteId: string) {
   // Reverte temperature para 'hot' (estava em negociação quente antes de fechar)
   const { error: negErr } = await supabase
     .from('negotiations')
-    .update({ temperature: 'hot', final_value: null, closed_at: null })
+    .update({ temperature: 'hot', final_value: null, closed_at: null, payment_splits: [], payment_method: null })
     .eq('quote_id', quoteId)
   if (negErr) return { error: negErr.message }
   const { error: qErr } = await supabase
     .from('quotes')
-    .update({ status: 'done' })
+    .update({ status: 'in_progress' })
     .eq('id', quoteId)
   if (qErr) return { error: qErr.message }
   revalidatePath(`/quotes/${quoteId}`)

@@ -177,74 +177,85 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Prazo</p>
             <p className="text-sm font-medium mt-0.5">{formatDate(quote.deadline)}</p>
           </div>
-          <div className="col-span-full sm:col-span-1">
+          <div>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Valor orçado</p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <p className="text-sm font-medium">{formatCurrency(quote.quoted_value)}</p>
+            <p className="text-sm font-medium mt-0.5">{formatCurrency(quote.quoted_value)}</p>
+          </div>
+        </div>
+
+        {/* Propostas registradas + botão nova proposta */}
+        <div className="mt-3 pt-3 border-t border-surface-border space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-gray-400">Propostas:</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                Proposta 1 (orçado): {formatCurrency(quote.quoted_value)}
+              </span>
               {proposals.map((p, i) => (
-                <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200">
-                  Proposta {i + 1}: {formatCurrency(p.value)}
+                <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200" title={p.info ?? undefined}>
+                  Proposta {i + 2}: {formatCurrency(p.value)}
+                  {p.date && <span className="text-brand-400"> · {p.date}</span>}
                 </span>
               ))}
-              <button
-                type="button"
-                onClick={() => setShowProposalForm(v => !v)}
-                className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                Registrar nova proposta
-              </button>
             </div>
-            {/* Formulário inline de nova proposta */}
-            {showProposalForm && (
-              <div className="mt-3 p-3 bg-gray-50 rounded-xl border border-surface-border space-y-2">
-                <p className="text-xs font-semibold text-gray-700">Nova proposta</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="label text-[10px]">Valor (R$)</label>
-                    <input type="number" step="0.01" min="0" placeholder="0,00"
-                      value={proposalValue} onChange={e => setProposalValue(e.target.value)}
-                      className="input mt-0.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="label text-[10px]">Data</label>
-                    <input type="date" value={proposalDate} onChange={e => setProposalDate(e.target.value)}
-                      className="input mt-0.5 text-sm" />
-                  </div>
+            <button
+              type="button"
+              onClick={() => setShowProposalForm(v => !v)}
+              className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium shrink-0"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Nova proposta
+            </button>
+          </div>
+
+          {showProposalForm && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
+              <p className="text-sm font-semibold text-blue-800">Proposta {proposals.length + 2}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Valor (R$) *</label>
+                  <input type="number" step="0.01" min="0" placeholder="0,00"
+                    value={proposalValue} onChange={e => setProposalValue(e.target.value)}
+                    className="input mt-1" />
                 </div>
                 <div>
-                  <label className="label text-[10px]">Informações</label>
-                  <textarea rows={2} placeholder="Detalhes desta proposta..."
-                    value={proposalInfo} onChange={e => setProposalInfo(e.target.value)}
-                    className="input mt-0.5 text-sm resize-none" />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    disabled={savingProposal || !proposalValue}
-                    onClick={async () => {
-                      setSavingProposal(true)
-                      const res = await createQuoteProposal(quote.id, {
-                        value: Number(proposalValue),
-                        date: proposalDate || undefined,
-                        info: proposalInfo || undefined,
-                      })
-                      if (!res.error) {
-                        const updated = await getQuoteProposals(quote.id)
-                        setProposals(updated)
-                        setProposalValue(''); setProposalDate(''); setProposalInfo('')
-                        setShowProposalForm(false)
-                      }
-                      setSavingProposal(false)
-                    }}
-                    className="btn-primary text-xs py-1.5"
-                  >
-                    {savingProposal ? 'Salvando...' : 'Salvar proposta'}
-                  </button>
-                  <button onClick={() => setShowProposalForm(false)} className="btn-secondary text-xs py-1.5">Cancelar</button>
+                  <label className="label">Data</label>
+                  <input type="date" value={proposalDate} onChange={e => setProposalDate(e.target.value)}
+                    className="input mt-1" />
                 </div>
               </div>
-            )}
-          </div>
+              <div>
+                <label className="label">Informações</label>
+                <textarea rows={2} placeholder="Detalhes desta proposta, justificativa de valor..."
+                  value={proposalInfo} onChange={e => setProposalInfo(e.target.value)}
+                  className="input mt-1 resize-none" />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  disabled={savingProposal || !proposalValue}
+                  onClick={async () => {
+                    setSavingProposal(true)
+                    const res = await createQuoteProposal(quote.id, {
+                      value: Number(proposalValue),
+                      date: proposalDate || undefined,
+                      info: proposalInfo || undefined,
+                    })
+                    if (!res.error) {
+                      const updated = await getQuoteProposals(quote.id)
+                      setProposals(updated)
+                      setProposalValue(''); setProposalDate(''); setProposalInfo('')
+                      setShowProposalForm(false)
+                    }
+                    setSavingProposal(false)
+                  }}
+                  className="btn-primary text-xs py-1.5"
+                >
+                  {savingProposal ? 'Salvando...' : 'Salvar proposta'}
+                </button>
+                <button onClick={() => setShowProposalForm(false)} className="btn-secondary text-xs py-1.5">Cancelar</button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Datas e tempo */}
@@ -491,7 +502,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
                       : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
                   )}
                 >
-                  Valor orçado
+                  Proposta 1 (orçado) · {formatCurrency(quote.quoted_value)}
                 </button>
                 {proposals.map((p, i) => (
                   <button
@@ -504,7 +515,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
                     )}
                     title={p.info ?? undefined}
                   >
-                    Proposta {i + 1} · {formatCurrency(p.value)}
+                    Proposta {i + 2} · {formatCurrency(p.value)}
                   </button>
                 ))}
               </div>
