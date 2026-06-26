@@ -147,7 +147,15 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           </div>
           <div>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Origem</p>
-            <div className="mt-1"><OptionTag options={ORIGIN_OPTS} value={quote.origin} /></div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <OptionTag options={ORIGIN_OPTS} value={quote.origin} />
+              {quote.origin === 'visit' && quote.paid_traffic_type === 'final_client' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-red-50 text-red-700 border-red-200">Cliente Final</span>
+              )}
+              {quote.origin === 'visit' && quote.paid_traffic_type === 'new_partner' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-red-50 text-red-700 border-red-200">Novo Parceiro</span>
+              )}
+            </div>
           </div>
           <div>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Etapa da obra</p>

@@ -52,13 +52,14 @@ export function OptionPills({ name, label, defaultValue, options, allowEmpty }: 
 }
 
 // Dropdown com a opção selecionada e a lista exibidas como TAGS coloridas
-export function TagSelect({ name, label, defaultValue, options, placeholder, allowEmpty }: {
+export function TagSelect({ name, label, defaultValue, options, placeholder, allowEmpty, onChange }: {
   name: string
   label?: string
   defaultValue?: string
   options: PillOption[]
   placeholder?: string
   allowEmpty?: boolean
+  onChange?: (value: string) => void
 }) {
   const [val, setVal] = useState(defaultValue ?? '')
   const [open, setOpen] = useState(false)
@@ -96,7 +97,7 @@ export function TagSelect({ name, label, defaultValue, options, placeholder, all
               className="w-full text-left px-2 py-1.5 rounded-md text-xs text-gray-400 hover:bg-surface">— nenhum —</button>
           )}
           {options.map(o => (
-            <button key={o.value} type="button" onClick={() => { setVal(o.value); setOpen(false) }}
+            <button key={o.value} type="button" onClick={() => { setVal(o.value); setOpen(false); onChange?.(o.value) }}
               className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-surface">
               <Tag o={o} />
               {val === o.value && <Check className="w-3.5 h-3.5 text-brand-500" />}
@@ -132,11 +133,11 @@ export const SIZE_OPTS: PillOption[] = [
   { value: 'large',  label: 'Grande',  emoji: '🟦', tone: 'violet' },
 ]
 export const ORIGIN_OPTS: PillOption[] = [
-  { value: 'store',    label: 'Loja',      emoji: '🏬', tone: 'teal' },
-  { value: 'whatsapp', label: 'WhatsApp',  emoji: '💬', tone: 'emerald' },
-  { value: 'visit',    label: 'Visita',    emoji: '📍', tone: 'red' },
-  { value: 'referral', label: 'Indicação', emoji: '🤝', tone: 'amber' },
-  { value: 'other',    label: 'Outro',     emoji: '•',  tone: 'gray' },
+  { value: 'store',    label: 'Frente de Loja',         emoji: '🏬', tone: 'teal' },
+  { value: 'whatsapp', label: 'Arquiteto ou parceiro', emoji: '💬', tone: 'emerald' },
+  { value: 'visit',    label: 'Tráfego Pago',          emoji: '📍', tone: 'red' },
+  { value: 'referral', label: 'Indicação',              emoji: '🤝', tone: 'amber' },
+  { value: 'other',    label: 'Orgânico',               emoji: '•',  tone: 'gray' },
 ]
 export const STAGE_OPTS: PillOption[] = [
   { value: 'project',   label: 'Início (Etapa de Terreno)',    emoji: '📐', tone: 'blue' },

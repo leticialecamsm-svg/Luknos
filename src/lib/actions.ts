@@ -74,6 +74,7 @@ export async function createQuote(formData: {
   client_id: string
   architect_id?: string
   origin: string
+  paid_traffic_type?: string | null
   category: string
   size?: string
   work_stage?: string
@@ -98,6 +99,7 @@ export async function createQuote(formData: {
       client_id: formData.client_id,
       architect_id: formData.architect_id || null,
       origin: formData.origin,
+      paid_traffic_type: formData.paid_traffic_type || null,
       category: formData.category,
       size: formData.size || null,
       work_stage: formData.work_stage || null,
@@ -453,6 +455,7 @@ export async function updateQuote(quoteId: string, data: {
   client_id?: string
   architect_id?: string | null
   origin?: string
+  paid_traffic_type?: string | null
   category?: string
   size?: string | null
   work_stage?: string | null

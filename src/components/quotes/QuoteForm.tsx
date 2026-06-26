@@ -32,6 +32,8 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
   const [selectedArch, setSelectedArch] = useState<any>(
     quote?.architect_id ? { id: quote.architect_id, name: quote.architect_name } : null
   )
+  const [origin, setOrigin] = useState<string>(quote?.origin ?? 'store')
+  const [paidTrafficType, setPaidTrafficType] = useState<string>(quote?.paid_traffic_type ?? '')
 
   const currentPrimary = isEdit ? (quote.owners?.find((o: any) => o.role === 'primary')?.user_id ?? null) : null
   const [primaryOwner, setPrimaryOwner] = useState<string | null>(currentPrimary)
@@ -55,6 +57,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
       client_id:        selectedClient.id,
       architect_id:     selectedArch?.id || null,
       origin:           fd.get('origin') as string,
+      paid_traffic_type: origin === 'visit' ? (paidTrafficType || null) : null,
       category:         fd.get('category') as string,
       size:             (fd.get('size') as string) || null,
       work_stage:       (fd.get('work_stage') as string) || null,
@@ -138,7 +141,26 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
                 <OptionPills name="size" label="Tamanho" defaultValue={quote?.size ?? 'small'} options={SIZE_OPTS} allowEmpty />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <TagSelect name="origin" label="Origem" defaultValue={quote?.origin ?? 'store'} options={ORIGIN_OPTS} />
+                <div className="space-y-2">
+                  <TagSelect name="origin" label="Origem" defaultValue={quote?.origin ?? 'store'} options={ORIGIN_OPTS} onChange={setOrigin} />
+                  {origin === 'visit' && (
+                    <div className="flex items-center gap-2 pl-1 pt-1">
+                      <span className="text-xs text-gray-500 shrink-0">Tipo:</span>
+                      <div className="flex gap-1.5">
+                        {[{ v: 'final_client', label: 'Cliente Final' }, { v: 'new_partner', label: 'Novo Parceiro' }].map(opt => (
+                          <button key={opt.v} type="button"
+                            onClick={() => setPaidTrafficType(p => p === opt.v ? '' : opt.v)}
+                            className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                              paidTrafficType === opt.v
+                                ? 'bg-red-50 text-red-700 border-red-300'
+                                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                            )}
+                          >{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <TagSelect name="work_stage" label="Etapa da obra" defaultValue={quote?.work_stage ?? 'project'} options={STAGE_OPTS} placeholder="—" allowEmpty />
               </div>
               <div className="grid grid-cols-2 gap-4">
