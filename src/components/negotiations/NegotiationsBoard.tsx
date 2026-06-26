@@ -182,7 +182,14 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{q.client_name}</p>
             {q.architect_name && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{q.architect_name}</p>}
-            <p className="text-sm font-bold text-gray-800 mt-2">{formatCurrency(q.final_value ?? q.quoted_value)}</p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <p className="text-sm font-bold text-gray-800">{formatCurrency(q.final_value ?? q.quoted_value)}</p>
+              {q.proposal_count > 0 && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-brand-100 text-brand-700 border border-brand-200">
+                  +{q.proposal_count}
+                </span>
+              )}
+            </div>
 
             <div className="flex items-center justify-between mt-2">
               <div className="flex items-center -space-x-1">

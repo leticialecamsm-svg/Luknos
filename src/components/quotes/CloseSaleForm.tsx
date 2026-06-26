@@ -66,6 +66,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
         final_value: fv,
         payment_method: primaryMethod,
         payment_splits: splits,
+        update_quoted_value: baseValue !== quotedValue,
       })
       if (result?.error) { setError(result.error); return }
       onConfirm()

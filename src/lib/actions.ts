@@ -14,17 +14,23 @@ async function enrichOwnersAvatars(quotes: any[]) {
   ))
   const quoteIds = quotes.map(q => q.id).filter(Boolean)
 
-  const [usersRes, negRes] = await Promise.all([
+  const [usersRes, negRes, proposalsRes] = await Promise.all([
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
   const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+  const proposalCountMap = new Map<string, number>()
+  for (const p of (proposalsRes.data ?? [])) {
+    proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
+  }
 
   return quotes.map(q => ({
     ...q,
     owners: (q.owners ?? []).map((o: any) => ({ ...o, avatar_url: avatarMap.get(o.user_id) ?? null })),
     payment_splits: splitsMap.get(q.id) ?? [],
+    proposal_count: proposalCountMap.get(q.id) ?? 0,
   }))
 }
 
@@ -224,6 +230,7 @@ export async function closeSale(quoteId: string, data: {
   payment_method: string
   payment_splits?: { method_key: string; amount: number; status?: string; date?: string }[]
   notes?: string
+  update_quoted_value?: boolean
 }) {
   const supabase = createClient()
   const { error: negError } = await supabase
@@ -236,7 +243,9 @@ export async function closeSale(quoteId: string, data: {
       closed_at: new Date().toISOString().split('T')[0], notes: data.notes || null,
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
-  const { error: updateError } = await supabase.from('quotes').update({ status: 'done' }).eq('id', quoteId)
+  const quoteUpdate: Record<string, any> = { status: 'done' }
+  if (data.update_quoted_value) quoteUpdate.quoted_value = data.final_value
+  const { error: updateError } = await supabase.from('quotes').update(quoteUpdate).eq('id', quoteId)
   if (updateError) return { error: updateError.message }
 
   // Create shipment automatically after closing sale (use admin to bypass RLS)
@@ -1704,6 +1713,14 @@ export async function createQuoteProposal(quoteId: string, proposal: { value: nu
   if (error) return { error: error.message }
   revalidatePath(`/quotes/${quoteId}`)
   return { data }
+}
+
+export async function updateQuoteProposal(id: string, quoteId: string, proposal: { value: number; date?: string; info?: string }) {
+  const supabase = createClient()
+  const { error } = await supabase.from('quote_proposals').update(proposal).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
 }
 
 export async function deleteQuoteProposal(id: string, quoteId: string) {

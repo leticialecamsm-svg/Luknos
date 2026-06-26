@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   updateQuoteStatus, updateTemperature,
   markAsLost, addActivity,
-  getQuoteProposals, createQuoteProposal, deleteQuoteProposal, cancelSale
+  getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal, cancelSale
 } from '@/lib/actions'
 import {
   QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR,
@@ -53,6 +53,12 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
   const [proposalInfo, setProposalInfo] = useState('')
   const [savingProposal, setSavingProposal] = useState(false)
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
+  // edição de proposta existente
+  const [editingProposalId, setEditingProposalId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [editDate, setEditDate] = useState('')
+  const [editInfo, setEditInfo] = useState('')
+  const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null)
 
   useEffect(() => {
     getQuoteProposals(quote.id).then(setProposals)
@@ -116,7 +122,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
               {overdue && (
                 <span className="badge bg-red-50 text-red-600">⚠️ Prazo vencido</span>
               )}
-              {localSplits.some((s: any) => s.status === 'open') && (
+              {quote.temperature === 'closed' && localSplits.some((s: any) => s.status === 'open') && (
                 <span className="badge bg-amber-100 text-amber-800">⏳ Pagamento Pendente</span>
               )}
             </div>
@@ -185,29 +191,124 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
 
         {/* Propostas registradas + botão nova proposta */}
         <div className="mt-3 pt-3 border-t border-surface-border space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-gray-400">Propostas:</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                Proposta 1 (orçado): {formatCurrency(quote.quoted_value)}
-              </span>
-              {proposals.map((p, i) => (
-                <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200" title={p.info ?? undefined}>
-                  Proposta {i + 2}: {formatCurrency(p.value)}
-                  {p.date && <span className="text-brand-400"> · {p.date}</span>}
-                </span>
-              ))}
-            </div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-400">Propostas</span>
             <button
               type="button"
-              onClick={() => setShowProposalForm(v => !v)}
-              className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium shrink-0"
+              onClick={() => { setShowProposalForm(v => !v); setEditingProposalId(null) }}
+              className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               Nova proposta
             </button>
           </div>
 
+          {/* Proposta 1 = valor orçado */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200">
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-bold text-gray-700">Proposta 1</span>
+              <span className="text-xs text-gray-500"> (valor orçado) · {formatCurrency(quote.quoted_value)}</span>
+            </div>
+          </div>
+
+          {/* Propostas adicionais */}
+          {proposals.map((p, i) => {
+            const fmtDate = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : null
+            const isEditing = editingProposalId === p.id
+            const isExpanded = expandedProposalId === p.id
+            return (
+              <div key={p.id} className="rounded-xl border border-brand-200 bg-brand-50 overflow-hidden">
+                {/* linha principal */}
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedProposalId(isExpanded ? null : p.id)}
+                    className="flex-1 text-left min-w-0"
+                  >
+                    <span className="text-xs font-bold text-brand-700">Proposta {i + 2}</span>
+                    <span className="text-xs text-brand-600"> · {formatCurrency(p.value)}</span>
+                    {fmtDate && <span className="text-xs text-brand-400"> · {fmtDate}</span>}
+                    {p.info && <span className="text-xs text-brand-400"> · {isExpanded ? '▲' : '▼'}</span>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingProposalId(p.id)
+                      setEditValue(String(p.value))
+                      setEditDate(p.date ?? '')
+                      setEditInfo(p.info ?? '')
+                      setShowProposalForm(false)
+                      setExpandedProposalId(null)
+                    }}
+                    className="p-1 text-brand-400 hover:text-brand-700 transition-colors"
+                    title="Editar"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm(`Excluir Proposta ${i + 2}?`)) return
+                      await deleteQuoteProposal(p.id, quote.id)
+                      setProposals(await getQuoteProposals(quote.id))
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                    title="Excluir"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* info expandida */}
+                {isExpanded && p.info && (
+                  <div className="px-3 pb-2 border-t border-brand-200">
+                    <p className="text-xs text-brand-700 mt-1.5 whitespace-pre-wrap">{p.info}</p>
+                  </div>
+                )}
+
+                {/* form de edição inline */}
+                {isEditing && (
+                  <div className="px-3 pb-3 pt-2 border-t border-brand-200 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="label text-[10px]">Valor (R$) *</label>
+                        <input type="number" step="0.01" min="0" value={editValue}
+                          onChange={e => setEditValue(e.target.value)} className="input mt-0.5 text-sm" />
+                      </div>
+                      <div>
+                        <label className="label text-[10px]">Data</label>
+                        <input type="date" value={editDate}
+                          onChange={e => setEditDate(e.target.value)} className="input mt-0.5 text-sm" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label text-[10px]">Informações</label>
+                      <textarea rows={2} value={editInfo} onChange={e => setEditInfo(e.target.value)}
+                        className="input mt-0.5 text-sm resize-none" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={!editValue}
+                        onClick={async () => {
+                          await updateQuoteProposal(p.id, quote.id, {
+                            value: Number(editValue),
+                            date: editDate || undefined,
+                            info: editInfo || undefined,
+                          })
+                          setProposals(await getQuoteProposals(quote.id))
+                          setEditingProposalId(null)
+                        }}
+                        className="btn-primary text-xs py-1"
+                      >Salvar</button>
+                      <button onClick={() => setEditingProposalId(null)} className="btn-secondary text-xs py-1">Cancelar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Form de nova proposta */}
           {showProposalForm && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
               <p className="text-sm font-semibold text-blue-800">Proposta {proposals.length + 2}</p>
