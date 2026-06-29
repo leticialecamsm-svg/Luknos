@@ -271,12 +271,13 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
               <svg viewBox="0 0 160 160" className="w-32 h-32 mx-auto">
                 {buildPieSlices()}
               </svg>
-              <div className="space-y-1 max-h-36 overflow-y-auto">
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
                 {pieData.map((seg, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
                     <span className="text-[11px] text-gray-600 truncate flex-1">{seg.name}</span>
-                    <span className="text-[11px] font-medium text-gray-700">{Math.round(seg.pct * 100)}%</span>
+                    <span className="text-[11px] text-gray-400">{Math.round(seg.pct * 100)}%</span>
+                    <span className="text-[11px] font-semibold text-gray-700 min-w-[72px] text-right">{formatCurrency(seg.value)}</span>
                   </div>
                 ))}
               </div>
