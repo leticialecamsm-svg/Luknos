@@ -16,7 +16,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
 
   const [usersRes, negRes, proposalsRes] = await Promise.all([
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
-    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at, last_promoted_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+    quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at, last_promoted_at, is_flagged_alert, flagged_alert_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
@@ -24,6 +24,8 @@ async function enrichOwnersAvatars(quotes: any[]) {
   const tempUpdatedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.temperature_updated_at]))
   const lastAutoDemotedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.last_auto_demoted_at]))
   const lastPromotedMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.last_promoted_at]))
+  const isFlaggedAlertMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.is_flagged_alert ?? false]))
+  const flaggedAlertAtMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.flagged_alert_at]))
   const proposalCountMap = new Map<string, number>()
   for (const p of (proposalsRes.data ?? [])) {
     proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
@@ -37,6 +39,8 @@ async function enrichOwnersAvatars(quotes: any[]) {
     temperature_updated_at: tempUpdatedMap.get(q.id) ?? null,
     last_auto_demoted_at: lastAutoDemotedMap.get(q.id) ?? null,
     last_promoted_at: lastPromotedMap.get(q.id) ?? null,
+    is_flagged_alert: isFlaggedAlertMap.get(q.id) ?? false,
+    flagged_alert_at: flaggedAlertAtMap.get(q.id) ?? null,
   }))
 }
 
@@ -228,6 +232,35 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
   return { ok: true }
 }
 
+export async function toggleAlertFlag(quoteId: string) {
+  const supabase = createClient()
+  const admin = createAdminClient()
+
+  const { data: current } = await admin
+    .from('negotiations')
+    .select('is_flagged_alert')
+    .eq('quote_id', quoteId)
+    .maybeSingle()
+
+  const newFlagState = !current?.is_flagged_alert
+  const now = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('negotiations')
+    .upsert({
+      quote_id: quoteId,
+      is_flagged_alert: newFlagState,
+      flagged_alert_at: newFlagState ? now : null,
+    }, { onConflict: 'quote_id' })
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/dashboard')
+  revalidatePath('/quotes')
+  revalidatePath('/negotiations')
+  return { ok: true, flagged: newFlagState }
+}
+
 export async function getNegotiationHistory(quoteId: string) {
   const admin = createAdminClient()
   const { data } = await admin
@@ -393,6 +426,30 @@ export async function getCriticalNegotiations() {
     .not('temperature', 'in', '(closed,lost)')
     .in('temperature', ['no_forecast', 'cold', 'warm'])
   return data ?? []
+}
+
+export async function getFlaggedAlerts() {
+  const admin = createAdminClient()
+  // Busca negociações flagadas
+  const { data: flagged } = await admin
+    .from('negotiations')
+    .select('quote_id, is_flagged_alert, flagged_alert_at, temperature')
+    .eq('is_flagged_alert', true)
+    .not('temperature', 'in', '(closed,lost)')
+    .order('flagged_alert_at', { ascending: true })
+
+  if (!flagged?.length) return []
+
+  // Busca dados dos quotes
+  const quoteIds = flagged.map(f => f.quote_id)
+  const { data: quotes } = await admin
+    .from('quotes_full')
+    .select('id, number, client_name, temperature, priority, owners:quote_owners(user_id, name, avatar_color)')
+    .in('id', quoteIds)
+
+  // Mescla dados
+  const quoteMap = new Map(quotes?.map((q: any) => [q.id, q]) ?? [])
+  return flagged.map(f => ({ ...quoteMap.get(f.quote_id), flagged_alert_at: f.flagged_alert_at }))
 }
 
 export async function getPaymentRates() {

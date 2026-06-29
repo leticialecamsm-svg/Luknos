@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  updateQuoteStatus, updateTemperature,
+  updateQuoteStatus, updateTemperature, toggleAlertFlag,
   markAsLost, addActivity,
   getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal, cancelSale
 } from '@/lib/actions'
@@ -20,7 +20,7 @@ import {
 import {
   ChevronLeft, Flame, CheckCircle2, XCircle,
   Phone, MessageSquare, MapPin, Clock, Loader2,
-  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink, Percent, PlusCircle
+  Pencil, Trash2, StickyNote, PhoneCall, Send, CalendarDays, Folder, ExternalLink, Percent, PlusCircle, Flag
 } from 'lucide-react'
 import { deleteQuote } from '@/lib/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -87,6 +87,13 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
           Orçamentos
         </button>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => act(async () => { await toggleAlertFlag(quote.id) })}
+            className={cn('btn-secondary text-xs py-1.5 gap-1.5', quote.is_flagged_alert && 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100')}
+            title={quote.is_flagged_alert ? 'Remover do Radar de Alertas' : 'Adicionar ao Radar de Alertas'}
+          >
+            <Flag className="w-3.5 h-3.5" /> {quote.is_flagged_alert ? 'Alerta ativo' : 'Marcar alerta'}
+          </button>
           <button
             onClick={() => router.push(`/quotes/${quote.id}/edit`)}
             className="btn-secondary text-xs py-1.5 gap-1.5"

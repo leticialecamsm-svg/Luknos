@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings, getCriticalNegotiations } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
@@ -43,6 +43,9 @@ export default async function DashboardPage() {
   // Negociações críticas (etapa gesso/instalação com temp morna/fria/sem previsão)
   const criticalNegotiations = isAdmin ? await getCriticalNegotiations() : []
 
+  // Orçamentos flagados para alerta (acompanhamento ativo)
+  const flaggedAlerts = isAdmin ? await getFlaggedAlerts() : []
+
   // Comissões do mês (1% próprias vendas + 5% como projetista)
   const earnings = await getCommissionEarnings()
   const myEarnings = earnings.byUser[user.id] ?? null
@@ -76,6 +79,7 @@ export default async function DashboardPage() {
           prospectionsThisMonth={prospectionsCount as number}
           earnings={earnings.byUser}
           criticalNegotiations={criticalNegotiations}
+          flaggedAlerts={flaggedAlerts}
         />
       ) : (
         <VendorDashboard

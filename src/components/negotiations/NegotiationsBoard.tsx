@@ -43,7 +43,13 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
   })
 
   function getColumn(temp: string) {
-    return filtered.filter(q => (q.temperature ?? 'cold') === temp)
+    const columnCards = filtered.filter(q => (q.temperature ?? 'cold') === temp)
+    // Ordena: alertas flagged no topo, depois o resto
+    return columnCards.sort((a, b) => {
+      const aFlagged = a.is_flagged_alert ? 0 : 1
+      const bFlagged = b.is_flagged_alert ? 0 : 1
+      return aFlagged - bFlagged
+    })
   }
 
   function handleDragStart(e: React.DragEvent, quoteId: string) {
@@ -181,7 +187,10 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
         <div className="flex items-start gap-2">
           <span className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: accent }} />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{q.client_name}</p>
+            <div className="flex items-center gap-1">
+              <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{q.client_name}</p>
+              {q.is_flagged_alert && <span className="text-orange-500 shrink-0">🚩</span>}
+            </div>
             {q.architect_name && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{q.architect_name}</p>}
             <div className="flex items-center gap-1.5 mt-2">
               <p className="text-sm font-bold text-gray-800">{formatCurrency(q.final_value ?? q.quoted_value)}</p>
@@ -249,6 +258,13 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
               <div className="mt-1.5 inline-flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                 <span className="text-[10px] text-red-500 font-medium">Urgente</span>
+              </div>
+            )}
+
+            {/* Aviso: alerta flagado há 1+ dia sem atualização */}
+            {q.is_flagged_alert && q.flagged_alert_at && (Date.now() - new Date(q.flagged_alert_at).getTime()) >= 24 * 60 * 60 * 1000 && (
+              <div className="mt-2 p-1.5 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-[10px] font-medium text-orange-700">⚠️ 1+ dia sem atualização</p>
               </div>
             )}
           </div>

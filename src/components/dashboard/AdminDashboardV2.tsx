@@ -21,6 +21,7 @@ export function AdminDashboardV2({
   goalsByUser,
   earnings,
   criticalNegotiations = [],
+  flaggedAlerts = [],
 }: {
   quotes: any[]
   users: any[]
@@ -31,6 +32,7 @@ export function AdminDashboardV2({
   goalsByUser?: Record<string, number>
   earnings?: Record<string, any>
   criticalNegotiations?: any[]
+  flaggedAlerts?: any[]
 }) {
   const now = new Date()
   const [currentMonth, setCurrentMonth] = useState(now)
@@ -296,6 +298,34 @@ export function AdminDashboardV2({
 
       {/* Sugestões do dia */}
       <SalesSuggestions quotes={quotes} />
+
+      {/* Radar de Alertas: orçamentos flagados */}
+      {flaggedAlerts.length > 0 && (
+        <div className="bg-white rounded-lg border border-amber-200 overflow-hidden">
+          <div className="border-b border-amber-100 px-4 py-3 flex items-center gap-2">
+            <span className="text-base">🚩</span>
+            <h2 className="text-sm font-semibold text-amber-800">Radar de Alertas</h2>
+            <span className="ml-auto text-xs text-amber-600 font-medium bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">{flaggedAlerts.length}</span>
+          </div>
+          <div className="p-3 space-y-2">
+            <p className="text-xs text-gray-400 mb-2">Orçamentos em acompanhamento ativo. Requerem atualização diária.</p>
+            {flaggedAlerts.map((q: any) => {
+              const hoursOld = q.flagged_alert_at ? Math.floor((Date.now() - new Date(q.flagged_alert_at).getTime()) / (1000 * 60 * 60)) : 0
+              const isDayOld = hoursOld >= 24
+              return (
+                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-amber-50 transition-colors border border-gray-100">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">#{String(q.number).padStart(3,'0')} · {q.client_name}</p>
+                    <p className={`text-xs ${isDayOld ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                      {isDayOld ? `⚠️ ${hoursOld}h sem atualização` : `${hoursOld}h no radar`}
+                    </p>
+                  </div>
+                </a>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Pontos de atenção: negociações críticas */}
       {criticalNegotiations.length > 0 && (
