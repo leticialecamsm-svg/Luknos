@@ -21,8 +21,6 @@ const NAV = [
 ]
 const ADMIN_NAV = [
   { href: '/finance', label: 'Financeiro', icon: Wallet },
-  { href: '/finance/suppliers', label: 'Fornecedores', icon: Wallet, sub: true },
-  { href: '/finance/categories', label: 'Categorias', icon: Wallet, sub: true },
   { href: '/admin', label: 'Administração', icon: Settings },
 ]
 
@@ -145,20 +143,37 @@ export function Sidebar({ user }: { user: User | null }) {
               {ADMIN_NAV.map(item => {
                 const isFinance = item.href === '/finance'
                 const financeOpen = pathname.startsWith('/finance')
-                const active = pathname === item.href || (item.href !== '/finance' && pathname.startsWith(item.href))
-                if (item.sub && (collapsed || !financeOpen)) return null
+                const active = pathname === item.href || (isFinance ? pathname === '/finance' : pathname.startsWith(item.href))
                 return (
-                  <Link key={item.href} href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
-                      item.sub ? 'px-3 py-1.5 ml-4' : (collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2'),
-                      active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:text-white hover:bg-white/8'
+                  <div key={item.href}>
+                    <Link href={item.href}
+                      title={collapsed ? item.label : undefined}
+                      className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
+                        collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
+                        active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:text-white hover:bg-white/8'
+                      )}
+                    >
+                      <item.icon className="w-4 h-4 shrink-0" />
+                      {!collapsed && <span className="flex-1">{item.label}</span>}
+                      {isFinance && !collapsed && financeOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
+                    </Link>
+                    {isFinance && !collapsed && financeOpen && (
+                      <>
+                        <Link href="/finance/suppliers"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/finance/suppliers') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Fornecedores
+                        </Link>
+                        <Link href="/finance/categories"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/finance/categories') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Categorias
+                        </Link>
+                      </>
                     )}
-                  >
-                    {!item.sub && <item.icon className="w-4 h-4 shrink-0" />}
-                    {item.sub && <span className="w-1 h-1 rounded-full bg-white/30 shrink-0" />}
-                    {!collapsed && item.label}
-                  </Link>
+                  </div>
                 )
               })}
             </>
