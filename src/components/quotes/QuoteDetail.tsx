@@ -758,7 +758,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             <p className="text-sm text-gray-400 text-center py-4">Nenhuma atividade ainda</p>
           )}
           {activities.map((a: any) => {
-            const isNote = a.type === 'note'
+            const isNote = a.type === 'note' && !a.description?.startsWith('✏️ Editado')
             return (
               <div key={a.id} className={cn('flex gap-3 rounded-xl p-3', isNote ? 'bg-amber-50 border border-amber-100' : 'bg-gray-50 border border-gray-100')}>
                 <div className="mt-0.5 shrink-0">
