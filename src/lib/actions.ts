@@ -406,8 +406,8 @@ export async function checkAndDemoteNegotiations() {
   const TEMP_PT: Record<string, string> = { cold: 'Frio', warm: 'Morno', hot: 'Quente', no_forecast: 'Sem previsão', closed: 'Fechada', lost: 'Perdida' }
 
   for (const d of demotions) {
-    // Cliente autenticado: trigger de activities precisa de auth.uid()
-    await supabase.from('negotiations')
+    // Admin client: sem auth.uid(), trigger não cria activity (trigger tem IF auth.uid() IS NOT NULL)
+    await admin.from('negotiations')
       .update({ temperature: d.to_temp, temperature_updated_at: now.toISOString(), last_auto_demoted_at: now.toISOString() })
       .eq('quote_id', d.quote_id)
     // Histórico sem trigger, pode usar admin
