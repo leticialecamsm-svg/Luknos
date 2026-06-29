@@ -14,7 +14,7 @@ import {
   LOSS_REASON_LABEL, getContactTypeLabel,
 } from '@/types'
 import {
-  formatCurrency, formatDate, formatRelative,
+  formatCurrency, formatDate, formatRelative, formatRelativeWithTime,
   getInitials, isOverdue, cn
 } from '@/lib/utils'
 import {
@@ -152,15 +152,6 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                   </span>
                 )}
               </div>
-            )}
-            {quote.drive_link && (
-              <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 mt-2">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4c-1.48 0-2.85.43-4.01 1.17l1.46 1.46C10.21 5.23 11.08 5 12 5c3.04 0 5.5 2.46 5.5 5.5v.5H19c2.05 0 3.71 1.66 3.71 3.71 0 1.71-1.04 2.86-2.34 3.24-.01-.1-.04-.21-.04-.32zM3 5.5v13h18V9.5h-1v9H4v-9H3z"/>
-                </svg>
-                Pasta do projeto
-              </a>
             )}
           </div>
 
@@ -707,47 +698,22 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
 
         {/* Adicionar anotação */}
         <div className="mb-4 space-y-2">
-          <div className="flex gap-1.5">
-            {([
-              { type: 'note',     label: 'Nota',     Icon: StickyNote  },
-              { type: 'call',     label: 'Ligação',  Icon: PhoneCall   },
-              { type: 'whatsapp', label: 'WhatsApp', Icon: Send        },
-              { type: 'visit',    label: 'Visita',   Icon: MapPin      },
-            ] as const).map(({ type, label, Icon }) => (
-              <button key={type} type="button"
-                onClick={() => setNoteType(type)}
-                className={cn(
-                  'flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-all',
-                  noteType === type
-                    ? 'bg-brand-500 text-white border-brand-500'
-                    : 'bg-white text-gray-500 border-surface-border hover:border-brand-300'
-                )}
-              >
-                <Icon className="w-3 h-3" />{label}
-              </button>
-            ))}
-          </div>
           <div className="flex gap-2">
             <input
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder={
-                noteType === 'call' ? 'Resumo da ligação...' :
-                noteType === 'whatsapp' ? 'Resumo da conversa no WhatsApp...' :
-                noteType === 'visit' ? 'Observações da visita...' :
-                'Anotação, feedback do cliente, arquiteto...'
-              }
+              placeholder="Anotação, feedback do cliente, arquiteto..."
               className="input flex-1"
               onKeyDown={e => {
                 if (e.key === 'Enter' && note.trim()) {
-                  act(() => addActivity(quote.id, note, noteType))
+                  act(() => addActivity(quote.id, note, 'note'))
                   setNote('')
                 }
               }}
             />
             <button
               disabled={pending || !note.trim()}
-              onClick={() => { act(() => addActivity(quote.id, note, noteType)); setNote('') }}
+              onClick={() => { act(() => addActivity(quote.id, note, 'note')); setNote('') }}
               className="btn-primary text-xs"
             >
               {pending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Salvar'}
@@ -761,24 +727,19 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             <p className="text-sm text-gray-400 text-center py-4">Nenhuma atividade ainda</p>
           )}
           {activities.map((a: any) => {
-            const typeIcon: Record<string, React.ReactNode> = {
-              call:     <PhoneCall className="w-3 h-3 text-blue-500" />,
-              whatsapp: <Send className="w-3 h-3 text-green-500" />,
-              visit:    <MapPin className="w-3 h-3 text-purple-500" />,
-              note:     <StickyNote className="w-3 h-3 text-amber-500" />,
-            }
+            const isNote = a.type === 'note'
             return (
-              <div key={a.id} className="flex gap-3">
-                <div className="mt-0.5">
+              <div key={a.id} className={cn('flex gap-3 rounded-xl p-3', isNote ? 'bg-amber-50 border border-amber-100' : 'bg-gray-50 border border-gray-100')}>
+                <div className="mt-0.5 shrink-0">
                   <Avatar user={a.user ?? { name: 'U' }} size={28} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-gray-700">{a.user?.name}</span>
-                    {typeIcon[a.type] && <span>{typeIcon[a.type]}</span>}
-                    <span className="text-[10px] text-gray-400">{formatRelative(a.created_at)}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-gray-700">{a.user?.name ?? 'Sistema'}</span>
+                    {isNote && <span className="text-[10px] font-medium text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">Nota</span>}
+                    <span className="text-[10px] text-gray-400 ml-auto">{formatRelativeWithTime(a.created_at)}</span>
                   </div>
-                  <p className="text-sm text-gray-600 mt-0.5">{a.description}</p>
+                  <p className={cn('text-sm mt-0.5', isNote ? 'text-amber-900' : 'text-gray-500 italic')}>{a.description}</p>
                 </div>
               </div>
             )

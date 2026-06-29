@@ -180,7 +180,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
                   <input type="date" name="quote_date"
                     defaultValue={quote?.quote_date ?? quote?.created_at?.split('T')[0] ?? today} className="input mt-1" />
                 </div>
-                <TagSelect name="priority" label="Prioridade" defaultValue={quote?.priority ?? 'normal'} options={PRIORITY_OPTS} />
+                <TagSelect name="priority" label="Prioridade" defaultValue={quote?.priority ?? 'low'} options={PRIORITY_OPTS} />
               </div>
             </div>
           </div>
@@ -196,6 +196,12 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
               <label className="label">Pasta Google Drive <span className="text-gray-400 font-normal">(opcional)</span></label>
               <input type="url" name="drive_link" placeholder="https://drive.google.com/drive/folders/..."
                 defaultValue={quote?.drive_link ?? ''} className="input mt-1" />
+              {!quote?.drive_link && (
+                <a href="https://drive.google.com/drive/folders/1RXRcW9DGvYGqee2IpbVwT_yxQupUZ9WY" target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-brand-600 hover:underline mt-1 inline-block">
+                  Ainda não criou a pasta? Crie aqui!
+                </a>
+              )}
             </div>
           </div>
 

@@ -41,6 +41,17 @@ export function formatRelative(date: string): string {
   return format(d, "dd/MM/yy", { locale: ptBR })
 }
 
+export function formatRelativeWithTime(date: string): string {
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return '—'
+  const time = format(d, "HH:mm", { locale: ptBR })
+  if (isToday(d)) return `hoje às ${time}`
+  const diff = differenceInDays(new Date(), d)
+  if (diff === 1) return `ontem às ${time}`
+  if (diff < 7) return `há ${diff} dias às ${time}`
+  return `${format(d, "dd/MM/yy", { locale: ptBR })} às ${time}`
+}
+
 export function isOverdue(deadline: string | null): boolean {
   if (!deadline) return false
   return isPast(new Date(deadline + 'T23:59:59'))
