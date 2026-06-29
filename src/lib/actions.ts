@@ -1923,6 +1923,23 @@ export async function deleteFinanceEntry(id: string, group?: string | null) {
   return { ok: true }
 }
 
+// ── Saldos de contas ──
+export async function getFinanceAccounts() {
+  const { data } = await createAdminClient().from('finance_accounts').select('*').order('name')
+  return data ?? []
+}
+export async function updateFinanceAccount(id: string, balance: number) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error } = await createAdminClient()
+    .from('finance_accounts')
+    .update({ balance, updated_at: new Date().toISOString(), updated_by: user?.id ?? null })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true }
+}
+
 // ── Fornecedores financeiros ──
 export async function getFinanceSuppliers() {
   const { data } = await createAdminClient().from('finance_suppliers').select('*').order('name')

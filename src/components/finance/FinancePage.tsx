@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries, createFinanceSupplier, createFinanceCategory } from '@/lib/actions'
+import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries, createFinanceSupplier, createFinanceCategory, updateFinanceAccount } from '@/lib/actions'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw, Layers, Building2, Tag } from 'lucide-react'
+import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw, Layers, Building2, Tag, Landmark } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import Link from 'next/link'
@@ -19,16 +19,18 @@ function isoDate(d: Date) { return `${d.getFullYear()}-${String(d.getMonth()+1).
 
 const PIE_COLORS = ['#185FA5','#CBA455','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#EC4899','#6B7280','#84CC16']
 
-export function FinancePage({ initialEntries, suppliers: initialSuppliers, categories: initialCategories }: {
+export function FinancePage({ initialEntries, suppliers: initialSuppliers, categories: initialCategories, accounts: initialAccounts }: {
   initialEntries: any[]
   suppliers: any[]
   categories: any[]
+  accounts: any[]
 }) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
   const [entries, setEntries] = useState<any[]>(initialEntries)
   const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
   const [categories, setCategories] = useState<any[]>(initialCategories)
+  const [accounts, setAccounts] = useState<any[]>(initialAccounts)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid'>('pending')
@@ -225,6 +227,26 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
         <KpiCard label="Total a pagar" value={kpi.total} color="gray" />
       </div>
 
+      {/* Saldos das contas */}
+      <div className="rounded-xl border border-surface-border bg-white p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <Landmark className="w-4 h-4 text-brand-500" /> Saldo nas contas
+          </h3>
+          <span className="text-sm font-bold text-gray-800">
+            Total: {formatCurrency(accounts.reduce((s, a) => s + Number(a.balance), 0))}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {accounts.map(a => (
+            <AccountCard key={a.id} account={a} onSave={async (id, val) => {
+              const res = await updateFinanceAccount(id, val)
+              if (!res?.error) setAccounts(prev => prev.map(x => x.id === id ? { ...x, balance: val } : x))
+            }} />
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Semana */}
         <div className="lg:col-span-2 rounded-xl border border-surface-border bg-white p-4">
@@ -391,6 +413,48 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       {showForm && <FinanceForm suppliers={suppliers} categories={categories} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
       {editing && <FinanceForm entry={editing} suppliers={suppliers} categories={categories} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
       {ConfirmDialog}
+    </div>
+  )
+}
+
+function AccountCard({ account, onSave }: { account: any; onSave: (id: string, val: number) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState(String(account.balance))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const val = parseFloat(input.replace(',', '.'))
+    if (isNaN(val)) return
+    setSaving(true)
+    await onSave(account.id, val)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  return (
+    <div className="rounded-xl border border-surface-border bg-gray-50 p-3 flex flex-col gap-1">
+      <p className="text-xs font-semibold text-gray-500">{account.name}</p>
+      {editing ? (
+        <div className="flex items-center gap-1 mt-1">
+          <input
+            type="number" step="0.01" value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+            className="input text-sm py-1 px-2 flex-1 min-w-0" autoFocus
+          />
+          <button onClick={save} disabled={saving} className="p-1 text-emerald-600 hover:text-emerald-700">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          </button>
+          <button onClick={() => setEditing(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+      ) : (
+        <button onClick={() => { setInput(String(account.balance)); setEditing(true) }}
+          className="text-left group flex items-center justify-between mt-1">
+          <span className={cn('text-base font-bold', Number(account.balance) < 0 ? 'text-red-600' : 'text-gray-800')}>
+            {formatCurrency(Number(account.balance))}
+          </span>
+          <Pencil className="w-3 h-3 text-gray-300 group-hover:text-brand-500 transition-colors" />
+        </button>
+      )}
     </div>
   )
 }
