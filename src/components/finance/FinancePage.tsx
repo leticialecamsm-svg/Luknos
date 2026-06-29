@@ -155,7 +155,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
   }
 
   // SVG pizza
-  function buildPieSlices(onHover: (seg: any | null) => void) {
+  function buildPieSlices(onHover: (seg: any | null, e?: React.MouseEvent) => void) {
     if (pieData.length === 0) return null
     let cumAngle = -Math.PI / 2
     const cx = 80, cy = 80, r = 70
@@ -171,10 +171,10 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
         <path key={i}
           d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`}
           fill={seg.color}
-          className="transition-opacity duration-100 cursor-pointer"
-          onMouseEnter={() => onHover(seg)}
+          className="cursor-pointer hover:opacity-80 transition-opacity duration-100"
+          onMouseEnter={e => onHover(seg, e)}
+          onMouseMove={e => onHover(seg, e)}
           onMouseLeave={() => onHover(null)}
-          style={{ opacity: 1 }}
         />
       )
     })
@@ -405,29 +405,42 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
   )
 }
 
-function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; buildPieSlices: (fn: (seg: any | null) => void) => React.ReactNode; formatCurrency: (v: number) => string }) {
+function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; buildPieSlices: (fn: (seg: any | null, e?: React.MouseEvent) => void) => React.ReactNode; formatCurrency: (v: number) => string }) {
   const [hovered, setHovered] = useState<any | null>(null)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  function handleHover(seg: any | null, e?: React.MouseEvent) {
+    setHovered(seg)
+    if (e && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
+  }
+
   return (
-    <div className="rounded-xl border border-surface-border bg-white p-4">
+    <div ref={containerRef} className="rounded-xl border border-surface-border bg-white p-4 relative">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
       {pieData.length === 0 ? (
         <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>
       ) : (
-        <div className="relative flex items-center justify-center">
+        <div className="flex items-center justify-center" onMouseLeave={() => setHovered(null)}>
           <svg viewBox="0 0 160 160" className="w-36 h-36">
-            {buildPieSlices(setHovered)}
+            {buildPieSlices(handleHover)}
           </svg>
-          {hovered ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px] font-semibold text-gray-500 text-center leading-tight max-w-[70px] truncate">{hovered.name}</span>
-              <span className="text-sm font-bold text-gray-900 mt-0.5">{Math.round(hovered.pct * 100)}%</span>
-              <span className="text-[10px] text-gray-500">{formatCurrency(hovered.value)}</span>
-            </div>
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px] text-gray-400">passe o mouse</span>
-            </div>
-          )}
+        </div>
+      )}
+      {hovered && (
+        <div
+          className="absolute z-50 pointer-events-none bg-gray-900 text-white rounded-lg px-3 py-2 shadow-xl text-center"
+          style={{ left: pos.x + 12, top: pos.y - 10, transform: 'translateY(-100%)' }}
+        >
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hovered.color }} />
+            <span className="text-[11px] font-semibold whitespace-nowrap">{hovered.name}</span>
+          </div>
+          <div className="text-sm font-bold">{formatCurrency(hovered.value)}</div>
+          <div className="text-[10px] text-gray-400">{Math.round(hovered.pct * 100)}%</div>
         </div>
       )}
     </div>
