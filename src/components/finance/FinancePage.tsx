@@ -155,7 +155,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
   }
 
   // SVG pizza
-  function buildPieSlices() {
+  function buildPieSlices(onHover: (seg: any | null) => void) {
     if (pieData.length === 0) return null
     let cumAngle = -Math.PI / 2
     const cx = 80, cy = 80, r = 70
@@ -167,7 +167,16 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       const x2 = cx + r * Math.cos(cumAngle)
       const y2 = cy + r * Math.sin(cumAngle)
       const large = angle > Math.PI ? 1 : 0
-      return <path key={i} d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`} fill={seg.color} />
+      return (
+        <path key={i}
+          d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`}
+          fill={seg.color}
+          className="transition-opacity duration-100 cursor-pointer"
+          onMouseEnter={() => onHover(seg)}
+          onMouseLeave={() => onHover(null)}
+          style={{ opacity: 1 }}
+        />
+      )
     })
   }
 
@@ -284,28 +293,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
         </div>
 
         {/* Pizza por categoria */}
-        <div className="rounded-xl border border-surface-border bg-white p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
-          {pieData.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <svg viewBox="0 0 160 160" className="w-32 h-32 mx-auto">
-                {buildPieSlices()}
-              </svg>
-              <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                {pieData.map((seg, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
-                    <span className="text-[11px] text-gray-600 truncate flex-1">{seg.name}</span>
-                    <span className="text-[11px] text-gray-400">{Math.round(seg.pct * 100)}%</span>
-                    <span className="text-[11px] font-semibold text-gray-700 min-w-[72px] text-right">{formatCurrency(seg.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <PieCard pieData={pieData} buildPieSlices={buildPieSlices} formatCurrency={formatCurrency} />
       </div>
 
       <div className="flex gap-2">
@@ -413,6 +401,35 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       {showForm && <FinanceForm suppliers={suppliers} categories={categories} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
       {editing && <FinanceForm entry={editing} suppliers={suppliers} categories={categories} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
       {ConfirmDialog}
+    </div>
+  )
+}
+
+function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; buildPieSlices: (fn: (seg: any | null) => void) => React.ReactNode; formatCurrency: (v: number) => string }) {
+  const [hovered, setHovered] = useState<any | null>(null)
+  return (
+    <div className="rounded-xl border border-surface-border bg-white p-4">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
+      {pieData.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>
+      ) : (
+        <div className="relative flex items-center justify-center">
+          <svg viewBox="0 0 160 160" className="w-36 h-36">
+            {buildPieSlices(setHovered)}
+          </svg>
+          {hovered ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] font-semibold text-gray-500 text-center leading-tight max-w-[70px] truncate">{hovered.name}</span>
+              <span className="text-sm font-bold text-gray-900 mt-0.5">{Math.round(hovered.pct * 100)}%</span>
+              <span className="text-[10px] text-gray-500">{formatCurrency(hovered.value)}</span>
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] text-gray-400">passe o mouse</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
