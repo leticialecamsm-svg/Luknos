@@ -83,12 +83,34 @@ export async function getQuoteById(id: string) {
 
 export async function getQuoteActivities(quoteId: string) {
   const supabase = createClient()
-  const { data } = await supabase
-    .from('activities')
-    .select('*, user:users(name, avatar_color, avatar_url)')
-    .eq('quote_id', quoteId)
-    .order('created_at', { ascending: false })
-  return data ?? []
+  const admin = createAdminClient()
+
+  const [{ data: activities }, { data: tempHistory }] = await Promise.all([
+    supabase
+      .from('activities')
+      .select('*, user:users(name, avatar_color, avatar_url)')
+      .eq('quote_id', quoteId)
+      .order('created_at', { ascending: false }),
+    admin
+      .from('neg_temperature_history')
+      .select('created_at, auto_demoted')
+      .eq('quote_id', quoteId),
+  ])
+
+  // Monta set de timestamps que foram auto-demotions
+  const autoDemotedTimes = new Set(
+    (tempHistory ?? [])
+      .filter((h: any) => h.auto_demoted)
+      .map((h: any) => new Date(h.created_at).toISOString().substring(0, 16)) // minuto
+  )
+
+  return (activities ?? []).map((a: any) => ({
+    ...a,
+    // Marca como sistema se: type=system, user_id null, ou timestamp coincide com auto_demotion
+    is_system: a.type === 'system' || !a.user_id ||
+      (a.description?.includes('Negociação') && a.description?.includes('→') &&
+       autoDemotedTimes.has(new Date(a.created_at).toISOString().substring(0, 16))),
+  }))
 }
 
 export async function createQuote(formData: {

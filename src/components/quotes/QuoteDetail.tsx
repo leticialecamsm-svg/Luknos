@@ -759,7 +759,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
           )}
           {activities.map((a: any) => {
             const isNote = a.type === 'note' && !a.description?.startsWith('✏️ Editado')
-            const isSystem = a.type === 'system' || !a.user_id
+            const isSystem = a.is_system || a.type === 'system' || !a.user_id
             return (
               <div key={a.id} className={cn('flex gap-3 rounded-xl p-3',
                 isNote ? 'bg-amber-50 border border-amber-100' :
