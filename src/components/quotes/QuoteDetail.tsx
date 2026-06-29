@@ -759,18 +759,34 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
           )}
           {activities.map((a: any) => {
             const isNote = a.type === 'note' && !a.description?.startsWith('✏️ Editado')
+            const isSystem = a.type === 'system' || !a.user_id
             return (
-              <div key={a.id} className={cn('flex gap-3 rounded-xl p-3', isNote ? 'bg-amber-50 border border-amber-100' : 'bg-gray-50 border border-gray-100')}>
+              <div key={a.id} className={cn('flex gap-3 rounded-xl p-3',
+                isNote ? 'bg-amber-50 border border-amber-100' :
+                isSystem ? 'bg-blue-50 border border-blue-100' :
+                'bg-gray-50 border border-gray-100'
+              )}>
                 <div className="mt-0.5 shrink-0">
-                  <Avatar user={a.user ?? { name: 'U' }} size={28} />
+                  {isSystem ? (
+                    <div className="w-7 h-7 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-sm">🤖</div>
+                  ) : (
+                    <Avatar user={a.user ?? { name: 'U' }} size={28} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-gray-700">{a.user?.name ?? 'Sistema'}</span>
+                    <span className="text-xs font-semibold text-gray-700">
+                      {isSystem ? 'Sistema' : (a.user?.name ?? 'Sistema')}
+                    </span>
                     {isNote && <span className="text-[10px] font-medium text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">Nota</span>}
+                    {isSystem && <span className="text-[10px] font-medium text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">Automático</span>}
                     <span className="text-[10px] text-gray-400 ml-auto">{formatRelativeWithTime(a.created_at)}</span>
                   </div>
-                  <p className={cn('text-sm mt-0.5', isNote ? 'text-amber-900' : 'text-gray-500 italic')}>{translateActivityDescription(a.description)}</p>
+                  <p className={cn('text-sm mt-0.5',
+                    isNote ? 'text-amber-900' :
+                    isSystem ? 'text-blue-700 italic' :
+                    'text-gray-500 italic'
+                  )}>{translateActivityDescription(a.description)}</p>
                 </div>
               </div>
             )

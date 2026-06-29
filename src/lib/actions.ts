@@ -403,6 +403,8 @@ export async function checkAndDemoteNegotiations() {
 
   if (!demotions.length) return { demoted: 0 }
 
+  const TEMP_PT: Record<string, string> = { cold: 'Frio', warm: 'Morno', hot: 'Quente', no_forecast: 'Sem previsão', closed: 'Fechada', lost: 'Perdida' }
+
   for (const d of demotions) {
     // Cliente autenticado: trigger de activities precisa de auth.uid()
     await supabase.from('negotiations')
@@ -412,6 +414,14 @@ export async function checkAndDemoteNegotiations() {
     await admin.from('neg_temperature_history').insert({
       quote_id: d.quote_id, from_temp: d.from_temp, to_temp: d.to_temp,
       auto_demoted: true, reason: 'auto',
+      created_at: now.toISOString(),
+    })
+    // Activity com user_id null para indicar ação do sistema
+    await admin.from('activities').insert({
+      quote_id: d.quote_id,
+      user_id: null,
+      type: 'system',
+      description: `🤖 Rebaixado automaticamente — Negociação ${TEMP_PT[d.from_temp] ?? d.from_temp} → ${TEMP_PT[d.to_temp] ?? d.to_temp} (tempo limite atingido)`,
       created_at: now.toISOString(),
     })
   }
