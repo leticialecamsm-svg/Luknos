@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
+import { TEMPERATURE_LABEL, TEMPERATURE_COLOR, CONTACT_TYPE_LABEL } from '@/types'
 import { Search, Flame, Clock, Snowflake, CircleDollarSign, TrendingUp, Percent, X } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 
@@ -168,7 +168,16 @@ export function NegotiationsWorkspace({ allQuotes, users }: { allQuotes: any[]; 
                       </div>
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-gray-900 truncate block">{q.client_name}</span>
-                        {q.architect_name && <p className="text-xs text-gray-400 truncate">{q.architect_name}</p>}
+                        {q.architect_name && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-xs text-gray-400 truncate">{q.architect_name}</span>
+                            {q.architect_type && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded shrink-0">
+                                {CONTACT_TYPE_LABEL[q.architect_type as any]}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </Link>
                   </td>

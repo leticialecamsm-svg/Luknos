@@ -284,6 +284,17 @@ export const SIZE_LABEL: Record<QuoteSize, string> = {
   large:  'Grande',
 }
 
+export const CONTACT_TYPE_LABEL: Record<ContactType, string> = {
+  client:     'Cliente',
+  architect:  'Arquiteto',
+  designer:   'Designer',
+  engineer:   'Engenheiro',
+  electrician: 'Eletricista',
+  plasterer:  'Gestor de Gesso',
+  carpenter:  'Carpinteiro',
+  other:      'Outro',
+}
+
 export const PRIORITY_LABEL: Record<QuotePriority, string> = {
   low:    'Baixa',
   normal: 'Média',

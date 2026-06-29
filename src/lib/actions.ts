@@ -14,10 +14,13 @@ async function enrichOwnersAvatars(quotes: any[]) {
   ))
   const quoteIds = quotes.map(q => q.id).filter(Boolean)
 
-  const [usersRes, negRes, proposalsRes] = await Promise.all([
+  const architectIds = Array.from(new Set(quotes.map(q => q.architect_id).filter(Boolean)))
+
+  const [usersRes, negRes, proposalsRes, architectsRes] = await Promise.all([
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at, last_promoted_at, is_flagged_alert, flagged_alert_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
+    architectIds.length ? admin.from('contacts').select('id, type').in('id', architectIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
   const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
@@ -30,6 +33,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
   for (const p of (proposalsRes.data ?? [])) {
     proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
   }
+  const architectTypeMap = new Map((architectsRes.data ?? []).map((a: any) => [a.id, a.type]))
 
   return quotes.map(q => ({
     ...q,
@@ -41,6 +45,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
     last_promoted_at: lastPromotedMap.get(q.id) ?? null,
     is_flagged_alert: isFlaggedAlertMap.get(q.id) ?? false,
     flagged_alert_at: flaggedAlertAtMap.get(q.id) ?? null,
+    architect_type: architectTypeMap.get(q.architect_id) ?? null,
   }))
 }
 
