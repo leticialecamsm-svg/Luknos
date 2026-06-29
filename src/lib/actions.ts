@@ -1923,6 +1923,54 @@ export async function deleteFinanceEntry(id: string, group?: string | null) {
   return { ok: true }
 }
 
+// ── Fornecedores financeiros ──
+export async function getFinanceSuppliers() {
+  const { data } = await createAdminClient().from('finance_suppliers').select('*').order('name')
+  return data ?? []
+}
+export async function createFinanceSupplier(name: string, supply_area?: string) {
+  const { data, error } = await createAdminClient().from('finance_suppliers').insert({ name, supply_area: supply_area || null }).select().single()
+  if (error) return { error: error.message }
+  revalidatePath('/finance/suppliers')
+  return { ok: true, data }
+}
+export async function updateFinanceSupplier(id: string, name: string, supply_area?: string) {
+  const { error } = await createAdminClient().from('finance_suppliers').update({ name, supply_area: supply_area || null }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance/suppliers')
+  return { ok: true }
+}
+export async function deleteFinanceSupplier(id: string) {
+  const { error } = await createAdminClient().from('finance_suppliers').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance/suppliers')
+  return { ok: true }
+}
+
+// ── Categorias financeiras ──
+export async function getFinanceCategories() {
+  const { data } = await createAdminClient().from('finance_categories').select('*').order('name')
+  return data ?? []
+}
+export async function createFinanceCategory(name: string) {
+  const { data, error } = await createAdminClient().from('finance_categories').insert({ name }).select().single()
+  if (error) return { error: error.message }
+  revalidatePath('/finance/categories')
+  return { ok: true, data }
+}
+export async function updateFinanceCategory(id: string, name: string) {
+  const { error } = await createAdminClient().from('finance_categories').update({ name }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance/categories')
+  return { ok: true }
+}
+export async function deleteFinanceCategory(id: string) {
+  const { error } = await createAdminClient().from('finance_categories').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/finance/categories')
+  return { ok: true }
+}
+
 // ── Comissões dos colaboradores (1% das próprias vendas + 5% como projetista) ──
 const SELLER_COMMISSION_PCT = 1 // % sobre as vendas que o próprio colaborador fechou
 
