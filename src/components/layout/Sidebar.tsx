@@ -143,18 +143,20 @@ export function Sidebar({ user }: { user: User | null }) {
                 </div>
               )}
               {ADMIN_NAV.map(item => {
+                const isFinance = item.href === '/finance'
+                const financeOpen = pathname.startsWith('/finance')
                 const active = pathname === item.href || (item.href !== '/finance' && pathname.startsWith(item.href))
-                if (item.sub && collapsed) return null
+                if (item.sub && (collapsed || !financeOpen)) return null
                 return (
                   <Link key={item.href} href={item.href}
                     title={collapsed ? item.label : undefined}
                     className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
-                      item.sub ? (collapsed ? 'hidden' : 'px-3 py-1.5 ml-4') : (collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2'),
+                      item.sub ? 'px-3 py-1.5 ml-4' : (collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2'),
                       active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:text-white hover:bg-white/8'
                     )}
                   >
                     {!item.sub && <item.icon className="w-4 h-4 shrink-0" />}
-                    {item.sub && !collapsed && <span className="w-1 h-1 rounded-full bg-white/30 shrink-0" />}
+                    {item.sub && <span className="w-1 h-1 rounded-full bg-white/30 shrink-0" />}
                     {!collapsed && item.label}
                   </Link>
                 )
