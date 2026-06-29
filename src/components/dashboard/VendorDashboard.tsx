@@ -325,7 +325,7 @@ export function VendorDashboard({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{q.client_name}</p>
                       {q.architect_name && (
-                        <p className="text-xs text-gray-500">Arq. {q.architect_name}</p>
+                        <p className="text-xs text-gray-500">{q.architect_name}</p>
                       )}
                     </div>
                     <span className={cn('text-xs font-bold px-2 py-1 rounded whitespace-nowrap', {

@@ -154,7 +154,7 @@ export function ShippingList({ initialShipments, filterYear, filterMonth }: Ship
                         <div>
                           <p className="text-sm font-medium text-gray-900">{shipment.client_name ?? '—'}</p>
                           {shipment.architect_name && (
-                            <p className="text-xs text-gray-400">Arq. {shipment.architect_name}</p>
+                            <p className="text-xs text-gray-400">{shipment.architect_name}</p>
                           )}
                         </div>
                       </div>

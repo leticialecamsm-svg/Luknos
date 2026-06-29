@@ -647,7 +647,7 @@ export function AdminDashboardV2({
                   <span className="text-xs text-gray-400 w-12 shrink-0">#{String(q.number).padStart(3,'0')}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{q.client_name}</p>
-                    {q.architect_name && <p className="text-xs text-gray-400 truncate">Arq. {q.architect_name}</p>}
+                    {q.architect_name && <p className="text-xs text-gray-400 truncate">{q.architect_name}</p>}
                   </div>
                   {q.owners?.slice(0,2).map((o: any) => <Avatar key={o.user_id} user={o} size={22} className="ring-1 ring-white" />)}
                   <span className="text-sm font-semibold text-gray-800 shrink-0 ml-1">

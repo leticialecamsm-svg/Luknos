@@ -139,7 +139,7 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
               <p className="text-sm text-gray-500 mt-0.5">{quote.client_phone}</p>
             )}
             {quote.architect_name && (
-              <p className="text-sm text-gray-400 mt-0.5">Arq. {quote.architect_name}</p>
+              <p className="text-sm text-gray-400 mt-0.5">{quote.architect_name}</p>
             )}
             {quote.drive_link && (
               <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"

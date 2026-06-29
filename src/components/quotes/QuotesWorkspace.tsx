@@ -142,7 +142,7 @@ export function QuotesWorkspace({ allQuotes, users }: { allQuotes: any[]; users:
                       </div>
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-gray-900 truncate block">{q.client_name}</span>
-                        {q.architect_name && <p className="text-xs text-gray-400 truncate">Arq. {q.architect_name}</p>}
+                        {q.architect_name && <p className="text-xs text-gray-400 truncate">{q.architect_name}</p>}
                       </div>
                     </Link>
                   </td>

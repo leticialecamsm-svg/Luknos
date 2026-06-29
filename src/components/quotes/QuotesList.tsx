@@ -387,7 +387,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                               <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">⏳ Pgto pendente</span>
                             )}
                           </div>
-                          {q.architect_name && <span className="text-xs text-gray-500">Arq. {q.architect_name}</span>}
+                          {q.architect_name && <span className="text-xs text-gray-500">{q.architect_name}</span>}
                         </div>
                       </div>
                     </td>

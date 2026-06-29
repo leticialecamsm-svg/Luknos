@@ -117,7 +117,7 @@ export function ShippingWorkspace({ initialShipments }: { initialShipments: any[
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{s.client_name ?? '—'}</p>
-                        {s.architect_name && <p className="text-xs text-gray-400 truncate">Arq. {s.architect_name}</p>}
+                        {s.architect_name && <p className="text-xs text-gray-400 truncate">{s.architect_name}</p>}
                       </div>
                     </div>
                   </td>
