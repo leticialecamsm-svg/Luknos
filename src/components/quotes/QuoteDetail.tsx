@@ -34,7 +34,7 @@ import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
-export function QuoteDetail({ quote, activities }: { quote: any; activities: any[] }) {
+export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; activities: any[]; onFlagChange?: () => void }) {
   const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
@@ -60,10 +60,15 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
   const [editDate, setEditDate] = useState('')
   const [editInfo, setEditInfo] = useState('')
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null)
+  const [isFlaggedAlert, setIsFlaggedAlert] = useState(quote.is_flagged_alert ?? false)
 
   useEffect(() => {
     getQuoteProposals(quote.id).then(setProposals)
   }, [quote.id])
+
+  useEffect(() => {
+    setIsFlaggedAlert(quote.is_flagged_alert ?? false)
+  }, [quote.is_flagged_alert])
 
   const statusC = STATUS_COLOR[quote.status as keyof typeof STATUS_COLOR]
   const tempC   = quote.temperature ? TEMPERATURE_COLOR[quote.temperature as keyof typeof TEMPERATURE_COLOR] : null
@@ -88,11 +93,11 @@ export function QuoteDetail({ quote, activities }: { quote: any; activities: any
         </button>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => act(async () => { await toggleAlertFlag(quote.id) })}
-            className={cn('btn-secondary text-xs py-1.5 gap-1.5', quote.is_flagged_alert && 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100')}
-            title={quote.is_flagged_alert ? 'Remover do Radar de Alertas' : 'Adicionar ao Radar de Alertas'}
+            onClick={() => { setIsFlaggedAlert(!isFlaggedAlert); act(async () => { await toggleAlertFlag(quote.id); onFlagChange?.() }) }}
+            className={cn('btn-secondary text-xs py-1.5 gap-1.5', isFlaggedAlert && 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100')}
+            title={isFlaggedAlert ? 'Remover do Radar de Alertas' : 'Adicionar ao Radar de Alertas'}
           >
-            <Flag className="w-3.5 h-3.5" /> {quote.is_flagged_alert ? 'Alerta ativo' : 'Marcar alerta'}
+            <Flag className="w-3.5 h-3.5" /> {isFlaggedAlert ? 'Alerta ativo' : 'Marcar alerta'}
           </button>
           <button
             onClick={() => router.push(`/quotes/${quote.id}/edit`)}

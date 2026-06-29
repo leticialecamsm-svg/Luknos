@@ -5,7 +5,7 @@ import { getQuoteById, getQuoteActivities } from '@/lib/actions'
 import { QuoteDetail } from './QuoteDetail'
 import { X, ExternalLink, Loader2 } from 'lucide-react'
 
-export function QuoteQuickViewModal({ quoteId, onClose }: { quoteId: string; onClose: () => void }) {
+export function QuoteQuickViewModal({ quoteId, onClose, onFlagChange }: { quoteId: string; onClose: () => void; onFlagChange?: () => void }) {
   const [quote, setQuote] = useState<any>(null)
   const [activities, setActivities] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,7 +43,7 @@ export function QuoteQuickViewModal({ quoteId, onClose }: { quoteId: string; onC
           {loading ? (
             <div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>
           ) : quote ? (
-            <QuoteDetail quote={quote} activities={activities} />
+            <QuoteDetail quote={quote} activities={activities} onFlagChange={onFlagChange} />
           ) : (
             <p className="text-center py-24 text-sm text-gray-400">Orçamento não encontrado</p>
           )}

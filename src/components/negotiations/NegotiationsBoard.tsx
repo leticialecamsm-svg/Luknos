@@ -159,7 +159,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
           )
         })}
       </div>
-      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} />}
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} onFlagChange={() => { window.location.reload() }} />}
     </div>
   )
 }
