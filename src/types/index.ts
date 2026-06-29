@@ -295,6 +295,11 @@ export const CONTACT_TYPE_LABEL: Record<ContactType, string> = {
   other:      'Outro',
 }
 
+export function getContactTypeLabel(type: string | null | undefined): string | null {
+  if (!type || !(type in CONTACT_TYPE_LABEL)) return null
+  return CONTACT_TYPE_LABEL[type as ContactType]
+}
+
 export const PRIORITY_LABEL: Record<QuotePriority, string> = {
   low:    'Baixa',
   normal: 'Média',

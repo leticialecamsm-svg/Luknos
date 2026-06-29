@@ -11,7 +11,7 @@ import {
   QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR,
   TEMPERATURE_LABEL, TEMPERATURE_COLOR,
   CATEGORY_LABEL, SIZE_LABEL, ORIGIN_LABEL,
-  LOSS_REASON_LABEL, CONTACT_TYPE_LABEL,
+  LOSS_REASON_LABEL, getContactTypeLabel,
 } from '@/types'
 import {
   formatCurrency, formatDate, formatRelative,
@@ -146,9 +146,9 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             {quote.architect_name && (
               <div className="flex items-center gap-2 mt-1">
                 <p className="text-sm text-gray-600">{quote.architect_name}</p>
-                {quote.architect_type && (
+                {getContactTypeLabel(quote.architect_type) && (
                   <span className="text-xs font-medium px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-full">
-                    {CONTACT_TYPE_LABEL[quote.architect_type as any]}
+                    {getContactTypeLabel(quote.architect_type)}
                   </span>
                 )}
               </div>
