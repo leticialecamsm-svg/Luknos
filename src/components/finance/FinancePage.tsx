@@ -37,6 +37,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
 
   // Navegação de semana
   const [weekOffset, setWeekOffset] = useState(0)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
   // Filtro de mês
   const now = new Date()
@@ -104,7 +105,9 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       (filterType === 'all' || e.type === filterType) &&
       (filterStatus === 'all' || e.status === filterStatus)
     )
-    if (customRange) {
+    if (selectedDay) {
+      list = list.filter(e => e.due_date === selectedDay)
+    } else if (customRange) {
       list = list.filter(e => e.due_date >= customRange.from && e.due_date <= customRange.to)
     } else {
       const from = isoDate(monthStart)
@@ -112,7 +115,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       list = list.filter(e => e.due_date >= from && e.due_date <= to)
     }
     return list
-  }, [entries, filterType, filterStatus, filterMonth, filterYear, customRange])
+  }, [entries, filterType, filterStatus, filterMonth, filterYear, customRange, selectedDay])
 
   function toggleExclude(id: string) {
     setExcludedIds(prev => {
@@ -236,17 +239,25 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
             </div>
           </div>
           <div className="grid grid-cols-7 gap-2">
-            {weekDays.map((d, i) => (
-              <div key={d.iso} className="flex flex-col items-center gap-1">
-                <div className="w-full h-20 flex items-end">
-                  <div className="w-full rounded-t-md transition-all"
-                    style={{ height: `${d.total > 0 ? Math.max(6, (d.total / maxDay) * 100) : 2}%`,
-                             backgroundColor: d.isToday ? '#185FA5' : '#CBD5E1' }} />
-                </div>
-                <p className={cn('text-[10px] font-semibold', d.isToday ? 'text-brand-600' : 'text-gray-400')}>{WEEKDAYS[i]} {d.date.getDate()}</p>
-                <p className="text-[10px] text-gray-600">{d.total > 0 ? formatCurrency(d.total) : '—'}</p>
-              </div>
-            ))}
+            {weekDays.map((d, i) => {
+              const isSelected = selectedDay === d.iso
+              return (
+                <button key={d.iso} type="button"
+                  onClick={() => setSelectedDay(prev => prev === d.iso ? null : d.iso)}
+                  className={cn('flex flex-col items-center gap-1 rounded-lg p-1 transition-colors w-full',
+                    isSelected ? 'bg-brand-50 ring-1 ring-brand-300' : 'hover:bg-gray-50'
+                  )}>
+                  <div className="w-full h-20 flex items-end">
+                    <div className="w-full rounded-t-md transition-all"
+                      style={{ height: `${d.total > 0 ? Math.max(6, (d.total / maxDay) * 100) : 2}%`,
+                               backgroundColor: isSelected ? '#185FA5' : d.isToday ? '#185FA5' : '#CBD5E1',
+                               opacity: isSelected ? 1 : d.isToday ? 1 : 0.7 }} />
+                  </div>
+                  <p className={cn('text-[10px] font-semibold', isSelected ? 'text-brand-600' : d.isToday ? 'text-brand-600' : 'text-gray-400')}>{WEEKDAYS[i]} {d.date.getDate()}</p>
+                  <p className={cn('text-[10px]', isSelected ? 'text-brand-700 font-semibold' : 'text-gray-600')}>{d.total > 0 ? formatCurrency(d.total) : '—'}</p>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -282,6 +293,11 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
         <Link href="/finance/categories" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-border bg-white text-xs text-gray-500 hover:text-brand-600 hover:border-brand-200">
           <Tag className="w-3.5 h-3.5" /> Categorias
         </Link>
+        {selectedDay && (
+          <button onClick={() => setSelectedDay(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 text-xs text-brand-700">
+            <X className="w-3.5 h-3.5" /> {parseISO(selectedDay).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })} — ver todos
+          </button>
+        )}
         {excludedIds.size > 0 && (
           <button onClick={() => setExcludedIds(new Set())} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-200 bg-orange-50 text-xs text-orange-700">
             <X className="w-3.5 h-3.5" /> {excludedIds.size} excluído(s) do total — restaurar
