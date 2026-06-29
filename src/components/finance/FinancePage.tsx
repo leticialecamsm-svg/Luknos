@@ -286,14 +286,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
         </div>
       </div>
 
-      {/* Links rápidos submenus */}
       <div className="flex gap-2">
-        <Link href="/finance/suppliers" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-border bg-white text-xs text-gray-500 hover:text-brand-600 hover:border-brand-200">
-          <Building2 className="w-3.5 h-3.5" /> Fornecedores
-        </Link>
-        <Link href="/finance/categories" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-border bg-white text-xs text-gray-500 hover:text-brand-600 hover:border-brand-200">
-          <Tag className="w-3.5 h-3.5" /> Categorias
-        </Link>
         {selectedDay && (
           <button onClick={() => setSelectedDay(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 text-xs text-brand-700">
             <X className="w-3.5 h-3.5" /> {parseISO(selectedDay).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })} — ver todos
