@@ -809,7 +809,7 @@ export async function updateQuote(quoteId: string, data: {
   if (changes.length > 0) {
     await supabase.from('activities').insert({
       quote_id: quoteId, user_id: user.id,
-      type: 'note', description: `✏️ Editado — ${changes.join(' · ')}`,
+      type: 'edit', description: `✏️ Editado — ${changes.join(' · ')}`,
     })
   }
 

@@ -34,6 +34,37 @@ import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
+const STATUS_PT: Record<string, string> = {
+  queue: 'Na fila', in_progress: 'Em andamento', done: 'Concluído',
+  paused: 'Pausado', review: 'Em revisão', revision: 'Revisão',
+}
+const TEMP_PT: Record<string, string> = {
+  cold: 'Frio', warm: 'Morno', hot: 'Quente', no_forecast: 'Sem previsão',
+  closed: 'Fechada', lost: 'Perdida',
+}
+
+function translateActivityDescription(desc: string): string {
+  if (!desc) return desc
+  // "Status alterado de X para Y"
+  let out = desc.replace(/Status alterado de (\w+) para (\w+)/g, (_, from, to) =>
+    `Status alterado de ${STATUS_PT[from] ?? from} para ${STATUS_PT[to] ?? to}`
+  )
+  // "Negociação X → Y"
+  out = out.replace(/Negociação (\w+) → (\w+)/g, (_, from, to) =>
+    `Negociação ${TEMP_PT[from] ?? from} → ${TEMP_PT[to] ?? to}`
+  )
+  // Remove campos técnicos como "architect_id: — → uuid"
+  out = out.replace(/architect_id:[^·]+(?:·\s*)?/g, '')
+  out = out.replace(/paid_traffic_type: — → (\w+)/g, (_, val) => {
+    const PT: Record<string,string> = { final_client: 'Cliente final', new_partner: 'Novo parceiro' }
+    return `Tipo tráfego pago: — → ${PT[val] ?? val}`
+  })
+  // Limpa "Editado —  ·" se ficar sem campos após remoção
+  out = out.replace(/✏️ Editado — \s*·?\s*$/, '✏️ Editado')
+  out = out.replace(/✏️ Editado — \s*·\s*/, '✏️ Editado — ')
+  return out.trim()
+}
+
 export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; activities: any[]; onFlagChange?: () => void }) {
   const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -739,7 +770,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                     {isNote && <span className="text-[10px] font-medium text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">Nota</span>}
                     <span className="text-[10px] text-gray-400 ml-auto">{formatRelativeWithTime(a.created_at)}</span>
                   </div>
-                  <p className={cn('text-sm mt-0.5', isNote ? 'text-amber-900' : 'text-gray-500 italic')}>{a.description}</p>
+                  <p className={cn('text-sm mt-0.5', isNote ? 'text-amber-900' : 'text-gray-500 italic')}>{translateActivityDescription(a.description)}</p>
                 </div>
               </div>
             )
