@@ -8,10 +8,10 @@ export default async function SchedulesPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  // Pega agenda do mês atual
+  // Carrega da semana atual até 3 meses à frente para cobrir navegação
   const now = new Date()
-  const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-  const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+  const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]
+  const endDate = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString().split('T')[0]
 
   const schedules = await getSchedules(startDate, endDate)
 

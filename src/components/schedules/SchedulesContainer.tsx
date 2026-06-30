@@ -44,7 +44,10 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
   const [viewing, setViewing] = useState<any | null>(null)
 
   async function reload() {
-    const data = await getSchedules()
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]
+    const end = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString().split('T')[0]
+    const data = await getSchedules(start, end)
     setSchedules(data as any[])
   }
 
