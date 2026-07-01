@@ -80,9 +80,7 @@ export function Sidebar({ user }: { user: User | null }) {
   if (!mounted) return null
 
   return (
-    // Wrapper relativo para o botão flutuante poder sair do aside
     <div className="relative shrink-0 flex">
-      <ScheduleNotifier />
       <aside
         className={`flex flex-col transition-all duration-300 ${collapsed ? 'w-16' : 'w-56'}`}
         style={{ background: '#1A1A2E', borderTopRightRadius: '43px' }}
@@ -179,6 +177,9 @@ export function Sidebar({ user }: { user: User | null }) {
             </>
           )}
         </nav>
+
+        {/* Notificações */}
+        {!collapsed && <ScheduleNotifier mode="sidebar" />}
 
         {/* Footer: usuário + logout */}
         <div className={`border-t border-white/10 ${collapsed ? 'px-3 py-3 flex justify-center' : 'p-3'}`}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useTransition } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder,
@@ -8,8 +8,8 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, ExternalLink, CheckCircle2 } from 'lucide-react'
-import { format, isToday, isPast, parseISO } from 'date-fns'
+import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical } from 'lucide-react'
+import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 type Status   = 'todo' | 'doing' | 'paused' | 'done'
@@ -25,7 +25,7 @@ interface Task {
   quote?: { number: number; client_name: string } | null
   quote_id?: string | null
   checklist?: { text: string; done: boolean }[]
-  subtasks?: { id: string; done: boolean }[]
+  subtasks?: { id: string; title?: string; text?: string; done: boolean; completed?: boolean }[]
 }
 
 interface User { id: string; name: string; avatar_color: string; avatar_url?: string | null }
@@ -36,13 +36,26 @@ const P = {
   low:  { label: 'Baixa', dot: 'bg-gray-300',  text: 'text-gray-500',  bg: 'bg-gray-50',  pill: 'bg-gray-100 text-gray-500',   lborder: 'border-l-gray-300' },
 }
 
+const STATUS_CFG: Record<Status, { label: string; cls: string }> = {
+  todo:   { label: 'A fazer',      cls: 'bg-gray-100 text-gray-500' },
+  doing:  { label: 'Em andamento', cls: 'bg-blue-100 text-blue-600' },
+  paused: { label: 'Pausada',      cls: 'bg-amber-100 text-amber-600' },
+  done:   { label: 'Concluída',    cls: 'bg-emerald-100 text-emerald-600' },
+}
+
 const TODAY    = new Date().toISOString().split('T')[0]
-const TOMORROW = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+const TOMORROW = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()
+
+// Evita bug de fuso horário ao parsear "YYYY-MM-DD"
+function parseLocalDate(s: string): Date {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
 function isInToday(t: Task) {
   if (t.pinned_to_today) return true
   if (!t.due_date) return false
-  const d = parseISO(t.due_date)
+  const d = parseLocalDate(t.due_date)
   return isToday(d) || isPast(d)
 }
 
@@ -57,7 +70,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   currentUser: User; isAdmin: boolean
 }) {
   const toast = useToast()
-  const [, startTx] = useTransition()
   const [scope, setScope]   = useState<'mine' | 'team'>('mine')
   const [search, setSearch] = useState('')
   const [newTitle, setNewTitle] = useState('')
@@ -65,29 +77,26 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [doneOpen, setDoneOpen] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
 
-  const source = scope === 'mine' ? myTasks : allTasks
-  const [tasks, setTasks] = useState<Task[]>(source)
-
-  function reload() {
-    startTx(async () => {
-      const { getTasks, getAllTasks } = await import('@/lib/actions')
-      const data = await (scope === 'mine' ? getTasks() : getAllTasks())
-      setTasks(data as Task[])
-    })
+  // Estado local de tarefas (optimistic)
+  const [tasks, setTasks] = useState<Task[]>(() => myTasks)
+  const prevScope = useRef(scope)
+  if (prevScope.current !== scope) {
+    prevScope.current = scope
+    setTasks(scope === 'mine' ? myTasks : allTasks)
   }
 
   const filtered = useMemo(() => {
-    let t = scope === 'mine' ? myTasks : allTasks
+    let t = tasks
     if (search) t = t.filter(x => x.title.toLowerCase().includes(search.toLowerCase()))
     return t
-  }, [myTasks, allTasks, scope, search])
+  }, [tasks, search])
 
   const active     = filtered.filter(t => t.status !== 'done')
   const done       = filtered.filter(t => t.status === 'done')
   const todayTasks = sortedBy(active.filter(isInToday))
   const laterTasks = sortedBy(active.filter(t => !isInToday(t)))
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
+  // ── Mutations (optimistic, DB em background) ──────────────────────────────
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -97,42 +106,41 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     const tmp: Task = { id: '__tmp__' + Date.now(), title, status: 'todo', priority: newPriority, created_at: new Date().toISOString(), due_date: TODAY, sort_order: -1 }
     setTasks(prev => [tmp, ...prev])
     const res = await createTask({ title, priority: newPriority, status: 'todo', due_date: TODAY })
-    if (res?.error) { toast.error('Erro', res.error); setTasks(prev => prev.filter(t => t.id !== tmp.id)); return }
-    reload()
+    if (res?.error) { toast.error('Erro', res.error); setTasks(prev => prev.filter(t => t.id !== tmp.id)) }
   }
 
-  async function toggleDone(task: Task) {
+  function toggleDone(task: Task) {
     const next: Status = task.status === 'done' ? 'todo' : 'done'
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: next } : t))
     if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next } : p)
-    await updateTaskStatus(task.id, next)
+    updateTaskStatus(task.id, next).catch(() => {})
   }
 
-  async function removeTask(id: string) {
+  function removeTask(id: string) {
     setTasks(prev => prev.filter(t => t.id !== id))
     if (selected?.id === id) setSelected(null)
-    await deleteTask(id)
+    deleteTask(id).catch(() => {})
   }
 
-  async function changeTask(id: string, updates: Partial<Task>) {
+  function changeTask(id: string, updates: Partial<Task>) {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
     if (selected?.id === id) setSelected(p => p ? { ...p, ...updates } : p)
-    await updateTask(id, updates as any)
+    updateTask(id, updates as any).catch(() => {})
   }
 
   // ── Drag & Drop ───────────────────────────────────────────────────────────
-  // dropTarget: ref mutado em onDragOver de cada row, lido em onDrop do grupo
   const draggingId = useRef<string | null>(null)
   const dropTarget = useRef<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>({
     section: 'today', priority: null, insertBeforeId: null,
   })
 
-  async function applyDrop() {
+  // Sem await — optimistic instantâneo, DB dispara em background
+  function applyDrop() {
     const taskId = draggingId.current
     if (!taskId) return
     const { section: toSection, priority: toPriority, insertBeforeId } = dropTarget.current
 
-    const task = (scope === 'mine' ? myTasks : allTasks).find(t => t.id === taskId)
+    const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
     const updates: Partial<Task> = {}
@@ -143,7 +151,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
       updates.pinned_to_today = true
     } else if (toSection === 'later' && wasToday) {
       updates.pinned_to_today = false
-      if (!task.due_date || isToday(parseISO(task.due_date)) || isPast(parseISO(task.due_date))) {
+      if (!task.due_date || isToday(parseLocalDate(task.due_date)) || isPast(parseLocalDate(task.due_date))) {
         updates.due_date = TOMORROW
       }
     }
@@ -151,9 +159,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
       updates.priority = toPriority
     }
 
-    // Recalcula sort_order da lista destino
     const destList = toSection === 'today' ? todayTasks : laterTasks
-    const without = destList.filter(t => t.id !== taskId)
+    const without  = destList.filter(t => t.id !== taskId)
     const movedTask = { ...task, ...updates }
     let inserted: Task[]
     if (insertBeforeId) {
@@ -165,7 +172,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     }
     const orderUpdates = inserted.map((t, i) => ({ id: t.id, sort_order: i * 10 }))
 
-    // Optimistic update
+    // Optimistic instantâneo
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) return { ...t, ...updates, sort_order: orderUpdates.find(u => u.id === taskId)?.sort_order ?? t.sort_order }
       const ou = orderUpdates.find(u => u.id === t.id)
@@ -173,10 +180,9 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     }))
     if (selected?.id === taskId) setSelected(p => p ? { ...p, ...updates } : p)
 
-    await Promise.all([
-      updateTasksOrder(orderUpdates),
-      ...(Object.keys(updates).length ? [updateTask(taskId, updates as any)] : []),
-    ])
+    // DB em background (sem bloquear UI)
+    updateTasksOrder(orderUpdates).catch(() => {})
+    if (Object.keys(updates).length) updateTask(taskId, updates as any).catch(() => {})
   }
 
   const todayByP: Record<Priority, Task[]> = {
@@ -186,7 +192,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   }
 
   return (
-    <div className={cn('flex gap-5 h-full min-h-0', selected && 'pr-0')}>
+    <div className="flex gap-5 h-full min-h-0">
       <div className="flex flex-col flex-1 min-w-0 gap-4">
 
         {/* Header */}
@@ -245,7 +251,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
         {/* Lists */}
         <div className="flex-1 overflow-y-auto space-y-3 pb-6">
 
-          {/* TAREFAS DO DIA */}
           <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
             {(['high', 'mid', 'low'] as Priority[]).map(p => (
               <PriorityGroup
@@ -260,7 +265,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             ))}
           </Section>
 
-          {/* DEPOIS */}
           <Section title="Depois" count={laterTasks.length} accent="text-gray-500" defaultOpen>
             <DropList
               tasks={laterTasks} showUser={scope === 'team'}
@@ -272,7 +276,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             />
           </Section>
 
-          {/* CONCLUÍDAS */}
           {done.length > 0 && (
             <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
               <button onClick={() => setDoneOpen(o => !o)}
@@ -298,7 +301,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
         </div>
       </div>
 
-      {/* Detail panel */}
       {selected && (
         <DetailPanel
           key={selected.id} task={selected}
@@ -349,21 +351,30 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDr
     setOverIdx(idx)
   }
 
+  function handleDragOver(e: React.DragEvent, insertBeforeId: string | null, idx: number | null) {
+    e.preventDefault()
+    aim(insertBeforeId, idx)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    onDrop()
+    setOverIdx(null)
+  }
+
   return (
-    <div className={cn('border-l-2', cfg.lborder)}>
-      {/* Sub-header — sempre visível, mesmo vazio */}
+    <div
+      className={cn('border-l-2', cfg.lborder)}
+      onDragOver={e => handleDragOver(e, null, tasks.length)}
+      onDrop={handleDrop}
+    >
       <div className={cn('flex items-center gap-2 px-4 py-1.5', cfg.bg)}>
         <span className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot)} />
         <span className={cn('text-[11px] font-bold uppercase tracking-wide', cfg.text)}>{cfg.label}</span>
         <span className="text-[11px] text-gray-400">{tasks.length}</span>
       </div>
 
-      {/* Drop container */}
-      <div
-        onDragOver={e => { e.preventDefault(); if (tasks.length === 0) aim(null, 0) }}
-        onDrop={e => { e.preventDefault(); onDrop(); setOverIdx(null) }}
-        className="min-h-[8px]"
-      >
+      <div className="min-h-[16px]">
         {tasks.map((task, idx) => (
           <div key={task.id}>
             <Line active={overIdx === idx} />
@@ -371,8 +382,8 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDr
               task={task} showUser={showUser}
               isSelected={selectedId === task.id}
               draggingId={draggingId}
-              onAim={(id, i) => aim(id, i)}
-              onAimIdx={idx}
+              onRowDragOver={e => handleDragOver(e, task.id, idx)}
+              onRowDrop={handleDrop}
               onDragStart={() => { draggingId.current = task.id; setOverIdx(null) }}
               onDragEnd={() => { draggingId.current = null; setOverIdx(null) }}
               onToggle={() => onToggle(task)}
@@ -382,8 +393,10 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDr
           </div>
         ))}
         <Line active={overIdx === tasks.length} />
-        {/* Padding zone at bottom of group to drop at end */}
-        <div className="h-3" onDragOver={e => { e.preventDefault(); aim(null, tasks.length) }} />
+        <div className="h-4"
+          onDragOver={e => handleDragOver(e, null, tasks.length)}
+          onDrop={handleDrop}
+        />
       </div>
     </div>
   )
@@ -406,11 +419,22 @@ function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, o
     setOverIdx(idx)
   }
 
+  function handleDragOver(e: React.DragEvent, insertBeforeId: string | null, idx: number | null) {
+    e.preventDefault()
+    aim(insertBeforeId, idx)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    onDrop()
+    setOverIdx(null)
+  }
+
   return (
     <div
-      onDragOver={e => { e.preventDefault(); if (tasks.length === 0) aim(null, 0) }}
-      onDrop={e => { e.preventDefault(); onDrop(); setOverIdx(null) }}
-      className="min-h-[8px]"
+      className="min-h-[16px]"
+      onDragOver={e => handleDragOver(e, null, tasks.length)}
+      onDrop={handleDrop}
     >
       {tasks.map((task, idx) => (
         <div key={task.id}>
@@ -419,8 +443,8 @@ function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, o
             task={task} showUser={showUser} showPriorityPill
             isSelected={selectedId === task.id}
             draggingId={draggingId}
-            onAim={(id, i) => aim(id, i)}
-            onAimIdx={idx}
+            onRowDragOver={e => handleDragOver(e, task.id, idx)}
+            onRowDrop={handleDrop}
             onDragStart={() => { draggingId.current = task.id; setOverIdx(null) }}
             onDragEnd={() => { draggingId.current = null; setOverIdx(null) }}
             onToggle={() => onToggle(task)}
@@ -430,7 +454,10 @@ function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, o
         </div>
       ))}
       <Line active={overIdx === tasks.length} />
-      <div className="h-3" onDragOver={e => { e.preventDefault(); aim(null, tasks.length) }} />
+      <div className="h-4"
+        onDragOver={e => handleDragOver(e, null, tasks.length)}
+        onDrop={handleDrop}
+      />
     </div>
   )
 }
@@ -444,23 +471,31 @@ function Line({ active }: { active: boolean }) {
 // ── Task Row ──────────────────────────────────────────────────────────────────
 
 function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
-  draggingId, onAim, onAimIdx, onDragStart, onDragEnd,
+  draggingId, onRowDragOver, onRowDrop, onDragStart, onDragEnd,
   onToggle, onDelete, onSelect,
 }: {
   task: Task; showUser?: boolean; showPriorityPill?: boolean; isDone?: boolean; isSelected?: boolean
   draggingId?: React.MutableRefObject<string | null>
-  onAim?: (insertBeforeId: string, idx: number) => void
-  onAimIdx?: number
+  onRowDragOver?: (e: React.DragEvent) => void
+  onRowDrop?: (e: React.DragEvent) => void
   onDragStart?: () => void; onDragEnd?: () => void
   onToggle: () => void; onDelete: () => void; onSelect: () => void
 }) {
   const done    = task.status === 'done'
-  const due     = task.due_date ? parseISO(task.due_date) : null
+  const due     = task.due_date ? parseLocalDate(task.due_date) : null
   const overdue = due && isPast(due) && !isToday(due) && !done
-  const dueLabel = due ? (isToday(due) ? 'Hoje' : format(due, 'dd/MM', { locale: ptBR })) : null
+  const dueLabel = due
+    ? (isToday(due) ? 'Hoje' : isTomorrow(due) ? 'Amanhã' : format(due, 'dd/MM', { locale: ptBR }))
+    : null
 
-  // Drag: só permitido a partir do handle
   const canDrag = useRef(false)
+
+  const allItems = [
+    ...(task.subtasks ?? []),
+    ...(task.checklist ?? []).map(c => ({ done: c.done })),
+  ]
+  const subtaskDone = (task.subtasks?.filter(s => s.done || s.completed).length ?? 0) +
+                      (task.checklist?.filter(c => c.done).length ?? 0)
 
   return (
     <div
@@ -471,27 +506,24 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
         onDragStart?.()
       }}
       onDragEnd={() => { canDrag.current = false; onDragEnd?.() }}
-      onDragOver={e => { e.preventDefault(); if (onAim && onAimIdx !== undefined) onAim(task.id, onAimIdx) }}
+      onDragOver={onRowDragOver}
+      onDrop={onRowDrop}
       onClick={onSelect}
       className={cn(
-        'group flex items-center gap-2 px-3 py-3 border-b border-gray-100 last:border-0 cursor-pointer transition-colors select-none',
+        'group flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 last:border-0 cursor-pointer transition-colors select-none',
         isSelected ? 'bg-brand-50' : 'hover:bg-gray-50/80',
         done && 'opacity-50'
       )}
     >
-      {/* Drag handle — único elemento que ativa o drag */}
+      {/* Drag handle — único ponto que inicia o drag */}
       {draggingId && (
         <div
           onMouseDown={() => { canDrag.current = true }}
           onMouseUp={() => { canDrag.current = false }}
-          className="w-5 h-5 flex items-center justify-center text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
           onClick={e => e.stopPropagation()}
+          className="w-5 flex items-center justify-center text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
         >
-          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-            <circle cx="7" cy="5"  r="1.3"/><circle cx="13" cy="5"  r="1.3"/>
-            <circle cx="7" cy="10" r="1.3"/><circle cx="13" cy="10" r="1.3"/>
-            <circle cx="7" cy="15" r="1.3"/><circle cx="13" cy="15" r="1.3"/>
-          </svg>
+          <GripVertical className="w-3.5 h-3.5" />
         </div>
       )}
 
@@ -506,25 +538,39 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
         {done && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
       </button>
 
-      {/* Title */}
-      <span className={cn('flex-1 text-sm text-gray-800 min-w-0 truncate', done && 'line-through text-gray-400')}>
-        {task.title}
-      </span>
+      {/* Title + sub-info */}
+      <div className="flex-1 min-w-0">
+        <span className={cn('text-sm text-gray-800 truncate block', done && 'line-through text-gray-400')}>
+          {task.title}
+        </span>
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          {!done && (
+            <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md', STATUS_CFG[task.status].cls)}>
+              {STATUS_CFG[task.status].label}
+            </span>
+          )}
+          {task.quote && (
+            <span className="text-[10px] text-brand-500 flex items-center gap-0.5 font-medium">
+              <Link2 className="w-2.5 h-2.5" />#{task.quote.number} · {task.quote.client_name}
+            </span>
+          )}
+          {allItems.length > 0 && (
+            <span className="text-[10px] text-gray-400">
+              {subtaskDone}/{allItems.length} subtarefas
+            </span>
+          )}
+        </div>
+      </div>
 
-      {/* Meta — largura fixa, sem layout shift no hover */}
+      {/* Right meta */}
       <div className="flex items-center gap-2 shrink-0">
         {showPriorityPill && (
           <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', P[task.priority].pill)}>
             {P[task.priority].label}
           </span>
         )}
-        {task.quote && (
-          <span className="text-[11px] text-brand-400 hidden sm:flex items-center gap-1">
-            <Link2 className="w-3 h-3" />#{task.quote.number}
-          </span>
-        )}
         <span className={cn(
-          'text-[11px] font-medium w-10 text-right',
+          'text-[11px] font-medium w-12 text-right',
           !dueLabel && 'invisible',
           overdue ? 'text-red-500' : due && isToday(due) ? 'text-orange-500' : 'text-gray-400'
         )}>
@@ -535,7 +581,6 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
             {task.users ? <Avatar user={task.users} size={22} /> : null}
           </div>
         )}
-        {/* Delete: espaço fixo, só opacity muda */}
         <button
           onClick={e => { e.stopPropagation(); onDelete() }}
           className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition-all"
@@ -557,17 +602,16 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
   const [title, setTitle] = useState(task.title)
   const [desc, setDesc]   = useState(task.description ?? '')
   const done = task.status === 'done'
-  const prg  = (() => {
-    const items = task.checklist ?? task.subtasks ?? []
-    if (!items.length) return null
-    return { done: items.filter((i: any) => i.done).length, total: items.length }
-  })()
+
+  const allItems = [
+    ...(task.subtasks ?? []).map(s => ({ text: s.title ?? s.text ?? '', done: s.done || !!s.completed })),
+    ...(task.checklist ?? []).map(c => ({ text: c.text, done: c.done })),
+  ]
 
   return (
     <div className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
-      {/* Top */}
       <div className={cn('flex items-center gap-2 px-4 py-3 border-b border-gray-100',
-        { 'bg-red-50': task.priority === 'high', 'bg-amber-50': task.priority === 'mid', 'bg-gray-50': task.priority === 'low' })}>
+        task.priority === 'high' ? 'bg-red-50' : task.priority === 'mid' ? 'bg-amber-50' : 'bg-gray-50')}>
         <span className={cn('w-2 h-2 rounded-full', P[task.priority].dot)} />
         <span className={cn('text-xs font-bold flex-1 uppercase tracking-wide', P[task.priority].text)}>{P[task.priority].label}</span>
         <button onClick={onDelete} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
@@ -579,7 +623,6 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Checkbox + título */}
         <div className="flex items-start gap-2.5">
           <button onClick={onToggle}
             className={cn('mt-0.5 w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-all hover:scale-110',
@@ -594,7 +637,6 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
             )} />
         </div>
 
-        {/* Quote */}
         {task.quote && (
           <div className="flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
             <Link2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
@@ -602,7 +644,6 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           </div>
         )}
 
-        {/* Fields */}
         <div className="space-y-2.5">
           <Row2 label="Status">
             <select value={task.status} onChange={e => onChange({ status: e.target.value as Status })}
@@ -618,16 +659,21 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
               {(['high', 'mid', 'low'] as Priority[]).map(p => (
                 <button key={p} onClick={() => onChange({ priority: p })}
                   className={cn('flex-1 text-xs font-semibold py-1.5 rounded-lg border transition-all',
-                    task.priority === p ? `${P[p].dot} border-transparent text-white` : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                    task.priority === p
+                      ? `${P[p].dot} text-white border-transparent`
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
                   {P[p].label}
                 </button>
               ))}
             </div>
           </Row2>
           <Row2 label="Prazo">
-            <input type="date" defaultValue={task.due_date ?? ''}
+            <input
+              type="date"
+              value={task.due_date ?? ''}
               onChange={e => onChange({ due_date: e.target.value || null })}
-              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700" />
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
+            />
           </Row2>
           {task.users && (
             <Row2 label="Responsável">
@@ -639,20 +685,33 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           )}
         </div>
 
-        {/* Progress */}
-        {prg && (
+        {/* Subtarefas / checklist */}
+        {allItems.length > 0 && (
           <div className="space-y-1.5">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span className="font-semibold">Checklist</span>
-              <span>{prg.done}/{prg.total}</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Subtarefas</span>
+              <span className="text-[11px] text-gray-400">{allItems.filter(i => i.done).length}/{allItems.length}</span>
             </div>
             <div className="h-1.5 bg-gray-100 rounded-full">
-              <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(prg.done / prg.total) * 100}%` }} />
+              <div className="h-full bg-emerald-400 rounded-full transition-all"
+                style={{ width: `${(allItems.filter(i => i.done).length / allItems.length) * 100}%` }} />
+            </div>
+            <div className="space-y-1 pt-1">
+              {allItems.map((item, i) => (
+                <div key={i} className="flex items-start gap-2 py-0.5">
+                  <div className={cn('mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center',
+                    item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white')}>
+                    {item.done && <span className="text-white text-[8px] font-bold">✓</span>}
+                  </div>
+                  <span className={cn('text-sm text-gray-700 leading-snug', item.done && 'line-through text-gray-400')}>
+                    {item.text}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Notes */}
         <div>
           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Notas</label>
           <textarea value={desc} onChange={e => setDesc(e.target.value)}
@@ -662,7 +721,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
         </div>
 
         <p className="text-[11px] text-gray-300 border-t border-gray-100 pt-3">
-          Criada em {format(parseISO(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+          Criada em {format(new Date(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
         </p>
       </div>
     </div>
