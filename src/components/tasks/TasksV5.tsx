@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder,
@@ -79,11 +79,10 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 
   // Estado local de tarefas (optimistic)
   const [tasks, setTasks] = useState<Task[]>(() => myTasks)
-  const prevScope = useRef(scope)
-  if (prevScope.current !== scope) {
-    prevScope.current = scope
+
+  useEffect(() => {
     setTasks(scope === 'mine' ? myTasks : allTasks)
-  }
+  }, [scope])
 
   const filtered = useMemo(() => {
     let t = tasks
