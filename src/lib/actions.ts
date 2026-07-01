@@ -2118,3 +2118,19 @@ export async function cancelSale(quoteId: string) {
   revalidatePath(`/quotes/${quoteId}`)
   return {}
 }
+
+// ── Tasks: persistência de ordem e seção ────────────────────────────────────
+
+export async function updateTasksOrder(updates: { id: string; sort_order: number }[]) {
+  const admin = createAdminClient()
+  await Promise.all(updates.map(u =>
+    admin.from('tasks').update({ sort_order: u.sort_order }).eq('id', u.id)
+  ))
+  revalidatePath('/dashboard/tasks-v5')
+}
+
+export async function pinTaskToToday(id: string, pinned: boolean) {
+  const admin = createAdminClient()
+  await admin.from('tasks').update({ pinned_to_today: pinned }).eq('id', id)
+  revalidatePath('/dashboard/tasks-v5')
+}
