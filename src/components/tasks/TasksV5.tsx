@@ -46,9 +46,12 @@ const STATUS_CFG: Record<Status, { label: string; cls: string }> = {
 const TODAY    = new Date().toISOString().split('T')[0]
 const TOMORROW = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()
 
-// Evita bug de fuso horário ao parsear "YYYY-MM-DD"
+// Parseia datas evitando bug de fuso horário com strings "YYYY-MM-DD"
 function parseLocalDate(s: string): Date {
-  const [y, m, d] = s.split('-').map(Number)
+  // Extrai apenas a parte da data (antes do T) para evitar offset UTC
+  const datePart = s.split('T')[0]
+  const [y, m, d] = datePart.split('-').map(Number)
+  if (!y || !m || !d) return new Date(s) // fallback para ISO completo
   return new Date(y, m - 1, d)
 }
 
