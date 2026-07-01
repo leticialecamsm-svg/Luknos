@@ -139,14 +139,19 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   }
 
   // ── Drag & Drop ───────────────────────────────────────────────────────────
-  // Quando termina um drag, temos três tipos de mudança que persistem no banco:
-  //   1. Mudança de seção (hoje ↔ depois)  → atualiza due_date + pinned_to_today
-  //   2. Mudança de prioridade              → atualiza priority
-  //   3. Mudança de posição                 → atualiza sort_order de todos afetados
+  const draggingId  = useRef<string | null>(null)
+  // dropTarget: seção de destino, grupo de prioridade e task antes da qual inserir
+  const dropTarget  = useRef<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>({
+    section: 'today', priority: null, insertBeforeId: null,
+  })
 
-  const draggingId = useRef<string | null>(null)
+  async function applyDrop(taskId: string | null) {
+    if (!taskId) return
+    const { section: toSection, priority: toPriority, insertBeforeId } = dropTarget.current
+    return _applyDrop(taskId, toSection, toPriority, insertBeforeId)
+  }
 
-  async function applyDrop(taskId: string, toSection: 'today' | 'later', toPriority: Priority | null, insertBeforeId: string | null) {
+  async function _applyDrop(taskId: string, toSection: 'today' | 'later', toPriority: Priority | null, insertBeforeId: string | null) {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
@@ -221,7 +226,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const doneCount   = done.length
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-4 max-w-2xl mx-auto w-full">
+    <div className="flex flex-col h-full min-h-0 gap-4">
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -302,7 +307,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
               tasks={todayByPriority[p]}
               showUser={scope === 'team'}
               draggingId={draggingId}
-              onDrop={(taskId, insertBeforeId) => applyDrop(taskId, 'today', p, insertBeforeId)}
+              dropTarget={dropTarget}
+              onDrop={() => applyDrop(draggingId.current)}
               onToggle={toggleDone}
               onDelete={removeTask}
             />
@@ -319,10 +325,10 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
         >
           <DropList
             tasks={laterTasks}
-            section="later"
             showUser={scope === 'team'}
             draggingId={draggingId}
-            onDrop={(taskId, insertBeforeId) => applyDrop(taskId, 'later', null, insertBeforeId)}
+            dropTarget={dropTarget}
+            onDrop={() => applyDrop(draggingId.current)}
             onToggle={toggleDone}
             onDelete={removeTask}
           />
@@ -380,26 +386,19 @@ function Section({ title, count, accent, emptyText, defaultOpen, children }: {
 
 // ── Priority group (dentro de "Tarefas do dia") ───────────────────────────────
 
-function PriorityGroup({ priority, tasks, showUser, draggingId, onDrop, onToggle, onDelete }: {
+function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete }: {
   priority: Priority; tasks: Task[]; showUser: boolean
   draggingId: React.MutableRefObject<string | null>
-  onDrop: (taskId: string, insertBeforeId: string | null) => void
+  dropTarget: React.MutableRefObject<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>
+  onDrop: () => void
   onToggle: (t: Task) => void; onDelete: (id: string) => void
 }) {
   const cfg = P[priority]
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
 
-  if (tasks.length === 0 && priority === 'low') {
-    // Não renderiza grupo vazio de baixa prioridade (menos ruído)
-    return (
-      <DropZone
-        onDragOver={() => setDragOverIndex(0)}
-        onDragLeave={() => setDragOverIndex(null)}
-        onDrop={() => { onDrop(draggingId.current!, null); setDragOverIndex(null) }}
-        active={dragOverIndex !== null}
-        className="h-2"
-      />
-    )
+  function setTarget(insertBeforeId: string | null, idx: number | null) {
+    dropTarget.current = { section: 'today', priority, insertBeforeId }
+    setOverIndex(idx)
   }
 
   return (
@@ -408,80 +407,78 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, onDrop, onToggle
       'border-l-amber-400': priority === 'mid',
       'border-l-gray-200': priority === 'low',
     })}>
-      {/* Sub-header */}
       <div className={cn('flex items-center gap-2 px-4 py-2', cfg.bg)}>
         <span className={cn('w-2 h-2 rounded-full', cfg.dot)} />
         <span className={cn('text-[11px] font-bold uppercase tracking-wide', cfg.text)}>{cfg.label}</span>
         <span className="text-[11px] text-gray-400">{tasks.length}</span>
       </div>
 
-      {/* Tasks */}
-      <div>
+      <div
+        onDragOver={e => { e.preventDefault(); if (tasks.length === 0) setTarget(null, 0) }}
+        onDrop={e => { e.preventDefault(); onDrop(); setOverIndex(null) }}
+      >
         {tasks.map((task, idx) => (
           <div key={task.id}>
-            {/* Drop indicator above */}
-            <DropIndicator active={dragOverIndex === idx} />
+            <DropIndicator active={overIndex === idx} />
             <TaskRow
-              task={task}
-              showUser={showUser}
-              draggable
-              onDragStart={() => { draggingId.current = task.id }}
-              onDragEnd={() => { draggingId.current = null; setDragOverIndex(null) }}
-              onDragEnterRow={() => setDragOverIndex(idx)}
+              task={task} showUser={showUser} draggable
+              onDragStart={() => { draggingId.current = task.id; setOverIndex(null) }}
+              onDragEnd={() => { draggingId.current = null; setOverIndex(null) }}
+              onDragOver={() => setTarget(task.id, idx)}
               onToggle={() => onToggle(task)}
               onDelete={() => onDelete(task.id)}
             />
           </div>
         ))}
-        {/* Drop indicator at end */}
-        <DropIndicator active={dragOverIndex === tasks.length} />
-      </div>
+        <DropIndicator active={overIndex === tasks.length} />
 
-      {/* Drop zone for entire group (when empty or at bottom) */}
-      <div
-        onDragOver={e => { e.preventDefault(); setDragOverIndex(tasks.length) }}
-        onDragLeave={() => setDragOverIndex(null)}
-        onDrop={e => { e.preventDefault(); onDrop(draggingId.current!, null); setDragOverIndex(null) }}
-        className="h-2"
-      />
+        {/* zona no fundo do grupo para inserir no final */}
+        <div
+          className="h-4"
+          onDragOver={e => { e.preventDefault(); setTarget(null, tasks.length) }}
+        />
+      </div>
     </div>
   )
 }
 
 // ── Drop list (para seção "Depois") ──────────────────────────────────────────
 
-function DropList({ tasks, section, showUser, draggingId, onDrop, onToggle, onDelete }: {
-  tasks: Task[]; section: string; showUser: boolean
+function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete }: {
+  tasks: Task[]; showUser: boolean
   draggingId: React.MutableRefObject<string | null>
-  onDrop: (taskId: string, insertBeforeId: string | null) => void
+  dropTarget: React.MutableRefObject<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>
+  onDrop: () => void
   onToggle: (t: Task) => void; onDelete: (id: string) => void
 }) {
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+
+  function setTarget(insertBeforeId: string | null, idx: number | null) {
+    dropTarget.current = { section: 'later', priority: null, insertBeforeId }
+    setOverIndex(idx)
+  }
 
   return (
     <div
-      onDragOver={e => { e.preventDefault(); if (dragOverIndex === null) setDragOverIndex(tasks.length) }}
-      onDragLeave={() => setDragOverIndex(null)}
-      onDrop={e => { e.preventDefault(); onDrop(draggingId.current!, null); setDragOverIndex(null) }}
+      onDragOver={e => { e.preventDefault(); if (tasks.length === 0) setTarget(null, 0) }}
+      onDrop={e => { e.preventDefault(); onDrop(); setOverIndex(null) }}
       className="min-h-[2rem]"
     >
       {tasks.map((task, idx) => (
         <div key={task.id}>
-          <DropIndicator active={dragOverIndex === idx} />
+          <DropIndicator active={overIndex === idx} />
           <TaskRow
-            task={task}
-            showUser={showUser}
-            draggable
-            showPriorityPill
-            onDragStart={() => { draggingId.current = task.id }}
-            onDragEnd={() => { draggingId.current = null; setDragOverIndex(null) }}
-            onDragEnterRow={() => setDragOverIndex(idx)}
+            task={task} showUser={showUser} draggable showPriorityPill
+            onDragStart={() => { draggingId.current = task.id; setOverIndex(null) }}
+            onDragEnd={() => { draggingId.current = null; setOverIndex(null) }}
+            onDragOver={() => setTarget(task.id, idx)}
             onToggle={() => onToggle(task)}
             onDelete={() => onDelete(task.id)}
           />
         </div>
       ))}
-      <DropIndicator active={dragOverIndex === tasks.length} />
+      <DropIndicator active={overIndex === tasks.length} />
+      <div className="h-4" onDragOver={e => { e.preventDefault(); setTarget(null, tasks.length) }} />
     </div>
   )
 }
@@ -511,10 +508,10 @@ function DropZone({ onDragOver, onDragLeave, onDrop, active, className }: {
 
 // ── Task Row ──────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, showUser, draggable: isDraggable, showPriorityPill, onDragStart, onDragEnd, onDragEnterRow, onToggle, onDelete }: {
+function TaskRow({ task, showUser, draggable: isDraggable, showPriorityPill, onDragStart, onDragEnd, onDragOver, onToggle, onDelete }: {
   task: Task; showUser: boolean
   draggable: boolean; showPriorityPill?: boolean
-  onDragStart?: () => void; onDragEnd?: () => void; onDragEnterRow?: () => void
+  onDragStart?: () => void; onDragEnd?: () => void; onDragOver?: () => void
   onToggle: () => void; onDelete: () => void
 }) {
   const done = task.status === 'done'
@@ -526,8 +523,7 @@ function TaskRow({ task, showUser, draggable: isDraggable, showPriorityPill, onD
       draggable={isDraggable}
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
       onDragEnd={onDragEnd}
-      onDragEnter={e => { e.preventDefault(); onDragEnterRow?.() }}
-      onDragOver={e => e.preventDefault()}
+      onDragOver={e => { e.preventDefault(); onDragOver?.() }}
       className={cn(
         'group flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0',
         isDraggable && 'cursor-grab active:cursor-grabbing',
