@@ -2115,12 +2115,14 @@ export async function upsertPayrollEntry(entry: {
   employee_name: string
   year: number
   month: number
-  salary_base: number
-  total_proventos: number
-  total_descontos: number
-  liquido: number
-  fgts: number
-  line_items: { type: string; description: string; value: number }[]
+  salary_base?: number
+  total_proventos?: number
+  total_descontos?: number
+  liquido?: number
+  fgts?: number
+  vt_next_month?: number
+  receipt_url?: string
+  line_items?: { type: string; description: string; value: number }[]
 }) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }

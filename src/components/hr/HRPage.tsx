@@ -278,7 +278,7 @@ function RemuneracaoTab({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState(false)
-  // local payroll state for manual editing
+
   const [localPayroll, setLocalPayroll] = useState<Record<string, any>>(() => {
     const m: Record<string, any> = {}
     for (const p of payroll) if (p.user_id) m[p.user_id] = { ...p }
@@ -287,6 +287,15 @@ function RemuneracaoTab({
   const fileRef = useRef<HTMLInputElement>(null)
 
   const commRows = Object.values(earnings).filter((r: any) => r.user)
+
+  // Match PDF name to system user
+  function matchUser(pdfName: string) {
+    return commRows.find((r: any) => {
+      const sys = (r.user.name ?? '').toUpperCase()
+      const pdf = pdfName.toUpperCase()
+      return pdf.split(' ').filter((w: string) => w.length > 3).some((w: string) => sys.includes(w))
+    })
+  }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -298,7 +307,10 @@ function RemuneracaoTab({
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch('/api/hr/parse-payroll', { method: 'POST', body: fd })
+      fd.append('year', String(year))
+      fd.append('month', String(month))
+
+      const res = await fetch('/api/hr/split-receipts', { method: 'POST', body: fd })
       const data = await res.json()
 
       if (!res.ok || data.error) {
@@ -306,34 +318,22 @@ function RemuneracaoTab({
         return
       }
 
-      const parsed: PayrollEmployee[] = data.employees
-
-      // Match parsed employees to system users by name similarity
-      for (const emp of parsed) {
-        const match = commRows.find((r: any) => {
-          const sysName = (r.user.name ?? '').toUpperCase()
-          const pdfName = emp.name.toUpperCase()
-          // Check if any word in the PDF name matches any word in the system name
-          const pdfWords = pdfName.split(' ').filter((w: string) => w.length > 3)
-          return pdfWords.some((w: string) => sysName.includes(w))
-        })
-
-        if (match) {
-          const entry = {
-            user_id: match.user.id,
-            employee_name: emp.name,
-            year,
-            month,
-            salary_base: emp.salaryBase,
-            total_proventos: emp.totalProventos,
-            total_descontos: emp.totalDescontos,
-            liquido: emp.liquido,
-            fgts: emp.fgts,
-            line_items: emp.lineItems,
-          }
-          await upsertPayrollEntry(entry)
-          setLocalPayroll(prev => ({ ...prev, [match.user.id]: entry }))
+      for (const emp of data.employees as any[]) {
+        const match = matchUser(emp.name)
+        if (!match) continue
+        const entry = {
+          user_id: match.user.id,
+          employee_name: emp.name,
+          year,
+          month,
+          liquido: emp.liquido,
+          receipt_url: emp.receiptUrl,
         }
+        await upsertPayrollEntry(entry)
+        setLocalPayroll(prev => ({
+          ...prev,
+          [match.user.id]: { ...(prev[match.user.id] ?? {}), ...entry },
+        }))
       }
 
       setUploadSuccess(true)
@@ -349,34 +349,27 @@ function RemuneracaoTab({
   async function handleFieldChange(userId: string, field: string, value: number) {
     const current = localPayroll[userId] ?? {}
     const updated = { ...current, user_id: userId, year, month, [field]: value }
-    // Recalculate liquido if proventos or descontos changed
-    if (field === 'total_proventos' || field === 'total_descontos') {
-      updated.liquido = (updated.total_proventos ?? 0) - (updated.total_descontos ?? 0)
-    }
     setLocalPayroll(prev => ({ ...prev, [userId]: updated }))
-    await upsertPayrollEntry({
-      employee_name: updated.employee_name ?? '',
-      ...updated,
-      line_items: updated.line_items ?? [],
-    })
+    await upsertPayrollEntry({ employee_name: updated.employee_name ?? '', ...updated })
   }
 
   const totalSalarios = Object.values(localPayroll).reduce((s, p: any) => s + (p.liquido ?? 0), 0)
+  const totalVT = Object.values(localPayroll).reduce((s, p: any) => s + (p.vt_next_month ?? 0), 0)
   const totalComissoes = Object.values(earnings).reduce((s: number, r: any) => s + (r.total ?? 0), 0)
-  const totalGeral = totalSalarios + totalComissoes
+  const totalGeral = totalSalarios + totalVT + totalComissoes
 
   return (
     <div className="space-y-4">
-      {/* Upload PDF */}
+      {/* Upload Recibo de Pagamento */}
       <div className={cn(
         'bg-white border rounded-xl px-5 py-4 flex items-start gap-4',
         uploadSuccess ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200'
       )}>
         <div className="flex-1">
-          <p className="text-sm font-semibold text-gray-800">Importar Extrato Mensal (PDF)</p>
+          <p className="text-sm font-semibold text-gray-800">Importar Recibo de Pagamento (PDF)</p>
           <p className="text-xs text-gray-500 mt-0.5">
-            Envie o <strong>Extrato Mensal</strong> da contabilidade para preencher automaticamente os dados de salário.
-            Os valores podem ser editados manualmente depois.
+            Envie o <strong>Recibo de Pagamento</strong> da contabilidade. O sistema separa automaticamente
+            um recibo por colaborador e salva o PDF individual de cada um.
           </p>
           {uploadError && (
             <div className="flex items-center gap-1.5 mt-2 text-xs text-red-600">
@@ -384,7 +377,7 @@ function RemuneracaoTab({
               {uploadError}
             </div>
           )}
-          {uploadSuccess && <p className="text-xs text-emerald-700 mt-2 font-medium">✓ Dados importados com sucesso!</p>}
+          {uploadSuccess && <p className="text-xs text-emerald-700 mt-2 font-medium">✓ Recibos processados e salvos com sucesso!</p>}
         </div>
         <div>
           <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
@@ -400,122 +393,123 @@ function RemuneracaoTab({
       </div>
 
       {/* Totalizadores */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         {[
           { label: 'Total salários (líquido)', value: totalSalarios, color: 'text-blue-700' },
+          { label: 'Total V.T. (mês seguinte)', value: totalVT, color: 'text-amber-700' },
           { label: 'Total comissões', value: totalComissoes, color: 'text-violet-700' },
           { label: 'Total geral a pagar', value: totalGeral, color: 'text-emerald-700' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
             <p className="text-xs text-gray-500">{label}</p>
-            <p className={cn('text-2xl font-bold mt-0.5', color)}>{formatCurrency(value)}</p>
+            <p className={cn('text-xl font-bold mt-0.5', color)}>{formatCurrency(value)}</p>
           </div>
         ))}
       </div>
 
-      {/* Tabela por colaborador */}
+      {/* Tabela simplificada */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] border-b border-gray-100 bg-gray-50">
-          {['Colaborador','Sal. base','Proventos','Descontos','Líquido CLT','Comissão','Total a pagar'].map((h, i) => (
-            <div key={i} className={cn('px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] border-b border-gray-100 bg-gray-50">
+          {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão total', 'Total a pagar', 'Recibo'].map((h, i) => (
+            <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
           ))}
         </div>
+
+        {commRows.length === 0 && (
+          <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhum colaborador encontrado</div>
+        )}
 
         {commRows.map((r: any) => {
           const p = localPayroll[r.user.id]
           const comm = r.total ?? 0
           const liquido = p?.liquido ?? 0
-          const totalAPagar = liquido + comm
+          const vt = p?.vt_next_month ?? 0
+          const total = liquido + vt + comm
           const hasData = !!p
+          const receiptUrl = p?.receipt_url
 
           return (
-            <div key={r.user.id} className="border-b border-gray-100 last:border-0">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] items-center hover:bg-gray-50 px-3 py-3">
-                <div className="flex items-center gap-2.5">
-                  <Avatar user={r.user} size={28} />
-                  <p className="text-sm font-medium text-gray-900">{r.user.name}</p>
+            <div key={r.user.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+              {/* Colaborador */}
+              <div className="px-4 py-3.5 flex items-center gap-3">
+                <Avatar user={r.user} size={32} />
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{r.user.name}</p>
                   {!hasData && (
                     <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full">
-                      Sem folha
+                      Sem recibo importado
                     </span>
                   )}
                 </div>
-
-                {/* Sal. base */}
-                <div className="px-2 text-sm text-gray-600 text-right">
-                  <EditableValue
-                    value={p?.salary_base ?? 0}
-                    onSave={v => handleFieldChange(r.user.id, 'salary_base', v)}
-                  />
-                </div>
-                {/* Proventos */}
-                <div className="px-2 text-sm text-gray-600 text-right">
-                  <EditableValue
-                    value={p?.total_proventos ?? 0}
-                    onSave={v => handleFieldChange(r.user.id, 'total_proventos', v)}
-                  />
-                </div>
-                {/* Descontos */}
-                <div className="px-2 text-sm text-red-600 text-right">
-                  <EditableValue
-                    value={p?.total_descontos ?? 0}
-                    onSave={v => handleFieldChange(r.user.id, 'total_descontos', v)}
-                  />
-                </div>
-                {/* Líquido CLT */}
-                <div className="px-2 text-sm font-semibold text-blue-700 text-right">
-                  <EditableValue
-                    value={liquido}
-                    onSave={v => handleFieldChange(r.user.id, 'liquido', v)}
-                  />
-                </div>
-                {/* Comissão */}
-                <div className="px-2 text-sm font-semibold text-violet-700 text-right tabular-nums">
-                  {formatCurrency(comm)}
-                </div>
-                {/* Total */}
-                <div className="px-2 text-sm font-bold text-emerald-700 text-right tabular-nums">
-                  {formatCurrency(totalAPagar)}
-                </div>
               </div>
 
-              {/* Itens da folha */}
-              {hasData && p.line_items?.length > 0 && (
-                <div className="bg-gray-50 px-4 pb-3 pt-0">
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 pl-9">
-                    {(p.line_items as any[]).map((item: any, i: number) => (
-                      <span key={i} className={cn(
-                        'text-[11px]',
-                        item.type === 'P' ? 'text-emerald-700' : 'text-red-600'
-                      )}>
-                        {item.type === 'D' ? '−' : '+'} {item.description}: {formatCurrency(item.value)}
-                      </span>
-                    ))}
+              {/* Salário líquido — editável */}
+              <div className="px-4 py-3.5 text-sm font-semibold text-blue-700 text-right">
+                <EditableValue
+                  value={liquido}
+                  onSave={v => handleFieldChange(r.user.id, 'liquido', v)}
+                />
+              </div>
+
+              {/* V.T. mês seguinte — editável */}
+              <div className="px-4 py-3.5 text-sm text-amber-700 text-right">
+                <EditableValue
+                  value={vt}
+                  onSave={v => handleFieldChange(r.user.id, 'vt_next_month', v)}
+                />
+              </div>
+
+              {/* Comissão — readonly */}
+              <div className="px-4 py-3.5 text-sm font-semibold text-violet-700 text-right tabular-nums">
+                {comm > 0 ? formatCurrency(comm) : '—'}
+              </div>
+
+              {/* Total */}
+              <div className="px-4 py-3.5 text-sm font-bold text-emerald-700 text-right tabular-nums">
+                {formatCurrency(total)}
+              </div>
+
+              {/* Ícone PDF */}
+              <div className="px-4 py-3.5 text-right">
+                {receiptUrl ? (
+                  <a
+                    href={receiptUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Abrir recibo de pagamento"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M10.92,12.31C10.68,11.54 10.15,9.08 11.55,9.08C12.95,9.08 12.03,11.54 11.79,12.31M11.55,12.31C11.1,12.31 10.85,11.83 10.61,11.28C10.36,10.73 10.12,10.03 10.12,9.42C10.12,8.83 10.34,8.37 10.75,8.13C11.05,7.95 11.47,7.95 11.79,8.13C12.2,8.37 12.42,8.83 12.42,9.42C12.42,10.03 12.18,10.73 11.93,11.28C11.7,11.83 11.44,12.31 11,12.31L11.55,12.31M8.43,14.23C8.43,14.23 9.47,13.61 10.34,13.06C10.59,12.9 10.84,12.77 11.08,12.66C10.61,13.29 10.05,13.85 9.42,14.3C9.42,14.3 8.43,14.23 8.43,14.23M13.61,13.06C14.5,13.61 15.55,14.23 15.55,14.23C15.55,14.23 14.56,14.3 14.56,14.3C13.93,13.85 13.37,13.29 12.9,12.66C13.14,12.77 13.39,12.9 13.61,13.06M11,16.5L12.5,14.5L14,16.5H11M9,16.5L7.5,14.5L9,16.5M15,16.5L13.5,14.5L15,16.5" />
+                    </svg>
+                  </a>
+                ) : (
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 text-gray-300" title="Sem recibo">
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                    </svg>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )
         })}
 
-        {/* Totais */}
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200 px-3 py-3">
-          <div className="text-sm font-bold text-gray-700">Total</div>
-          <div className="px-2" />
-          <div className="px-2 text-sm font-bold text-right tabular-nums">
-            {formatCurrency(Object.values(localPayroll).reduce((s, p: any) => s + (p.total_proventos ?? 0), 0))}
+        {/* Linha de totais */}
+        {commRows.length > 0 && (
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
+            <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
+            <div className="px-4 py-3 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
+            <div className="px-4 py-3 text-sm font-bold text-amber-700 text-right tabular-nums">{formatCurrency(totalVT)}</div>
+            <div className="px-4 py-3 text-sm font-bold text-violet-700 text-right tabular-nums">{formatCurrency(totalComissoes)}</div>
+            <div className="px-4 py-3 text-sm font-bold text-emerald-700 text-right tabular-nums">{formatCurrency(totalGeral)}</div>
+            <div className="px-4 py-3" />
           </div>
-          <div className="px-2 text-sm font-bold text-red-600 text-right tabular-nums">
-            {formatCurrency(Object.values(localPayroll).reduce((s, p: any) => s + (p.total_descontos ?? 0), 0))}
-          </div>
-          <div className="px-2 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
-          <div className="px-2 text-sm font-bold text-violet-700 text-right tabular-nums">{formatCurrency(totalComissoes)}</div>
-          <div className="px-2 text-sm font-bold text-emerald-700 text-right tabular-nums">{formatCurrency(totalGeral)}</div>
-        </div>
+        )}
       </div>
 
       <p className="text-xs text-gray-400">
-        Clique em qualquer valor para editar manualmente. Os dados são salvos automaticamente ao confirmar.
+        Clique em qualquer valor para editar. Os dados são salvos automaticamente.
       </p>
     </div>
   )
