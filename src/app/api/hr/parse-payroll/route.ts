@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+// pdf-parse reads test files on require() which crashes in Next.js — use inner lib directly
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
+const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer, options?: object) => Promise<{ text: string }>
 
 export interface PayrollEmployee {
   code: string
@@ -48,12 +50,10 @@ function parseExtrato(text: string): PayrollEmployee[] {
     const fgtsMatch = block.match(/Valor FGTS:\s*([\d.,]+)/)
     const fgts = fgtsMatch ? parseBR(fgtsMatch[1]) : 0
 
-    // Extract line items — look for patterns like "DESCRIPTION value P" or "DESCRIPTION value D"
+    // Extract line items
     const lineItems: PayrollEmployee['lineItems'] = []
 
-    // Known proventos (P) descriptions
     const proventosPattern = /\b(HORAS NORMAIS|VALE ALIMENTA[CÇ]AO|AJUDA DE CUSTO|FERIADO TRABALHADO|(?:HE|HORA EXTRA)[^D\n]*)\s+([\d.,]+)\s+P/gi
-    // Known descontos (D) descriptions
     const descontosPattern = /\b(I\.N\.S\.S\.|VALE TRANSPORTE|DESC\. EMP\. CRED\. TRAB[^\n]*?|INSS|IRRF)[^\d]*([\d.,]+)\s+D/gi
 
     let m
@@ -66,7 +66,6 @@ function parseExtrato(text: string): PayrollEmployee[] {
       if (val > 0) lineItems.push({ type: 'D', description: m[1].trim(), value: val })
     }
 
-    // Fallback: if we got totals but no line items, add a generic salary entry
     if (lineItems.length === 0 && salaryBase > 0) {
       lineItems.push({ type: 'P', description: 'Salário Base', value: salaryBase })
     }
@@ -93,7 +92,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Nenhum colaborador encontrado. Verifique se é o Extrato Mensal correto.' }, { status: 422 })
     }
 
-    return NextResponse.json({ employees, rawText: pdf.text.slice(0, 500) })
+    return NextResponse.json({ employees })
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? 'Erro ao processar PDF' }, { status: 500 })
   }
