@@ -2008,21 +2008,43 @@ export async function getCommissionEarnings(year?: number, month?: number) {
   const mStart = `${y}-${String(m).padStart(2, '0')}-01`
   const mEnd = new Date(y, m, 0).toISOString().split('T')[0]
 
-  const [salesRes, contactsRes, quotesRes, usersRes] = await Promise.all([
+  const [salesRes, contactsRes, quotesRes, usersRes, closedQuotesRes] = await Promise.all([
     admin.from('sales_by_month').select('user_id, total_sold').eq('year', y).eq('month', m),
     admin.from('contacts').select('*').gt('commission_rate', 0),
     admin.from('quotes_full').select('number, architect_id, final_value, quoted_value, closed_at, temperature, client_name')
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
     admin.from('users').select('id, name, avatar_color, avatar_url').eq('active', true),
+    admin.from('quotes_full')
+      .select('id, number, client_name, final_value, quoted_value, closed_at, owners:quote_owners(user_id)')
+      .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
   ])
 
   const linkedContacts = (contactsRes.data ?? []).filter((c: any) => c.linked_user_id)
   const contactToUser = new Map(linkedContacts.map((c: any) => [c.id, c.linked_user_id]))
   const contactRate = new Map(linkedContacts.map((c: any) => [c.id, Number(c.commission_rate)]))
 
+  // Build seller details per user from closed quotes
+  const sellerDetailsMap: Record<string, any[]> = {}
+  for (const q of closedQuotesRes.data ?? []) {
+    const owners: string[] = (q.owners ?? []).map((o: any) => o.user_id).filter(Boolean)
+    const numOwners = owners.length || 1
+    const totalValue = Number(q.final_value ?? q.quoted_value ?? 0)
+    const valuePerOwner = totalValue / numOwners
+    for (const uid of owners) {
+      if (!sellerDetailsMap[uid]) sellerDetailsMap[uid] = []
+      sellerDetailsMap[uid].push({
+        number: q.number,
+        client_name: q.client_name,
+        value: valuePerOwner,
+        num_owners: numOwners,
+        comm: parseFloat((valuePerOwner * SELLER_COMMISSION_PCT / 100).toFixed(2)),
+      })
+    }
+  }
+
   const result: Record<string, any> = {}
   for (const u of usersRes.data ?? []) {
-    result[u.id] = { user: u, sellerSales: 0, sellerComm: 0, projetistaComm: 0, projetistaSales: [], total: 0 }
+    result[u.id] = { user: u, sellerSales: 0, sellerComm: 0, projetistaComm: 0, projetistaSales: [], sellerDetails: [], total: 0 }
   }
 
   // 1% das vendas próprias
@@ -2031,6 +2053,7 @@ export async function getCommissionEarnings(year?: number, month?: number) {
     const sales = Number(s.total_sold ?? 0)
     result[s.user_id].sellerSales = sales
     result[s.user_id].sellerComm = parseFloat((sales * SELLER_COMMISSION_PCT / 100).toFixed(2))
+    result[s.user_id].sellerDetails = sellerDetailsMap[s.user_id] ?? []
   }
 
   // 5% (taxa do parceiro) das vendas em que o colaborador foi o projetista — mês do fechamento
@@ -2071,6 +2094,55 @@ export async function setMonthlyGoal(userId: string | null, target: number, year
   revalidatePath('/dashboard')
   revalidatePath('/admin')
   revalidatePath('/admin/goals')
+  return { ok: true }
+}
+
+// ── Payroll (folha de pagamento) ─────────────────────────────────────────────
+
+export async function getPayrollData(year: number, month: number) {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('payroll_data')
+    .select('*')
+    .eq('year', year)
+    .eq('month', month)
+  if (error) return []
+  return data ?? []
+}
+
+export async function upsertPayrollEntry(entry: {
+  user_id: string | null
+  employee_name: string
+  year: number
+  month: number
+  salary_base: number
+  total_proventos: number
+  total_descontos: number
+  liquido: number
+  fgts: number
+  line_items: { type: string; description: string; value: number }[]
+}) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('payroll_data')
+    .upsert(entry, { onConflict: 'user_id,year,month' })
+  if (error) return { error: error.message }
+  revalidatePath('/hr')
+  return { ok: true }
+}
+
+export async function deletePayrollEntry(year: number, month: number, userId: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('payroll_data')
+    .delete()
+    .eq('year', year)
+    .eq('month', month)
+    .eq('user_id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/hr')
   return { ok: true }
 }
 
