@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// pdf-parse reads test files on require() which crashes in Next.js — use inner lib directly
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer, options?: object) => Promise<{ text: string }>
+// Dynamic import to prevent pdf-parse from running its test-file read at module load time
+async function parsePdf(buf: Buffer): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>
+  const result = await pdfParse(buf)
+  return result.text
+}
 
 export interface PayrollEmployee {
   code: string
@@ -85,8 +89,8 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    const pdf = await pdfParse(buffer)
-    const employees = parseExtrato(pdf.text)
+    const text = await parsePdf(buffer)
+    const employees = parseExtrato(text)
 
     if (employees.length === 0) {
       return NextResponse.json({ error: 'Nenhum colaborador encontrado. Verifique se é o Extrato Mensal correto.' }, { status: 422 })
