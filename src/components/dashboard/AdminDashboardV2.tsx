@@ -25,6 +25,7 @@ export function AdminDashboardV2({
   flaggedAlerts = [],
   selectedYear,
   selectedMonth,
+  goalsFallbackLabel,
 }: {
   quotes: any[]
   users: any[]
@@ -38,6 +39,7 @@ export function AdminDashboardV2({
   flaggedAlerts?: any[]
   selectedYear?: number
   selectedMonth?: number
+  goalsFallbackLabel?: string
 }) {
   const router = useRouter()
   const now = new Date()
@@ -411,9 +413,18 @@ export function AdminDashboardV2({
         {/* Ranking Colaboradores */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Ranking — Junho</h3>
+            <h3 className="text-sm font-semibold text-gray-900">
+              Ranking — {currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).charAt(0).toUpperCase() + currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).slice(1)}
+            </h3>
             <a href="/admin" className="text-xs text-blue-600 hover:text-blue-700">Ver histórico →</a>
           </div>
+          {goalsFallbackLabel && (
+            <div className="px-4 pt-2 pb-0">
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+                ⚠️ Metas não cadastradas para este mês — exibindo metas de <strong>{goalsFallbackLabel}</strong>. <a href="/admin" className="underline">Cadastrar meta</a>
+              </p>
+            </div>
+          )}
           <div className="p-4 space-y-3">
             {userPerformance.map((u, i) => (
               <div key={u.id} className="flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0">

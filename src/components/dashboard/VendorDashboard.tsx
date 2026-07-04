@@ -13,7 +13,7 @@ import { DashboardAgenda } from './DashboardAgenda'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth, goalsFallbackLabel
 }: {
   myGoal: number
   myQuotes: any[]
@@ -29,6 +29,7 @@ export function VendorDashboard({
   myEarnings?: any
   selectedYear?: number
   selectedMonth?: number
+  goalsFallbackLabel?: string
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
@@ -186,13 +187,22 @@ export function VendorDashboard({
         </div>
       )}
 
+      {goalsFallbackLabel && (
+        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+          ⚠️ Meta não cadastrada para este mês — exibindo meta de <strong>{goalsFallbackLabel}</strong>. <a href="/admin" className="underline">Cadastrar meta</a>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Vendido no mês</p>
           <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(sales)}</p>
-          <p className="text-xs text-gray-500 mt-2">Meta: {formatCurrency(myGoal)}</p>
+          <p className="text-xs text-gray-500 mt-2">
+            Meta: {myGoal > 0 ? formatCurrency(myGoal) : <span className="text-amber-500">não cadastrada</span>}
+            {goalsFallbackLabel && <span className="text-amber-500"> ({goalsFallbackLabel})</span>}
+          </p>
           <div className="h-1 bg-gray-200 rounded-full mt-2 overflow-hidden">
             <div className="h-full bg-green-500" style={{ width: `${Math.min(metaPercent, 100)}%` }}></div>
           </div>
