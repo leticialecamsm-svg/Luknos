@@ -3,7 +3,7 @@
 import { useState, useEffect, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
-import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound, Camera } from 'lucide-react'
+import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound, Camera, Target } from 'lucide-react'
 import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin, getPaymentRates, updatePaymentRate } from '@/lib/actions'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -276,36 +276,17 @@ export function AdminPanel({ users, goals }: Props) {
 
       {/* ── ABA: METAS ─────────────────────────────────────── */}
       {activeTab === 'goals' && (
-        <div className="card p-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Metas do mês atual</h2>
-
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-100 mb-3">
-            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center shrink-0">
-              <span className="text-white text-xs font-bold">L</span>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium">Meta da loja</p>
-              <p className="text-xs text-gray-400">Soma de todas as vendas</p>
-            </div>
-            <GoalInput defaultValue={getGoal(null)} onSave={v => handleGoalUpdate(null, v)} />
+        <div className="card p-6 flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center">
+            <Target className="w-5 h-5 text-brand-600" />
           </div>
-
-          <div className="space-y-2">
-            {users.filter(u => u.active).map(u => (
-              <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg bg-surface">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                  style={{ backgroundColor: u.avatar_color }}
-                >
-                  {getInitials(u.name)}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{u.name}</p>
-                </div>
-                <GoalInput defaultValue={getGoal(u.id)} onSave={v => handleGoalUpdate(u.id, v)} />
-              </div>
-            ))}
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Gerenciamento de Metas</p>
+            <p className="text-xs text-gray-500 mt-1">Acesse a página de metas para cadastrar, editar e ver o histórico de metas por mês.</p>
           </div>
+          <a href="/admin/goals" className="btn-primary text-sm py-2 px-5">
+            Ir para Metas →
+          </a>
         </div>
       )}
       {/* ── ABA: TAXAS ─────────────────────────────────────── */}

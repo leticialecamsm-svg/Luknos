@@ -875,6 +875,7 @@ export async function updateUser(userId: string, data: { name?: string; role?: s
   const { error } = await supabase.from('users').update(data).eq('id', userId)
   if (error) return { error: error.message }
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   return { ok: true }
 }
 
@@ -910,6 +911,7 @@ export async function deleteUser(userId: string) {
   if (dbError) return { error: dbError.message }
 
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   revalidatePath('/dashboard')
   return { ok: true }
 }
@@ -938,6 +940,7 @@ export async function uploadUserAvatar(userId: string, formData: FormData) {
   if (updateError) return { error: updateError.message }
 
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   revalidatePath('/dashboard')
   return { ok: true, url: pub.publicUrl }
 }
@@ -954,6 +957,7 @@ export async function removeUserAvatar(userId: string) {
   if (error) return { error: error.message }
 
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   revalidatePath('/dashboard')
   return { ok: true }
 }
@@ -1006,6 +1010,7 @@ export async function createUserAdmin(data: {
   }
 
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   return { ok: true }
 }
 
@@ -2065,6 +2070,7 @@ export async function setMonthlyGoal(userId: string | null, target: number, year
   if (error) return { error: error.message }
   revalidatePath('/dashboard')
   revalidatePath('/admin')
+  revalidatePath('/admin/goals')
   return { ok: true }
 }
 

@@ -416,7 +416,7 @@ export function AdminDashboardV2({
             <h3 className="text-sm font-semibold text-gray-900">
               Ranking — {currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).charAt(0).toUpperCase() + currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).slice(1)}
             </h3>
-            <a href="/admin" className="text-xs text-blue-600 hover:text-blue-700">Ver histórico →</a>
+            <a href="/admin/goals" className="text-xs text-blue-600 hover:text-blue-700">Ver histórico →</a>
           </div>
           {goalsFallbackLabel && (
             <div className="px-4 pt-2 pb-0">
