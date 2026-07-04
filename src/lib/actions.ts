@@ -722,11 +722,13 @@ export async function updateContact(id: string, data: {
   return { data: contact }
 }
 
-export async function getProspectionsThisMonth(userId?: string) {
+export async function getProspectionsThisMonth(userId?: string, year?: number, month?: number) {
   const supabase = createClient()
   const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+  const y = year ?? now.getFullYear()
+  const m = month !== undefined ? month - 1 : now.getMonth()
+  const start = new Date(y, m, 1).toISOString()
+  const end = new Date(y, m + 1, 0, 23, 59, 59).toISOString()
   let query = supabase
     .from('contacts')
     .select('id', { count: 'exact', head: true })
@@ -744,18 +746,20 @@ export async function deleteContact(id: string) {
   return { ok: true }
 }
 
-export async function getDashboardStats(userId?: string) {
+export async function getDashboardStats(userId?: string, year?: number, month?: number) {
   const supabase = createClient()
   const funnelQuery = supabase.from('funnel_by_user').select('*')
   const { data: funnel } = userId ? await funnelQuery.eq('user_id', userId) : await funnelQuery
   const now = new Date()
+  const y = year ?? now.getFullYear()
+  const m = month ?? now.getMonth() + 1
   const { data: sales } = await supabase
     .from('sales_by_month').select('*')
-    .eq('year', now.getFullYear()).eq('month', now.getMonth() + 1)
+    .eq('year', y).eq('month', m)
   const { data: goal } = await supabase
     .from('monthly_goals').select('target')
     .is('user_id', null)
-    .eq('year', now.getFullYear()).eq('month', now.getMonth() + 1)
+    .eq('year', y).eq('month', m)
     .single()
   return { funnel: funnel ?? [], sales: sales ?? [], storeGoal: goal?.target ?? 0 }
 }

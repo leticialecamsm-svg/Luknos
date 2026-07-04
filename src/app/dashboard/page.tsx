@@ -5,9 +5,10 @@ import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspe
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
-import { formatCurrency } from '@/lib/utils'
 
-export default async function DashboardPage() {
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardPage({ searchParams }: { searchParams: { year?: string; month?: string } }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -28,40 +29,35 @@ export default async function DashboardPage() {
   }
 
   const now = new Date()
+  const year  = searchParams.year  ? parseInt(searchParams.year)  : now.getFullYear()
+  const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
+
   const [stats, myQuotes, allUsers, goals, myGoalRes, allQuotes, prospectionsCount] = await Promise.all([
-    getDashboardStats(isAdmin ? undefined : user.id),
+    getDashboardStats(isAdmin ? undefined : user.id, year, month),
     getMyQuotes(),
     getActiveUsers(),
-    createAdminClient().from('monthly_goals').select('*').eq('year', now.getFullYear()).eq('month', now.getMonth()+1).then((r: any) => r.data ?? []),
+    createAdminClient().from('monthly_goals').select('*').eq('year', year).eq('month', month).then((r: any) => r.data ?? []),
     !isAdmin
-      ? createAdminClient().from('monthly_goals').select('target').eq('user_id', user.id).eq('year', now.getFullYear()).eq('month', now.getMonth()+1).maybeSingle()
+      ? createAdminClient().from('monthly_goals').select('target').eq('user_id', user.id).eq('year', year).eq('month', month).maybeSingle()
       : Promise.resolve({ data: null }),
     getAllQuotes(),
-    isAdmin ? getProspectionsThisMonth() : getProspectionsThisMonth(user.id),
+    isAdmin ? getProspectionsThisMonth(undefined, year, month) : getProspectionsThisMonth(user.id, year, month),
   ])
 
-  // Negociações críticas (etapa gesso/instalação com temp morna/fria/sem previsão)
   const criticalNegotiations = isAdmin ? await getCriticalNegotiations() : []
-
-  // Orçamentos flagados para alerta (acompanhamento ativo)
   const flaggedAlerts = isAdmin ? await getFlaggedAlerts() : []
-
-  // Comissões do mês (1% próprias vendas + 5% como projetista)
   const earnings = await getCommissionEarnings()
   const myEarnings = earnings.byUser[user.id] ?? null
-
   const myGoal = myGoalRes.data?.target ?? 0
 
   const totalSold = stats.sales
     .filter((r: any) => isAdmin || r.user_id === user.id)
     .reduce((s: number, r: any) => s + Number(r.total_sold ?? 0), 0)
 
-  // Vendas do mês por usuário (mesma fonte do "Vendido no mês") — usado no ranking
   const salesByUser: Record<string, number> = Object.fromEntries(
     (stats.sales as any[]).map((r: any) => [r.user_id, Number(r.total_sold ?? 0)])
   )
 
-  // Metas cadastradas por usuário (mês atual) — usadas no ranking
   const goalsByUser: Record<string, number> = Object.fromEntries(
     (goals as any[]).filter((g: any) => g.user_id).map((g: any) => [g.user_id, Number(g.target ?? 0)])
   )
@@ -80,6 +76,8 @@ export default async function DashboardPage() {
           earnings={earnings.byUser}
           criticalNegotiations={criticalNegotiations}
           flaggedAlerts={flaggedAlerts}
+          selectedYear={year}
+          selectedMonth={month}
         />
       ) : (
         <VendorDashboard
@@ -95,6 +93,8 @@ export default async function DashboardPage() {
           currentUserId={user.id}
           prospectionsThisMonth={prospectionsCount as number}
           myEarnings={myEarnings}
+          selectedYear={year}
+          selectedMonth={month}
         />
       )}
     </>

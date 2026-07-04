@@ -6,6 +6,7 @@ import { TEMPERATURE_COLOR, TEMPERATURE_LABEL } from '@/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { WorkingDaysCard } from './WorkingDaysCard'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { DashboardAgenda } from './DashboardAgenda'
@@ -22,6 +23,8 @@ export function AdminDashboardV2({
   earnings,
   criticalNegotiations = [],
   flaggedAlerts = [],
+  selectedYear,
+  selectedMonth,
 }: {
   quotes: any[]
   users: any[]
@@ -33,18 +36,24 @@ export function AdminDashboardV2({
   earnings?: Record<string, any>
   criticalNegotiations?: any[]
   flaggedAlerts?: any[]
+  selectedYear?: number
+  selectedMonth?: number
 }) {
+  const router = useRouter()
   const now = new Date()
-  const [currentMonth, setCurrentMonth] = useState(now)
+  const currentMonth = new Date(selectedYear ?? now.getFullYear(), (selectedMonth ?? now.getMonth() + 1) - 1, 1)
   const [detail, setDetail] = useState<{ title: string; items: any[]; field: 'final' | 'quoted' } | null>(null)
 
-  // KPIs
-  // Faturamento do MÊS — usa a fonte oficial (sales_by_month), já filtrada pelo mês atual
+  function navigateMonth(delta: number) {
+    const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
+    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
+  }
+
+  // KPIs — filtrados pelo mês selecionado
   const totalFaturamento = (sales ?? []).reduce((sum: number, r: any) => sum + Number(r.total_sold ?? 0), 0)
-  // Nº de vendas únicas do mês (deduplica vendas em dupla que aparecem 1x por dono)
   const closedQuotes = (() => {
-    const mStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-    const mEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+    const mStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
+    const mEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
     return quotes.filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd).length
   })()
 
@@ -214,11 +223,9 @@ export function AdminDashboardV2({
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-              className="hover:text-gray-900">◀</button>
-            <span className="w-24 text-center">{currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-              className="hover:text-gray-900">▶</button>
+            <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
+            <span className="w-32 text-center">{currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
+            <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
           </div>
           <QuickLinksMenu />
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">

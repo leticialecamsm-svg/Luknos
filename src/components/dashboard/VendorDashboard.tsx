@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
@@ -12,7 +13,7 @@ import { DashboardAgenda } from './DashboardAgenda'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth
 }: {
   myGoal: number
   myQuotes: any[]
@@ -26,12 +27,21 @@ export function VendorDashboard({
   salesByUser?: Record<string, number>
   goalsByUser?: Record<string, number>
   myEarnings?: any
+  selectedYear?: number
+  selectedMonth?: number
 }) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
 
   const now = new Date()
-  const monthName = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  const currentMonth = new Date(selectedYear ?? now.getFullYear(), (selectedMonth ?? now.getMonth() + 1) - 1, 1)
+  const monthName = currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
   const todayDate = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric' })
+
+  function navigateMonth(delta: number) {
+    const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
+    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
+  }
 
   // KPIs
   const negotiating = myQuotes
@@ -109,6 +119,11 @@ export function VendorDashboard({
           <p className="text-sm text-gray-500 mt-1">{monthName.charAt(0).toUpperCase() + monthName.slice(1)} · {todayDate.charAt(0).toUpperCase() + todayDate.slice(1)}</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
+            <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
+            <span className="w-32 text-center">{monthName.toUpperCase()}</span>
+            <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
+          </div>
           <QuickLinksMenu />
           <NewQuoteButton className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
             + Novo orçamento
