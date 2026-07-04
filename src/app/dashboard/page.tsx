@@ -46,7 +46,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
   const criticalNegotiations = isAdmin ? await getCriticalNegotiations() : []
   const flaggedAlerts = isAdmin ? await getFlaggedAlerts() : []
-  const earnings = await getCommissionEarnings()
+  const earnings = await getCommissionEarnings(year, month)
   const myEarnings = earnings.byUser[user.id] ?? null
   const myGoal = myGoalRes.data?.target ?? 0
 

@@ -113,6 +113,7 @@ export function AdminDashboardV2({
 
     const userGoal = goalsByUser?.[u.id] ?? 0
 
+    const userEarnings = earnings?.[u.id]
     return {
       id: u.id,
       name: u.name,
@@ -122,7 +123,8 @@ export function AdminDashboardV2({
       meta: userGoal,
       percentMeta: userGoal > 0 ? (totalVendido / userGoal) * 100 : 0,
       aberto: openValue,
-      comissao: Math.round(totalVendido * 0.01), // 1% de comissão
+      // Usa getCommissionEarnings (inclui projetista, arredondamento correto)
+      comissao: userEarnings?.total ?? parseFloat((totalVendido * 0.01).toFixed(2)),
     }
   }).sort((a, b) => b.vendido - a.vendido)
 
