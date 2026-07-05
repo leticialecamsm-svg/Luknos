@@ -57,6 +57,15 @@ async function dezipDoc(b64: string): Promise<string> {
   }
 }
 
+interface NFeItem {
+  nItem: number
+  cProd: string
+  ncm: string
+  quantidade: number
+  valorTotal: number
+  ipiPercent: number
+}
+
 interface NFeResumida {
   chave: string
   nsu: string
@@ -68,6 +77,7 @@ interface NFeResumida {
   valorTotal: number
   transportadoraCnpj: string
   transportadoraNome: string
+  items: NFeItem[] | null // preenchido só quando há XML completo (nfeProc)
 }
 
 function parseResNFe(xml: string, nsu: string, schema: string): NFeResumida {
@@ -79,7 +89,30 @@ function parseResNFe(xml: string, nsu: string, schema: string): NFeResumida {
   const xNome = get(xml, 'xNome')
   const vNF = parseFloat(get(xml, 'vNF') || get(xml, 'vNFe') || '0') || 0
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '' }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '', items: null }
+}
+
+function parseItems(xml: string): NFeItem[] {
+  const detBlocks = xml.match(/<det\s[^>]*>[\s\S]*?<\/det>/g) ?? []
+  return detBlocks.map(det => {
+    const nItem = parseInt(det.match(/nItem="(\d+)"/)?.[1] ?? '0')
+    const prodBlock = det.match(/<prod>([\s\S]*?)<\/prod>/)?.[1] ?? ''
+    const ipiBlock = det.match(/<IPITrib>([\s\S]*?)<\/IPITrib>/)?.[1] ?? ''
+    const cProd = get(prodBlock, 'cProd')
+    const ncm = get(prodBlock, 'NCM')
+    const quantidade = parseFloat(get(prodBlock, 'qCom')) || 0
+    const valorTotal = parseFloat(get(prodBlock, 'vProd')) || 0
+    let ipiPercent = 0
+    if (ipiBlock) {
+      const pIPI = parseFloat(get(ipiBlock, 'pIPI'))
+      if (pIPI) ipiPercent = pIPI
+      else {
+        const vIPI = parseFloat(get(ipiBlock, 'vIPI')) || 0
+        if (valorTotal > 0) ipiPercent = (vIPI / valorTotal) * 100
+      }
+    }
+    return { nItem, cProd, ncm, quantidade, valorTotal, ipiPercent }
+  })
 }
 
 function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
@@ -93,8 +126,9 @@ function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
   const transpBlock = xml.match(/<transporta>([\s\S]*?)<\/transporta>/)?.[1] ?? ''
   const transportadoraCnpj = get(transpBlock, 'CNPJ') || get(transpBlock, 'CPF')
   const transportadoraNome = get(transpBlock, 'xNome')
+  const items = parseItems(xml)
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null }
 }
 
 export async function POST() {
@@ -149,23 +183,38 @@ export async function POST() {
         }
       }
 
-      // Upsert no banco (ignora chaves já existentes)
-      if (docs.length > 0) {
-        const rows = docs.map(d => ({
-          chave_nfe: d.chave,
-          numero_nota: d.numeroNota || null,
-          data_emissao: d.dataEmissao || null,
-          fornecedor_cnpj: d.fornecedorCnpj || null,
-          fornecedor_nome: d.fornecedorNome || null,
-          valor_total: d.valorTotal || null,
-          transportadora_cnpj: d.transportadoraCnpj || null,
-          transportadora_nome: d.transportadoraNome || null,
-          nsu: d.nsu,
-        }))
-        const { error: upsertError } = await supabase
+      // Upsert no banco
+      const toRow = (d: NFeResumida) => ({
+        chave_nfe: d.chave,
+        numero_nota: d.numeroNota || null,
+        data_emissao: d.dataEmissao || null,
+        fornecedor_cnpj: d.fornecedorCnpj || null,
+        fornecedor_nome: d.fornecedorNome || null,
+        valor_total: d.valorTotal || null,
+        transportadora_cnpj: d.transportadoraCnpj || null,
+        transportadora_nome: d.transportadoraNome || null,
+        items_json: d.items,
+        tem_xml_completo: !!d.items,
+        xml_fetched_at: d.items ? new Date().toISOString() : null,
+        nsu: d.nsu,
+      })
+
+      // Resumos (resNFe): só insere se ainda não existir
+      const resumos = docs.filter(d => !d.items)
+      if (resumos.length > 0) {
+        const { error } = await supabase
           .from('nfe_received')
-          .upsert(rows, { onConflict: 'chave_nfe', ignoreDuplicates: true })
-        if (!upsertError) newCount += docs.length
+          .upsert(resumos.map(toRow), { onConflict: 'chave_nfe', ignoreDuplicates: true })
+        if (!error) newCount += resumos.length
+      }
+
+      // XML completo (nfeProc): atualiza a linha existente para gravar itens/transportadora
+      const completos = docs.filter(d => d.items)
+      if (completos.length > 0) {
+        const { error } = await supabase
+          .from('nfe_received')
+          .upsert(completos.map(toRow), { onConflict: 'chave_nfe', ignoreDuplicates: false })
+        if (!error) newCount += completos.length
       }
 
       // Atualiza NSU
