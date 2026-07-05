@@ -2252,3 +2252,85 @@ export async function pinTaskToToday(id: string, pinned: boolean) {
   await admin.from('tasks').update({ pinned_to_today: pinned }).eq('id', id)
   revalidatePath('/dashboard/tasks-v5')
 }
+
+// ── Notas de Entrada ───────────────────────────────────────────────────────────
+
+export async function getPurchaseInvoices() {
+  const { data } = await createAdminClient()
+    .from('purchase_invoices')
+    .select('*, purchase_invoice_items(count)')
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
+export async function getPurchaseInvoice(id: string) {
+  const { data } = await createAdminClient()
+    .from('purchase_invoices')
+    .select('*, purchase_invoice_items(*)')
+    .eq('id', id)
+    .single()
+  return data ?? null
+}
+
+export async function upsertPurchaseInvoice(invoice: {
+  chave_nfe: string
+  numero_nota?: string
+  fornecedor_nome?: string
+  fornecedor_cnpj?: string
+  data_emissao?: string
+  comissao?: number
+  lucro?: number
+  maquininha?: number
+}) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await createAdminClient()
+    .from('purchase_invoices')
+    .upsert(invoice, { onConflict: 'chave_nfe' })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath('/purchases')
+  return { data }
+}
+
+export async function savePurchaseInvoiceItems(invoiceId: string, items: {
+  numero_item: number
+  descricao: string
+  ncm?: string
+  quantidade: number
+  valor_total: number
+  ipi_percent: number
+  tipo_icms?: string
+  valor_icms: number
+  valor_fecoep: number
+  aliquota_icms?: number
+  aliquota_fecoep?: number
+  mva_valor?: number
+  custo_unitario?: number
+  preco_credito?: number
+  imposto_ant_percent?: number
+}[]) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  await admin.from('purchase_invoice_items').delete().eq('invoice_id', invoiceId)
+  const { error } = await admin.from('purchase_invoice_items').insert(
+    items.map(i => ({ ...i, invoice_id: invoiceId }))
+  )
+  if (error) return { error: error.message }
+  revalidatePath('/purchases')
+  return { ok: true }
+}
+
+export async function deletePurchaseInvoice(id: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('purchase_invoices')
+    .delete()
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/purchases')
+  return { ok: true }
+}
