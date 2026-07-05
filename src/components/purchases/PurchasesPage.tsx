@@ -812,9 +812,9 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
 
   function handleSelectTab(t: 'notas' | 'recebidas') {
     setTab(t)
+    // Apenas lê do banco (sem consultar a SEFAZ). A consulta acontece só no botão "Buscar novas NFs".
     if (t === 'recebidas' && nfesRecebidas.length === 0) {
       loadNfesRecebidas()
-      syncNfes()
     }
   }
 
