@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload } from 'lucide-react'
+import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck } from 'lucide-react'
 import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
@@ -143,9 +143,9 @@ function fmtDate(d: string | null) {
 
 // ── Modal Nova Nota ────────────────────────────────────────────────────────────
 
-function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => void; onSaved: () => void; initialChave?: string }) {
   const [step, setStep] = useState<'key' | 'fill'>('key')
-  const [chave, setChave] = useState('')
+  const [chave, setChave] = useState(initialChave ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [meta, setMeta] = useState<{ numeroNota: string; dataEmissao: string; fornecedorCnpj: string } | null>(null)
@@ -631,13 +631,80 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
 
 // ── Página principal ───────────────────────────────────────────────────────────
 
+interface NFeRecebida {
+  id: string
+  chave_nfe: string
+  numero_nota: string | null
+  data_emissao: string | null
+  fornecedor_cnpj: string | null
+  fornecedor_nome: string | null
+  valor_total: number | null
+  transportadora_cnpj: string | null
+  transportadora_nome: string | null
+  nsu: string | null
+  status: 'pending' | 'added'
+  created_at: string
+}
+
 export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const [tab, setTab] = useState<'notas' | 'recebidas'>('notas')
   const [showNew, setShowNew] = useState(false)
   const [detail, setDetail] = useState<any | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const invoices = initial
+
+  // Aba NFs Recebidas
+  const [nfesRecebidas, setNfesRecebidas] = useState<NFeRecebida[]>([])
+  const [loadingNfes, setLoadingNfes] = useState(false)
+  const [syncingNfes, setSyncingNfes] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+  const [addingChave, setAddingChave] = useState<string | null>(null)
+
+  async function loadNfesRecebidas() {
+    setLoadingNfes(true)
+    try {
+      const res = await fetch('/api/purchases/list-nfe')
+      if (res.ok) {
+        const data = await res.json()
+        setNfesRecebidas(data.nfes ?? [])
+      }
+    } finally {
+      setLoadingNfes(false)
+    }
+  }
+
+  async function syncNfes() {
+    setSyncingNfes(true)
+    setSyncMsg('')
+    try {
+      const res = await fetch('/api/purchases/list-nfe', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setSyncMsg(data.novasNFs > 0 ? `${data.novasNFs} nova(s) NF-e encontrada(s)` : 'Nenhuma NF-e nova')
+        await loadNfesRecebidas()
+      } else {
+        setSyncMsg(`Erro: ${data.error}`)
+      }
+    } finally {
+      setSyncingNfes(false)
+    }
+  }
+
+  function handleSelectTab(t: 'notas' | 'recebidas') {
+    setTab(t)
+    if (t === 'recebidas' && nfesRecebidas.length === 0) {
+      loadNfesRecebidas()
+      syncNfes()
+    }
+  }
+
+  function handleAddNfe(nfe: NFeRecebida) {
+    setAddingChave(nfe.chave_nfe)
+    setShowNew(true)
+    setTab('notas')
+  }
 
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
@@ -659,6 +726,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
     }
   }
 
+  const pendingCount = nfesRecebidas.filter(n => n.status === 'pending').length
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -667,17 +736,108 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           <h1 className="text-2xl font-bold text-gray-900">Notas de Entrada</h1>
           <p className="text-sm text-gray-500 mt-1">Importação e precificação de produtos por NF-e</p>
         </div>
+        {tab === 'notas' && (
+          <button onClick={() => setShowNew(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Nova Nota
+          </button>
+        )}
+        {tab === 'recebidas' && (
+          <button onClick={syncNfes} disabled={syncingNfes} className="btn-secondary flex items-center gap-2">
+            <RefreshCw className={cn('w-4 h-4', syncingNfes && 'animate-spin')} />
+            {syncingNfes ? 'Buscando...' : 'Buscar novas NFs'}
+          </button>
+        )}
+      </div>
+
+      {/* Abas */}
+      <div className="flex gap-1 border-b border-gray-200">
         <button
-          onClick={() => setShowNew(true)}
-          className="btn-primary flex items-center gap-2"
+          onClick={() => handleSelectTab('notas')}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'notas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
         >
-          <Plus className="w-4 h-4" />
-          Nova Nota
+          Notas Cadastradas
+        </button>
+        <button
+          onClick={() => handleSelectTab('recebidas')}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2', tab === 'recebidas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
+        >
+          NFs Recebidas
+          {pendingCount > 0 && (
+            <span className="bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+          )}
         </button>
       </div>
 
-      {/* Tabela */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Aba: NFs Recebidas */}
+      {tab === 'recebidas' && (
+        <div className="space-y-3">
+          {syncMsg && (
+            <div className={cn('flex items-center gap-2 text-sm px-3 py-2 rounded-lg', syncMsg.startsWith('Erro') ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>
+              {syncMsg.startsWith('Erro') ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+              {syncMsg}
+            </div>
+          )}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {loadingNfes || syncingNfes ? (
+              <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">{syncingNfes ? 'Consultando SEFAZ...' : 'Carregando...'}</span>
+              </div>
+            ) : nfesRecebidas.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <PackageSearch className="w-12 h-12 text-gray-200 mb-3" />
+                <p className="text-gray-500 font-medium">Nenhuma NF-e encontrada</p>
+                <p className="text-sm text-gray-400 mt-1">Clique em "Buscar novas NFs" para consultar a SEFAZ</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-[1fr_140px_120px_100px_120px_140px] bg-gray-50 border-b border-gray-100">
+                  {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', ''].map((h, i) => (
+                    <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 3 && 'text-right')}>{h}</div>
+                  ))}
+                </div>
+                {nfesRecebidas.map(nfe => (
+                  <div key={nfe.id} className={cn('grid grid-cols-[1fr_140px_120px_100px_120px_140px] items-center border-b border-gray-100 last:border-0', nfe.status === 'added' && 'opacity-50')}>
+                    <div className="px-4 py-3.5">
+                      <p className="text-sm font-semibold text-gray-900">{nfe.fornecedor_nome ?? '—'}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Nota {nfe.numero_nota ?? '—'} · {nfe.chave_nfe.slice(0, 16)}…</p>
+                    </div>
+                    <div className="px-4 py-3.5 font-mono text-xs text-gray-500">{nfe.fornecedor_cnpj ? `${nfe.fornecedor_cnpj.slice(0,2)}.${nfe.fornecedor_cnpj.slice(2,5)}.${nfe.fornecedor_cnpj.slice(5,8)}/${nfe.fornecedor_cnpj.slice(8,12)}-${nfe.fornecedor_cnpj.slice(12)}` : '—'}</div>
+                    <div className="px-4 py-3.5 text-sm text-right text-gray-600">{fmtDate(nfe.data_emissao)}</div>
+                    <div className="px-4 py-3.5 text-sm text-right tabular-nums font-semibold text-gray-800">{nfe.valor_total ? formatCurrency(nfe.valor_total) : '—'}</div>
+                    <div className="px-4 py-3.5 text-right">
+                      {nfe.transportadora_nome ? (
+                        <span className="flex items-center justify-end gap-1 text-xs text-gray-500">
+                          <Truck className="w-3 h-3" />
+                          {nfe.transportadora_nome.slice(0, 18)}{nfe.transportadora_nome.length > 18 ? '…' : ''}
+                        </span>
+                      ) : <span className="text-xs text-gray-300">—</span>}
+                    </div>
+                    <div className="px-4 py-3.5 flex justify-end">
+                      {nfe.status === 'added' ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Adicionada
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleAddNfe(nfe)}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
+                        >
+                          + Adicionar ao sistema
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Aba: Notas Cadastradas */}
+      {tab === 'notas' && <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {invoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <FileText className="w-12 h-12 text-gray-200 mb-3" />
@@ -726,12 +886,20 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
             })}
           </>
         )}
-      </div>
+      </div>}
 
       {showNew && (
         <NewInvoiceModal
-          onClose={() => setShowNew(false)}
-          onSaved={() => { startTransition(() => router.refresh()) }}
+          onClose={() => { setShowNew(false); setAddingChave(null) }}
+          onSaved={() => {
+            startTransition(() => router.refresh())
+            // Marca NF como adicionada se veio da aba de recebidas
+            if (addingChave) {
+              setNfesRecebidas(prev => prev.map(n => n.chave_nfe === addingChave ? { ...n, status: 'added' } : n))
+              setAddingChave(null)
+            }
+          }}
+          initialChave={addingChave ?? undefined}
         />
       )}
 
