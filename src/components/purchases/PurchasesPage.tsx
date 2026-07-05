@@ -633,24 +633,43 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
 
 function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; onClose: () => void; onAdd: () => void; onUpdated: (chave: string, patch: any) => void }) {
   const [loading, setLoading] = useState(true)
+  const [fetching, setFetching] = useState(false)
   const [data, setData] = useState<any | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const clean = nfe.chave_nfe.replace(/\D/g, '')
+
+  function applyResult(d: any) {
+    if (d.error) { setError(d.error); return }
+    setData(d)
+    if (d.transportadoraNome && d.transportadoraNome !== nfe.transportadora_nome) {
+      onUpdated(nfe.chave_nfe, { transportadora_nome: d.transportadoraNome })
+    }
+  }
+
+  // Ao abrir: só lê do banco (nunca consulta a SEFAZ)
   useEffect(() => {
-    const clean = nfe.chave_nfe.replace(/\D/g, '')
     fetch(`/api/purchases/nfe-detail?chave=${clean}`)
       .then(r => r.json())
-      .then(d => {
-        if (d.error) { setError(d.error); return }
-        setData(d)
-        // Atualiza a linha na listagem ao vivo (transportadora recém-obtida da SEFAZ)
-        if (d.transportadoraNome && d.transportadoraNome !== nfe.transportadora_nome) {
-          onUpdated(nfe.chave_nfe, { transportadora_nome: d.transportadoraNome })
-        }
-      })
+      .then(applyResult)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [nfe.chave_nfe, nfe.transportadora_nome, onUpdated])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clean])
+
+  // Só consulta a SEFAZ quando o usuário clica no botão
+  async function buscarNaSefaz() {
+    setFetching(true)
+    setError(null)
+    try {
+      const r = await fetch(`/api/purchases/nfe-detail?chave=${clean}&fetch=1`)
+      applyResult(await r.json())
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setFetching(false)
+    }
+  }
 
   const items: any[] = data?.items ?? []
   const cnpjFmt = (c: string) => c ? `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12)}` : '—'
@@ -696,11 +715,23 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
             <p className="text-sm font-bold text-gray-700 mb-2">Produtos</p>
             {loading ? (
               <div className="flex items-center justify-center py-12 gap-2 text-gray-400">
-                <Loader2 className="w-5 h-5 animate-spin" /><span className="text-sm">Carregando itens...</span>
+                <Loader2 className="w-5 h-5 animate-spin" /><span className="text-sm">Carregando...</span>
               </div>
             ) : error ? (
               <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
                 <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+              </div>
+            ) : items.length === 0 && data?._precisaBuscar ? (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm text-gray-500 max-w-md">Os produtos desta nota ainda não foram baixados. Buscar consome 1 das 20 consultas/hora da SEFAZ.</p>
+                <button
+                  onClick={buscarNaSefaz}
+                  disabled={fetching}
+                  className="btn-primary flex items-center gap-2 px-5 disabled:opacity-60"
+                >
+                  {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <PackageSearch className="w-4 h-4" />}
+                  {fetching ? 'Buscando na SEFAZ...' : 'Buscar produtos na SEFAZ'}
+                </button>
               </div>
             ) : items.length === 0 ? (
               <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2.5">

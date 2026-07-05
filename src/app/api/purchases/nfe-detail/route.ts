@@ -7,6 +7,7 @@ import { consultarNFeCompleta } from '@/lib/nfe'
 // Só consulta a SEFAZ se ainda não temos o XML completo guardado.
 export async function GET(req: NextRequest) {
   const chave = req.nextUrl.searchParams.get('chave')?.replace(/\D/g, '') ?? ''
+  const fetchSefaz = req.nextUrl.searchParams.get('fetch') === '1'
   if (chave.length !== 44) return NextResponse.json({ error: 'Chave inválida' }, { status: 400 })
 
   try {
@@ -26,7 +27,16 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Não temos → consulta a SEFAZ uma única vez e guarda
+    // Sem itens no banco. Só consulta a SEFAZ se o usuário pediu explicitamente (fetch=1).
+    if (!fetchSefaz) {
+      return NextResponse.json({
+        items: [],
+        transportadoraNome: row?.transportadora_nome ?? '',
+        _precisaBuscar: true,
+      })
+    }
+
+    // Consulta a SEFAZ uma única vez e guarda
     const res = await consultarNFeCompleta(chave)
     if (res.ok && res.nfe) {
       await supabase
