@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
 
     // cStat 215 = Falha schema, 656 = não credenciado, outros erros
     console.warn(`[fetch-nfe-xml] DistDFe cStat ${cStat}: ${xMotivo}`)
-    distDfeDebug = `DistDFe cStat ${cStat}: ${xMotivo}`
+    distDfeDebug = `DistDFe cStat ${cStat}: ${xMotivo} | RAW(500): ${distXml.slice(0, 500)}`
   } catch (e: any) {
     console.warn(`[fetch-nfe-xml] DistDFe erro: ${e.message}`)
     distDfeDebug = `DistDFe erro: ${e.message}`
