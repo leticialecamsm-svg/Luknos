@@ -706,6 +706,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd }: { nfe: any; onClose: ()
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">#</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Produto</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Cód. Prod.</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">NCM</th>
                       <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Qtd</th>
@@ -717,10 +718,11 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd }: { nfe: any; onClose: ()
                     {items.map((it: any) => (
                       <tr key={it.nItem} className="border-b border-gray-100 last:border-0">
                         <td className="px-3 py-2.5 text-gray-400 text-xs">{it.nItem}</td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{it.cProd}</td>
+                        <td className="px-3 py-2.5 text-gray-800 max-w-xs">{it.xProd ?? '—'}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">{it.cProd}</td>
                         <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{it.ncm}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{Number(it.quantidade).toLocaleString('pt-BR')}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(it.valorTotal)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{formatCurrency(it.valorTotal)}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{it.ipiPercent?.toFixed(2).replace('.', ',')}%</td>
                       </tr>
                     ))}

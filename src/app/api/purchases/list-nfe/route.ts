@@ -60,6 +60,7 @@ async function dezipDoc(b64: string): Promise<string> {
 interface NFeItem {
   nItem: number
   cProd: string
+  xProd: string
   ncm: string
   quantidade: number
   valorTotal: number
@@ -99,6 +100,7 @@ function parseItems(xml: string): NFeItem[] {
     const prodBlock = det.match(/<prod>([\s\S]*?)<\/prod>/)?.[1] ?? ''
     const ipiBlock = det.match(/<IPITrib>([\s\S]*?)<\/IPITrib>/)?.[1] ?? ''
     const cProd = get(prodBlock, 'cProd')
+    const xProd = get(prodBlock, 'xProd')
     const ncm = get(prodBlock, 'NCM')
     const quantidade = parseFloat(get(prodBlock, 'qCom')) || 0
     const valorTotal = parseFloat(get(prodBlock, 'vProd')) || 0
@@ -111,7 +113,7 @@ function parseItems(xml: string): NFeItem[] {
         if (valorTotal > 0) ipiPercent = (vIPI / valorTotal) * 100
       }
     }
-    return { nItem, cProd, ncm, quantidade, valorTotal, ipiPercent }
+    return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
   })
 }
 

@@ -12,6 +12,7 @@ export const CNPJ_EMPRESA = process.env.EMPRESA_CNPJ ?? '45118870000106'
 export interface NFeItemParsed {
   nItem: number
   cProd: string
+  xProd: string
   ncm: string
   quantidade: number
   valorTotal: number
@@ -81,6 +82,7 @@ export function parseNFeXML(nfeXml: string): NFeParsed {
     const ipiBlock = det.match(/<IPITrib>([\s\S]*?)<\/IPITrib>/)?.[1] ?? ''
 
     const cProd = tag(prodBlock, 'cProd')
+    const xProd = tag(prodBlock, 'xProd')
     const ncm = tag(prodBlock, 'NCM')
     const quantidade = parseFloat(tag(prodBlock, 'qCom')) || 0
     const valorTotal = parseFloat(tag(prodBlock, 'vProd')) || 0
@@ -95,7 +97,7 @@ export function parseNFeXML(nfeXml: string): NFeParsed {
       }
     }
 
-    return { nItem, cProd, ncm, quantidade, valorTotal, ipiPercent }
+    return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
   })
 
   return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, transportadoraCnpj, transportadoraNome, items }
