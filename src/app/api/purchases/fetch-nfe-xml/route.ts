@@ -129,8 +129,7 @@ export async function GET(req: NextRequest) {
   try {
     const distSoap = buildDistSoap(chave, cnpj)
     const distXml = await soapRequest(DIST_URL, distSoap, {
-      'Content-Type': 'application/soap+xml; charset=utf-8',
-      'SOAPAction': `${DIST_NS}/nfeDistDFeInt`,
+      'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInt"`,
     })
 
     const cStat = get(distXml, 'cStat')
