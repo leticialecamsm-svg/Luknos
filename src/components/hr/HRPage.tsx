@@ -17,6 +17,7 @@ const ADMIN_NAMES = ['Luknos', 'João', 'Letícia', 'Leticia']
 
 interface Props {
   earnings: Record<string, any>
+  prevEarnings: Record<string, any>
   payroll: any[]
   monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
@@ -270,6 +271,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 
 function RemuneracaoTab({
   earnings,
+  prevEarnings,
   payroll,
   monthUpload: initialMonthUpload,
   allUsers,
@@ -277,6 +279,7 @@ function RemuneracaoTab({
   month,
 }: {
   earnings: Record<string, any>
+  prevEarnings: Record<string, any>
   payroll: any[]
   monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
@@ -420,7 +423,7 @@ function RemuneracaoTab({
 
   const totalSalarios = collaborators.reduce((s, u: any) => s + (localPayroll[u.id]?.liquido ?? 0), 0)
   const totalVT = collaborators.reduce((s, u: any) => s + (localPayroll[u.id]?.vt_next_month ?? 0), 0)
-  const totalComissoes = Object.values(earnings)
+  const totalComissoes = Object.values(prevEarnings)
     .filter((r: any) => r.user?.role !== 'admin' && !ADMIN_NAMES.includes(r.user?.name))
     .reduce((s: number, r: any) => s + (r.total ?? 0), 0)
   const totalGeral = totalSalarios + totalVT + totalComissoes
@@ -518,7 +521,7 @@ function RemuneracaoTab({
         {[
           { label: 'Total salários (líquido)', value: totalSalarios, color: 'text-blue-700' },
           { label: 'Total V.T. (mês seguinte)', value: totalVT, color: 'text-amber-700' },
-          { label: 'Total comissões', value: totalComissoes, color: 'text-violet-700' },
+          { label: 'Total comissões (mês ant.)', value: totalComissoes, color: 'text-violet-700' },
           { label: 'Total geral a pagar', value: totalGeral, color: 'text-emerald-700' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
@@ -531,7 +534,7 @@ function RemuneracaoTab({
       {/* Tabela */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className={cn('grid border-b border-gray-100 bg-gray-50', COLS)}>
-          {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão total', 'Total a pagar', ''].map((h, i) => (
+          {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão (mês ant.)', 'Total a pagar', ''].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && i < 5 && 'text-right')}>{h}</div>
           ))}
         </div>
@@ -541,7 +544,7 @@ function RemuneracaoTab({
         )}
 
         {collaborators.map((u: any) => {
-          const r = earnings[u.id]
+          const r = prevEarnings[u.id]
           const p = localPayroll[u.id]
           const comm = r?.total ?? 0
           const liquido = p?.liquido ?? 0
@@ -642,7 +645,7 @@ function RemuneracaoTab({
 
 // ── Componente principal ───────────────────────────────────────────────────────
 
-export function HRPage({ earnings, payroll, monthUpload, allUsers, year, month, initialTab }: Props) {
+export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers, year, month, initialTab }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<'comissao' | 'remuneracao'>(initialTab)
 
@@ -691,6 +694,7 @@ export function HRPage({ earnings, payroll, monthUpload, allUsers, year, month, 
         <RemuneracaoTab
           key={`${year}-${month}`}
           earnings={earnings}
+          prevEarnings={prevEarnings}
           payroll={payroll}
           monthUpload={monthUpload}
           allUsers={allUsers}

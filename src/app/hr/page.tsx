@@ -1,5 +1,9 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCommissionEarnings, getPayrollData, getPayrollMonthUpload } from '@/lib/actions'
+
+function prevMonthYear(year: number, month: number) {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
+}
 import { HRPage } from '@/components/hr/HRPage'
 
 export const dynamic = 'force-dynamic'
@@ -11,8 +15,10 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
   const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
 
   const admin = createAdminClient()
-  const [earnings, payroll, monthUpload, { data: allUsers }] = await Promise.all([
+  const prev = prevMonthYear(year, month)
+  const [earnings, prevEarnings, payroll, monthUpload, { data: allUsers }] = await Promise.all([
     getCommissionEarnings(year, month),
+    getCommissionEarnings(prev.year, prev.month),
     getPayrollData(year, month),
     getPayrollMonthUpload(year, month),
     admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true).order('name'),
@@ -21,6 +27,7 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
   return (
     <HRPage
       earnings={earnings.byUser}
+      prevEarnings={prevEarnings.byUser}
       payroll={payroll}
       monthUpload={monthUpload}
       allUsers={allUsers ?? []}
