@@ -19,9 +19,10 @@ CREATE TABLE IF NOT EXISTS purchase_invoice_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   invoice_id UUID NOT NULL REFERENCES purchase_invoices(id) ON DELETE CASCADE,
   numero_item INT NOT NULL,
-  -- Dados da nota fiscal (entrada manual)
+  -- Dados da nota fiscal (entrada manual ou via XML)
   descricao TEXT NOT NULL DEFAULT '',
   ncm TEXT,
+  codigo_produto TEXT,
   quantidade DECIMAL(10,4) NOT NULL DEFAULT 0,
   valor_total DECIMAL(10,2) NOT NULL DEFAULT 0,
   ipi_percent DECIMAL(6,4) NOT NULL DEFAULT 0,

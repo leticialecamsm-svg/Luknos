@@ -2298,6 +2298,7 @@ export async function savePurchaseInvoiceItems(invoiceId: string, items: {
   numero_item: number
   descricao: string
   ncm?: string
+  codigo_produto?: string
   quantidade: number
   valor_total: number
   ipi_percent: number

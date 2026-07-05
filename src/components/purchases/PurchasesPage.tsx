@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2 } from 'lucide-react'
+import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload } from 'lucide-react'
 import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
@@ -36,6 +36,62 @@ function calcPrecoCredito(custo: number, tipoIcms: string, comissao: number, luc
   return custo / divisor
 }
 
+// ── Parser XML NF-e ───────────────────────────────────────────────────────────
+
+interface NFeItem {
+  nItem: number
+  cProd: string       // código do produto no fornecedor
+  xProd: string       // descrição
+  ncm: string
+  quantidade: number
+  valorTotal: number
+  ipiPercent: number
+}
+
+function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; dataEmissao: string; fornecedorCnpj: string; fornecedorNome: string } | null {
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(xmlText, 'application/xml')
+    if (doc.querySelector('parsererror')) return null
+
+    const get = (el: Element | Document, tag: string) => el.querySelector(tag)?.textContent?.trim() ?? ''
+
+    const numeroNota = get(doc, 'ide nNF')
+    const dataEmissao = get(doc, 'ide dhEmi') || get(doc, 'ide dEmi')
+    const fornecedorCnpj = get(doc, 'emit CNPJ')
+    const fornecedorNome = get(doc, 'emit xFant') || get(doc, 'emit xNome')
+
+    const detElements = doc.querySelectorAll('det')
+    const items: NFeItem[] = Array.from(detElements).map(det => {
+      const prod = det.querySelector('prod')!
+      const ipi = det.querySelector('IPI IPITrib')
+      const nItem = parseInt(det.getAttribute('nItem') ?? '0')
+      const cProd = get(prod, 'cProd')
+      const xProd = get(prod, 'xProd')
+      const ncm = get(prod, 'NCM')
+      const quantidade = parseFloat(get(prod, 'qCom')) || 0
+      const valorTotal = parseFloat(get(prod, 'vProd')) || 0
+
+      // IPI: pIPI é a alíquota (%), ou calcular por vIPI/vProd
+      let ipiPercent = 0
+      if (ipi) {
+        const pIPI = get(ipi, 'pIPI')
+        if (pIPI) ipiPercent = parseFloat(pIPI)
+        else {
+          const vIPI = parseFloat(get(ipi, 'vIPI')) || 0
+          if (valorTotal > 0) ipiPercent = (vIPI / valorTotal) * 100
+        }
+      }
+
+      return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
+    })
+
+    return { items, numeroNota, dataEmissao: dataEmissao.slice(0, 10), fornecedorCnpj, fornecedorNome }
+  } catch {
+    return null
+  }
+}
+
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
 interface InvoiceRow {
@@ -56,6 +112,7 @@ interface ItemDraft {
   numeroItem: number
   descricao: string
   ncm: string
+  codigoProduto: string
   quantidade: string
   valorTotal: string
   ipiPercent: string
@@ -94,6 +151,7 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [meta, setMeta] = useState<{ numeroNota: string; dataEmissao: string; fornecedorCnpj: string } | null>(null)
   const [fornecedorNome, setFornecedorNome] = useState('')
   const [items, setItems] = useState<ItemDraft[]>([])
+  const [nfeItemsFromXML, setNfeItemsFromXML] = useState<Map<number, NFeItem> | null>(null)
 
   // Parâmetros de precificação
   const [comissao, setComissao] = useState('12,50')
@@ -119,6 +177,7 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         numeroItem: it.numeroItem,
         descricao: it.descricaoProduto,
         ncm: it.codigoNcm ? String(it.codigoNcm) : '',
+        codigoProduto: '',
         quantidade: '',
         valorTotal: '',
         ipiPercent: '',
@@ -129,12 +188,45 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         aliquotaFecoep: it.aliquotaFecoep,
         mvaValor: it.mvaValor,
       })))
+      // Merge XML data if available
+      const xmlMap = nfeItemsFromXML
+      if (xmlMap) {
+        setItems(prev => prev.map(it => {
+          const x = xmlMap.get(it.numeroItem)
+          if (!x) return it
+          return {
+            ...it,
+            codigoProduto: x.cProd,
+            quantidade: x.quantidade > 0 ? x.quantidade.toFixed(4).replace('.', ',').replace(/,?0+$/, '') || String(x.quantidade) : it.quantidade,
+            valorTotal: x.valorTotal > 0 ? x.valorTotal.toFixed(2).replace('.', ',') : it.valorTotal,
+            ipiPercent: x.ipiPercent > 0 ? x.ipiPercent.toFixed(2).replace('.', ',') : it.ipiPercent,
+          }
+        }))
+      }
+
       setStep('fill')
     } catch (e: any) {
       setError(e.message ?? 'Erro inesperado')
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleXMLUpload(file: File) {
+    setError(null)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      const parsed = parseNFeXML(text)
+      if (!parsed) { setError('Não foi possível ler o XML. Verifique se é um arquivo NF-e válido.'); return }
+      const chaveFromXML = text.match(/\d{44}/)?.[0] ?? ''
+      if (chaveFromXML) setChave(chaveFromXML)
+      if (parsed.fornecedorNome) setFornecedorNome(parsed.fornecedorNome)
+      const map = new Map<number, NFeItem>()
+      parsed.items.forEach(it => map.set(it.nItem, it))
+      setNfeItemsFromXML(map)
+    }
+    reader.readAsText(file, 'UTF-8')
   }
 
   function updateItem(i: number, field: keyof ItemDraft, value: string) {
@@ -176,6 +268,7 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
           numero_item: it.numeroItem,
           descricao: it.descricao,
           ncm: it.ncm || undefined,
+          codigo_produto: it.codigoProduto || undefined,
           quantidade: qtd,
           valor_total: total,
           ipi_percent: ipi,
@@ -248,6 +341,26 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
                   {error}
                 </div>
               )}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white px-3 text-xs text-gray-400">ou</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Upload do XML da NF-e</label>
+                <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${nfeItemsFromXML ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                  <Upload className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="text-sm text-gray-600">
+                    {nfeItemsFromXML
+                      ? <span className="text-emerald-700 font-semibold">XML carregado — {nfeItemsFromXML.size} itens encontrados</span>
+                      : 'Clique para selecionar o arquivo .xml da nota'
+                    }
+                  </span>
+                  <input type="file" accept=".xml" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleXMLUpload(f) }} />
+                </label>
+                <p className="text-xs text-gray-400 mt-1">Preenche automaticamente qtd, valor, IPI% e código do produto.</p>
+              </div>
               <button
                 onClick={handleFetch}
                 disabled={loading}
@@ -302,7 +415,8 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide w-8">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide min-w-[200px]">Produto</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide w-24">NCM</th>
-                      {/* NF-e — entrada manual */}
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-24">Cód. Prod.</th>
+                      {/* NF-e — entrada manual ou XML */}
                       <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-20">Qtd</th>
                       <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-28">Valor Total</th>
                       <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-20">IPI %</th>
@@ -318,7 +432,7 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
                   <tbody>
                     {/* Legenda das cores */}
                     <tr className="bg-gray-50 border-b border-gray-100">
-                      <td colSpan={3} />
+                      <td colSpan={4} />
                       <td colSpan={3} className="px-3 py-1 text-[10px] text-blue-500 text-center font-medium">← da nota fiscal</td>
                       <td colSpan={3} className="px-3 py-1 text-[10px] text-emerald-500 text-center font-medium">← SEFAZ (automático)</td>
                       <td colSpan={2} className="px-3 py-1 text-[10px] text-violet-500 text-center font-medium">← calculado</td>
@@ -338,8 +452,16 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{it.numeroItem}</td>
                           <td className="px-3 py-2.5 text-gray-800 font-medium">{it.descricao}</td>
                           <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{it.ncm}</td>
+                          <td className="px-2 py-1.5">
+                            <input
+                              className="w-full border border-blue-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400 bg-blue-50 font-mono"
+                              placeholder="—"
+                              value={it.codigoProduto}
+                              onChange={e => updateItem(i, 'codigoProduto', e.target.value)}
+                            />
+                          </td>
 
-                          {/* Campos manuais */}
+                          {/* Campos manuais / XML */}
                           <td className="px-2 py-1.5">
                             <input
                               className="w-full text-right border border-blue-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400 bg-blue-50"
