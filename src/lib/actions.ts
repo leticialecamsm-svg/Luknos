@@ -2134,6 +2134,40 @@ export async function upsertPayrollEntry(entry: {
   return { ok: true }
 }
 
+export async function getPayrollMonthUpload(year: number, month: number) {
+  const { data } = await createAdminClient()
+    .from('payroll_month_uploads')
+    .select('*')
+    .eq('year', year)
+    .eq('month', month)
+    .single()
+  return data ?? null
+}
+
+export async function savePayrollMonthUpload(year: number, month: number, fileUrl: string, fileName: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('payroll_month_uploads')
+    .upsert({ year, month, file_url: fileUrl, file_name: fileName }, { onConflict: 'year,month' })
+  if (error) return { error: error.message }
+  revalidatePath('/hr')
+  return { ok: true }
+}
+
+export async function deletePayrollMonthUpload(year: number, month: number) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('payroll_month_uploads')
+    .delete()
+    .eq('year', year)
+    .eq('month', month)
+  if (error) return { error: error.message }
+  revalidatePath('/hr')
+  return { ok: true }
+}
+
 export async function deletePayrollEntry(year: number, month: number, userId: string) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }

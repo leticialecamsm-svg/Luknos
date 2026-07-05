@@ -3,19 +3,22 @@
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
-import { ChevronDown, ChevronRight, Info, Upload, X, Pencil, Check, AlertCircle, Link2 } from 'lucide-react'
+import { ChevronRight, Upload, X, Pencil, Check, AlertCircle, FileText, Trash2 } from 'lucide-react'
 import { useState, useRef, useTransition } from 'react'
 import { cn } from '@/lib/utils'
-import { upsertPayrollEntry } from '@/lib/actions'
-import type { PayrollEmployee } from '@/app/api/hr/parse-payroll/route'
+import { upsertPayrollEntry, savePayrollMonthUpload, deletePayrollMonthUpload, deletePayrollEntry } from '@/lib/actions'
 
 const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
+// Nomes/IDs que não devem aparecer em Remuneração mesmo sem role admin
+const ADMIN_NAMES = ['Luknos', 'João', 'Letícia', 'Leticia']
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
 interface Props {
   earnings: Record<string, any>
   payroll: any[]
+  monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
   year: number
   month: number
@@ -32,7 +35,7 @@ function EditableValue({ value, onSave }: { value: number; onSave: (v: number) =
     return (
       <button
         onClick={() => { setStr(value.toFixed(2).replace('.', ',')); setEditing(true) }}
-        className="flex items-center gap-1 group"
+        className="flex items-center gap-1 group justify-end w-full"
       >
         <span className="tabular-nums">{formatCurrency(value)}</span>
         <Pencil className="w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-colors" />
@@ -41,11 +44,11 @@ function EditableValue({ value, onSave }: { value: number; onSave: (v: number) =
   }
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 justify-end">
       <span className="text-xs text-gray-400">R$</span>
       <input
         autoFocus
-        className="w-28 text-right border border-brand-400 rounded px-1.5 py-0.5 text-sm outline-none focus:ring-1 focus:ring-brand-500"
+        className="w-24 text-right border border-brand-400 rounded px-1.5 py-0.5 text-sm outline-none focus:ring-1 focus:ring-brand-500"
         value={str}
         onChange={e => setStr(e.target.value)}
         onKeyDown={e => {
@@ -73,16 +76,15 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
     .filter((r: any) => r.total > 0 || r.sellerSales > 0)
     .sort((a: any, b: any) => b.total - a.total)
 
-  // Admins não recebem comissão — excluir do total mas manter visível na lista
   const totalComm = rows
     .filter((r: any) => r.user?.role !== 'admin')
     .reduce((s: number, r: any) => s + r.total, 0)
 
   const detailRow = detailUser ? rows.find((r: any) => r.user?.id === detailUser) : null
+  void detailRow
 
   return (
     <div className="space-y-4">
-      {/* Total */}
       <div className="bg-white rounded-xl border border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">Total de comissões no mês</p>
@@ -91,9 +93,8 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
         <p className="text-sm text-gray-400">{rows.length} colaborador{rows.length !== 1 ? 'es' : ''}</p>
       </div>
 
-      {/* Tabela */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] border-b border-gray-100 bg-gray-50">
+        <div className="grid grid-cols-[1fr_160px_180px_160px_140px] border-b border-gray-100 bg-gray-50">
           {['Colaborador','Vendas no mês','Com. vendedor (1%)','Com. projetista','Total'].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
           ))}
@@ -107,14 +108,10 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
           const isOpen = expanded === r.user?.id
           const isDetail = detailUser === r.user?.id
           const hasProjDetails = r.projetistaSales?.length > 0
-          const allSales = [
-            ...(r.sellerSales > 0 ? [{ label: 'Comissão de Vendedor', value: r.sellerSales, comm: r.sellerComm, rate: 1, type: 'seller' }] : []),
-          ]
 
           return (
             <div key={r.user?.id} className="border-b border-gray-100 last:border-0">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center hover:bg-gray-50 transition-colors">
-                {/* Nome */}
+              <div className="grid grid-cols-[1fr_160px_180px_160px_140px] items-center hover:bg-gray-50 transition-colors">
                 <div className="px-4 py-3.5 flex items-center gap-3">
                   <Avatar user={r.user} size={32} />
                   <div>
@@ -141,7 +138,6 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
                 <div className="px-4 py-3.5 text-sm font-bold text-emerald-700 text-right tabular-nums">{formatCurrency(r.total)}</div>
               </div>
 
-              {/* Painel detalhe de vendas */}
               {isDetail && (
                 <div className="bg-blue-50 border-t border-blue-100 px-4 py-3 space-y-3">
                   {r.sellerSales > 0 && (
@@ -177,7 +173,6 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
                       )}
                     </div>
                   )}
-
                   {r.projetistaSales?.length > 0 && (
                     <div>
                       <p className="text-xs font-bold text-violet-700 uppercase tracking-wide mb-2">Projetos como projetista responsável</p>
@@ -205,7 +200,6 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
                       </table>
                     </div>
                   )}
-
                   <div className="flex justify-between items-center pt-1 border-t border-blue-200">
                     <span className="text-xs font-bold text-blue-800">Total de comissão</span>
                     <span className="text-sm font-bold text-emerald-700">{formatCurrency(r.total)}</span>
@@ -213,7 +207,6 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
                 </div>
               )}
 
-              {/* Detalhe projetos projetista */}
               {isOpen && hasProjDetails && !isDetail && (
                 <div className="bg-violet-50 border-t border-violet-100 px-4 py-3">
                   <p className="text-xs font-bold text-violet-700 uppercase tracking-wide mb-2">Projetos como responsável</p>
@@ -246,7 +239,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
         })}
 
         {rows.length > 0 && (
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
+          <div className="grid grid-cols-[1fr_160px_180px_160px_140px] bg-gray-50 border-t-2 border-gray-200">
             <div className="px-4 py-3 text-sm font-bold text-gray-700">
               Total a pagar
               <span className="ml-1 text-[10px] font-normal text-gray-400">(excl. admin)</span>
@@ -278,12 +271,14 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 function RemuneracaoTab({
   earnings,
   payroll,
+  monthUpload: initialMonthUpload,
   allUsers,
   year,
   month,
 }: {
   earnings: Record<string, any>
   payroll: any[]
+  monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
   year: number
   month: number
@@ -293,6 +288,8 @@ function RemuneracaoTab({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState(false)
+  const [monthUpload, setMonthUpload] = useState(initialMonthUpload)
+  const [deletingUpload, setDeletingUpload] = useState(false)
 
   const [localPayroll, setLocalPayroll] = useState<Record<string, any>>(() => {
     const m: Record<string, any> = {}
@@ -301,9 +298,13 @@ function RemuneracaoTab({
   })
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Match PDF name to system user
+  // Exclude admins and known owner accounts from Remuneração
+  const collaborators = allUsers.filter((u: any) =>
+    u.role !== 'admin' && !ADMIN_NAMES.includes(u.name)
+  )
+
   function matchUser(pdfName: string) {
-    return allUsers.find((u: any) => {
+    return collaborators.find((u: any) => {
       const sys = (u.name ?? '').toUpperCase()
       const pdf = pdfName.toUpperCase()
       return pdf.split(' ').filter((w: string) => w.length > 3).some((w: string) => sys.includes(w))
@@ -331,9 +332,14 @@ function RemuneracaoTab({
         return
       }
 
+      const errors: string[] = []
+
       for (const emp of data.employees as any[]) {
         const match = matchUser(emp.name)
-        if (!match) continue
+        if (!match) {
+          errors.push(`Colaborador não encontrado: ${emp.name}`)
+          continue
+        }
         const entry = {
           user_id: match.id,
           employee_name: emp.name,
@@ -342,14 +348,33 @@ function RemuneracaoTab({
           liquido: emp.liquido,
           receipt_url: emp.receiptUrl,
         }
-        await upsertPayrollEntry(entry)
+        const result = await upsertPayrollEntry(entry)
+        if (result && 'error' in result) {
+          errors.push(`Erro ao salvar ${emp.name}: ${result.error}`)
+          continue
+        }
         setLocalPayroll(prev => ({
           ...prev,
           [match.id]: { ...(prev[match.id] ?? {}), ...entry },
         }))
       }
 
-      setUploadSuccess(true)
+      // Save original file reference for this month
+      if (data.originalUrl) {
+        const uploadResult = await savePayrollMonthUpload(year, month, data.originalUrl, data.originalName ?? file.name)
+        if (!uploadResult || 'error' in uploadResult) {
+          errors.push('Aviso: arquivo original não foi registrado')
+        } else {
+          setMonthUpload({ file_url: data.originalUrl, file_name: data.originalName ?? file.name })
+        }
+      }
+
+      if (errors.length > 0) {
+        setUploadError(errors.join(' | '))
+      } else {
+        setUploadSuccess(true)
+      }
+
       startTransition(() => router.refresh())
     } catch (err: any) {
       setUploadError(err.message ?? 'Erro inesperado')
@@ -359,50 +384,133 @@ function RemuneracaoTab({
     }
   }
 
+  async function handleDeleteUpload() {
+    if (!confirm('Remover o arquivo de recibo deste mês? Os dados de salário importados serão mantidos.')) return
+    setDeletingUpload(true)
+    try {
+      await deletePayrollMonthUpload(year, month)
+      setMonthUpload(null)
+      startTransition(() => router.refresh())
+    } finally {
+      setDeletingUpload(false)
+    }
+  }
+
   async function handleFieldChange(userId: string, field: string, value: number) {
     const current = localPayroll[userId] ?? {}
     const updated = { ...current, user_id: userId, year, month, [field]: value }
     setLocalPayroll(prev => ({ ...prev, [userId]: updated }))
-    await upsertPayrollEntry({ employee_name: updated.employee_name ?? '', ...updated })
+    const result = await upsertPayrollEntry({ employee_name: updated.employee_name ?? '', ...updated })
+    if (result && 'error' in result) {
+      // revert
+      setLocalPayroll(prev => ({ ...prev, [userId]: current }))
+      alert(`Erro ao salvar: ${result.error}`)
+    }
   }
 
-  const totalSalarios = Object.values(localPayroll).reduce((s, p: any) => s + (p.liquido ?? 0), 0)
-  const totalVT = Object.values(localPayroll).reduce((s, p: any) => s + (p.vt_next_month ?? 0), 0)
-  const totalComissoes = Object.values(earnings).reduce((s: number, r: any) => s + (r.total ?? 0), 0)
+  async function handleDeleteRow(userId: string) {
+    if (!confirm('Remover os dados de remuneração deste colaborador para este mês?')) return
+    await deletePayrollEntry(year, month, userId)
+    setLocalPayroll(prev => {
+      const next = { ...prev }
+      delete next[userId]
+      return next
+    })
+  }
+
+  const totalSalarios = collaborators.reduce((s, u: any) => s + (localPayroll[u.id]?.liquido ?? 0), 0)
+  const totalVT = collaborators.reduce((s, u: any) => s + (localPayroll[u.id]?.vt_next_month ?? 0), 0)
+  const totalComissoes = Object.values(earnings)
+    .filter((r: any) => r.user?.role !== 'admin' && !ADMIN_NAMES.includes(r.user?.name))
+    .reduce((s: number, r: any) => s + (r.total ?? 0), 0)
   const totalGeral = totalSalarios + totalVT + totalComissoes
+
+  // Fixed column widths for proper alignment
+  const COLS = 'grid-cols-[1fr_150px_160px_150px_140px_52px]'
 
   return (
     <div className="space-y-4">
-      {/* Upload Recibo de Pagamento */}
+      {/* Upload + arquivo registrado */}
       <div className={cn(
-        'bg-white border rounded-xl px-5 py-4 flex items-start gap-4',
+        'bg-white border rounded-xl px-5 py-4',
         uploadSuccess ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200'
       )}>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-gray-800">Importar Recibo de Pagamento (PDF)</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Envie o <strong>Recibo de Pagamento</strong> da contabilidade. O sistema separa automaticamente
-            um recibo por colaborador e salva o PDF individual de cada um.
-          </p>
-          {uploadError && (
-            <div className="flex items-center gap-1.5 mt-2 text-xs text-red-600">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              {uploadError}
+        {monthUpload ? (
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800 truncate">{monthUpload.file_name}</p>
+                <p className="text-xs text-gray-500">Recibo importado para {MONTH_NAMES[month - 1]} {year}</p>
+              </div>
             </div>
-          )}
-          {uploadSuccess && <p className="text-xs text-emerald-700 mt-2 font-medium">✓ Recibos processados e salvos com sucesso!</p>}
-        </div>
-        <div>
-          <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-2 btn-primary text-sm py-2 px-4 disabled:opacity-60"
-          >
-            <Upload className="w-4 h-4" />
-            {uploading ? 'Processando...' : 'Carregar PDF'}
-          </button>
-        </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={monthUpload.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-brand-600 hover:underline font-medium"
+              >
+                Visualizar
+              </a>
+              <button
+                onClick={handleDeleteUpload}
+                disabled={deletingUpload}
+                className="flex items-center gap-1.5 text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
+                title="Remover arquivo"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deletingUpload ? 'Removendo...' : 'Remover'}
+              </button>
+              <div className="w-px h-5 bg-gray-200" />
+              <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="flex items-center gap-1.5 text-sm btn-primary py-1.5 px-3 disabled:opacity-60"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                {uploading ? 'Processando...' : 'Substituir'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-gray-800">Importar Recibo de Pagamento (PDF)</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Envie o <strong>Recibo de Pagamento</strong> da contabilidade. O sistema separa automaticamente
+                um recibo por colaborador e salva o PDF individual de cada um.
+              </p>
+              {uploadError && (
+                <div className="flex items-start gap-1.5 mt-2 text-xs text-red-600">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+              {uploadSuccess && <p className="text-xs text-emerald-700 mt-2 font-medium">✓ Recibos processados e salvos com sucesso!</p>}
+            </div>
+            <div>
+              <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="flex items-center gap-2 btn-primary text-sm py-2 px-4 disabled:opacity-60"
+              >
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Processando...' : 'Carregar PDF'}
+              </button>
+            </div>
+          </div>
+        )}
+        {uploadError && monthUpload && (
+          <div className="flex items-start gap-1.5 mt-3 text-xs text-red-600">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{uploadError}</span>
+          </div>
+        )}
       </div>
 
       {/* Totalizadores */}
@@ -420,23 +528,22 @@ function RemuneracaoTab({
         ))}
       </div>
 
-      {/* Tabela simplificada */}
+      {/* Tabela */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] border-b border-gray-100 bg-gray-50">
-          {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão total', 'Total a pagar', 'Recibo'].map((h, i) => (
-            <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
+        <div className={cn('grid border-b border-gray-100 bg-gray-50', COLS)}>
+          {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão total', 'Total a pagar', ''].map((h, i) => (
+            <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && i < 5 && 'text-right')}>{h}</div>
           ))}
         </div>
 
-        {allUsers.filter((u: any) => u.role !== 'admin').length === 0 && (
+        {collaborators.length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhum colaborador encontrado</div>
         )}
 
-        {allUsers.filter((u: any) => u.role !== 'admin').map((u: any) => {
-          const r = earnings[u.id]   // pode ser undefined se sem comissão
+        {collaborators.map((u: any) => {
+          const r = earnings[u.id]
           const p = localPayroll[u.id]
-          // admins não recebem comissão
-          const comm = u.role === 'admin' ? 0 : (r?.total ?? 0)
+          const comm = r?.total ?? 0
           const liquido = p?.liquido ?? 0
           const vt = p?.vt_next_month ?? 0
           const total = liquido + vt + comm
@@ -444,12 +551,12 @@ function RemuneracaoTab({
           const receiptUrl = p?.receipt_url
 
           return (
-            <div key={u.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+            <div key={u.id} className={cn('grid items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group', COLS)}>
               {/* Colaborador */}
-              <div className="px-4 py-3.5 flex items-center gap-3">
+              <div className="px-4 py-3.5 flex items-center gap-3 min-w-0">
                 <Avatar user={u} size={32} />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{u.name}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{u.name}</p>
                   {!hasData && (
                     <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full">
                       Sem recibo importado
@@ -459,19 +566,13 @@ function RemuneracaoTab({
               </div>
 
               {/* Salário líquido — editável */}
-              <div className="px-4 py-3.5 text-sm font-semibold text-blue-700 text-right">
-                <EditableValue
-                  value={liquido}
-                  onSave={v => handleFieldChange(u.id, 'liquido', v)}
-                />
+              <div className="px-4 py-3.5 text-sm font-semibold text-blue-700">
+                <EditableValue value={liquido} onSave={v => handleFieldChange(u.id, 'liquido', v)} />
               </div>
 
               {/* V.T. mês seguinte — editável */}
-              <div className="px-4 py-3.5 text-sm text-amber-700 text-right">
-                <EditableValue
-                  value={vt}
-                  onSave={v => handleFieldChange(u.id, 'vt_next_month', v)}
-                />
+              <div className="px-4 py-3.5 text-sm text-amber-700">
+                <EditableValue value={vt} onSave={v => handleFieldChange(u.id, 'vt_next_month', v)} />
               </div>
 
               {/* Comissão — readonly */}
@@ -484,18 +585,18 @@ function RemuneracaoTab({
                 {formatCurrency(total)}
               </div>
 
-              {/* Ícone PDF */}
-              <div className="px-4 py-3.5 text-right">
+              {/* Recibo PDF + delete */}
+              <div className="px-2 py-3.5 flex items-center justify-center gap-1">
                 {receiptUrl ? (
                   <a
                     href={receiptUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title="Abrir recibo de pagamento"
+                    title="Abrir recibo individual"
                     className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M10.92,12.31C10.68,11.54 10.15,9.08 11.55,9.08C12.95,9.08 12.03,11.54 11.79,12.31M11.55,12.31C11.1,12.31 10.85,11.83 10.61,11.28C10.36,10.73 10.12,10.03 10.12,9.42C10.12,8.83 10.34,8.37 10.75,8.13C11.05,7.95 11.47,7.95 11.79,8.13C12.2,8.37 12.42,8.83 12.42,9.42C12.42,10.03 12.18,10.73 11.93,11.28C11.7,11.83 11.44,12.31 11,12.31L11.55,12.31M8.43,14.23C8.43,14.23 9.47,13.61 10.34,13.06C10.59,12.9 10.84,12.77 11.08,12.66C10.61,13.29 10.05,13.85 9.42,14.3C9.42,14.3 8.43,14.23 8.43,14.23M13.61,13.06C14.5,13.61 15.55,14.23 15.55,14.23C15.55,14.23 14.56,14.3 14.56,14.3C13.93,13.85 13.37,13.29 12.9,12.66C13.14,12.77 13.39,12.9 13.61,13.06M11,16.5L12.5,14.5L14,16.5H11M9,16.5L7.5,14.5L9,16.5M15,16.5L13.5,14.5L15,16.5" />
+                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                     </svg>
                   </a>
                 ) : (
@@ -505,14 +606,22 @@ function RemuneracaoTab({
                     </svg>
                   </div>
                 )}
+                {hasData && (
+                  <button
+                    onClick={() => handleDeleteRow(u.id)}
+                    title="Remover dados deste colaborador"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-7 h-7 rounded text-gray-300 hover:text-red-500"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           )
         })}
 
-        {/* Linha de totais */}
-        {allUsers.filter((u: any) => u.role !== 'admin').length > 0 && (
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
+        {collaborators.length > 0 && (
+          <div className={cn('grid bg-gray-50 border-t-2 border-gray-200', COLS)}>
             <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
             <div className="px-4 py-3 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
             <div className="px-4 py-3 text-sm font-bold text-amber-700 text-right tabular-nums">{formatCurrency(totalVT)}</div>
@@ -525,6 +634,7 @@ function RemuneracaoTab({
 
       <p className="text-xs text-gray-400">
         Clique em qualquer valor para editar. Os dados são salvos automaticamente.
+        Passe o mouse sobre uma linha para ver a opção de remover.
       </p>
     </div>
   )
@@ -532,7 +642,7 @@ function RemuneracaoTab({
 
 // ── Componente principal ───────────────────────────────────────────────────────
 
-export function HRPage({ earnings, payroll, allUsers, year, month, initialTab }: Props) {
+export function HRPage({ earnings, payroll, monthUpload, allUsers, year, month, initialTab }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<'comissao' | 'remuneracao'>(initialTab)
 
@@ -546,7 +656,6 @@ export function HRPage({ earnings, payroll, allUsers, year, month, initialTab }:
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">RH</h1>
@@ -559,7 +668,6 @@ export function HRPage({ earnings, payroll, allUsers, year, month, initialTab }:
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         {[
           { key: 'comissao', label: 'Comissão' },
@@ -579,7 +687,17 @@ export function HRPage({ earnings, payroll, allUsers, year, month, initialTab }:
       </div>
 
       {tab === 'comissao' && <CommissionTab earnings={earnings} />}
-      {tab === 'remuneracao' && <RemuneracaoTab earnings={earnings} payroll={payroll} allUsers={allUsers} year={year} month={month} />}
+      {tab === 'remuneracao' && (
+        <RemuneracaoTab
+          key={`${year}-${month}`}
+          earnings={earnings}
+          payroll={payroll}
+          monthUpload={monthUpload}
+          allUsers={allUsers}
+          year={year}
+          month={month}
+        />
+      )}
     </div>
   )
 }

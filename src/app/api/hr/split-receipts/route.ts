@@ -116,7 +116,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Nenhum colaborador identificado no PDF.' }, { status: 422 })
     }
 
-    return NextResponse.json({ employees: results })
+    // Upload the original PDF for archival reference
+    const originalPath = `${year}/${month}/recibo_original_${Date.now()}.pdf`
+    await admin.storage
+      .from('receipts')
+      .upload(originalPath, buffer, { contentType: 'application/pdf', upsert: true })
+    const { data: { publicUrl: originalUrl } } = admin.storage.from('receipts').getPublicUrl(originalPath)
+
+    return NextResponse.json({ employees: results, originalUrl, originalName: file.name })
   } catch (err: any) {
     console.error('split-receipts error:', err)
     return NextResponse.json({ error: err.message ?? 'Erro ao processar PDF' }, { status: 500 })
