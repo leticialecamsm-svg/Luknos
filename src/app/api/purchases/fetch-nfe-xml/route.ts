@@ -15,7 +15,7 @@ const SVRS_NS  = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4'
 
 function buildDistSoap(chave: string, cnpj: string) {
   const inner = `<distDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><cUFAutor>27</cUFAutor><CNPJ>${cnpj}</CNPJ><consChNFe><chNFe>${chave}</chNFe></consChNFe></distDFeInt>`
-  return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInt xmlns="${DIST_NS}"><nfeDadosMsg>${inner}</nfeDadosMsg></nfeDistDFeInt></soap12:Body></soap12:Envelope>`
+  return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="${DIST_NS}"><nfeDadosMsg>${inner}</nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>`
 }
 
 function buildSvrsConsultaSoap(chave: string) {
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
   try {
     const distSoap = buildDistSoap(chave, cnpj)
     const distXml = await soapRequest(DIST_URL, distSoap, {
-      'Content-Type': 'application/soap+xml; charset=utf-8; action="nfeDistDFeInt"',
+      'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
     })
 
     const cStat = get(distXml, 'cStat')
