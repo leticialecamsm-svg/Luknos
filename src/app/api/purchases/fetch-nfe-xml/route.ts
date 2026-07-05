@@ -123,8 +123,6 @@ export async function GET(req: NextRequest) {
   if (chave.length !== 44) return NextResponse.json({ error: 'Chave inválida (deve ter 44 dígitos)' }, { status: 400 })
 
   const cnpj = process.env.EMPRESA_CNPJ ?? '45118870000106'
-  let distDfeDebug = ''
-
   // Tentativa 1: NFeDistribuicaoDFe Nacional (SOAP 1.2) – retorna XML completo com itens
   try {
     const distSoap = buildDistSoap(chave, cnpj)
@@ -145,10 +143,8 @@ export async function GET(req: NextRequest) {
 
     // cStat 215 = Falha schema, 656 = não credenciado, outros erros
     console.warn(`[fetch-nfe-xml] DistDFe cStat ${cStat}: ${xMotivo}`)
-    distDfeDebug = `DistDFe cStat ${cStat}: ${xMotivo} | RAW(500): ${distXml.slice(0, 500)}`
   } catch (e: any) {
     console.warn(`[fetch-nfe-xml] DistDFe erro: ${e.message}`)
-    distDfeDebug = `DistDFe erro: ${e.message}`
   }
 
   // Tentativa 2: NFeConsultaProtocolo4 SVRS – só confirma autorização, sem itens
@@ -175,7 +171,6 @@ export async function GET(req: NextRequest) {
       items: [],
       _semItens: true,
       _autorizada: true,
-      _debug: distDfeDebug,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
