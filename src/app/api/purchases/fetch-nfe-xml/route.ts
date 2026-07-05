@@ -101,15 +101,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `SEFAZ: ${xMotivo} (cStat ${cStat})` }, { status: 400 })
     }
 
-    // Debug: retorna trecho do XML para diagnosticar estrutura
-    if (process.env.NODE_ENV !== 'production' || process.env.NFE_DEBUG === '1') {
-      return NextResponse.json({ _debug: xml.slice(0, 3000) })
-    }
+    // NFeConsultaProtocolo4 retorna apenas o protocolo, sem os itens da NF-e.
+    // Itens completos só vêm via NFeDistribuicaoDFe (requer credenciamento DistDFe).
+    // Retorna estrutura vazia para o front tratar como "sem dados de itens".
+    const nfeBlock = xml.match(/<NFe[\s>]([\s\S]*?)<\/NFe>/)?.[0]
+      ?? xml.match(/<nfeProc[\s>]([\s\S]*?)<\/nfeProc>/)?.[0]
 
-    // Extrai NF-e do retConsSitNFe → procNFe ou NFe diretamente
-    const nfeBlock = xml.match(/<NFe[^>]*>([\s\S]*?)<\/NFe>/)?.[0]
-      ?? xml.match(/<nfeProc[^>]*>([\s\S]*?)<\/nfeProc>/)?.[0]
-      ?? xml
+    if (!nfeBlock) {
+      return NextResponse.json({ numeroNota: '', dataEmissao: '', fornecedorCnpj: '', fornecedorNome: '', items: [], _semItens: true })
+    }
 
     const parsed = parseNFeXML(nfeBlock)
     return NextResponse.json(parsed)
