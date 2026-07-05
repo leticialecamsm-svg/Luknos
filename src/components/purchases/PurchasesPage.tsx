@@ -166,43 +166,51 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/purchases/fetch-sefaz?chave=${clean}`)
-      const data = await res.json()
-      if (!res.ok || data.error) { setError(data.error ?? 'Erro ao consultar SEFAZ'); return }
+      // Consulta SEFAZ AL (impostos) e NF-e nacional (itens) em paralelo
+      const [sefazRes, nfeRes] = await Promise.all([
+        fetch(`/api/purchases/fetch-sefaz?chave=${clean}`),
+        fetch(`/api/purchases/fetch-nfe-xml?chave=${clean}`),
+      ])
+      const sefazData = await sefazRes.json()
+      const nfeData = nfeRes.ok ? await nfeRes.json() : null
 
-      setMeta(data.meta)
-      setMeta(data.meta ?? null)
-      setFornecedorNome('')
-      setItems(data.items.map((it: any) => ({
-        numeroItem: it.numeroItem,
-        descricao: it.descricaoProduto,
-        ncm: it.codigoNcm ? String(it.codigoNcm) : '',
-        codigoProduto: '',
-        quantidade: '',
-        valorTotal: '',
-        ipiPercent: '',
-        tipoIcms: it.tipoImposto,
-        valorIcms: it.valorIcms,
-        valorFecoep: it.valorFecoep,
-        aliquotaIcms: it.aliquotaIcms,
-        aliquotaFecoep: it.aliquotaFecoep,
-        mvaValor: it.mvaValor,
-      })))
-      // Merge XML data if available
+      if (!sefazRes.ok || sefazData.error) { setError(sefazData.error ?? 'Erro ao consultar SEFAZ AL'); return }
+
+      // Mapa de itens da NF-e nacional por número do item
+      const nfeMap = new Map<number, any>()
+      if (nfeData?.items) nfeData.items.forEach((it: any) => nfeMap.set(it.nItem, it))
+
+      // XML upload tem prioridade se disponível
       const xmlMap = nfeItemsFromXML
-      if (xmlMap) {
-        setItems(prev => prev.map(it => {
-          const x = xmlMap.get(it.numeroItem)
-          if (!x) return it
-          return {
-            ...it,
-            codigoProduto: x.cProd,
-            quantidade: x.quantidade > 0 ? x.quantidade.toFixed(4).replace('.', ',').replace(/,?0+$/, '') || String(x.quantidade) : it.quantidade,
-            valorTotal: x.valorTotal > 0 ? x.valorTotal.toFixed(2).replace('.', ',') : it.valorTotal,
-            ipiPercent: x.ipiPercent > 0 ? x.ipiPercent.toFixed(2).replace('.', ',') : it.ipiPercent,
-          }
-        }))
-      }
+
+      setMeta(sefazData.meta ?? null)
+      if (nfeData?.fornecedorNome) setFornecedorNome(nfeData.fornecedorNome)
+
+      const fmtQtd = (v: number) => v > 0 ? String(v).replace('.', ',').replace(/,?0+$/, '') || String(v) : ''
+      const fmtVal = (v: number) => v > 0 ? v.toFixed(2).replace('.', ',') : ''
+      const fmtPct = (v: number) => v > 0 ? v.toFixed(2).replace('.', ',') : ''
+
+      setItems(sefazData.items.map((it: any) => {
+        const nfeItem = nfeMap.get(it.numeroItem)
+        const xmlItem = xmlMap?.get(it.numeroItem)
+        const source = xmlItem ?? nfeItem  // XML upload tem prioridade
+
+        return {
+          numeroItem: it.numeroItem,
+          descricao: it.descricaoProduto,
+          ncm: it.codigoNcm ? String(it.codigoNcm) : (source?.ncm ?? ''),
+          codigoProduto: source?.cProd ?? '',
+          quantidade: source ? fmtQtd(source.quantidade) : '',
+          valorTotal: source ? fmtVal(source.valorTotal) : '',
+          ipiPercent: source ? fmtPct(source.ipiPercent) : '',
+          tipoIcms: it.tipoImposto,
+          valorIcms: it.valorIcms,
+          valorFecoep: it.valorFecoep,
+          aliquotaIcms: it.aliquotaIcms,
+          aliquotaFecoep: it.aliquotaFecoep,
+          mvaValor: it.mvaValor,
+        }
+      }))
 
       setStep('fill')
     } catch (e: any) {
