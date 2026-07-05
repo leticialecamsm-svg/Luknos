@@ -903,43 +903,43 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-[1fr_140px_120px_100px_120px_140px] bg-gray-50 border-b border-gray-100">
+                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_190px] bg-gray-50 border-b border-gray-100 items-center">
                   {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', ''].map((h, i) => (
-                    <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 3 && 'text-right')}>{h}</div>
+                    <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide truncate', i === 3 && 'text-right')}>{h}</div>
                   ))}
                 </div>
                 {nfesRecebidas.map(nfe => (
                   <div
                     key={nfe.id}
                     onClick={() => setNfeDetail(nfe)}
-                    className={cn('grid grid-cols-[1fr_140px_120px_100px_120px_140px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
+                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
                   >
-                    <div className="px-4 py-3.5">
-                      <p className={cn('text-sm font-semibold', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Nota {nfe.numero_nota ?? '—'} · {nfe.chave_nfe.slice(0, 16)}…</p>
+                    <div className="px-4 py-3.5 min-w-0">
+                      <p className={cn('text-sm font-semibold truncate', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">Nota {nfe.numero_nota ?? '—'} · {nfe.chave_nfe.slice(0, 16)}…</p>
                     </div>
-                    <div className="px-4 py-3.5 font-mono text-xs text-gray-500">{nfe.fornecedor_cnpj ? `${nfe.fornecedor_cnpj.slice(0,2)}.${nfe.fornecedor_cnpj.slice(2,5)}.${nfe.fornecedor_cnpj.slice(5,8)}/${nfe.fornecedor_cnpj.slice(8,12)}-${nfe.fornecedor_cnpj.slice(12)}` : '—'}</div>
-                    <div className="px-4 py-3.5 text-sm text-right text-gray-600">{fmtDate(nfe.data_emissao)}</div>
-                    <div className="px-4 py-3.5 text-sm text-right tabular-nums font-semibold text-gray-800">{nfe.valor_total ? formatCurrency(nfe.valor_total) : '—'}</div>
-                    <div className="px-4 py-3.5 text-right">
+                    <div className="px-4 py-3.5 font-mono text-xs text-gray-500 truncate">{nfe.fornecedor_cnpj ? `${nfe.fornecedor_cnpj.slice(0,2)}.${nfe.fornecedor_cnpj.slice(2,5)}.${nfe.fornecedor_cnpj.slice(5,8)}/${nfe.fornecedor_cnpj.slice(8,12)}-${nfe.fornecedor_cnpj.slice(12)}` : '—'}</div>
+                    <div className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">{fmtDate(nfe.data_emissao)}</div>
+                    <div className="px-4 py-3.5 text-sm text-right tabular-nums font-semibold text-gray-800 whitespace-nowrap">{nfe.valor_total ? formatCurrency(nfe.valor_total) : '—'}</div>
+                    <div className="px-4 py-3.5 min-w-0">
                       {nfe.transportadora_nome ? (
-                        <span className="flex items-center justify-end gap-1 text-xs text-gray-500">
-                          <Truck className="w-3 h-3" />
-                          {nfe.transportadora_nome.slice(0, 18)}{nfe.transportadora_nome.length > 18 ? '…' : ''}
+                        <span className="flex items-center gap-1.5 text-xs text-gray-500 min-w-0" title={nfe.transportadora_nome}>
+                          <Truck className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                          <span className="truncate">{nfe.transportadora_nome}</span>
                         </span>
                       ) : <span className="text-xs text-gray-300">—</span>}
                     </div>
                     <div className="px-4 py-3.5 flex justify-end">
                       {nfe.status === 'added' ? (
-                        <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2.5 py-1 rounded-full">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Lançada
+                        <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2.5 py-1 rounded-full whitespace-nowrap">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Lançada
                         </span>
                       ) : (
                         <button
                           onClick={e => { e.stopPropagation(); handleAddNfe(nfe) }}
                           className="text-xs font-semibold text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
                         >
-                          + Adicionar ao sistema
+                          + Adicionar
                         </button>
                       )}
                     </div>
