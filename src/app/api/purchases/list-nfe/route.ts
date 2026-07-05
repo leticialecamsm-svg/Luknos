@@ -193,7 +193,19 @@ export async function GET() {
       .select('*')
       .order('data_emissao', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ nfes: data ?? [] })
+
+    // Cruza com notas já lançadas no sistema (purchase_invoices)
+    const { data: lancadas } = await supabase
+      .from('purchase_invoices')
+      .select('chave_nfe')
+    const chavesLancadas = new Set((lancadas ?? []).map(l => l.chave_nfe))
+
+    const nfes = (data ?? []).map(n => ({
+      ...n,
+      status: chavesLancadas.has(n.chave_nfe) ? 'added' : n.status,
+    }))
+
+    return NextResponse.json({ nfes })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }

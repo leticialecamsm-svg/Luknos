@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -629,6 +629,116 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
   )
 }
 
+// ── Detalhe de NF recebida (busca itens ao abrir) ──────────────────────────────
+
+function NFeReceivedDetailModal({ nfe, onClose, onAdd }: { nfe: any; onClose: () => void; onAdd: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const clean = nfe.chave_nfe.replace(/\D/g, '')
+    fetch(`/api/purchases/fetch-nfe-xml?chave=${clean}`)
+      .then(r => r.json())
+      .then(d => { if (d.error) setError(d.error); else setData(d) })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [nfe.chave_nfe])
+
+  const items: any[] = data?.items ?? []
+  const cnpjFmt = (c: string) => c ? `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12)}` : '—'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">{nfe.fornecedor_nome ?? 'Fornecedor'}</h2>
+            <p className="text-sm text-gray-500">Nota {nfe.numero_nota ?? '—'} · {fmtDate(nfe.data_emissao)}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-6 space-y-5">
+          {/* Cabeçalho de dados */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">CNPJ Emitente</p>
+              <p className="text-sm font-mono text-gray-700">{cnpjFmt(nfe.fornecedor_cnpj ?? '')}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">Valor Total</p>
+              <p className="text-sm font-semibold text-gray-800">{nfe.valor_total ? formatCurrency(nfe.valor_total) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">Transportadora</p>
+              <p className="text-sm text-gray-700 flex items-center gap-1">
+                {nfe.transportadora_nome ? (<><Truck className="w-3.5 h-3.5 text-gray-400" />{nfe.transportadora_nome}</>) : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">Chave NF-e</p>
+              <p className="text-xs font-mono text-gray-500 break-all">{nfe.chave_nfe}</p>
+            </div>
+          </div>
+
+          {/* Itens */}
+          <div>
+            <p className="text-sm font-bold text-gray-700 mb-2">Produtos</p>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 gap-2 text-gray-400">
+                <Loader2 className="w-5 h-5 animate-spin" /><span className="text-sm">Buscando itens na SEFAZ...</span>
+              </div>
+            ) : error ? (
+              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+              </div>
+            ) : items.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4">Nenhum item retornado para esta nota.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">#</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Cód. Prod.</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">NCM</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Qtd</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Valor Total</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">IPI %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it: any) => (
+                      <tr key={it.nItem} className="border-b border-gray-100 last:border-0">
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">{it.nItem}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{it.cProd}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{it.ncm}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{Number(it.quantidade).toLocaleString('pt-BR')}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(it.valorTotal)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{it.ipiPercent?.toFixed(2).replace('.', ',')}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
+          <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
+          {nfe.status !== 'added' && (
+            <button onClick={onAdd} className="btn-primary flex items-center gap-2 px-6">
+              <Plus className="w-4 h-4" /> Adicionar ao sistema
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 
 interface NFeRecebida {
@@ -661,6 +771,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [syncingNfes, setSyncingNfes] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
   const [addingChave, setAddingChave] = useState<string | null>(null)
+  const [nfeDetail, setNfeDetail] = useState<NFeRecebida | null>(null)
 
   async function loadNfesRecebidas() {
     setLoadingNfes(true)
@@ -798,9 +909,13 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   ))}
                 </div>
                 {nfesRecebidas.map(nfe => (
-                  <div key={nfe.id} className={cn('grid grid-cols-[1fr_140px_120px_100px_120px_140px] items-center border-b border-gray-100 last:border-0', nfe.status === 'added' && 'opacity-50')}>
+                  <div
+                    key={nfe.id}
+                    onClick={() => setNfeDetail(nfe)}
+                    className={cn('grid grid-cols-[1fr_140px_120px_100px_120px_140px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
+                  >
                     <div className="px-4 py-3.5">
-                      <p className="text-sm font-semibold text-gray-900">{nfe.fornecedor_nome ?? '—'}</p>
+                      <p className={cn('text-sm font-semibold', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
                       <p className="text-xs text-gray-400 mt-0.5">Nota {nfe.numero_nota ?? '—'} · {nfe.chave_nfe.slice(0, 16)}…</p>
                     </div>
                     <div className="px-4 py-3.5 font-mono text-xs text-gray-500">{nfe.fornecedor_cnpj ? `${nfe.fornecedor_cnpj.slice(0,2)}.${nfe.fornecedor_cnpj.slice(2,5)}.${nfe.fornecedor_cnpj.slice(5,8)}/${nfe.fornecedor_cnpj.slice(8,12)}-${nfe.fornecedor_cnpj.slice(12)}` : '—'}</div>
@@ -816,12 +931,12 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                     </div>
                     <div className="px-4 py-3.5 flex justify-end">
                       {nfe.status === 'added' ? (
-                        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Adicionada
+                        <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2.5 py-1 rounded-full">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Lançada
                         </span>
                       ) : (
                         <button
-                          onClick={() => handleAddNfe(nfe)}
+                          onClick={e => { e.stopPropagation(); handleAddNfe(nfe) }}
                           className="text-xs font-semibold text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
                         >
                           + Adicionar ao sistema
@@ -907,6 +1022,14 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         <InvoiceDetailModal
           invoice={detail}
           onClose={() => setDetail(null)}
+        />
+      )}
+
+      {nfeDetail && (
+        <NFeReceivedDetailModal
+          nfe={nfeDetail}
+          onClose={() => setNfeDetail(null)}
+          onAdd={() => { handleAddNfe(nfeDetail); setNfeDetail(null) }}
         />
       )}
     </div>
