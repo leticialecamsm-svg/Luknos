@@ -428,11 +428,11 @@ function RemuneracaoTab({
           ))}
         </div>
 
-        {allUsers.length === 0 && (
+        {allUsers.filter((u: any) => u.role !== 'admin').length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhum colaborador encontrado</div>
         )}
 
-        {allUsers.map((u: any) => {
+        {allUsers.filter((u: any) => u.role !== 'admin').map((u: any) => {
           const r = earnings[u.id]   // pode ser undefined se sem comissão
           const p = localPayroll[u.id]
           // admins não recebem comissão
@@ -511,7 +511,7 @@ function RemuneracaoTab({
         })}
 
         {/* Linha de totais */}
-        {allUsers.length > 0 && (
+        {allUsers.filter((u: any) => u.role !== 'admin').length > 0 && (
           <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
             <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
             <div className="px-4 py-3 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
