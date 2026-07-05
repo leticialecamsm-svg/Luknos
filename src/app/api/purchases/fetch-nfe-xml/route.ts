@@ -101,6 +101,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `SEFAZ: ${xMotivo} (cStat ${cStat})` }, { status: 400 })
     }
 
+    // Debug: retorna trecho do XML para diagnosticar estrutura
+    if (process.env.NODE_ENV !== 'production' || process.env.NFE_DEBUG === '1') {
+      return NextResponse.json({ _debug: xml.slice(0, 3000) })
+    }
+
     // Extrai NF-e do retConsSitNFe → procNFe ou NFe diretamente
     const nfeBlock = xml.match(/<NFe[^>]*>([\s\S]*?)<\/NFe>/)?.[0]
       ?? xml.match(/<nfeProc[^>]*>([\s\S]*?)<\/nfeProc>/)?.[0]
