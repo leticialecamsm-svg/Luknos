@@ -2013,7 +2013,7 @@ export async function getCommissionEarnings(year?: number, month?: number) {
     admin.from('contacts').select('*').gt('commission_rate', 0),
     admin.from('quotes_full').select('number, architect_id, final_value, quoted_value, closed_at, temperature, client_name')
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
-    admin.from('users').select('id, name, avatar_color, avatar_url').eq('active', true),
+    admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true),
     admin.from('quotes_full')
       .select('id, number, client_name, final_value, quoted_value, closed_at, owners:quote_owners(user_id)')
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),

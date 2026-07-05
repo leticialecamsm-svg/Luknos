@@ -1,3 +1,4 @@
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getCommissionEarnings, getPayrollData } from '@/lib/actions'
 import { HRPage } from '@/components/hr/HRPage'
 
@@ -9,15 +10,18 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
   const year  = searchParams.year  ? parseInt(searchParams.year)  : now.getFullYear()
   const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
 
-  const [earnings, payroll] = await Promise.all([
+  const admin = createAdminClient()
+  const [earnings, payroll, { data: allUsers }] = await Promise.all([
     getCommissionEarnings(year, month),
     getPayrollData(year, month),
+    admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true).order('name'),
   ])
 
   return (
     <HRPage
       earnings={earnings.byUser}
       payroll={payroll}
+      allUsers={allUsers ?? []}
       year={year}
       month={month}
       initialTab={(searchParams.tab as 'comissao' | 'remuneracao') ?? 'comissao'}

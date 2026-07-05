@@ -16,6 +16,7 @@ const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julh
 interface Props {
   earnings: Record<string, any>
   payroll: any[]
+  allUsers: any[]
   year: number
   month: number
   initialTab: 'comissao' | 'remuneracao'
@@ -72,7 +73,10 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
     .filter((r: any) => r.total > 0 || r.sellerSales > 0)
     .sort((a: any, b: any) => b.total - a.total)
 
-  const totalComm = rows.reduce((s: number, r: any) => s + r.total, 0)
+  // Admins não recebem comissão — excluir do total mas manter visível na lista
+  const totalComm = rows
+    .filter((r: any) => r.user?.role !== 'admin')
+    .reduce((s: number, r: any) => s + r.total, 0)
 
   const detailRow = detailUser ? rows.find((r: any) => r.user?.id === detailUser) : null
 
@@ -243,10 +247,19 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 
         {rows.length > 0 && (
           <div className="grid grid-cols-[1fr_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
-            <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
-            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">{formatCurrency(rows.reduce((s: number, r: any) => s + r.sellerSales, 0))}</div>
-            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">{formatCurrency(rows.reduce((s: number, r: any) => s + r.sellerComm, 0))}</div>
-            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">{formatCurrency(rows.reduce((s: number, r: any) => s + r.projetistaComm, 0))}</div>
+            <div className="px-4 py-3 text-sm font-bold text-gray-700">
+              Total a pagar
+              <span className="ml-1 text-[10px] font-normal text-gray-400">(excl. admin)</span>
+            </div>
+            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">
+              {formatCurrency(rows.filter((r: any) => r.user?.role !== 'admin').reduce((s: number, r: any) => s + r.sellerSales, 0))}
+            </div>
+            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">
+              {formatCurrency(rows.filter((r: any) => r.user?.role !== 'admin').reduce((s: number, r: any) => s + r.sellerComm, 0))}
+            </div>
+            <div className="px-4 py-3 text-sm font-bold text-right tabular-nums">
+              {formatCurrency(rows.filter((r: any) => r.user?.role !== 'admin').reduce((s: number, r: any) => s + r.projetistaComm, 0))}
+            </div>
             <div className="px-4 py-3 text-sm font-bold text-emerald-700 text-right tabular-nums">{formatCurrency(totalComm)}</div>
           </div>
         )}
@@ -265,11 +278,13 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 function RemuneracaoTab({
   earnings,
   payroll,
+  allUsers,
   year,
   month,
 }: {
   earnings: Record<string, any>
   payroll: any[]
+  allUsers: any[]
   year: number
   month: number
 }) {
@@ -286,12 +301,10 @@ function RemuneracaoTab({
   })
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const commRows = Object.values(earnings).filter((r: any) => r.user)
-
   // Match PDF name to system user
   function matchUser(pdfName: string) {
-    return commRows.find((r: any) => {
-      const sys = (r.user.name ?? '').toUpperCase()
+    return allUsers.find((u: any) => {
+      const sys = (u.name ?? '').toUpperCase()
       const pdf = pdfName.toUpperCase()
       return pdf.split(' ').filter((w: string) => w.length > 3).some((w: string) => sys.includes(w))
     })
@@ -322,7 +335,7 @@ function RemuneracaoTab({
         const match = matchUser(emp.name)
         if (!match) continue
         const entry = {
-          user_id: match.user.id,
+          user_id: match.id,
           employee_name: emp.name,
           year,
           month,
@@ -332,7 +345,7 @@ function RemuneracaoTab({
         await upsertPayrollEntry(entry)
         setLocalPayroll(prev => ({
           ...prev,
-          [match.user.id]: { ...(prev[match.user.id] ?? {}), ...entry },
+          [match.id]: { ...(prev[match.id] ?? {}), ...entry },
         }))
       }
 
@@ -415,13 +428,15 @@ function RemuneracaoTab({
           ))}
         </div>
 
-        {commRows.length === 0 && (
+        {allUsers.length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhum colaborador encontrado</div>
         )}
 
-        {commRows.map((r: any) => {
-          const p = localPayroll[r.user.id]
-          const comm = r.total ?? 0
+        {allUsers.map((u: any) => {
+          const r = earnings[u.id]   // pode ser undefined se sem comissão
+          const p = localPayroll[u.id]
+          // admins não recebem comissão
+          const comm = u.role === 'admin' ? 0 : (r?.total ?? 0)
           const liquido = p?.liquido ?? 0
           const vt = p?.vt_next_month ?? 0
           const total = liquido + vt + comm
@@ -429,12 +444,12 @@ function RemuneracaoTab({
           const receiptUrl = p?.receipt_url
 
           return (
-            <div key={r.user.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+            <div key={u.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
               {/* Colaborador */}
               <div className="px-4 py-3.5 flex items-center gap-3">
-                <Avatar user={r.user} size={32} />
+                <Avatar user={u} size={32} />
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{r.user.name}</p>
+                  <p className="text-sm font-semibold text-gray-900">{u.name}</p>
                   {!hasData && (
                     <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full">
                       Sem recibo importado
@@ -447,7 +462,7 @@ function RemuneracaoTab({
               <div className="px-4 py-3.5 text-sm font-semibold text-blue-700 text-right">
                 <EditableValue
                   value={liquido}
-                  onSave={v => handleFieldChange(r.user.id, 'liquido', v)}
+                  onSave={v => handleFieldChange(u.id, 'liquido', v)}
                 />
               </div>
 
@@ -455,7 +470,7 @@ function RemuneracaoTab({
               <div className="px-4 py-3.5 text-sm text-amber-700 text-right">
                 <EditableValue
                   value={vt}
-                  onSave={v => handleFieldChange(r.user.id, 'vt_next_month', v)}
+                  onSave={v => handleFieldChange(u.id, 'vt_next_month', v)}
                 />
               </div>
 
@@ -496,7 +511,7 @@ function RemuneracaoTab({
         })}
 
         {/* Linha de totais */}
-        {commRows.length > 0 && (
+        {allUsers.length > 0 && (
           <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] bg-gray-50 border-t-2 border-gray-200">
             <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
             <div className="px-4 py-3 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
@@ -517,7 +532,7 @@ function RemuneracaoTab({
 
 // ── Componente principal ───────────────────────────────────────────────────────
 
-export function HRPage({ earnings, payroll, year, month, initialTab }: Props) {
+export function HRPage({ earnings, payroll, allUsers, year, month, initialTab }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<'comissao' | 'remuneracao'>(initialTab)
 
@@ -564,7 +579,7 @@ export function HRPage({ earnings, payroll, year, month, initialTab }: Props) {
       </div>
 
       {tab === 'comissao' && <CommissionTab earnings={earnings} />}
-      {tab === 'remuneracao' && <RemuneracaoTab earnings={earnings} payroll={payroll} year={year} month={month} />}
+      {tab === 'remuneracao' && <RemuneracaoTab earnings={earnings} payroll={payroll} allUsers={allUsers} year={year} month={month} />}
     </div>
   )
 }
