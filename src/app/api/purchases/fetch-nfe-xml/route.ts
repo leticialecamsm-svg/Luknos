@@ -1,33 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import https from 'https'
-import zlib from 'zlib'
-import { promisify } from 'util'
 
-const gunzip = promisify(zlib.gunzip)
-
-const SEFAZ_URL = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
-const CNPJ = '45118870000106'
-const C_UF_AUTOR = '27' // Alagoas
+const SVRS_URL = 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx'
+const SVRS_NS = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4'
 
 function buildSoap(chave: string) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:nfe="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <nfe:nfeDistDFeInteresse>
-      <nfe:nfeDadosMsg>
-        <nfeDistDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01">
-          <tpAmb>1</tpAmb>
-          <cUFAutor>${C_UF_AUTOR}</cUFAutor>
-          <CNPJ>${CNPJ}</CNPJ>
-          <consChNFe>
-            <chNFe>${chave}</chNFe>
-          </consChNFe>
-        </nfeDistDFeInt>
-      </nfe:nfeDadosMsg>
-    </nfe:nfeDistDFeInteresse>
-  </soapenv:Body>
-</soapenv:Envelope>`
+  const inner = `<consSitNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><xServ>CONSULTAR</xServ><chNFe>${chave}</chNFe></consSitNFe>`
+  return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Header/><soap:Body><nfeDadosMsg xmlns="${SVRS_NS}">${inner}</nfeDadosMsg></soap:Body></soap:Envelope>`
 }
 
 function getAgent() {
@@ -44,7 +23,7 @@ function getAgent() {
 function soapRequest(body: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const agent = getAgent()
-    const url = new URL(SEFAZ_URL)
+    const url = new URL(SVRS_URL)
     const options: https.RequestOptions = {
       hostname: url.hostname,
       path: url.pathname,
@@ -52,7 +31,7 @@ function soapRequest(body: string): Promise<string> {
       agent,
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse',
+        'SOAPAction': `${SVRS_NS}/nfeConsultaNF`,
         'Content-Length': Buffer.byteLength(body),
       },
     }
@@ -67,45 +46,25 @@ function soapRequest(body: string): Promise<string> {
   })
 }
 
-function getXmlText(xml: string, tag: string) {
-  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`))
-  return m?.[1]?.trim() ?? ''
-}
-
-function getAllMatches(xml: string, tag: string) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'g')
-  const results: string[] = []
-  let m: RegExpExecArray | null
-  while ((m = re.exec(xml)) !== null) results.push(m[1])
-  return results
+function get(xml: string, tag: string) {
+  return xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`))?.[1]?.trim() ?? ''
 }
 
 function parseNFeXML(nfeXml: string) {
-  const get = (scope: string, tag: string) => {
-    const m = scope.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`))
-    return m?.[1]?.trim() ?? ''
-  }
-
   const numeroNota = get(nfeXml, 'nNF')
   const dataEmissao = (get(nfeXml, 'dhEmi') || get(nfeXml, 'dEmi')).slice(0, 10)
-  const fornecedorCnpj = get(nfeXml, 'emit CNPJ') || (() => {
-    const emitBlock = nfeXml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
-    return get(emitBlock, 'CNPJ')
-  })()
-  const fornecedorNome = (() => {
-    const emitBlock = nfeXml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
-    return get(emitBlock, 'xFant') || get(emitBlock, 'xNome')
-  })()
+
+  const emitBlock = nfeXml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
+  const fornecedorCnpj = get(emitBlock, 'CNPJ')
+  const fornecedorNome = get(emitBlock, 'xFant') || get(emitBlock, 'xNome')
 
   const detBlocks = nfeXml.match(/<det\s[^>]*>[\s\S]*?<\/det>/g) ?? []
   const items = detBlocks.map(det => {
-    const nItemMatch = det.match(/nItem="(\d+)"/)
-    const nItem = parseInt(nItemMatch?.[1] ?? '0')
+    const nItem = parseInt(det.match(/nItem="(\d+)"/)?.[1] ?? '0')
     const prodBlock = det.match(/<prod>([\s\S]*?)<\/prod>/)?.[1] ?? ''
     const ipiBlock = det.match(/<IPITrib>([\s\S]*?)<\/IPITrib>/)?.[1] ?? ''
 
     const cProd = get(prodBlock, 'cProd')
-    const xProd = get(prodBlock, 'xProd')
     const ncm = get(prodBlock, 'NCM')
     const quantidade = parseFloat(get(prodBlock, 'qCom')) || 0
     const valorTotal = parseFloat(get(prodBlock, 'vProd')) || 0
@@ -120,7 +79,7 @@ function parseNFeXML(nfeXml: string) {
       }
     }
 
-    return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
+    return { nItem, cProd, ncm, quantidade, valorTotal, ipiPercent }
   })
 
   return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, items }
@@ -134,24 +93,20 @@ export async function GET(req: NextRequest) {
     const soap = buildSoap(chave)
     const xml = await soapRequest(soap)
 
-    // Verifica rejeição
-    const cStat = getXmlText(xml, 'cStat')
-    const xMotivo = getXmlText(xml, 'xMotivo')
+    const cStat = get(xml, 'cStat')
+    const xMotivo = get(xml, 'xMotivo')
 
-    if (cStat !== '138') {
-      // cStat 138 = documento localizado
+    // 100 = Autorizado, 150 = Cancelada
+    if (cStat !== '100' && cStat !== '150') {
       return NextResponse.json({ error: `SEFAZ: ${xMotivo} (cStat ${cStat})` }, { status: 400 })
     }
 
-    // Extrai docZip (gzip+base64)
-    const docZips = getAllMatches(xml, 'docZip')
-    if (!docZips.length) return NextResponse.json({ error: 'Documento não encontrado na resposta da SEFAZ' }, { status: 404 })
+    // Extrai NF-e do retConsSitNFe → procNFe ou NFe diretamente
+    const nfeBlock = xml.match(/<NFe[^>]*>([\s\S]*?)<\/NFe>/)?.[0]
+      ?? xml.match(/<nfeProc[^>]*>([\s\S]*?)<\/nfeProc>/)?.[0]
+      ?? xml
 
-    // Descomprime o primeiro docZip (procNFe)
-    const compressed = Buffer.from(docZips[0], 'base64')
-    const nfeXml = (await gunzip(compressed)).toString('utf-8')
-
-    const parsed = parseNFeXML(nfeXml)
+    const parsed = parseNFeXML(nfeBlock)
     return NextResponse.json(parsed)
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
