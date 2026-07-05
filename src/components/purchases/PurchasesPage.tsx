@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -631,7 +631,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
 
 // ── Detalhe de NF recebida (busca itens ao abrir) ──────────────────────────────
 
-function NFeReceivedDetailModal({ nfe, onClose, onAdd }: { nfe: any; onClose: () => void; onAdd: () => void }) {
+function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; onClose: () => void; onAdd: () => void; onUpdated: (chave: string, patch: any) => void }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -640,10 +640,17 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd }: { nfe: any; onClose: ()
     const clean = nfe.chave_nfe.replace(/\D/g, '')
     fetch(`/api/purchases/nfe-detail?chave=${clean}`)
       .then(r => r.json())
-      .then(d => { if (d.error) setError(d.error); else setData(d) })
+      .then(d => {
+        if (d.error) { setError(d.error); return }
+        setData(d)
+        // Atualiza a linha na listagem ao vivo (transportadora recém-obtida da SEFAZ)
+        if (d.transportadoraNome && d.transportadoraNome !== nfe.transportadora_nome) {
+          onUpdated(nfe.chave_nfe, { transportadora_nome: d.transportadoraNome })
+        }
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [nfe.chave_nfe])
+  }, [nfe.chave_nfe, nfe.transportadora_nome, onUpdated])
 
   const items: any[] = data?.items ?? []
   const cnpjFmt = (c: string) => c ? `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12)}` : '—'
@@ -809,6 +816,10 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       setSyncingNfes(false)
     }
   }
+
+  const patchNfeRow = useCallback((chave: string, patch: any) => {
+    setNfesRecebidas(prev => prev.map(n => n.chave_nfe === chave ? { ...n, ...patch } : n))
+  }, [])
 
   function handleSelectTab(t: 'notas' | 'recebidas') {
     setTab(t)
@@ -1037,6 +1048,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           nfe={nfeDetail}
           onClose={() => setNfeDetail(null)}
           onAdd={() => { handleAddNfe(nfeDetail); setNfeDetail(null) }}
+          onUpdated={patchNfeRow}
         />
       )}
     </div>
