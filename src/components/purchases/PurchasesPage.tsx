@@ -186,7 +186,7 @@ function NewInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
       setMeta(sefazData.meta ?? null)
       if (nfeData?.fornecedorNome) setFornecedorNome(nfeData.fornecedorNome)
 
-      const fmtQtd = (v: number) => v > 0 ? String(v).replace('.', ',').replace(/,?0+$/, '') || String(v) : ''
+      const fmtQtd = (v: number) => v > 0 ? (Number.isInteger(v) ? String(v) : v.toFixed(4).replace('.', ',').replace(/,?0+$/, '')) : ''
       const fmtVal = (v: number) => v > 0 ? v.toFixed(2).replace('.', ',') : ''
       const fmtPct = (v: number) => v > 0 ? v.toFixed(2).replace('.', ',') : ''
 
