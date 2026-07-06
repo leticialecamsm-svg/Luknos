@@ -1937,6 +1937,20 @@ export async function getFinanceAccounts() {
   const { data } = await createAdminClient().from('finance_accounts').select('*').order('name')
   return data ?? []
 }
+export async function createFinanceAccount(name: string, balance: number = 0) {
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Informe o nome da conta' }
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data, error } = await createAdminClient()
+    .from('finance_accounts')
+    .insert({ name: trimmed, balance, updated_by: user?.id ?? null })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true, data }
+}
 export async function updateFinanceAccount(id: string, balance: number) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()

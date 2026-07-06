@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries, createFinanceSupplier, createFinanceCategory, updateFinanceAccount } from '@/lib/actions'
+import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries, createFinanceSupplier, createFinanceCategory, updateFinanceAccount, createFinanceAccount } from '@/lib/actions'
 import { formatCurrency, cn } from '@/lib/utils'
 import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw, Layers, Building2, Tag, Landmark } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
@@ -253,6 +253,11 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
               if (!res?.error) setAccounts(prev => prev.map(x => x.id === id ? { ...x, balance: val } : x))
             }} />
           ))}
+          <NewAccountCard onCreate={async (name, balance) => {
+            const res = await createFinanceAccount(name, balance)
+            if (!res?.error && res?.data) setAccounts(prev => [...prev, res.data])
+            return res
+          }} />
         </div>
       </div>
 
@@ -485,6 +490,60 @@ function AccountCard({ account, onSave }: { account: any; onSave: (id: string, v
           <Pencil className="w-3 h-3 text-gray-300 group-hover:text-brand-500 transition-colors" />
         </button>
       )}
+    </div>
+  )
+}
+
+function NewAccountCard({ onCreate }: { onCreate: (name: string, balance: number) => Promise<{ error?: string } | undefined> }) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [balance, setBalance] = useState('0')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save() {
+    if (!name.trim()) { setError('Informe o nome'); return }
+    setSaving(true)
+    setError('')
+    const res = await onCreate(name.trim(), parseFloat(balance.replace(',', '.')) || 0)
+    setSaving(false)
+    if (res?.error) { setError(res.error); return }
+    setName(''); setBalance('0'); setAdding(false)
+  }
+
+  if (!adding) {
+    return (
+      <button
+        onClick={() => setAdding(true)}
+        className="rounded-xl border border-dashed border-surface-border bg-gray-50/50 p-3 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors min-h-[76px]"
+      >
+        <Plus className="w-5 h-5" />
+        <span className="text-xs font-semibold">Nova conta</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-brand-200 bg-white p-3 flex flex-col gap-1.5">
+      <input
+        value={name} onChange={e => setName(e.target.value)}
+        placeholder="Nome da conta"
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
+        className="input text-sm py-1 px-2" autoFocus
+      />
+      <input
+        type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
+        placeholder="Saldo inicial"
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
+        className="input text-sm py-1 px-2"
+      />
+      {error && <p className="text-[10px] text-red-600">{error}</p>}
+      <div className="flex items-center gap-1">
+        <button onClick={save} disabled={saving} className="btn-primary text-xs py-1 px-2 flex-1 flex items-center justify-center gap-1">
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Salvar
+        </button>
+        <button onClick={() => { setAdding(false); setError('') }} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+      </div>
     </div>
   )
 }
