@@ -55,10 +55,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
       (q.quote_date && q.quote_date.startsWith(dateFilter)) ||
       (q.closed_at && q.closed_at.startsWith(dateFilter))
 
-    const matchesStatus = !statusFilter || (() => {
-      if (statusFilter === 'urgent') return q.temperature === 'hot' && q.status !== 'done'
-      return q.status === statusFilter
-    })()
+    const matchesStatus = !statusFilter || q.status === statusFilter
 
     const matchesOwner = !ownerFilter ||
       (q.owners ?? []).some((o: any) => o.user_id === ownerFilter)
@@ -89,10 +86,12 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   })
 
   // Totals always from current view (before status filter so counts stay stable)
-  const totals = {
+  const totals: Record<string, number> = {
     'queue':       quotes.filter(q => q.status === 'queue').length,
     'in_progress': quotes.filter(q => q.status === 'in_progress').length,
-    'urgent':      quotes.filter(q => q.temperature === 'hot' && q.status !== 'done').length,
+    'paused':      quotes.filter(q => q.status === 'paused').length,
+    'review':      quotes.filter(q => q.status === 'review').length,
+    'revision':    quotes.filter(q => q.status === 'revision').length,
     'done':        quotes.filter(q => q.status === 'done').length,
   }
 
@@ -170,10 +169,12 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
       {/* Totalizadores / filtros rápidos */}
       <div className="flex gap-2 flex-wrap">
         {([
-          ['queue',       'Na fila',      'bg-gray-50 text-gray-700 border-gray-200',    'bg-gray-700 text-white border-gray-700'],
-          ['in_progress', 'Em andamento', 'bg-gray-50 text-gray-700 border-gray-200',    'bg-gray-700 text-white border-gray-700'],
-          ['urgent',      'Urgentes',     'bg-red-50 text-red-700 border-red-200',       'bg-red-600 text-white border-red-600'],
-          ['done',        'Fechados',     'bg-green-50 text-green-700 border-green-200', 'bg-green-600 text-white border-green-600'],
+          ['queue',       'Na fila',                'bg-gray-50 text-gray-700 border-gray-200',       'bg-gray-700 text-white border-gray-700'],
+          ['in_progress', 'Em andamento',           'bg-amber-50 text-amber-700 border-amber-200',    'bg-amber-600 text-white border-amber-600'],
+          ['paused',      'Pausado',                'bg-orange-50 text-orange-700 border-orange-200', 'bg-orange-600 text-white border-orange-600'],
+          ['review',      'Revisão',                'bg-violet-50 text-violet-700 border-violet-200', 'bg-violet-600 text-white border-violet-600'],
+          ['revision',    'Elaborando nova versão', 'bg-blue-50 text-blue-700 border-blue-200',       'bg-blue-600 text-white border-blue-600'],
+          ['done',        'Concluído',              'bg-green-50 text-green-700 border-green-200',     'bg-green-600 text-white border-green-600'],
         ] as const).map(([key, label, defaultCls, activeCls]) => (
           <button key={key}
             onClick={() => setStatusFilter(statusFilter === key ? null : key)}
