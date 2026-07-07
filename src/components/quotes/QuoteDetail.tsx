@@ -169,6 +169,16 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
               {quote.temperature === 'closed' && localSplits.some((s: any) => s.status === 'open') && (
                 <span className="badge bg-amber-100 text-amber-800">⏳ Pagamento Pendente</span>
               )}
+              {quote.temperature === 'closed' && (
+                <span className="badge bg-emerald-100 text-emerald-800 font-semibold">
+                  ✓ Vendida{quote.closed_at ? ` · ${formatDate(quote.closed_at)}` : ''}
+                </span>
+              )}
+              {quote.temperature === 'lost' && (
+                <span className="badge bg-red-100 text-red-800 font-semibold">
+                  ✕ Perdida{quote.temperature_updated_at ? ` · ${formatDate(quote.temperature_updated_at)}` : ''}
+                </span>
+              )}
             </div>
             <h1 className="text-xl font-semibold text-gray-900">{quote.client_name}</h1>
             {quote.client_phone && (
@@ -593,7 +603,12 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3">
             <XCircle className="w-5 h-5 text-gray-500 shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-gray-700">Negociação perdida</p>
+              <p className="text-sm font-semibold text-gray-700">
+                Negociação perdida
+                {quote.temperature_updated_at && (
+                  <span className="font-normal text-gray-500"> · {formatDate(quote.temperature_updated_at)}</span>
+                )}
+              </p>
               {quote.loss_reason && (
                 <p className="text-xs text-gray-500">
                   Motivo: {LOSS_REASON_LABEL[quote.loss_reason as keyof typeof LOSS_REASON_LABEL]}
