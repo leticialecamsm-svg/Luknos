@@ -48,6 +48,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const isAdmin = profile?.role === 'admin'
   const isLogistics = profile?.role === 'logistics'
 
+  // Perfil de marketing vê apenas o módulo de marketing
+  if (profile?.role === 'marketing') redirect('/marketing')
+
   if (isLogistics) {
     const [shipments, tasks] = await Promise.all([getShipments(), getTasks()])
     return (

@@ -1,6 +1,8 @@
 // ── Enums (espelham o banco) ──────────────────────────────────
 
-export type UserRole = 'admin' | 'seller' | 'logistics'
+export type UserRole = 'admin' | 'seller' | 'logistics' | 'marketing'
+export type MarketingPostType = 'story' | 'reels' | 'carousel'
+export type MarketingPostStatus = 'scheduled' | 'posted'
 export type ContactType = 'client' | 'architect' | 'designer' | 'engineer' | 'electrician' | 'plasterer' | 'carpenter' | 'other'
 export type QuoteOrigin = 'visit' | 'whatsapp' | 'store' | 'referral' | 'other'
 export type QuoteCategory = 'lighting' | 'automation' | 'both'
@@ -222,6 +224,17 @@ export interface UserStats {
 }
 
 // ── Labels para UI ────────────────────────────────────────────
+
+export const MARKETING_POST_TYPE_LABEL: Record<MarketingPostType, string> = {
+  story:    'Story',
+  reels:    'Reels',
+  carousel: 'Carrossel',
+}
+
+export const MARKETING_POST_STATUS_LABEL: Record<MarketingPostStatus, string> = {
+  scheduled: 'Agendado',
+  posted:    'Postado',
+}
 
 export const QUOTE_STATUS_LABEL: Record<QuoteStatus, string> = {
   queue:       'Na fila',

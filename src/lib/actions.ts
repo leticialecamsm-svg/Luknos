@@ -967,7 +967,7 @@ export async function createUserAdmin(data: {
   name: string
   email: string
   password: string
-  role: 'admin' | 'seller' | 'logistics'
+  role: 'admin' | 'seller' | 'logistics' | 'marketing'
   avatar_color: string
 }) {
   const supabase = createClient()
@@ -2348,5 +2348,123 @@ export async function deletePurchaseInvoice(id: string) {
     .eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/purchases')
+  return { ok: true }
+}
+
+// ── Marketing ───────────────────────────────────────────────────────────────
+
+export async function getEditorialLines() {
+  const { data } = await createAdminClient()
+    .from('marketing_editorial_lines')
+    .select('*')
+    .order('name')
+  return data ?? []
+}
+
+export async function createEditorialLine(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Informe o nome da linha editorial' }
+  const admin = createAdminClient()
+  // Evita duplicar (case-insensitive)
+  const { data: existing } = await admin
+    .from('marketing_editorial_lines')
+    .select('*')
+    .ilike('name', trimmed)
+    .maybeSingle()
+  if (existing) return { ok: true, data: existing }
+  const { data, error } = await admin
+    .from('marketing_editorial_lines')
+    .insert({ name: trimmed })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+  revalidatePath('/marketing')
+  return { ok: true, data }
+}
+
+export async function getMarketingPosts() {
+  const { data } = await createAdminClient()
+    .from('marketing_posts')
+    .select('*, editorial_line:marketing_editorial_lines(id, name), participants:marketing_post_participants(user:users(id, name, avatar_color, avatar_url))')
+    .order('post_date', { ascending: true })
+  return (data ?? []).map((p: any) => ({
+    ...p,
+    editorial_line_name: p.editorial_line?.name ?? null,
+    participants: (p.participants ?? []).map((pp: any) => pp.user).filter(Boolean),
+  }))
+}
+
+type MarketingPostInput = {
+  name: string
+  type: string
+  post_date?: string | null
+  editorial_line_id?: string | null
+  roteiro_url?: string | null
+  status?: string
+  capture_date?: string | null
+  participant_ids?: string[]
+}
+
+export async function createMarketingPost(input: MarketingPostInput) {
+  if (!input.name?.trim()) return { error: 'Informe o nome da postagem' }
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('marketing_posts')
+    .insert({
+      name: input.name.trim(),
+      type: input.type,
+      post_date: input.post_date || null,
+      editorial_line_id: input.editorial_line_id || null,
+      roteiro_url: input.roteiro_url || null,
+      status: input.status || 'scheduled',
+      capture_date: input.capture_date || null,
+      created_by: user?.id ?? null,
+    })
+    .select()
+    .single()
+  if (error) return { error: error.message }
+
+  const ids = input.participant_ids ?? []
+  if (ids.length > 0) {
+    await admin.from('marketing_post_participants').insert(ids.map(uid => ({ post_id: data.id, user_id: uid })))
+  }
+  revalidatePath('/marketing')
+  return { ok: true, data }
+}
+
+export async function updateMarketingPost(id: string, input: MarketingPostInput) {
+  if (!input.name?.trim()) return { error: 'Informe o nome da postagem' }
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('marketing_posts')
+    .update({
+      name: input.name.trim(),
+      type: input.type,
+      post_date: input.post_date || null,
+      editorial_line_id: input.editorial_line_id || null,
+      roteiro_url: input.roteiro_url || null,
+      status: input.status || 'scheduled',
+      capture_date: input.capture_date || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  // Regrava participantes
+  await admin.from('marketing_post_participants').delete().eq('post_id', id)
+  const ids = input.participant_ids ?? []
+  if (ids.length > 0) {
+    await admin.from('marketing_post_participants').insert(ids.map(uid => ({ post_id: id, user_id: uid })))
+  }
+  revalidatePath('/marketing')
+  return { ok: true }
+}
+
+export async function deleteMarketingPost(id: string) {
+  const { error } = await createAdminClient().from('marketing_posts').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/marketing')
   return { ok: true }
 }
