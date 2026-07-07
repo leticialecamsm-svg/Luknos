@@ -1,9 +1,8 @@
 -- ── Módulo de Marketing ────────────────────────────────────────────────────────
 
--- 1. Adiciona o papel 'marketing' ao check de roles
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE users ADD CONSTRAINT users_role_check
-  CHECK (role IN ('admin','seller','logistics','marketing'));
+-- 1. Adiciona o papel 'marketing' ao enum user_role
+-- (rodar isoladamente — ALTER TYPE ADD VALUE não pode estar na mesma transação que o uso)
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'marketing';
 
 -- 2. Linhas editoriais (autocomplete com criação)
 CREATE TABLE IF NOT EXISTS marketing_editorial_lines (
