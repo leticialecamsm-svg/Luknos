@@ -5,13 +5,23 @@ import { createMarketingPost, updateMarketingPost, createEditorialLine } from '@
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType, MarketingPostStatus } from '@/types'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
-import { X, Loader2, Plus, Check, Link as LinkIcon, Circle, Film, Images, FileText, Calendar, Users, BookOpen, Image as ImageIcon, CircleDot } from 'lucide-react'
+import { X, Loader2, Plus, Check, Link as LinkIcon, CircleDashed, Clapperboard, GalleryHorizontalEnd, FileText, Calendar, Users, BookOpen, Image as ImageIcon, CircleDot, FolderOpen } from 'lucide-react'
 
 export const TYPE_ICON: Record<MarketingPostType, any> = {
-  story:    Circle,
-  reels:    Film,
-  carousel: Images,
+  story:    CircleDashed,
+  reels:    Clapperboard,
+  carousel: GalleryHorizontalEnd,
 }
+
+// Cor de cada tipo (pill estilo Categoria)
+export const TYPE_STYLE: Record<MarketingPostType, { active: string; icon: string }> = {
+  story:    { active: 'bg-purple-50 text-purple-700 border-purple-300 ring-1 ring-inset ring-purple-200', icon: 'text-purple-500' },
+  reels:    { active: 'bg-pink-50 text-pink-700 border-pink-300 ring-1 ring-inset ring-pink-200',         icon: 'text-pink-500' },
+  carousel: { active: 'bg-blue-50 text-blue-700 border-blue-300 ring-1 ring-inset ring-blue-200',         icon: 'text-blue-500' },
+}
+
+// Pasta do Drive de marketing (atalho fixo)
+const DRIVE_URL = 'https://drive.google.com/drive/folders/1J59jgELctmlDYax1u4-wUGTwbbEdqK2f?usp=sharing'
 
 interface Props {
   post: any | null
@@ -24,12 +34,13 @@ interface Props {
 }
 
 // Cabeçalho de seção reutilizável (padrão dos formulários de orçamento)
-function Section({ icon: Icon, title, children }: { icon: any; title: string; children: React.ReactNode }) {
+function Section({ icon: Icon, title, action, children }: { icon: any; title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
         <Icon className="w-4 h-4 text-brand-500" />
         <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">{title}</h3>
+        {action && <div className="ml-auto">{action}</div>}
       </div>
       {children}
     </div>
@@ -71,108 +82,119 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{post ? 'Editar postagem' : 'Nova postagem'}</h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* ── Informações ── */}
-          <Section icon={FileText} title="Informações">
-            <div>
-              <label className="text-xs font-medium text-gray-500">Nome</label>
-              <input value={name} onChange={e => setName(e.target.value)} className="input mt-1" placeholder="Ex: Bastidores da montagem" autoFocus />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Tipo</label>
-              <div className="flex gap-2 mt-1">
-                {(Object.keys(MARKETING_POST_TYPE_LABEL) as MarketingPostType[]).map(t => {
-                  const Icon = TYPE_ICON[t]
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+          {/* ── Coluna esquerda ── */}
+          <div className="space-y-6">
+            {/* Informações */}
+            <Section icon={FileText} title="Informações">
+              <div>
+                <label className="text-xs font-medium text-gray-500">Nome</label>
+                <input value={name} onChange={e => setName(e.target.value)} className="input mt-1" placeholder="Ex: Bastidores da montagem" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Tipo</label>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {(Object.keys(MARKETING_POST_TYPE_LABEL) as MarketingPostType[]).map(t => {
+                    const Icon = TYPE_ICON[t]; const st = TYPE_STYLE[t]; const active = type === t
+                    return (
+                      <button key={t} onClick={() => setType(t)}
+                        className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                          active ? st.active : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                        <Icon className={cn('w-4 h-4', active ? st.icon : 'text-gray-400')} />
+                        {MARKETING_POST_TYPE_LABEL[t]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </Section>
+
+            {/* Conteúdo — com atalho do Drive no cabeçalho */}
+            <Section icon={BookOpen} title="Conteúdo" action={
+              <a href={DRIVE_URL} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 normal-case">
+                <FolderOpen className="w-3.5 h-3.5" /> Link do Drive
+              </a>
+            }>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Linha editorial</label>
+                <EditorialCombobox lines={editorialLines} value={editorialId} onChange={setEditorialId}
+                  onCreated={line => { onEditorialLineCreated(line); setEditorialId(line.id) }} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Roteiro (link do Google Docs)</label>
+                <div className="relative mt-1">
+                  <LinkIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input value={roteiro} onChange={e => setRoteiro(e.target.value)} className="input pl-9" placeholder="https://docs.google.com/..." />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Link do criativo</label>
+                <div className="relative mt-1">
+                  <ImageIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input value={creative} onChange={e => setCreative(e.target.value)} className="input pl-9" placeholder="Link da arte / vídeo final" />
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          {/* ── Coluna direita ── */}
+          <div className="space-y-6">
+            {/* Datas */}
+            <Section icon={Calendar} title="Datas">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Data de postagem</label>
+                  <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Data de captação</label>
+                  <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
+                </div>
+              </div>
+            </Section>
+
+            {/* Participantes */}
+            <Section icon={Users} title="Participantes">
+              <div className="flex flex-wrap gap-1.5">
+                {users.map(u => {
+                  const on = participantIds.includes(u.id)
                   return (
-                    <button key={t} onClick={() => setType(t)}
-                      className={cn('flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl text-sm font-medium border transition-all',
-                        type === t ? 'bg-brand-600 text-white border-brand-600' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300')}>
-                      <Icon className="w-5 h-5" />
-                      {MARKETING_POST_TYPE_LABEL[t]}
+                    <button key={u.id} onClick={() => toggleParticipant(u.id)}
+                      className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
+                        on ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                      <Avatar user={u} size={20} />
+                      {u.name}
+                      {on && <Check className="w-3.5 h-3.5" />}
                     </button>
                   )
                 })}
               </div>
-            </div>
-          </Section>
+            </Section>
 
-          {/* ── Datas ── */}
-          <Section icon={Calendar} title="Datas">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-500">Data de postagem</label>
-                <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Data de captação</label>
-                <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
-              </div>
-            </div>
-          </Section>
-
-          {/* ── Conteúdo ── */}
-          <Section icon={BookOpen} title="Conteúdo">
-            <div>
-              <label className="text-xs font-medium text-gray-500">Linha editorial</label>
-              <EditorialCombobox lines={editorialLines} value={editorialId} onChange={setEditorialId}
-                onCreated={line => { onEditorialLineCreated(line); setEditorialId(line.id) }} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Roteiro (link do Google Docs)</label>
-              <div className="relative mt-1">
-                <LinkIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                <input value={roteiro} onChange={e => setRoteiro(e.target.value)} className="input pl-9" placeholder="https://docs.google.com/..." />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500">Link do criativo</label>
-              <div className="relative mt-1">
-                <ImageIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                <input value={creative} onChange={e => setCreative(e.target.value)} className="input pl-9" placeholder="Link da arte / vídeo final" />
-              </div>
-            </div>
-          </Section>
-
-          {/* ── Equipe ── */}
-          <Section icon={Users} title="Participantes">
-            <div className="flex flex-wrap gap-1.5">
-              {users.map(u => {
-                const on = participantIds.includes(u.id)
-                return (
-                  <button key={u.id} onClick={() => toggleParticipant(u.id)}
-                    className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
-                      on ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
-                    <Avatar user={u} size={20} />
-                    {u.name}
-                    {on && <Check className="w-3.5 h-3.5" />}
+            {/* Status */}
+            <Section icon={CircleDot} title="Status">
+              <div className="flex gap-2">
+                {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => (
+                  <button key={s} onClick={() => setStatus(s)}
+                    className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all',
+                      status === s
+                        ? (s === 'posted' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500')
+                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300')}>
+                    {MARKETING_POST_STATUS_LABEL[s]}
                   </button>
-                )
-              })}
-            </div>
-          </Section>
+                ))}
+              </div>
+            </Section>
 
-          {/* ── Status ── */}
-          <Section icon={CircleDot} title="Status">
-            <div className="flex gap-2">
-              {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => (
-                <button key={s} onClick={() => setStatus(s)}
-                  className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all',
-                    status === s
-                      ? (s === 'posted' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500')
-                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300')}>
-                  {MARKETING_POST_STATUS_LABEL[s]}
-                </button>
-              ))}
-            </div>
-          </Section>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-end gap-2">
