@@ -2394,12 +2394,30 @@ export async function getMarketingPosts() {
   }))
 }
 
+export async function getMarketingPostActivities(postId: string) {
+  const { data } = await createAdminClient()
+    .from('marketing_post_activities')
+    .select('*, user:users(id, name, avatar_color, avatar_url)')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
+async function logMarketingActivity(postId: string, description: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  await createAdminClient()
+    .from('marketing_post_activities')
+    .insert({ post_id: postId, user_id: user?.id ?? null, description })
+}
+
 type MarketingPostInput = {
   name: string
   type: string
   post_date?: string | null
   editorial_line_id?: string | null
   roteiro_url?: string | null
+  creative_url?: string | null
   status?: string
   capture_date?: string | null
   participant_ids?: string[]
@@ -2418,6 +2436,7 @@ export async function createMarketingPost(input: MarketingPostInput) {
       post_date: input.post_date || null,
       editorial_line_id: input.editorial_line_id || null,
       roteiro_url: input.roteiro_url || null,
+      creative_url: input.creative_url || null,
       status: input.status || 'scheduled',
       capture_date: input.capture_date || null,
       created_by: user?.id ?? null,
@@ -2430,6 +2449,7 @@ export async function createMarketingPost(input: MarketingPostInput) {
   if (ids.length > 0) {
     await admin.from('marketing_post_participants').insert(ids.map(uid => ({ post_id: data.id, user_id: uid })))
   }
+  await logMarketingActivity(data.id, 'Postagem criada')
   revalidatePath('/marketing')
   return { ok: true, data }
 }
@@ -2445,6 +2465,7 @@ export async function updateMarketingPost(id: string, input: MarketingPostInput)
       post_date: input.post_date || null,
       editorial_line_id: input.editorial_line_id || null,
       roteiro_url: input.roteiro_url || null,
+      creative_url: input.creative_url || null,
       status: input.status || 'scheduled',
       capture_date: input.capture_date || null,
       updated_at: new Date().toISOString(),
@@ -2458,6 +2479,20 @@ export async function updateMarketingPost(id: string, input: MarketingPostInput)
   if (ids.length > 0) {
     await admin.from('marketing_post_participants').insert(ids.map(uid => ({ post_id: id, user_id: uid })))
   }
+  await logMarketingActivity(id, '✏️ Postagem editada')
+  revalidatePath('/marketing')
+  return { ok: true }
+}
+
+export async function updateMarketingPostStatus(id: string, status: string) {
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('marketing_posts')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  const label = status === 'posted' ? 'Postado' : 'Agendado'
+  await logMarketingActivity(id, `Status alterado para ${label}`)
   revalidatePath('/marketing')
   return { ok: true }
 }

@@ -35,10 +35,28 @@ CREATE TABLE IF NOT EXISTS marketing_post_participants (
   PRIMARY KEY (post_id, user_id)
 );
 
+-- 4b. Link do criativo
+ALTER TABLE marketing_posts ADD COLUMN IF NOT EXISTS creative_url TEXT;
+
+-- 4c. Histórico de atividades da postagem
+CREATE TABLE IF NOT EXISTS marketing_post_activities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id UUID NOT NULL REFERENCES marketing_posts(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id),
+  description TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_activities_post ON marketing_post_activities(post_id);
+
 -- 5. RLS — admin e marketing podem ler/escrever
 ALTER TABLE marketing_editorial_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_post_participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE marketing_post_activities ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS mkt_activities_all ON marketing_post_activities;
+CREATE POLICY mkt_activities_all ON marketing_post_activities FOR ALL USING (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role IN ('admin','marketing')));
 
 DROP POLICY IF EXISTS mkt_lines_all ON marketing_editorial_lines;
 CREATE POLICY mkt_lines_all ON marketing_editorial_lines FOR ALL USING (

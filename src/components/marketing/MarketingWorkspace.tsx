@@ -2,17 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
 import { Avatar } from '@/components/ui/Avatar'
-import { PostModal } from './PostModal'
-import { ChevronLeft, ChevronRight, Plus, Megaphone, ExternalLink } from 'lucide-react'
+import { PostModal, TYPE_ICON } from './PostModal'
+import { PostViewModal } from './PostViewModal'
+import { ChevronLeft, ChevronRight, Plus, Megaphone, Camera } from 'lucide-react'
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const TYPE_COLOR: Record<MarketingPostType, string> = {
-  story:    'bg-purple-100 text-purple-700 border-purple-200',
-  reels:    'bg-pink-100 text-pink-700 border-pink-200',
-  carousel: 'bg-blue-100 text-blue-700 border-blue-200',
+  story:    'bg-purple-50 text-purple-700 border-purple-200',
+  reels:    'bg-pink-50 text-pink-700 border-pink-200',
+  carousel: 'bg-blue-50 text-blue-700 border-blue-200',
 }
 
 function ymd(d: Date) {
@@ -20,18 +21,17 @@ function ymd(d: Date) {
 }
 
 export function MarketingWorkspace({ initialPosts, editorialLines: initialLines, users }: {
-  initialPosts: any[]
-  editorialLines: any[]
-  users: any[]
+  initialPosts: any[]; editorialLines: any[]; users: any[]
 }) {
   const router = useRouter()
   const [posts, setPosts] = useState(initialPosts)
   const [editorialLines, setEditorialLines] = useState(initialLines)
   const [view, setView] = useState<'month' | 'week'>('month')
   const [refDate, setRefDate] = useState(new Date())
-  const [modalPost, setModalPost] = useState<any | null>(null)
+  const [viewPost, setViewPost] = useState<any | null>(null)     // modal de visualização
+  const [editPost, setEditPost] = useState<any | null>(null)      // modal de edição/criação
   const [modalDate, setModalDate] = useState<string | undefined>()
-  const [showModal, setShowModal] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
 
   useEffect(() => { setPosts(initialPosts) }, [initialPosts])
   useEffect(() => { setEditorialLines(initialLines) }, [initialLines])
@@ -44,11 +44,12 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
     postsByDay.get(key)!.push(p)
   }
 
-  function openCreate(date?: string) { setModalPost(null); setModalDate(date); setShowModal(true) }
-  function openEdit(post: any) { setModalPost(post); setModalDate(undefined); setShowModal(true) }
-  function afterSave() { setShowModal(false); router.refresh() }
+  function openCreate(date?: string) { setEditPost(null); setModalDate(date); setShowEdit(true) }
+  function openView(post: any) { setViewPost(post) }
+  function openEditFromView() { setEditPost(viewPost); setModalDate(undefined); setViewPost(null); setShowEdit(true) }
+  function afterSave() { setShowEdit(false); router.refresh() }
+  function afterChange() { router.refresh() }
 
-  // Navegação
   function navigate(delta: number) {
     const d = new Date(refDate)
     if (view === 'month') d.setMonth(d.getMonth() + delta)
@@ -58,20 +59,13 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
 
   const periodLabel = view === 'month'
     ? refDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-    : (() => {
-        const { days } = getWeek(refDate)
-        const a = days[0], b = days[6]
-        return `${a.getDate()}/${a.getMonth() + 1} – ${b.getDate()}/${b.getMonth() + 1}`
-      })()
+    : (() => { const { days } = getWeek(refDate); const a = days[0], b = days[6]; return `${a.getDate()}/${a.getMonth() + 1} – ${b.getDate()}/${b.getMonth() + 1}` })()
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-            <Megaphone className="w-5 h-5 text-brand-500" /> Marketing
-          </h1>
+          <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2"><Megaphone className="w-5 h-5 text-brand-500" /> Marketing</h1>
           <p className="text-sm text-gray-400 mt-0.5">Planejamento de postagens</p>
         </div>
         <div className="flex items-center gap-2">
@@ -83,7 +77,6 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
         </div>
       </div>
 
-      {/* Navegação de período */}
       <div className="flex items-center gap-2">
         <button onClick={() => navigate(-1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100"><ChevronLeft className="w-5 h-5" /></button>
         <span className="text-base font-semibold text-gray-800 capitalize min-w-[180px] text-center">{periodLabel}</span>
@@ -92,19 +85,17 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
       </div>
 
       {view === 'month'
-        ? <MonthGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openEdit} />
-        : <WeekGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openEdit} />}
+        ? <MonthGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} />
+        : <WeekGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} />}
 
-      {showModal && (
-        <PostModal
-          post={modalPost}
-          defaultDate={modalDate}
-          editorialLines={editorialLines}
-          users={users}
-          onClose={() => setShowModal(false)}
-          onSaved={afterSave}
-          onEditorialLineCreated={line => setEditorialLines(prev => [...prev, line].sort((a, b) => a.name.localeCompare(b.name)))}
-        />
+      {viewPost && (
+        <PostViewModal post={viewPost} onClose={() => setViewPost(null)} onEdit={openEditFromView} onChanged={afterChange} />
+      )}
+
+      {showEdit && (
+        <PostModal post={editPost} defaultDate={modalDate} editorialLines={editorialLines} users={users}
+          onClose={() => setShowEdit(false)} onSaved={afterSave}
+          onEditorialLineCreated={line => setEditorialLines(prev => [...prev, line].sort((a, b) => a.name.localeCompare(b.name)))} />
       )}
     </div>
   )
@@ -112,43 +103,45 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
 
 function getWeek(refDate: Date) {
   const start = new Date(refDate)
-  start.setDate(start.getDate() - start.getDay()) // domingo
-  const days = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    return d
-  })
+  start.setDate(start.getDate() - start.getDay())
+  const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d })
   return { days }
 }
 
-function PostPill({ post, onClick }: { post: any; onClick: () => void }) {
+// Card de postagem — usado no mês e na semana. Mostra: tipo, data captação, linha editorial, participantes, status
+function PostCard({ post, onClick }: { post: any; onClick: () => void }) {
+  const Icon = TYPE_ICON[post.type as MarketingPostType]
   return (
     <button onClick={e => { e.stopPropagation(); onClick() }}
-      className={cn('w-full text-left px-1.5 py-1 rounded-md border text-[11px] leading-tight truncate flex items-center gap-1', TYPE_COLOR[post.type as MarketingPostType])}>
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', post.status === 'posted' ? 'bg-emerald-500' : 'bg-amber-500')} />
-      <span className="truncate">{post.name}</span>
+      className={cn('w-full text-left rounded-lg border p-1.5 space-y-1', TYPE_COLOR[post.type as MarketingPostType])}>
+      <div className="flex items-center gap-1">
+        <Icon className="w-3.5 h-3.5 shrink-0" />
+        <span className="text-[11px] font-semibold truncate flex-1">{post.name}</span>
+        <span className={cn('w-2 h-2 rounded-full shrink-0', post.status === 'posted' ? 'bg-emerald-500' : 'bg-amber-500')}
+          title={MARKETING_POST_STATUS_LABEL[post.status as keyof typeof MARKETING_POST_STATUS_LABEL]} />
+      </div>
+      <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+        <span className="font-medium">{MARKETING_POST_TYPE_LABEL[post.type as MarketingPostType]}</span>
+        {post.capture_date && <span className="flex items-center gap-0.5"><Camera className="w-2.5 h-2.5" /> {formatDate(post.capture_date).slice(0, 5)}</span>}
+      </div>
+      {post.editorial_line_name && <p className="text-[10px] text-gray-500 truncate">{post.editorial_line_name}</p>}
+      {(post.participants ?? []).length > 0 && (
+        <div className="flex -space-x-1">
+          {post.participants.slice(0, 4).map((u: any) => <Avatar key={u.id} user={u} size={16} className="ring-1 ring-white" />)}
+        </div>
+      )}
     </button>
   )
 }
 
 function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
-  refDate: Date
-  postsByDay: Map<string, any[]>
-  onDayClick: (date: string) => void
-  onPostClick: (post: any) => void
+  refDate: Date; postsByDay: Map<string, any[]>; onDayClick: (date: string) => void; onPostClick: (post: any) => void
 }) {
-  const year = refDate.getFullYear()
-  const month = refDate.getMonth()
+  const year = refDate.getFullYear(); const month = refDate.getMonth()
   const first = new Date(year, month, 1)
-  const gridStart = new Date(first)
-  gridStart.setDate(first.getDate() - first.getDay())
+  const gridStart = new Date(first); gridStart.setDate(first.getDate() - first.getDay())
   const todayStr = ymd(new Date())
-
-  const cells = Array.from({ length: 42 }).map((_, i) => {
-    const d = new Date(gridStart)
-    d.setDate(gridStart.getDate() + i)
-    return d
-  })
+  const cells = Array.from({ length: 42 }).map((_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d })
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
@@ -157,19 +150,17 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
       </div>
       <div className="grid grid-cols-7">
         {cells.map((d, i) => {
-          const key = ymd(d)
-          const inMonth = d.getMonth() === month
-          const dayPosts = postsByDay.get(key) ?? []
+          const key = ymd(d); const inMonth = d.getMonth() === month; const dayPosts = postsByDay.get(key) ?? []
           return (
             <div key={i} onClick={() => onDayClick(key)}
-              className={cn('min-h-[104px] border-b border-r border-gray-100 p-1.5 cursor-pointer hover:bg-gray-50/70 transition-colors flex flex-col gap-1',
+              className={cn('min-h-[130px] border-b border-r border-gray-100 p-1.5 cursor-pointer hover:bg-gray-50/70 transition-colors flex flex-col gap-1',
                 !inMonth && 'bg-gray-50/40', i % 7 === 6 && 'border-r-0')}>
               <span className={cn('text-xs font-medium self-start px-1',
                 key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : inMonth ? 'text-gray-600' : 'text-gray-300')}>
                 {d.getDate()}
               </span>
-              {dayPosts.slice(0, 3).map(p => <PostPill key={p.id} post={p} onClick={() => onPostClick(p)} />)}
-              {dayPosts.length > 3 && <span className="text-[10px] text-gray-400 px-1">+{dayPosts.length - 3} mais</span>}
+              {dayPosts.slice(0, 2).map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} />)}
+              {dayPosts.length > 2 && <span className="text-[10px] text-gray-400 px-1">+{dayPosts.length - 2} mais</span>}
             </div>
           )
         })}
@@ -179,58 +170,27 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
 }
 
 function WeekGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
-  refDate: Date
-  postsByDay: Map<string, any[]>
-  onDayClick: (date: string) => void
-  onPostClick: (post: any) => void
+  refDate: Date; postsByDay: Map<string, any[]>; onDayClick: (date: string) => void; onPostClick: (post: any) => void
 }) {
-  const { days } = getWeek(refDate)
-  const todayStr = ymd(new Date())
-
+  const { days } = getWeek(refDate); const todayStr = ymd(new Date())
   return (
     <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
       {days.map(d => {
-        const key = ymd(d)
-        const dayPosts = postsByDay.get(key) ?? []
+        const key = ymd(d); const dayPosts = postsByDay.get(key) ?? []
         return (
           <div key={key} onClick={() => onDayClick(key)}
-            className="rounded-xl border border-gray-200 bg-white p-2.5 min-h-[220px] cursor-pointer hover:border-gray-300 transition-colors flex flex-col gap-2">
+            className="rounded-xl border border-gray-200 bg-white p-2.5 min-h-[240px] cursor-pointer hover:border-gray-300 transition-colors flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-500">{WEEKDAYS[d.getDay()]}</span>
-              <span className={cn('text-xs font-semibold',
-                key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-gray-600')}>
-                {d.getDate()}
-              </span>
+              <span className={cn('text-xs font-semibold', key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-gray-600')}>{d.getDate()}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              {dayPosts.map(p => <WeekPostCard key={p.id} post={p} onClick={() => onPostClick(p)} />)}
+              {dayPosts.map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} />)}
               {dayPosts.length === 0 && <span className="text-[11px] text-gray-300">—</span>}
             </div>
           </div>
         )
       })}
     </div>
-  )
-}
-
-function WeekPostCard({ post, onClick }: { post: any; onClick: () => void }) {
-  return (
-    <button onClick={e => { e.stopPropagation(); onClick() }}
-      className={cn('w-full text-left rounded-lg border p-2 text-xs', TYPE_COLOR[post.type as MarketingPostType])}>
-      <div className="flex items-center gap-1 mb-1">
-        <span className="font-semibold">{MARKETING_POST_TYPE_LABEL[post.type as MarketingPostType]}</span>
-        <span className={cn('ml-auto text-[10px] px-1.5 py-0.5 rounded-full', post.status === 'posted' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white')}>
-          {MARKETING_POST_STATUS_LABEL[post.status as keyof typeof MARKETING_POST_STATUS_LABEL]}
-        </span>
-      </div>
-      <p className="font-medium text-gray-800 leading-tight mb-1">{post.name}</p>
-      {post.editorial_line_name && <p className="text-[10px] text-gray-500 truncate">{post.editorial_line_name}</p>}
-      <div className="flex items-center justify-between mt-1">
-        <div className="flex -space-x-1">
-          {(post.participants ?? []).slice(0, 3).map((u: any) => <Avatar key={u.id} user={u} size={16} className="ring-1 ring-white" />)}
-        </div>
-        {post.roteiro_url && <ExternalLink className="w-3 h-3 text-gray-400" />}
-      </div>
-    </button>
   )
 }
