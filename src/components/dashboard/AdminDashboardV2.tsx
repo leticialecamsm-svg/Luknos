@@ -53,11 +53,26 @@ export function AdminDashboardV2({
 
   // KPIs — filtrados pelo mês selecionado
   const totalFaturamento = (sales ?? []).reduce((sum: number, r: any) => sum + Number(r.total_sold ?? 0), 0)
-  const closedQuotes = (() => {
-    const mStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
-    const mEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
-    return quotes.filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd).length
-  })()
+
+  // Limites do mês selecionado (YYYY-MM-DD)
+  const mStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
+  const mEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
+
+  // Vendas fechadas no mês — ordenadas pelas mais recentes primeiro
+  const closedThisMonth = quotes
+    .filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd)
+    .sort((a, b) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')))
+
+  // Perdidas no mês — ordenadas pelas mais recentes primeiro (data da perda = temperature_updated_at)
+  const lostThisMonth = quotes
+    .filter(q => {
+      if (q.temperature !== 'lost') return false
+      const d = String(q.temperature_updated_at ?? '').slice(0, 10)
+      return d >= mStart && d <= mEnd
+    })
+    .sort((a, b) => String(b.temperature_updated_at ?? '').localeCompare(String(a.temperature_updated_at ?? '')))
+
+  const closedQuotes = closedThisMonth.length
 
   // Oportunidades em aberto (tudo que não é fechado ou perdido = Frio + Morno + Quente)
   const oportunidades = quotes
@@ -73,8 +88,7 @@ export function AdminDashboardV2({
     ? Math.round((closedQuotes / totalQuotesClosedOrOpen) * 100)
     : 0
 
-  const perdidas = quotes
-    .filter(q => q.temperature === 'lost')
+  const perdidas = lostThisMonth
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   const hotValue = quotes
@@ -243,7 +257,7 @@ export function AdminDashboardV2({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        <div onClick={() => setDetail({ title: 'Vendas fechadas no mês', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+        <div onClick={() => setDetail({ title: 'Vendas fechadas no mês', items: closedThisMonth, field: 'final' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-green-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento do mês</p>
@@ -264,7 +278,7 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length} oportunidades</p>
         </div>
 
-        <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio)', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+        <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio)', items: closedThisMonth, field: 'final' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-amber-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ticket médio</p>
@@ -273,7 +287,7 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ vs média histórica</p>
         </div>
 
-        <div onClick={() => setDetail({ title: 'Vendas fechadas (taxa de conversão)', items: quotes.filter(q => q.temperature === 'closed'), field: 'final' })}
+        <div onClick={() => setDetail({ title: 'Vendas fechadas (taxa de conversão)', items: closedThisMonth, field: 'final' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-purple-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-purple-600"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Taxa de conversão</p>
@@ -282,11 +296,11 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ +5pp vs maio</p>
         </div>
 
-        <div onClick={() => setDetail({ title: 'Negociações perdidas', items: quotes.filter(q => q.temperature === 'lost'), field: 'quoted' })}
+        <div onClick={() => setDetail({ title: 'Negociações perdidas no mês', items: lostThisMonth, field: 'quoted' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-red-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Perdidas no mês</p>
-          <p className="text-xl font-bold text-red-500 mt-2">{quotes.filter(q => q.temperature === 'lost').length}</p>
+          <p className="text-xl font-bold text-red-500 mt-2">{lostThisMonth.length}</p>
           <p className="text-xs text-gray-500 mt-1">{formatCurrency(perdidas)} em oportunidades</p>
           <p className="text-xs text-green-600 font-semibold mt-1">✓ Melhor que maio</p>
         </div>
@@ -670,9 +684,14 @@ export function AdminDashboardV2({
                     {q.architect_name && <p className="text-xs text-gray-400 truncate">{q.architect_name}</p>}
                   </div>
                   {q.owners?.slice(0,2).map((o: any) => <Avatar key={o.user_id} user={o} size={22} className="ring-1 ring-white" />)}
-                  <span className="text-sm font-semibold text-gray-800 shrink-0 ml-1">
-                    {formatCurrency(Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0))}
-                  </span>
+                  <div className="shrink-0 ml-1 text-right">
+                    <span className="text-sm font-semibold text-gray-800 block">
+                      {formatCurrency(Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0))}
+                    </span>
+                    {(q.temperature === 'closed' ? q.closed_at : q.temperature === 'lost' ? q.temperature_updated_at : null) && (
+                      <span className="text-[10px] text-gray-400">{formatDate(q.temperature === 'closed' ? q.closed_at : q.temperature_updated_at)}</span>
+                    )}
+                  </div>
                 </a>
               ))}
             </div>
