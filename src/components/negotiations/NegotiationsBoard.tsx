@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { updateTemperature } from '@/lib/actions'
 import { formatCurrency, formatDate, isOverdue, cn } from '@/lib/utils'
-import { Search, X, Users } from 'lucide-react'
+import { Search, X, Users, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
@@ -25,6 +25,22 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
   const [pending, startTransition] = useTransition()
   const [dragging, setDragging] = useState<string | null>(null)
   const [quoteModal, setQuoteModal] = useState<string | null>(null)
+  const [monthOffset, setMonthOffset] = useState(0)
+
+  // Passador de mês — afeta APENAS as colunas Fechada e Perdida (e o KPI "Fechado no período").
+  // As colunas em aberto (Sem previsão, Frio, Morno, Quente) sempre mostram tudo, pois o orçamento
+  // só "sai" do funil quando é fechado ou perdido, independente do mês em que foi aberto.
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`
+  const monthLabel = monthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+
+  // Mês em que a negociação foi decidida (fechada usa closed_at; perdida usa temperature_updated_at)
+  function decidedKey(q: any): string | null {
+    const raw = (q.temperature === 'closed' ? q.closed_at : null) ?? q.temperature_updated_at
+    return raw ? String(raw).slice(0, 7) : null
+  }
+  const isMonthFiltered = (temp: string) => temp === 'closed' || temp === 'lost'
 
   // Lista única de responsáveis para o filtro
   const owners: { id: string; name: string }[] = []
@@ -43,7 +59,9 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
   })
 
   function getColumn(temp: string) {
-    const columnCards = filtered.filter(q => (q.temperature ?? 'cold') === temp)
+    let columnCards = filtered.filter(q => (q.temperature ?? 'cold') === temp)
+    // Fechada/Perdida: só as decididas no mês selecionado
+    if (isMonthFiltered(temp)) columnCards = columnCards.filter(q => decidedKey(q) === monthKey)
     // Ordena: alertas flagged no topo, depois o resto
     return columnCards.sort((a, b) => {
       const aFlagged = a.is_flagged_alert ? 0 : 1
@@ -70,7 +88,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
   // Totais (respeitam o filtro de colaborador)
   const totalOpen = filtered.filter(q => !['closed','lost'].includes(q.temperature ?? 'cold')).reduce((s, q) => s + (q.quoted_value ?? 0), 0)
   const totalHot = filtered.filter(q => q.temperature === 'hot').reduce((s, q) => s + (q.quoted_value ?? 0), 0)
-  const totalClosed = filtered.filter(q => q.temperature === 'closed').reduce((s, q) => s + (q.final_value ?? 0), 0)
+  const totalClosed = filtered.filter(q => q.temperature === 'closed' && decidedKey(q) === monthKey).reduce((s, q) => s + (q.final_value ?? 0), 0)
 
   return (
     <div className="space-y-5 min-h-screen">
@@ -88,7 +106,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
         {[
           { label: 'Em aberto', value: formatCurrency(totalOpen), dot: '#3B82F6' },
           { label: 'Quente', value: formatCurrency(totalHot), dot: '#EF4444' },
-          { label: 'Fechado no período', value: formatCurrency(totalClosed), dot: '#10B981' },
+          { label: `Fechado — ${monthLabel}`, value: formatCurrency(totalClosed), dot: '#10B981' },
         ].map(kpi => (
           <div key={kpi.label} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
             <div className="flex items-center gap-1.5">
@@ -116,7 +134,25 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
             {owners.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </div>
+
+        {/* Passador de mês — filtra Fechadas e Perdidas */}
+        <div className="ml-auto flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-1 py-0.5">
+          <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-sm font-semibold text-gray-700 capitalize min-w-[130px] text-center">{monthLabel}</span>
+          <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          {monthOffset !== 0 && (
+            <button onClick={() => setMonthOffset(0)} className="text-[11px] font-medium text-brand-600 hover:underline px-1.5">Hoje</button>
+          )}
+        </div>
       </div>
+
+      <p className="text-xs text-gray-400 -mt-2 flex items-center gap-1">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Colunas <b className="font-semibold text-gray-500">Fechada</b> e <b className="font-semibold text-gray-500">Perdida</b> mostram apenas o mês selecionado. As demais mostram todo o funil em aberto.
+      </p>
 
       {/* Kanban */}
       <div className="grid grid-cols-6 gap-3 min-h-[600px]">

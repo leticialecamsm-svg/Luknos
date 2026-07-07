@@ -599,9 +599,10 @@ export async function markAsLost(quoteId: string, loss_reason: string) {
   const supabase = createClient()
   const { error } = await supabase
     .from('negotiations')
-    .upsert({ quote_id: quoteId, temperature: 'lost', loss_reason }, { onConflict: 'quote_id' })
+    .upsert({ quote_id: quoteId, temperature: 'lost', loss_reason, temperature_updated_at: new Date().toISOString() }, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
   revalidatePath('/dashboard')
+  revalidatePath('/negotiations')
   return { ok: true }
 }
 
