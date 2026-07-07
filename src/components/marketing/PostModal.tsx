@@ -94,7 +94,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
             {/* Informações */}
             <Section icon={FileText} title="Informações">
               <div>
-                <label className="text-xs font-medium text-gray-500">Nome</label>
+                <label className="text-xs font-medium text-gray-500">Nome <span className="text-red-400">*</span></label>
                 <input value={name} onChange={e => setName(e.target.value)} className="input mt-1" placeholder="Ex: Bastidores da montagem" autoFocus />
               </div>
               <div>
@@ -150,46 +150,52 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
             <Section icon={Calendar} title="Datas">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-500">Data de postagem</label>
+                  <label className="text-xs font-medium text-gray-500">Postagem</label>
                   <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-500">Data de captação</label>
+                  <label className="text-xs font-medium text-gray-500">Captação</label>
                   <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
                 </div>
               </div>
             </Section>
 
-            {/* Participantes */}
-            <Section icon={Users} title="Participantes">
-              <div className="flex flex-wrap gap-1.5">
-                {users.map(u => {
-                  const on = participantIds.includes(u.id)
+            {/* Status */}
+            <Section icon={CircleDot} title="Status">
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => {
+                  const on = status === s
+                  const dot = s === 'posted' ? 'bg-emerald-500' : 'bg-amber-500'
                   return (
-                    <button key={u.id} onClick={() => toggleParticipant(u.id)}
-                      className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
-                        on ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
-                      <Avatar user={u} size={20} />
-                      {u.name}
-                      {on && <Check className="w-3.5 h-3.5" />}
+                    <button key={s} onClick={() => setStatus(s)}
+                      className={cn('flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                        on
+                          ? (s === 'posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-inset ring-emerald-200'
+                                            : 'bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-inset ring-amber-200')
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                      <span className={cn('w-2 h-2 rounded-full', on ? dot : 'bg-gray-300')} />
+                      {MARKETING_POST_STATUS_LABEL[s]}
                     </button>
                   )
                 })}
               </div>
             </Section>
 
-            {/* Status */}
-            <Section icon={CircleDot} title="Status">
-              <div className="flex gap-2">
-                {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => (
-                  <button key={s} onClick={() => setStatus(s)}
-                    className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all',
-                      status === s
-                        ? (s === 'posted' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500')
-                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300')}>
-                    {MARKETING_POST_STATUS_LABEL[s]}
-                  </button>
-                ))}
+            {/* Participantes */}
+            <Section icon={Users} title={`Participantes${participantIds.length ? ` · ${participantIds.length}` : ''}`}>
+              <div className="flex flex-wrap gap-1.5">
+                {users.map(u => {
+                  const on = participantIds.includes(u.id)
+                  return (
+                    <button key={u.id} onClick={() => toggleParticipant(u.id)}
+                      className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
+                        on ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                      <Avatar user={u} size={20} />
+                      {u.name}
+                      {on && <Check className="w-3.5 h-3.5" />}
+                    </button>
+                  )
+                })}
               </div>
             </Section>
 
