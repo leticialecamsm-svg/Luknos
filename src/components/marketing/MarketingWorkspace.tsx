@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { MarketingOnboarding, ONBOARDING_KEY } from './MarketingOnboarding'
 import { cn, formatDate } from '@/lib/utils'
 import { updateMarketingPostDate } from '@/lib/actions'
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
@@ -36,8 +37,17 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
   const [modalDate, setModalDate] = useState<string | undefined>()
   const [showEdit, setShowEdit] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [showTour, setShowTour] = useState(false)
+  const searchParams = useSearchParams()
 
   useEffect(() => { setPosts(initialPosts) }, [initialPosts])
+
+  // Abre o tutorial na 1ª visita ou quando vier ?tour=1 (botão Tutorial na sidebar)
+  useEffect(() => {
+    const forced = searchParams.get('tour') === '1'
+    const done = typeof window !== 'undefined' && localStorage.getItem(ONBOARDING_KEY) === '1'
+    if (forced || !done) setShowTour(true)
+  }, [searchParams])
   useEffect(() => { setEditorialLines(initialLines) }, [initialLines])
 
   const postsByDay = new Map<string, any[]>()
@@ -105,6 +115,8 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
       {viewPost && (
         <PostViewModal post={viewPost} onClose={() => setViewPost(null)} onEdit={openEditFromView} onChanged={afterChange} />
       )}
+
+      {showTour && <MarketingOnboarding onClose={() => setShowTour(false)} />}
 
       {showEdit && (
         <PostModal post={editPost} defaultDate={modalDate} editorialLines={editorialLines} users={users}

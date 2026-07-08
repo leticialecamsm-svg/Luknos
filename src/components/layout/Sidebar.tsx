@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -71,6 +71,15 @@ export function Sidebar({ user }: { user: User | null }) {
   const isAdmin = user?.role === 'admin'
   const isLogistics = user?.role === 'logistics'
   const isMarketing = user?.role === 'marketing'
+
+  // Botão "Tutorial" (aparece após concluir o onboarding do marketing) — só admin/marketing
+  const [tutorialDone, setTutorialDone] = useState(false)
+  useEffect(() => {
+    const read = () => { try { setTutorialDone(localStorage.getItem('mkt_onboarding_done') === '1') } catch {} }
+    read()
+    window.addEventListener('mkt-onboarding-done', read)
+    return () => window.removeEventListener('mkt-onboarding-done', read)
+  }, [])
 
   const ROLE_LABEL: Record<string, string> = {
     admin: 'Administrador',
@@ -185,6 +194,18 @@ export function Sidebar({ user }: { user: User | null }) {
             </>
           )}
         </nav>
+
+        {/* Tutorial (marketing) — acima das notificações, após concluir o onboarding */}
+        {(isAdmin || isMarketing) && tutorialDone && (
+          <div className={collapsed ? 'px-1 pb-1' : 'px-3 pb-1'}>
+            <Link href="/marketing?tour=1" title={collapsed ? 'Tutorial' : undefined}
+              className={cn('flex items-center rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors',
+                collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2')}>
+              <GraduationCap className="w-5 h-5 shrink-0" />
+              {!collapsed && <span className="text-sm font-medium">Tutorial</span>}
+            </Link>
+          </div>
+        )}
 
         {/* Notificações */}
         {!collapsed && <ScheduleNotifier mode="sidebar" />}
