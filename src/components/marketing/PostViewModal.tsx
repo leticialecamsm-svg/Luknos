@@ -5,19 +5,21 @@ import { getMarketingPostActivities, updateMarketingPostStatus, deleteMarketingP
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
 import { formatDate, cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { Portal } from '@/components/ui/Portal'
 import { TYPE_ICON } from './PostModal'
-import { X, Pencil, Trash2, Loader2, Clock, ExternalLink, Calendar, BookOpen, Users, Check } from 'lucide-react'
+import { X, Pencil, Trash2, Loader2, Clock, ExternalLink, Calendar, BookOpen, Users, Check, ChevronDown } from 'lucide-react'
 
 interface Props {
   post: any
   onClose: () => void
-  onEdit: () => void
+  onEdit?: () => void
   onChanged: () => void
 }
 
 export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
   const [activities, setActivities] = useState<any[]>([])
   const [loadingAct, setLoadingAct] = useState(true)
+  const [expandedHistory, setExpandedHistory] = useState(false)
   const [status, setStatus] = useState(post.status)
   const [busy, setBusy] = useState(false)
 
@@ -49,6 +51,7 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
   const Icon = TYPE_ICON[post.type as MarketingPostType]
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -116,16 +119,24 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
             </div>
           )}
 
-          {/* Histórico */}
+          {/* Histórico — mostra só a última; "Expandir" revela o restante */}
           <div>
-            <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><Clock className="w-4 h-4" /> Histórico</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Clock className="w-4 h-4" /> Histórico</p>
+              {activities.length > 1 && (
+                <button onClick={() => setExpandedHistory(v => !v)} className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                  {expandedHistory ? 'Recolher' : `Expandir (${activities.length})`}
+                  <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', expandedHistory && 'rotate-180')} />
+                </button>
+              )}
+            </div>
             {loadingAct ? (
               <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-gray-300" /></div>
             ) : activities.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-3">Nenhuma atividade ainda</p>
             ) : (
               <div className="space-y-2">
-                {activities.map((a: any) => (
+                {(expandedHistory ? activities : activities.slice(0, 1)).map((a: any) => (
                   <div key={a.id} className="flex gap-2.5 rounded-lg bg-gray-50 border border-gray-100 p-2.5">
                     <div className="shrink-0 mt-0.5">
                       {a.user ? <Avatar user={a.user} size={24} /> : <div className="w-6 h-6 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-xs">🤖</div>}
@@ -138,6 +149,11 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
                     </div>
                   </div>
                 ))}
+                {!expandedHistory && activities.length > 1 && (
+                  <button onClick={() => setExpandedHistory(true)} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1">
+                    + {activities.length - 1} atualização(ões) anterior(es)
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -148,12 +164,15 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
           <button onClick={remove} disabled={busy} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1.5">
             <Trash2 className="w-4 h-4" /> Excluir
           </button>
-          <button onClick={onEdit} className="btn-primary px-6 flex items-center gap-2">
-            <Pencil className="w-4 h-4" /> Editar
-          </button>
+          {onEdit && (
+            <button onClick={onEdit} className="btn-primary px-6 flex items-center gap-2">
+              <Pencil className="w-4 h-4" /> Editar
+            </button>
+          )}
         </div>
       </div>
     </div>
+    </Portal>
   )
 }
 

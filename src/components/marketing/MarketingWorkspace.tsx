@@ -7,7 +7,8 @@ import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostTy
 import { Avatar } from '@/components/ui/Avatar'
 import { PostModal, TYPE_ICON } from './PostModal'
 import { PostViewModal } from './PostViewModal'
-import { ChevronLeft, ChevronRight, Plus, Megaphone, Camera } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronLeft, ChevronRight, Plus, Megaphone, Camera, BookOpen } from 'lucide-react'
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const TYPE_COLOR: Record<MarketingPostType, string> = {
@@ -69,6 +70,7 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
           <p className="text-sm text-gray-400 mt-0.5">Planejamento de postagens</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/marketing/editorial" className="btn-secondary flex items-center gap-2"><BookOpen className="w-4 h-4" /> Linhas editoriais</Link>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             <button onClick={() => setView('month')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Mês</button>
             <button onClick={() => setView('week')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'week' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Semana</button>

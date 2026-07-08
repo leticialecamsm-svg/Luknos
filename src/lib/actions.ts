@@ -2382,6 +2382,31 @@ export async function createEditorialLine(name: string) {
   return { ok: true, data }
 }
 
+export async function updateEditorialLine(id: string, name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Informe o nome da linha editorial' }
+  const { error } = await createAdminClient()
+    .from('marketing_editorial_lines')
+    .update({ name: trimmed })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/marketing')
+  revalidatePath('/marketing/editorial')
+  return { ok: true }
+}
+
+export async function deleteEditorialLine(id: string) {
+  // posts com essa linha ficam com editorial_line_id = NULL (ON DELETE SET NULL)
+  const { error } = await createAdminClient()
+    .from('marketing_editorial_lines')
+    .delete()
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/marketing')
+  revalidatePath('/marketing/editorial')
+  return { ok: true }
+}
+
 export async function getMarketingPosts() {
   const { data } = await createAdminClient()
     .from('marketing_posts')

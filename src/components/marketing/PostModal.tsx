@@ -5,6 +5,7 @@ import { createMarketingPost, updateMarketingPost, createEditorialLine } from '@
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType, MarketingPostStatus } from '@/types'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { Portal } from '@/components/ui/Portal'
 import { X, Loader2, Plus, Check, Link as LinkIcon, CircleDashed, Clapperboard, GalleryHorizontalEnd, FileText, Calendar, Users, BookOpen, Image as ImageIcon, CircleDot, FolderOpen } from 'lucide-react'
 
 export const TYPE_ICON: Record<MarketingPostType, any> = {
@@ -80,6 +81,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
   }
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -211,6 +213,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
         </div>
       </div>
     </div>
+    </Portal>
   )
 }
 
