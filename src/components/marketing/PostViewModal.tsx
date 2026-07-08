@@ -7,6 +7,7 @@ import { formatDate, cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { Portal } from '@/components/ui/Portal'
 import { TYPE_ICON } from './PostModal'
+import { EditorialTag } from './EditorialTag'
 import { X, Pencil, Trash2, Loader2, Clock, ExternalLink, Calendar, BookOpen, Users, Check, ChevronDown } from 'lucide-react'
 
 interface Props {
@@ -87,7 +88,12 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
           {/* Infos */}
           {/* Conteúdo (mesma ordem da edição: linha editorial → criativo → roteiro) */}
           <div className="space-y-3">
-            <Info icon={BookOpen} label="Linha editorial" value={post.editorial_line_name ?? '—'} />
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase flex items-center gap-1 mb-1"><BookOpen className="w-3 h-3" /> Linha editorial</p>
+              {post.editorial_line_name
+                ? <EditorialTag name={post.editorial_line_name} color={post.editorial_line_color} />
+                : <span className="text-sm text-gray-400">—</span>}
+            </div>
             {(post.creative_url || post.roteiro_url) && (
               <div className="flex flex-wrap gap-2">
                 {post.creative_url && (

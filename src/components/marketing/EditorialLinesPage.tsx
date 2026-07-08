@@ -20,9 +20,11 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
   const [lines, setLines] = useState(initialLines)
   const [monthOffset, setMonthOffset] = useState(0)
   const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
   const [viewLine, setViewLine] = useState<any | null>(null)
 
   const now = new Date()
@@ -39,7 +41,7 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
       const key = p.editorial_line_id ?? '__none__'
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
-    const rows = lines.map((l, i) => ({ id: l.id, name: l.name, count: counts.get(l.id) ?? 0, color: PALETTE[i % PALETTE.length] }))
+    const rows = lines.map((l, i) => ({ id: l.id, name: l.name, count: counts.get(l.id) ?? 0, color: l.color || PALETTE[i % PALETTE.length] }))
     const none = counts.get('__none__') ?? 0
     if (none > 0) rows.push({ id: '__none__', name: 'Sem linha', count: none, color: '#CBD5E1' })
     return rows.filter(r => r.count > 0).sort((a, b) => b.count - a.count)
@@ -59,14 +61,14 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
   async function handleCreate() {
     if (!newName.trim()) return
     setCreating(true)
-    const res = await createEditorialLine(newName.trim())
+    const res = await createEditorialLine(newName.trim(), newDesc.trim())
     setCreating(false)
-    if (res?.ok && res.data) { setLines(prev => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name))); setNewName('') }
+    if (res?.ok && res.data) { setLines(prev => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name))); setNewName(''); setNewDesc('') }
   }
   async function handleUpdate(id: string) {
     if (!editName.trim()) return
-    await updateEditorialLine(id, editName.trim())
-    setLines(prev => prev.map(l => l.id === id ? { ...l, name: editName.trim() } : l))
+    await updateEditorialLine(id, editName.trim(), editDesc.trim())
+    setLines(prev => prev.map(l => l.id === id ? { ...l, name: editName.trim(), description: editDesc.trim() || null } : l))
     setEditingId(null)
   }
   async function handleDelete(id: string) {
@@ -167,12 +169,16 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
         <h3 className="text-sm font-semibold text-gray-900 mb-4">Gerenciar linhas editoriais</h3>
 
         {/* Criar */}
-        <div className="flex gap-2 mb-4">
-          <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()}
-            placeholder="Nome da nova linha editorial" className="input flex-1" />
-          <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary flex items-center gap-2 px-5 disabled:opacity-60">
-            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Criar
-          </button>
+        <div className="space-y-2 mb-5">
+          <div className="flex gap-2">
+            <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()}
+              placeholder="Nome da nova linha editorial" className="input flex-1" />
+            <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary flex items-center gap-2 px-5 disabled:opacity-60">
+              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Criar
+            </button>
+          </div>
+          <input value={newDesc} onChange={e => setNewDesc(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()}
+            placeholder="Descrição (o que é essa linha? ajuda a bater o olho)" className="input w-full text-sm" />
         </div>
 
         {/* Lista */}
@@ -180,24 +186,31 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
           {lines.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Nenhuma linha editorial cadastrada</p>}
           {lines.map((l, i) => {
             const count = countByLineId(l.id)
-            const color = PALETTE[i % PALETTE.length]
+            const color = l.color || PALETTE[i % PALETTE.length]
             return (
-              <div key={l.id} className="flex items-center gap-3 py-2.5 group">
+              <div key={l.id} className="py-2.5 group">
                 {editingId === l.id ? (
-                  <>
-                    <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleUpdate(l.id); if (e.key === 'Escape') setEditingId(null) }}
-                      className="input flex-1 py-1.5" autoFocus />
-                    <button onClick={() => handleUpdate(l.id)} className="p-1.5 text-emerald-600 hover:text-emerald-700"><Check className="w-4 h-4" /></button>
-                    <button onClick={() => setEditingId(null)} className="p-1.5 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
-                  </>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleUpdate(l.id); if (e.key === 'Escape') setEditingId(null) }}
+                        className="input flex-1 py-1.5" placeholder="Nome" autoFocus />
+                      <button onClick={() => handleUpdate(l.id)} className="p-1.5 text-emerald-600 hover:text-emerald-700"><Check className="w-4 h-4" /></button>
+                      <button onClick={() => setEditingId(null)} className="p-1.5 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                    </div>
+                    <input value={editDesc} onChange={e => setEditDesc(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleUpdate(l.id); if (e.key === 'Escape') setEditingId(null) }}
+                      className="input w-full py-1.5 text-sm" placeholder="Descrição" />
+                  </div>
                 ) : (
-                  <>
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <button onClick={() => setViewLine(l)} className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-brand-600">{l.name}</button>
-                    <span className="text-xs font-medium rounded-full px-2 py-0.5" style={{ color, backgroundColor: `${color}14` }}>{count} no mês</span>
-                    <button onClick={() => { setEditingId(l.id); setEditName(l.name) }} className="p-1.5 text-gray-300 hover:text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(l.id)} className="p-1.5 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                  </>
+                  <div className="flex items-start gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: color }} />
+                    <button onClick={() => setViewLine(l)} className="flex-1 text-left min-w-0">
+                      <span className="text-sm font-medium text-gray-800 hover:text-brand-600 block">{l.name}</span>
+                      {l.description && <span className="text-xs text-gray-400 block mt-0.5">{l.description}</span>}
+                    </button>
+                    <span className="text-xs font-medium rounded-full px-2 py-0.5 shrink-0 mt-0.5" style={{ color, backgroundColor: `${color}14` }}>{count} no mês</span>
+                    <button onClick={() => { setEditingId(l.id); setEditName(l.name); setEditDesc(l.description ?? '') }} className="p-1.5 text-gray-300 hover:text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(l.id)} className="p-1.5 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 )}
               </div>
             )
@@ -208,7 +221,7 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
       {viewLine && (
         <EditorialViewModal line={viewLine} posts={posts}
           onClose={() => setViewLine(null)}
-          onEditLine={() => { setEditingId(viewLine.id); setEditName(viewLine.name); setViewLine(null) }}
+          onEditLine={() => { setEditingId(viewLine.id); setEditName(viewLine.name); setEditDesc(viewLine.description ?? ''); setViewLine(null) }}
           onDeleteLine={() => handleDelete(viewLine.id)}
           onChanged={() => router.refresh()} />
       )}
@@ -281,13 +294,17 @@ function EditorialViewModal({ line, posts, onClose, onEditLine, onDeleteLine, on
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2 min-w-0">
-            <BookOpen className="w-5 h-5 text-brand-500 shrink-0" />
+            <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: line.color || '#94A3B8' }} />
             <h2 className="text-base font-semibold text-gray-900 truncate">{line.name}</h2>
           </div>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50 shrink-0"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-6 space-y-4">
+          {line.description && (
+            <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">{line.description}</p>
+          )}
+
           {/* Passador de mês */}
           <div className="flex items-center justify-center gap-1">
             <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>

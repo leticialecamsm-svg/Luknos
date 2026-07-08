@@ -2361,7 +2361,9 @@ export async function getEditorialLines() {
   return data ?? []
 }
 
-export async function createEditorialLine(name: string) {
+const EDITORIAL_PALETTE = ['#6366F1','#EC4899','#F59E0B','#10B981','#3B82F6','#8B5CF6','#EF4444','#14B8A6','#F97316','#A855F7','#0EA5E9','#84CC16']
+
+export async function createEditorialLine(name: string, description?: string) {
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Informe o nome da linha editorial' }
   const admin = createAdminClient()
@@ -2372,22 +2374,26 @@ export async function createEditorialLine(name: string) {
     .ilike('name', trimmed)
     .maybeSingle()
   if (existing) return { ok: true, data: existing }
+  // Cor automática rotativa pela quantidade já cadastrada
+  const { count } = await admin.from('marketing_editorial_lines').select('*', { count: 'exact', head: true })
+  const color = EDITORIAL_PALETTE[(count ?? 0) % EDITORIAL_PALETTE.length]
   const { data, error } = await admin
     .from('marketing_editorial_lines')
-    .insert({ name: trimmed })
+    .insert({ name: trimmed, description: description?.trim() || null, color })
     .select()
     .single()
   if (error) return { error: error.message }
   revalidatePath('/marketing')
+  revalidatePath('/marketing/editorial')
   return { ok: true, data }
 }
 
-export async function updateEditorialLine(id: string, name: string) {
+export async function updateEditorialLine(id: string, name: string, description?: string) {
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Informe o nome da linha editorial' }
   const { error } = await createAdminClient()
     .from('marketing_editorial_lines')
-    .update({ name: trimmed })
+    .update({ name: trimmed, description: description?.trim() || null })
     .eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/marketing')
@@ -2410,11 +2416,12 @@ export async function deleteEditorialLine(id: string) {
 export async function getMarketingPosts() {
   const { data } = await createAdminClient()
     .from('marketing_posts')
-    .select('*, editorial_line:marketing_editorial_lines(id, name), participants:marketing_post_participants(user:users(id, name, avatar_color, avatar_url))')
+    .select('*, editorial_line:marketing_editorial_lines(id, name, color), participants:marketing_post_participants(user:users(id, name, avatar_color, avatar_url))')
     .order('post_date', { ascending: true })
   return (data ?? []).map((p: any) => ({
     ...p,
     editorial_line_name: p.editorial_line?.name ?? null,
+    editorial_line_color: p.editorial_line?.color ?? null,
     participants: (p.participants ?? []).map((pp: any) => pp.user).filter(Boolean),
   }))
 }

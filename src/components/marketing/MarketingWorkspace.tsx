@@ -8,6 +8,7 @@ import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostTy
 import { Avatar } from '@/components/ui/Avatar'
 import { PostModal, TYPE_ICON } from './PostModal'
 import { PostViewModal } from './PostViewModal'
+import { EditorialTag } from './EditorialTag'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Plus, Megaphone, Camera, BookOpen } from 'lucide-react'
 
@@ -144,7 +145,7 @@ function PostCard({ post, onClick, onDragStart, onDragEnd, dragging }: {
         <span className="font-medium">{MARKETING_POST_TYPE_LABEL[post.type as MarketingPostType]}</span>
         {post.capture_date && <span className="flex items-center gap-0.5"><Camera className="w-2.5 h-2.5" /> {formatDate(post.capture_date).slice(0, 5)}</span>}
       </div>
-      {post.editorial_line_name && <p className="text-[10px] text-gray-500 truncate">{post.editorial_line_name}</p>}
+      {post.editorial_line_name && <EditorialTag name={post.editorial_line_name} color={post.editorial_line_color} size="sm" />}
       {(post.participants ?? []).length > 0 && (
         <div className="flex -space-x-1">
           {post.participants.slice(0, 4).map((u: any) => <Avatar key={u.id} user={u} size={16} className="ring-1 ring-white" />)}

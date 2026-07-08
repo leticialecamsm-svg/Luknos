@@ -264,8 +264,12 @@ function EditorialCombobox({ lines, value, onChange, onCreated }: {
 
   return (
     <div className="relative mt-1" ref={ref}>
-      <input value={open ? query : (selected?.name ?? '')} onChange={e => { setQuery(e.target.value); setOpen(true) }}
-        onFocus={() => { setOpen(true); setQuery('') }} placeholder="Buscar ou criar linha editorial..." className="input" />
+      <div className="relative">
+        {!open && selected && <span className="absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full" style={{ backgroundColor: selected.color || '#94A3B8' }} />}
+        <input value={open ? query : (selected?.name ?? '')} onChange={e => { setQuery(e.target.value); setOpen(true) }}
+          onFocus={() => { setOpen(true); setQuery('') }} placeholder="Buscar ou criar linha editorial..."
+          className={cn('input', !open && selected && 'pl-8')} />
+      </div>
       {open && (
         <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
           {value && (
@@ -273,7 +277,9 @@ function EditorialCombobox({ lines, value, onChange, onCreated }: {
           )}
           {filtered.map(l => (
             <button key={l.id} onClick={() => { onChange(l.id); setOpen(false) }}
-              className={cn('w-full text-left px-3 py-2 text-sm hover:bg-gray-50', l.id === value && 'bg-brand-50 text-brand-700')}>{l.name}</button>
+              className={cn('w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2', l.id === value && 'bg-brand-50 text-brand-700')}>
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color || '#94A3B8' }} />
+              {l.name}</button>
           ))}
           {query.trim() && !exact && (
             <button onClick={handleCreate} disabled={creating}
