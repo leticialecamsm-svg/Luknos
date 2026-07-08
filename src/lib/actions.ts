@@ -908,6 +908,10 @@ export async function deleteUser(userId: string) {
   // Metas mensais não têm sentido sem o usuário dono e a FK não tem cascade — remove antes.
   await admin.from('monthly_goals').delete().eq('user_id', userId)
 
+  // contacts.created_by apenas registra quem cadastrou o contato — não apaga o contato,
+  // só desvincula a atribuição (a constraint no banco não tem ON DELETE SET NULL como esperado).
+  await admin.from('contacts').update({ created_by: null }).eq('created_by', userId)
+
   // Remove da tabela public.users com o client admin (contorna RLS).
   // Se sobrar algum vínculo que impeça a exclusão, retorna erro claro.
   const { error: dbError } = await admin.from('users').delete().eq('id', userId)

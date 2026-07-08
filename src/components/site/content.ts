@@ -108,17 +108,14 @@ export const differentials = [
 
 // Galeria de projetos. Para adicionar, jogue o arquivo em /public/site/projetos/
 // e acrescente um item aqui. `wide: true` faz o card ocupar destaque maior.
+// Obs: apdavid06 (living com pendente) é o fundo do hero, por isso não se repete aqui.
+// O grid tem 3 colunas: 1 card `wide` (2x2) + 5 normais = 3 linhas exatas.
 export const projects = [
-  {
-    title: 'Living com pendente escultural',
-    tag: 'Residencial',
-    src: '/site/projetos/apdavid06.jpg',
-    wide: true,
-  },
   {
     title: 'Suíte com nichos iluminados',
     tag: 'Residencial',
     src: '/site/projetos/apdavid02.jpg',
+    wide: true,
   },
   {
     title: 'Lavabo com espelho orgânico',

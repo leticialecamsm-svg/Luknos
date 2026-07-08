@@ -67,9 +67,11 @@ export default function SitePage() {
           )}
           {/* Grade técnica sutil */}
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
-          {/* Escurecimento para leitura do texto */}
-          <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/80 to-ink/40" />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink via-transparent to-ink/60" />
+          {/* Escurecimento só o suficiente para o texto (à esquerda) ficar legível,
+              deixando a foto respirar à direita. */}
+          <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/75 to-ink/10" />
+          {/* Leve fade no topo (nav) e na base (emenda com a próxima seção) */}
+          <div className="absolute inset-0 bg-gradient-to-b from-ink/60 via-transparent to-ink/85" />
         </div>
 
         <div className="relative mx-auto w-full max-w-7xl px-6 pt-32 lg:px-10">
@@ -85,7 +87,7 @@ export default function SitePage() {
             </h1>
           </Reveal>
           <Reveal delay={220}>
-            <p className="mt-6 max-w-xl text-lg font-light leading-relaxed text-white/70">
+            <p className="mt-6 max-w-xl text-lg font-light leading-relaxed text-white/85 [text-shadow:0_1px_12px_rgba(0,26,60,0.6)]">
               {hero.subtitle}
             </p>
           </Reveal>
