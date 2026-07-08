@@ -14,6 +14,7 @@ export default async function QuotesLayout({ children }: { children: React.React
     .select('*')
     .eq('id', user.id)
     .single()
+  if (profile?.role === 'marketing') redirect('/marketing')
 
   return (
     <div className="flex h-screen overflow-hidden">

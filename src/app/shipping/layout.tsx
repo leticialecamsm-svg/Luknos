@@ -10,6 +10,7 @@ export default async function ShippingLayout({ children }: { children: React.Rea
 
   const { data: profile } = await supabase
     .from('users').select('*').eq('id', user.id).single()
+  if (profile?.role === 'marketing') redirect('/marketing')
 
   return (
     <div className="flex h-screen overflow-hidden">

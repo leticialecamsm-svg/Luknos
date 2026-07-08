@@ -15,6 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .select('*')
     .eq('id', user.id)
     .single()
+  if (profile?.role === 'marketing') redirect('/marketing')
 
   return (
     <div className="flex h-screen overflow-hidden">

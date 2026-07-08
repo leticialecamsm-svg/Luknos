@@ -8,6 +8,7 @@ export default async function PartnersLayout({ children }: { children: React.Rea
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) redirect('/auth/login')
   const { data: profile } = await supabase.from('users').select('*').eq('id', user.id).single()
+  if (profile?.role === 'marketing') redirect('/marketing')
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar user={profile} />

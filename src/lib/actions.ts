@@ -900,16 +900,24 @@ export async function deleteUser(userId: string) {
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') return { error: 'Sem permissão' }
 
+  if (userId === user.id) return { error: 'Você não pode excluir o próprio usuário' }
+
   const { createAdminClient } = await import('@/lib/supabase/admin')
   const admin = createAdminClient()
 
-  // Delete from Supabase Auth
-  const { error: authError } = await admin.auth.admin.deleteUser(userId)
-  if (authError) return { error: authError.message }
+  // Remove da tabela public.users com o client admin (contorna RLS).
+  // Se houver vínculos (orçamentos, metas, etc.) que impeçam a exclusão, retorna erro claro.
+  const { error: dbError } = await admin.from('users').delete().eq('id', userId)
+  if (dbError) {
+    if ((dbError.code === '23503') || /foreign key|violates/i.test(dbError.message)) {
+      return { error: 'Este usuário tem registros vinculados (orçamentos, vendas, etc.) e não pode ser excluído. Considere desativá-lo.' }
+    }
+    return { error: dbError.message }
+  }
 
-  // Delete from users table (will cascade to related records if configured)
-  const { error: dbError } = await supabase.from('users').delete().eq('id', userId)
-  if (dbError) return { error: dbError.message }
+  // Remove do Supabase Auth (ignora "usuário não encontrado" caso já tenha caído por cascade)
+  const { error: authError } = await admin.auth.admin.deleteUser(userId)
+  if (authError && !/not found|no user/i.test(authError.message)) return { error: authError.message }
 
   revalidatePath('/admin')
   revalidatePath('/admin/goals')
