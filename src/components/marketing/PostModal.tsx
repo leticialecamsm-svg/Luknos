@@ -103,8 +103,8 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
         </div>
 
-        {/* Seções em grid: cada linha alinha os cabeçalhos das duas colunas.
-            Ordem (igual à visualização): Informações · Datas · Conteúdo · Status · Participantes */}
+        {/* Seções pareadas por altura para alinhar os cabeçalhos:
+            Linha 1 (altas): Informações | Conteúdo · Linha 2 (curtas): Datas | Status · Linha 3: Participantes */}
         <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 items-start">
           {/* Linha 1 */}
           <Section icon={FileText} title="Informações">
@@ -130,20 +130,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
             </div>
           </Section>
 
-          <Section icon={Calendar} title="Datas">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-500">Postagem</label>
-                <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Captação</label>
-                <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
-              </div>
-            </div>
-          </Section>
-
-          {/* Linha 2 */}
+          {/* Conteúdo — mesma linha de Informações (ambas altas) */}
           <Section icon={BookOpen} title="Conteúdo" action={
             <a href={DRIVE_URL} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 normal-case">
@@ -174,6 +161,20 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
                   <input value={roteiro} onChange={e => setRoteiro(e.target.value)} className="input pl-9" placeholder="https://docs.google.com/..." autoFocus />
                 </div>
               )}
+            </div>
+          </Section>
+
+          {/* Linha 2 (curtas): Datas | Status */}
+          <Section icon={Calendar} title="Datas">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-500">Postagem</label>
+                <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Captação</label>
+                <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
+              </div>
             </div>
           </Section>
 

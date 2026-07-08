@@ -85,24 +85,29 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
           </div>
 
           {/* Infos */}
+          {/* Conteúdo (mesma ordem da edição: linha editorial → criativo → roteiro) */}
+          <div className="space-y-3">
+            <Info icon={BookOpen} label="Linha editorial" value={post.editorial_line_name ?? '—'} />
+            {(post.creative_url || post.roteiro_url) && (
+              <div className="flex flex-wrap gap-2">
+                {post.creative_url && (
+                  <a href={post.creative_url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5 hover:bg-brand-50">
+                    <ExternalLink className="w-3.5 h-3.5" /> Criativo
+                  </a>
+                )}
+                {post.roteiro_url && (
+                  <a href={post.roteiro_url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5 hover:bg-brand-50">
+                    <ExternalLink className="w-3.5 h-3.5" /> Roteiro
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Datas */}
           <div className="grid grid-cols-2 gap-3">
             <Info icon={Calendar} label="Data de postagem" value={post.post_date ? formatDate(post.post_date) : '—'} />
             <Info icon={Calendar} label="Data de captação" value={post.capture_date ? formatDate(post.capture_date) : '—'} />
-            <Info icon={BookOpen} label="Linha editorial" value={post.editorial_line_name ?? '—'} />
-          </div>
-
-          {/* Links (mesma ordem da edição: criativo, roteiro) */}
-          <div className="flex flex-wrap gap-2">
-            {post.creative_url && (
-              <a href={post.creative_url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5 hover:bg-brand-50">
-                <ExternalLink className="w-3.5 h-3.5" /> Criativo
-              </a>
-            )}
-            {post.roteiro_url && (
-              <a href={post.roteiro_url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5 hover:bg-brand-50">
-                <ExternalLink className="w-3.5 h-3.5" /> Roteiro
-              </a>
-            )}
           </div>
 
           {/* Participantes */}
