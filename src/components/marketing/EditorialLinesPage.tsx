@@ -54,6 +54,7 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
 
   const totalMonth = monthPosts.length
   const postedCount = monthPosts.filter(p => p.status === 'posted').length
+  const scheduledCount = totalMonth - postedCount
 
   async function handleCreate() {
     if (!newName.trim()) return
@@ -78,26 +79,39 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
   const countByLineId = (id: string) => monthPosts.filter(p => (p.editorial_line_id ?? '__none__') === id).length
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5 overflow-hidden">
+      {/* Blobs decorativos desfocados */}
+      <div aria-hidden className="pointer-events-none absolute -top-24 -left-16 w-72 h-72 rounded-full bg-brand-300/30 blur-3xl -z-10" />
+      <div aria-hidden className="pointer-events-none absolute top-10 right-0 w-72 h-72 rounded-full bg-pink-300/20 blur-3xl -z-10" />
+      <div aria-hidden className="pointer-events-none absolute bottom-0 left-1/3 w-72 h-72 rounded-full bg-indigo-300/20 blur-3xl -z-10" />
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <Link href="/marketing" className="text-xs text-brand-600 hover:underline flex items-center gap-1 mb-1"><ArrowLeft className="w-3.5 h-3.5" /> Voltar ao calendário</Link>
-          <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2"><BookOpen className="w-5 h-5 text-brand-500" /> Linhas editoriais</h1>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><BookOpen className="w-6 h-6 text-brand-500" /> Linhas editoriais</h1>
         </div>
         {/* Passador de mês */}
-        <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-1 py-0.5">
-          <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
+        <div className="flex items-center gap-1 rounded-xl border border-white/70 bg-white/60 backdrop-blur-md shadow-sm px-1 py-0.5">
+          <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-white/60"><ChevronLeft className="w-4 h-4" /></button>
           <span className="text-sm font-semibold text-gray-700 capitalize min-w-[130px] text-center">{monthLabel}</span>
-          <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50"><ChevronRight className="w-4 h-4" /></button>
+          <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-white/60"><ChevronRight className="w-4 h-4" /></button>
           {monthOffset !== 0 && <button onClick={() => setMonthOffset(0)} className="text-[11px] font-medium text-brand-600 hover:underline px-1.5">Hoje</button>}
         </div>
+      </div>
+
+      {/* Stats rápidos */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatChip label="Posts no mês" value={totalMonth} color="brand" />
+        <StatChip label="Postados" value={postedCount} color="emerald" />
+        <StatChip label="Agendados" value={scheduledCount} color="amber" />
+        <StatChip label="Linhas ativas" value={lines.length} color="indigo" />
       </div>
 
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pizza — distribuição por linha editorial */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="rounded-2xl border border-white/70 bg-white/60 backdrop-blur-md shadow-sm p-5">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4"><PieIcon className="w-4 h-4 text-brand-500" /> Posts por linha editorial</h3>
           {byLine.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-10">Nenhum post neste mês</p>
@@ -119,7 +133,7 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
         </div>
 
         {/* Barras — formatos (tipo) */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="rounded-2xl border border-white/70 bg-white/60 backdrop-blur-md shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-brand-500" /> Formatos publicados</h3>
             <span className="text-xs text-gray-400">{postedCount}/{totalMonth} postados</span>
@@ -149,7 +163,7 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
       </div>
 
       {/* Gerenciar linhas editoriais */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="rounded-2xl border border-white/70 bg-white/60 backdrop-blur-md shadow-sm p-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-4">Gerenciar linhas editoriais</h3>
 
         {/* Criar */}
@@ -164,10 +178,11 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
         {/* Lista */}
         <div className="divide-y divide-gray-100">
           {lines.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Nenhuma linha editorial cadastrada</p>}
-          {lines.map(l => {
+          {lines.map((l, i) => {
             const count = countByLineId(l.id)
+            const color = PALETTE[i % PALETTE.length]
             return (
-              <div key={l.id} className="flex items-center gap-3 py-2.5">
+              <div key={l.id} className="flex items-center gap-3 py-2.5 group">
                 {editingId === l.id ? (
                   <>
                     <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleUpdate(l.id); if (e.key === 'Escape') setEditingId(null) }}
@@ -177,10 +192,11 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
                   </>
                 ) : (
                   <>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
                     <button onClick={() => setViewLine(l)} className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-brand-600">{l.name}</button>
-                    <span className="text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-full px-2 py-0.5">{count} no mês</span>
-                    <button onClick={() => { setEditingId(l.id); setEditName(l.name) }} className="p-1.5 text-gray-400 hover:text-brand-600"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(l.id)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                    <span className="text-xs font-medium rounded-full px-2 py-0.5" style={{ color, backgroundColor: `${color}14` }}>{count} no mês</span>
+                    <button onClick={() => { setEditingId(l.id); setEditName(l.name) }} className="p-1.5 text-gray-300 hover:text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(l.id)} className="p-1.5 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
                   </>
                 )}
               </div>
@@ -200,25 +216,46 @@ export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[
   )
 }
 
+const STAT_TONES: Record<string, string> = {
+  brand:   'text-brand-600',
+  emerald: 'text-emerald-600',
+  amber:   'text-amber-600',
+  indigo:  'text-indigo-600',
+}
+function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded-2xl border border-white/70 bg-white/60 backdrop-blur-md shadow-sm px-4 py-3">
+      <p className="text-xs text-gray-400 font-medium">{label}</p>
+      <p className={cn('text-2xl font-bold mt-0.5', STAT_TONES[color])}>{value}</p>
+    </div>
+  )
+}
+
 function PieChart({ data, total }: { data: { id: string; count: number; color: string }[]; total: number }) {
-  const R = 52, C = 60, stroke = 22
+  const R = 52, C = 60, stroke = 16
   const circ = 2 * Math.PI * R
+  const GAP = data.length > 1 ? 5 : 0 // respiro entre segmentos (px de arco)
   let offset = 0
   return (
-    <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0 -rotate-90">
-      <circle cx={C} cy={C} r={R} fill="none" stroke="#F1F5F9" strokeWidth={stroke} />
-      {data.map(d => {
-        const frac = d.count / total
-        const dash = frac * circ
-        const el = (
-          <circle key={d.id} cx={C} cy={C} r={R} fill="none" stroke={d.color} strokeWidth={stroke}
-            strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={-offset} />
-        )
-        offset += dash
-        return el
-      })}
-      <text x={C} y={C} textAnchor="middle" dominantBaseline="central" className="rotate-90" transform={`rotate(90 ${C} ${C})`} style={{ fontSize: 20, fontWeight: 700, fill: '#334155' }}>{total}</text>
-    </svg>
+    <div className="relative w-36 h-36 shrink-0">
+      <svg viewBox="0 0 120 120" className="w-36 h-36 -rotate-90">
+        <circle cx={C} cy={C} r={R} fill="none" stroke="#F1F5F9" strokeWidth={stroke} />
+        {data.map(d => {
+          const frac = d.count / total
+          const dash = Math.max(frac * circ - GAP, 1)
+          const el = (
+            <circle key={d.id} cx={C} cy={C} r={R} fill="none" stroke={d.color} strokeWidth={stroke}
+              strokeLinecap="round" strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={-offset} />
+          )
+          offset += frac * circ
+          return el
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold text-gray-800 leading-none">{total}</span>
+        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mt-0.5">posts</span>
+      </div>
+    </div>
   )
 }
 
