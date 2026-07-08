@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
-import { Cormorant_Garamond } from 'next/font/google'
+import { Sora } from 'next/font/google'
 
-// Fonte display serifada — dá o toque atemporal / alto padrão nos títulos.
-const display = Cormorant_Garamond({
+// Fonte display sem serifa, geométrica e leve — moderna e atemporal nos títulos.
+const display = Sora({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['200', '300', '400', '500'],
   variable: '--font-display',
   display: 'swap',
 })

@@ -16,55 +16,21 @@ import {
 import {
   brand,
   hero,
+  showroom,
   paths,
   stats,
   differentials,
   projects,
   testimonials,
+  instagram,
   contact,
 } from '@/components/site/content'
 import { whatsappHref } from '@/components/site/utils'
 import { Reveal } from '@/components/site/Reveal'
 import { SiteNav } from '@/components/site/SiteNav'
 import { FloatingWhatsApp } from '@/components/site/FloatingWhatsApp'
-
-/* Placeholder de mídia premium — vira <Image> assim que houver `src`. */
-function MediaFrame({
-  src,
-  alt,
-  label,
-  className = '',
-}: {
-  src: string | null
-  alt: string
-  label?: string
-  className?: string
-}) {
-  if (src) {
-    return (
-      <div className={`relative overflow-hidden ${className}`}>
-        <Image src={src} alt={alt} fill className="object-cover" />
-      </div>
-    )
-  }
-  return (
-    <div
-      className={`relative overflow-hidden bg-gradient-to-br from-ink-700 via-ink to-ink-800 ${className}`}
-    >
-      {/* brilho champagne sutil */}
-      <div className="pointer-events-none absolute -right-1/4 -top-1/4 h-2/3 w-2/3 rounded-full bg-champagne/15 blur-3xl" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(228,201,131,0.10),transparent_55%)]" />
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-        <Lightbulb className="text-champagne/70" size={30} />
-        {label && (
-          <span className="text-xs uppercase tracking-[0.25em] text-white/40">
-            {label}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
+import { ShowroomVideo } from '@/components/site/ShowroomVideo'
+import { InstagramFeed } from '@/components/site/InstagramFeed'
 
 const pathIcons = [Lightbulb, Ruler]
 const diffIcons = [Sparkles, Ruler, Lightbulb]
@@ -77,7 +43,6 @@ export default function SitePage() {
 
       {/* ================= HERO ================= */}
       <section className="relative flex min-h-[100svh] items-center overflow-hidden">
-        {/* Fundo: vídeo, imagem ou gradiente estilizado */}
         <div className="absolute inset-0">
           {hero.media?.type === 'video' ? (
             <video
@@ -89,16 +54,22 @@ export default function SitePage() {
               playsInline
             />
           ) : hero.media?.type === 'image' ? (
-            <Image src={hero.media.src} alt="" fill priority className="object-cover" />
+            <Image
+              src={hero.media.src}
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="animate-slow-zoom object-cover object-center"
+            />
           ) : (
             <div className="h-full w-full animate-slow-zoom bg-gradient-to-br from-ink-800 via-ink to-black" />
           )}
-          {/* Grade técnica sutil (toque tecnológico) */}
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:64px_64px]" />
-          {/* Glow champagne */}
-          <div className="pointer-events-none absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-champagne/20 blur-[120px]" />
-          {/* Vinheta para leitura */}
-          <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/50 to-ink/70" />
+          {/* Grade técnica sutil */}
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
+          {/* Escurecimento para leitura do texto */}
+          <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/80 to-ink/40" />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink via-transparent to-ink/60" />
         </div>
 
         <div className="relative mx-auto w-full max-w-7xl px-6 pt-32 lg:px-10">
@@ -109,12 +80,12 @@ export default function SitePage() {
             </span>
           </Reveal>
           <Reveal delay={120}>
-            <h1 className="mt-6 max-w-3xl font-display text-5xl font-medium leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
+            <h1 className="mt-7 max-w-3xl font-display text-4xl font-extralight leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
               {hero.headline}
             </h1>
           </Reveal>
           <Reveal delay={220}>
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/70">
+            <p className="mt-6 max-w-xl text-lg font-light leading-relaxed text-white/70">
               {hero.subtitle}
             </p>
           </Reveal>
@@ -125,10 +96,7 @@ export default function SitePage() {
                 className="group inline-flex items-center justify-center gap-2 rounded-full bg-champagne px-7 py-4 font-medium text-ink transition-colors hover:bg-champagne-light"
               >
                 {hero.ctaPrimary.label}
-                <ArrowRight
-                  size={18}
-                  className="transition-transform group-hover:translate-x-1"
-                />
+                <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
               </a>
               <a
                 href={hero.ctaSecondary.href}
@@ -161,17 +129,17 @@ export default function SitePage() {
                   <span className="text-xs uppercase tracking-[0.2em] text-champagne">
                     {p.kicker}
                   </span>
-                  <h3 className="mt-3 font-display text-3xl font-medium leading-tight lg:text-4xl">
+                  <h3 className="mt-3 font-display text-2xl font-light leading-tight tracking-tight lg:text-3xl">
                     {p.title}
                   </h3>
-                  <p className="mt-4 max-w-md leading-relaxed text-white/65">
+                  <p className="mt-4 max-w-md font-light leading-relaxed text-white/65">
                     {p.description}
                   </p>
                   <ul className="mt-6 flex flex-wrap gap-2">
                     {p.bullets.map((b) => (
                       <li
                         key={b}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/70"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm font-light text-white/70"
                       >
                         {b}
                       </li>
@@ -200,11 +168,11 @@ export default function SitePage() {
               .filter((s) => s.value)
               .map((s, i) => (
                 <Reveal key={s.label} delay={i * 100} className="text-center">
-                  <div className="font-display text-5xl font-semibold text-champagne lg:text-6xl">
+                  <div className="font-display text-4xl font-extralight tracking-tight text-champagne lg:text-5xl">
                     {s.value}
                     <span className="text-champagne/70">{s.suffix}</span>
                   </div>
-                  <div className="mt-2 text-sm uppercase tracking-wide text-white/60">
+                  <div className="mt-2 text-sm font-light uppercase tracking-wide text-white/60">
                     {s.label}
                   </div>
                 </Reveal>
@@ -212,6 +180,40 @@ export default function SitePage() {
           </div>
         </section>
       )}
+
+      {/* ================= SHOWROOM + LABORATÓRIO (vídeo) ================= */}
+      <section
+        id="showroom"
+        className="relative overflow-hidden border-b border-white/10 bg-ink py-24 lg:py-32"
+      >
+        <div className="pointer-events-none absolute -left-40 top-1/4 h-[420px] w-[420px] rounded-full bg-champagne/10 blur-[130px]" />
+        <div className="relative mx-auto max-w-7xl px-6 lg:px-10">
+          <div className="grid items-center gap-16 lg:grid-cols-2">
+            <Reveal>
+              <span className="text-xs uppercase tracking-[0.2em] text-champagne">
+                {showroom.kicker}
+              </span>
+              <h2 className="mt-4 max-w-md font-display text-3xl font-extralight leading-tight tracking-tight lg:text-5xl">
+                {showroom.title}
+              </h2>
+              <p className="mt-6 max-w-md font-light leading-relaxed text-white/65">
+                {showroom.description}
+              </p>
+              <a
+                href={showroom.cta.href}
+                className="group mt-8 inline-flex items-center gap-2 rounded-full border border-champagne/60 px-7 py-3.5 font-medium text-champagne transition-colors hover:bg-champagne hover:text-ink"
+              >
+                {showroom.cta.label}
+                <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+              </a>
+            </Reveal>
+
+            <Reveal delay={150}>
+              <ShowroomVideo />
+            </Reveal>
+          </div>
+        </div>
+      </section>
 
       {/* ================= DIFERENCIAIS ================= */}
       <section id="sobre" className="bg-ink py-24 lg:py-32">
@@ -221,15 +223,15 @@ export default function SitePage() {
               <span className="text-xs uppercase tracking-[0.2em] text-champagne">
                 A Luknos
               </span>
-              <h2 className="mt-4 font-display text-4xl font-medium leading-tight lg:text-5xl">
+              <h2 className="mt-4 font-display text-3xl font-extralight leading-tight tracking-tight lg:text-4xl">
                 {brand.tagline}
               </h2>
-              <p className="mt-6 max-w-md leading-relaxed text-white/65">
+              <p className="mt-6 max-w-md font-light leading-relaxed text-white/65">
                 {brand.about}
               </p>
             </Reveal>
 
-            <div className="grid gap-4 sm:grid-cols-1">
+            <div className="grid gap-4">
               {differentials.map((d, i) => {
                 const Icon = diffIcons[i] ?? Sparkles
                 return (
@@ -242,8 +244,8 @@ export default function SitePage() {
                       <Icon size={22} />
                     </div>
                     <div>
-                      <h3 className="text-lg font-medium">{d.title}</h3>
-                      <p className="mt-1 text-white/60">{d.text}</p>
+                      <h3 className="font-display text-lg font-normal">{d.title}</h3>
+                      <p className="mt-1 font-light text-white/60">{d.text}</p>
                     </div>
                   </Reveal>
                 )
@@ -261,7 +263,7 @@ export default function SitePage() {
               <span className="text-xs uppercase tracking-[0.2em] text-champagne">
                 Projetos
               </span>
-              <h2 className="mt-4 max-w-xl font-display text-4xl font-medium leading-tight lg:text-5xl">
+              <h2 className="mt-4 max-w-xl font-display text-3xl font-extralight leading-tight tracking-tight lg:text-5xl">
                 Ambientes que ganham vida com a luz certa
               </h2>
             </div>
@@ -274,31 +276,71 @@ export default function SitePage() {
             </a>
           </Reveal>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             {projects.map((p, i) => (
               <Reveal
-                key={p.title}
+                key={p.src}
                 delay={(i % 3) * 100}
                 as="article"
-                className="group relative"
+                className={`group relative overflow-hidden rounded-2xl ${
+                  'wide' in p && p.wide ? 'col-span-2 row-span-2' : ''
+                }`}
               >
-                <MediaFrame
-                  src={p.src}
-                  alt={p.title}
-                  label={p.tag}
-                  className={`rounded-2xl ${i % 5 === 0 ? 'aspect-[4/5]' : 'aspect-square'}`}
-                />
-                <div className="pointer-events-none absolute inset-0 flex items-end rounded-2xl bg-gradient-to-t from-ink/90 via-transparent to-transparent p-6 opacity-0 transition-opacity duration-500 group-hover:opacity-100">
-                  <div>
-                    <div className="text-xs uppercase tracking-widest text-champagne">
+                <div
+                  className={`relative ${
+                    'wide' in p && p.wide ? 'aspect-square lg:aspect-[4/5]' : 'aspect-[3/4]'
+                  }`}
+                >
+                  <Image
+                    src={p.src}
+                    alt={p.title}
+                    fill
+                    sizes="(max-width: 1024px) 50vw, 33vw"
+                    className="object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                </div>
+                <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-ink/95 via-ink/10 to-transparent p-5 lg:p-6">
+                  <div className="translate-y-2 transition-transform duration-500 group-hover:translate-y-0">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-champagne">
                       {p.tag}
                     </div>
-                    <div className="mt-1 font-display text-2xl">{p.title}</div>
+                    <div className="mt-1 font-display text-base font-light leading-tight lg:text-xl">
+                      {p.title}
+                    </div>
                   </div>
                 </div>
               </Reveal>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ================= INSTAGRAM ================= */}
+      <section id="instagram" className="border-t border-white/10 bg-ink py-24 lg:py-32">
+        <div className="mx-auto max-w-7xl px-6 lg:px-10">
+          <Reveal className="mb-14 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
+            <div>
+              <span className="text-xs uppercase tracking-[0.2em] text-champagne">
+                {instagram.kicker}
+              </span>
+              <h2 className="mt-4 max-w-xl font-display text-3xl font-extralight leading-tight tracking-tight lg:text-5xl">
+                {instagram.title}
+              </h2>
+            </div>
+            <a
+              href={instagram.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 whitespace-nowrap font-medium text-champagne hover:text-champagne-light"
+            >
+              <Instagram size={18} />
+              {instagram.handle}
+            </a>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <InstagramFeed />
+          </Reveal>
         </div>
       </section>
 
@@ -318,13 +360,13 @@ export default function SitePage() {
                   delay={i * 120}
                   className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 lg:p-10"
                 >
-                  <Quote className="text-champagne/50" size={32} />
-                  <p className="mt-5 font-display text-2xl leading-relaxed text-white/90">
+                  <Quote className="text-champagne/50" size={30} />
+                  <p className="mt-5 font-display text-xl font-light leading-relaxed text-white/90">
                     “{t.quote}”
                   </p>
                   <footer className="mt-6 text-sm">
                     <div className="font-medium text-white">{t.author}</div>
-                    <div className="text-white/50">{t.role}</div>
+                    <div className="font-light text-white/50">{t.role}</div>
                   </footer>
                 </Reveal>
               ))}
@@ -342,10 +384,10 @@ export default function SitePage() {
         <div className="relative mx-auto max-w-7xl px-6 lg:px-10">
           <div className="grid gap-14 lg:grid-cols-2 lg:items-center">
             <Reveal>
-              <h2 className="font-display text-4xl font-medium leading-tight lg:text-6xl">
+              <h2 className="font-display text-3xl font-extralight leading-tight tracking-tight lg:text-5xl">
                 {contact.headline}
               </h2>
-              <p className="mt-5 max-w-md text-lg text-white/65">
+              <p className="mt-5 max-w-md text-lg font-light text-white/65">
                 {contact.subtitle}
               </p>
               <a
@@ -355,10 +397,7 @@ export default function SitePage() {
                 className="group mt-8 inline-flex items-center gap-2 rounded-full bg-champagne px-8 py-4 font-medium text-ink transition-colors hover:bg-champagne-light"
               >
                 Falar no WhatsApp
-                <ArrowRight
-                  size={18}
-                  className="transition-transform group-hover:translate-x-1"
-                />
+                <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
               </a>
             </Reveal>
 
@@ -379,7 +418,7 @@ export default function SitePage() {
           <div className="relative h-8 w-[128px]">
             <Image src="/logo-white.svg" alt="Luknos Iluminação" fill className="object-contain object-left" />
           </div>
-          <p className="text-sm text-white/40">
+          <p className="text-sm font-light text-white/40">
             © {new Date().getFullYear()} {brand.name}. Todos os direitos reservados.
           </p>
         </div>
@@ -406,7 +445,7 @@ function ContactRow({
       </div>
       <div>
         <div className="text-xs uppercase tracking-wide text-white/40">{label}</div>
-        <div className="text-white/90">{value}</div>
+        <div className="font-light text-white/90">{value}</div>
       </div>
     </div>
   )

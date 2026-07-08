@@ -21,6 +21,7 @@ export const nav = {
   links: [
     { label: 'Loja', href: '#loja' },
     { label: 'Projeto Luminotécnico', href: '#projeto' },
+    { label: 'Showroom', href: '#showroom' },
     { label: 'Projetos', href: '#portfolio' },
     { label: 'A Luknos', href: '#sobre' },
     { label: 'Contato', href: '#contato' },
@@ -38,7 +39,23 @@ export const hero = {
   // Mídia de fundo: deixe media = null para usar o fundo estilizado.
   // Para vídeo: { type: 'video', src: '/site/hero/hero.mp4' }
   // Para foto:  { type: 'image', src: '/site/hero/hero.jpg' }
-  media: null as null | { type: 'video' | 'image'; src: string },
+  media: {
+    type: 'image',
+    src: '/site/projetos/apdavid06.jpg',
+  } as null | { type: 'video' | 'image'; src: string },
+}
+
+/** Seção do vídeo institucional (showroom + laboratório de iluminação). */
+export const showroom = {
+  kicker: 'Showroom & Laboratório',
+  title: 'Venha ver a luz antes de escolher',
+  description:
+    'Nosso showroom e laboratório de iluminação permitem testar temperatura, ' +
+    'intensidade e efeito de cada peça no ambiente real — você decide vendo, ' +
+    'não imaginando.', // TODO: ajuste o texto se quiser
+  video: '/site/showroom/apresentacao.mp4',
+  poster: '/site/showroom/poster.jpg',
+  cta: { label: 'Agendar uma visita', href: '#contato' },
 }
 
 export const paths = [
@@ -89,15 +106,45 @@ export const differentials = [
   },
 ]
 
-// Galeria — enquanto não houver fotos, usa placeholders premium.
-// Quando enviar as imagens, troque `src: null` por `src: '/site/projetos/arquivo.jpg'`.
+// Galeria de projetos. Para adicionar, jogue o arquivo em /public/site/projetos/
+// e acrescente um item aqui. `wide: true` faz o card ocupar destaque maior.
 export const projects = [
-  { title: 'Residência contemporânea', tag: 'Residencial', src: null as string | null },
-  { title: 'Loja conceito', tag: 'Corporativo', src: null as string | null },
-  { title: 'Living integrado', tag: 'Residencial', src: null as string | null },
-  { title: 'Fachada e paisagismo', tag: 'Externo', src: null as string | null },
-  { title: 'Escritório executivo', tag: 'Corporativo', src: null as string | null },
-  { title: 'Suíte master', tag: 'Residencial', src: null as string | null },
+  {
+    title: 'Living com pendente escultural',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid06.jpg',
+    wide: true,
+  },
+  {
+    title: 'Suíte com nichos iluminados',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid02.jpg',
+  },
+  {
+    title: 'Lavabo com espelho orgânico',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid04.jpg',
+  },
+  {
+    title: 'Hall de entrada',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid05.jpg',
+  },
+  {
+    title: 'Sala de estar e jantar integradas',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid07.jpg',
+  },
+  {
+    title: 'Quarto infantil',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid03.jpg',
+  },
+  {
+    title: 'Banheiro social',
+    tag: 'Residencial',
+    src: '/site/projetos/apdavid01.jpg',
+  },
 ]
 
 // Depoimentos — opcional. Deixe o array vazio [] para ocultar a seção.
@@ -116,6 +163,25 @@ export const testimonials = [
   },
 ]
 
+/**
+ * Seção de Instagram.
+ *
+ * Como preencher: abra o reel no Instagram → botão de compartilhar → "Copiar link"
+ * → cole a URL no array `reels` abaixo. Eles viram embeds oficiais do Instagram.
+ *
+ * (Puxar os posts mais recentes automaticamente exigiria a Instagram Graph API,
+ *  com conta business + token de acesso. Veja a nota no final deste arquivo.)
+ */
+export const instagram = {
+  kicker: 'Instagram',
+  title: 'O que estamos iluminando agora',
+  handle: '@luknosiluminacao',
+  url: 'https://instagram.com/luknosiluminacao',
+  // Cole aqui os links dos reels (3 a 6 ficam ótimos). Ex:
+  // 'https://www.instagram.com/reel/CxxxxxxxxxX/'
+  reels: [] as string[],
+}
+
 export const contact = {
   headline: 'Vamos iluminar o seu próximo projeto?',
   subtitle: 'Fale com a nossa equipe e receba uma consultoria sob medida.',
@@ -126,7 +192,10 @@ export const contact = {
     message: 'Olá! Vim pelo site e gostaria de saber mais sobre a Luknos.',
   },
   email: 'contato@luknos.com.br',                // TODO
-  instagram: { handle: '@luknos', url: 'https://instagram.com/luknos' }, // TODO
+  instagram: {
+    handle: '@luknosiluminacao',
+    url: 'https://instagram.com/luknosiluminacao',
+  },
   address: 'Endereço da loja — cidade/UF',       // TODO
   hours: 'Seg a Sex, 9h às 18h · Sáb, 9h às 13h',// TODO
 }

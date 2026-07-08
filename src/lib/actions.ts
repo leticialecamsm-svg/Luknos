@@ -905,12 +905,17 @@ export async function deleteUser(userId: string) {
   const { createAdminClient } = await import('@/lib/supabase/admin')
   const admin = createAdminClient()
 
+  // Metas mensais não têm sentido sem o usuário dono e a FK não tem cascade — remove antes.
+  await admin.from('monthly_goals').delete().eq('user_id', userId)
+
   // Remove da tabela public.users com o client admin (contorna RLS).
-  // Se houver vínculos (orçamentos, metas, etc.) que impeçam a exclusão, retorna erro claro.
+  // Se sobrar algum vínculo que impeça a exclusão, retorna erro claro.
   const { error: dbError } = await admin.from('users').delete().eq('id', userId)
   if (dbError) {
     if ((dbError.code === '23503') || /foreign key|violates/i.test(dbError.message)) {
-      return { error: 'Este usuário tem registros vinculados (orçamentos, vendas, etc.) e não pode ser excluído. Considere desativá-lo.' }
+      // Inclui o detalhe do Postgres (nomeia a tabela bloqueadora) para diagnóstico rápido
+      const detalhe = dbError.details || dbError.message
+      return { error: `Este usuário tem registros vinculados e não pode ser excluído. Detalhe: ${detalhe}` }
     }
     return { error: dbError.message }
   }
