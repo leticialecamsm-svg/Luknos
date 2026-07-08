@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { MarketingOnboarding, ONBOARDING_KEY } from './MarketingOnboarding'
 import { cn, formatDate } from '@/lib/utils'
-import { updateMarketingPostDate } from '@/lib/actions'
+import { updateMarketingPostDate, getMarketingPosts, getEditorialLines } from '@/lib/actions'
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
 import { Avatar } from '@/components/ui/Avatar'
 import { PostModal, TYPE_ICON } from './PostModal'
@@ -50,6 +50,16 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
   }, [searchParams])
   useEffect(() => { setEditorialLines(initialLines) }, [initialLines])
 
+  // Dados frescos ao montar — evita listas velhas do cache do router ao voltar de outra página
+  useEffect(() => {
+    let alive = true
+    Promise.all([getMarketingPosts(), getEditorialLines()]).then(([ps, ls]) => {
+      if (!alive) return
+      setPosts(ps as any[]); setEditorialLines(ls as any[])
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   const postsByDay = new Map<string, any[]>()
   for (const p of posts) {
     if (!p.post_date) continue
@@ -92,31 +102,33 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
           <p className="text-sm text-gray-400 mt-0.5">Planejamento de postagens</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/marketing/editorial" className="btn-secondary flex items-center gap-2"><BookOpen className="w-4 h-4" /> Linhas editoriais</Link>
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+          <Link href="/marketing/editorial" data-tour="editorial-lines" className="btn-secondary flex items-center gap-2"><BookOpen className="w-4 h-4" /> Linhas editoriais</Link>
+          <div data-tour="view-toggle" className="flex rounded-lg border border-gray-200 overflow-hidden">
             <button onClick={() => setView('month')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Mês</button>
             <button onClick={() => setView('week')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'week' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Semana</button>
           </div>
-          <button onClick={() => openCreate()} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nova postagem</button>
+          <button onClick={() => openCreate()} data-tour="new-post" className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nova postagem</button>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div data-tour="period-nav" className="flex items-center gap-2">
         <button onClick={() => navigate(-1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100"><ChevronLeft className="w-5 h-5" /></button>
         <span className="text-base font-semibold text-gray-800 capitalize min-w-[180px] text-center">{periodLabel}</span>
         <button onClick={() => navigate(1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100"><ChevronRight className="w-5 h-5" /></button>
         <button onClick={() => setRefDate(new Date())} className="text-xs font-medium text-brand-600 hover:underline ml-1">Hoje</button>
       </div>
 
+      <div data-tour="calendar">
       {view === 'month'
         ? <MonthGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} onMovePost={movePost} draggingId={draggingId} setDraggingId={setDraggingId} />
         : <WeekGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} onMovePost={movePost} draggingId={draggingId} setDraggingId={setDraggingId} />}
+      </div>
 
       {viewPost && (
         <PostViewModal post={viewPost} onClose={() => setViewPost(null)} onEdit={openEditFromView} onChanged={afterChange} />
       )}
 
-      {showTour && <MarketingOnboarding onClose={() => setShowTour(false)} />}
+      {showTour && <MarketingOnboarding onClose={() => { setShowTour(false); if (searchParams.get('tour')) router.replace('/marketing') }} />}
 
       {showEdit && (
         <PostModal post={editPost} defaultDate={modalDate} editorialLines={editorialLines} users={users}

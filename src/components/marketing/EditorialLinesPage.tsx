@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createEditorialLine, updateEditorialLine, deleteEditorialLine } from '@/lib/actions'
+import { createEditorialLine, updateEditorialLine, deleteEditorialLine, getEditorialLines, getMarketingPosts } from '@/lib/actions'
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
 import { cn, formatDate } from '@/lib/utils'
 import { Portal } from '@/components/ui/Portal'
@@ -15,9 +15,21 @@ const PALETTE = ['#6366F1', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6
 
 function monthKeyOf(dateStr: string) { return (dateStr ?? '').slice(0, 7) }
 
-export function EditorialLinesPage({ initialLines, posts }: { initialLines: any[]; posts: any[] }) {
+export function EditorialLinesPage({ initialLines, posts: initialPosts }: { initialLines: any[]; posts: any[] }) {
   const router = useRouter()
   const [lines, setLines] = useState(initialLines)
+  const [posts, setPosts] = useState(initialPosts)
+
+  // Busca dados frescos ao montar — evita mostrar dados velhos do cache do router ao navegar
+  useEffect(() => {
+    let alive = true
+    Promise.all([getEditorialLines(), getMarketingPosts()]).then(([ls, ps]) => {
+      if (!alive) return
+      setLines(ls as any[])
+      setPosts(ps as any[])
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [])
   const [monthOffset, setMonthOffset] = useState(0)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
