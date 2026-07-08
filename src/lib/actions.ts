@@ -2509,6 +2509,18 @@ export async function updateMarketingPost(id: string, input: MarketingPostInput)
   return { ok: true }
 }
 
+export async function updateMarketingPostDate(id: string, postDate: string) {
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('marketing_posts')
+    .update({ post_date: postDate, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  await logMarketingActivity(id, `Data de postagem alterada para ${postDate.split('-').reverse().join('/')}`)
+  revalidatePath('/marketing')
+  return { ok: true }
+}
+
 export async function updateMarketingPostStatus(id: string, status: string) {
   const admin = createAdminClient()
   const { error } = await admin

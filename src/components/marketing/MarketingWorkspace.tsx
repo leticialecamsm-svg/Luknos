@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { cn, formatDate } from '@/lib/utils'
+import { updateMarketingPostDate } from '@/lib/actions'
 import { MARKETING_POST_TYPE_LABEL, MARKETING_POST_STATUS_LABEL, MarketingPostType } from '@/types'
 import { Avatar } from '@/components/ui/Avatar'
 import { PostModal, TYPE_ICON } from './PostModal'
@@ -33,6 +34,7 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
   const [editPost, setEditPost] = useState<any | null>(null)      // modal de edição/criação
   const [modalDate, setModalDate] = useState<string | undefined>()
   const [showEdit, setShowEdit] = useState(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   useEffect(() => { setPosts(initialPosts) }, [initialPosts])
   useEffect(() => { setEditorialLines(initialLines) }, [initialLines])
@@ -47,6 +49,15 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
 
   function openCreate(date?: string) { setEditPost(null); setModalDate(date); setShowEdit(true) }
   function openView(post: any) { setViewPost(post) }
+
+  // Arrastar post para outro dia → atualiza a data de postagem
+  async function movePost(postId: string, newDate: string) {
+    const post = posts.find(p => p.id === postId)
+    if (!post || (post.post_date ?? '').slice(0, 10) === newDate) return
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, post_date: newDate } : p)) // otimista
+    await updateMarketingPostDate(postId, newDate)
+    router.refresh()
+  }
   function openEditFromView() { setEditPost(viewPost); setModalDate(undefined); setViewPost(null); setShowEdit(true) }
   function afterSave() { setShowEdit(false); router.refresh() }
   function afterChange() { router.refresh() }
@@ -87,8 +98,8 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
       </div>
 
       {view === 'month'
-        ? <MonthGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} />
-        : <WeekGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} />}
+        ? <MonthGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} onMovePost={movePost} draggingId={draggingId} setDraggingId={setDraggingId} />
+        : <WeekGrid refDate={refDate} postsByDay={postsByDay} onDayClick={openCreate} onPostClick={openView} onMovePost={movePost} draggingId={draggingId} setDraggingId={setDraggingId} />}
 
       {viewPost && (
         <PostViewModal post={viewPost} onClose={() => setViewPost(null)} onEdit={openEditFromView} onChanged={afterChange} />
@@ -111,11 +122,18 @@ function getWeek(refDate: Date) {
 }
 
 // Card de postagem — usado no mês e na semana. Mostra: tipo, data captação, linha editorial, participantes, status
-function PostCard({ post, onClick }: { post: any; onClick: () => void }) {
+function PostCard({ post, onClick, onDragStart, onDragEnd, dragging }: {
+  post: any; onClick: () => void; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean
+}) {
   const Icon = TYPE_ICON[post.type as MarketingPostType]
   return (
-    <button onClick={e => { e.stopPropagation(); onClick() }}
-      className={cn('w-full text-left rounded-lg border p-1.5 space-y-1', TYPE_COLOR[post.type as MarketingPostType])}>
+    <div
+      draggable
+      onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData('postId', post.id); e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
+      onDragEnd={() => onDragEnd?.()}
+      onClick={e => { e.stopPropagation(); onClick() }}
+      role="button"
+      className={cn('w-full text-left rounded-lg border p-1.5 space-y-1 cursor-grab active:cursor-grabbing transition-opacity', TYPE_COLOR[post.type as MarketingPostType], dragging && 'opacity-40')}>
       <div className="flex items-center gap-1">
         <Icon className="w-3.5 h-3.5 shrink-0" />
         <span className="text-[11px] font-semibold truncate flex-1">{post.name}</span>
@@ -132,13 +150,16 @@ function PostCard({ post, onClick }: { post: any; onClick: () => void }) {
           {post.participants.slice(0, 4).map((u: any) => <Avatar key={u.id} user={u} size={16} className="ring-1 ring-white" />)}
         </div>
       )}
-    </button>
+    </div>
   )
 }
 
-function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
+type GridProps = {
   refDate: Date; postsByDay: Map<string, any[]>; onDayClick: (date: string) => void; onPostClick: (post: any) => void
-}) {
+  onMovePost: (postId: string, date: string) => void; draggingId: string | null; setDraggingId: (id: string | null) => void
+}
+
+function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick, onMovePost, draggingId, setDraggingId }: GridProps) {
   const year = refDate.getFullYear(); const month = refDate.getMonth()
   const first = new Date(year, month, 1)
   const gridStart = new Date(first); gridStart.setDate(first.getDate() - first.getDay())
@@ -155,13 +176,16 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
           const key = ymd(d); const inMonth = d.getMonth() === month; const dayPosts = postsByDay.get(key) ?? []
           return (
             <div key={i} onClick={() => onDayClick(key)}
-              className={cn('min-h-[130px] border-b border-r border-gray-100 p-1.5 cursor-pointer hover:bg-gray-50/70 transition-colors flex flex-col gap-1',
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('postId'); if (id) onMovePost(id, key); setDraggingId(null) }}
+              className={cn('min-h-[130px] border-b border-r border-gray-100 p-1.5 cursor-pointer transition-colors flex flex-col gap-1',
+                draggingId ? 'hover:bg-brand-50/60' : 'hover:bg-gray-50/70',
                 !inMonth && 'bg-gray-50/40', i % 7 === 6 && 'border-r-0')}>
               <span className={cn('text-xs font-medium self-start px-1',
                 key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : inMonth ? 'text-gray-600' : 'text-gray-300')}>
                 {d.getDate()}
               </span>
-              {dayPosts.slice(0, 2).map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} />)}
+              {dayPosts.slice(0, 2).map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} onDragStart={() => setDraggingId(p.id)} onDragEnd={() => setDraggingId(null)} dragging={draggingId === p.id} />)}
               {dayPosts.length > 2 && <span className="text-[10px] text-gray-400 px-1">+{dayPosts.length - 2} mais</span>}
             </div>
           )
@@ -171,9 +195,7 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
   )
 }
 
-function WeekGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
-  refDate: Date; postsByDay: Map<string, any[]>; onDayClick: (date: string) => void; onPostClick: (post: any) => void
-}) {
+function WeekGrid({ refDate, postsByDay, onDayClick, onPostClick, onMovePost, draggingId, setDraggingId }: GridProps) {
   const { days } = getWeek(refDate); const todayStr = ymd(new Date())
   return (
     <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
@@ -181,13 +203,16 @@ function WeekGrid({ refDate, postsByDay, onDayClick, onPostClick }: {
         const key = ymd(d); const dayPosts = postsByDay.get(key) ?? []
         return (
           <div key={key} onClick={() => onDayClick(key)}
-            className="rounded-xl border border-gray-200 bg-white p-2.5 min-h-[240px] cursor-pointer hover:border-gray-300 transition-colors flex flex-col gap-2">
+            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+            onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('postId'); if (id) onMovePost(id, key); setDraggingId(null) }}
+            className={cn('rounded-xl border bg-white p-2.5 min-h-[240px] cursor-pointer transition-colors flex flex-col gap-2',
+              draggingId ? 'border-brand-300 bg-brand-50/40' : 'border-gray-200 hover:border-gray-300')}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-500">{WEEKDAYS[d.getDay()]}</span>
               <span className={cn('text-xs font-semibold', key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-gray-600')}>{d.getDate()}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              {dayPosts.map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} />)}
+              {dayPosts.map(p => <PostCard key={p.id} post={p} onClick={() => onPostClick(p)} onDragStart={() => setDraggingId(p.id)} onDragEnd={() => setDraggingId(null)} dragging={draggingId === p.id} />)}
               {dayPosts.length === 0 && <span className="text-[11px] text-gray-300">—</span>}
             </div>
           </div>

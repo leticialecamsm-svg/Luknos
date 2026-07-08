@@ -34,8 +34,18 @@ interface Props {
   onEditorialLineCreated: (line: any) => void
 }
 
+// Interruptor on/off minimalista
+function ToggleSwitch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" onClick={() => onChange(!on)}
+      className={cn('relative w-9 h-5 rounded-full transition-colors shrink-0', on ? 'bg-brand-500' : 'bg-gray-200')}>
+      <span className={cn('absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform', on && 'translate-x-4')} />
+    </button>
+  )
+}
+
 // Cabeçalho de seção reutilizável (padrão dos formulários de orçamento)
-function Section({ icon: Icon, title, action, children }: { icon: any; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Section({ icon: Icon, title, action, children }: { icon: any; title: string; action?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
@@ -58,6 +68,9 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
   const [creative, setCreative] = useState(post?.creative_url ?? '')
   const [editorialId, setEditorialId] = useState<string | null>(post?.editorial_line_id ?? null)
   const [participantIds, setParticipantIds] = useState<string[]>((post?.participants ?? []).map((p: any) => p.id))
+  // Toggles: começam ligados se já houver conteúdo
+  const [roteiroOn, setRoteiroOn] = useState(!!post?.roteiro_url)
+  const [participantesOn, setParticipantesOn] = useState((post?.participants ?? []).length > 0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -67,8 +80,8 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
     setError('')
     const input = {
       name, type, post_date: postDate || null, editorial_line_id: editorialId,
-      roteiro_url: roteiro || null, creative_url: creative || null, status, capture_date: captureDate || null,
-      participant_ids: participantIds,
+      roteiro_url: roteiroOn ? (roteiro || null) : null, creative_url: creative || null, status, capture_date: captureDate || null,
+      participant_ids: participantesOn ? participantIds : [],
     }
     const res = post ? await updateMarketingPost(post.id, input) : await createMarketingPost(input)
     setSaving(false)
@@ -90,119 +103,124 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-          {/* ── Coluna esquerda ── */}
-          <div className="space-y-6">
-            {/* Informações */}
-            <Section icon={FileText} title="Informações">
+        {/* Seções em grid: cada linha alinha os cabeçalhos das duas colunas.
+            Ordem (igual à visualização): Informações · Datas · Conteúdo · Status · Participantes */}
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 items-start">
+          {/* Linha 1 */}
+          <Section icon={FileText} title="Informações">
+            <div>
+              <label className="text-xs font-medium text-gray-500">Nome <span className="text-red-400">*</span></label>
+              <input value={name} onChange={e => setName(e.target.value)} className="input mt-1" placeholder="Ex: Bastidores da montagem" autoFocus />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Tipo</label>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {(Object.keys(MARKETING_POST_TYPE_LABEL) as MarketingPostType[]).map(t => {
+                  const Icon = TYPE_ICON[t]; const st = TYPE_STYLE[t]; const active = type === t
+                  return (
+                    <button key={t} onClick={() => setType(t)}
+                      className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                        active ? st.active : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                      <Icon className={cn('w-4 h-4', active ? st.icon : 'text-gray-400')} />
+                      {MARKETING_POST_TYPE_LABEL[t]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </Section>
+
+          <Section icon={Calendar} title="Datas">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500">Nome <span className="text-red-400">*</span></label>
-                <input value={name} onChange={e => setName(e.target.value)} className="input mt-1" placeholder="Ex: Bastidores da montagem" autoFocus />
+                <label className="text-xs font-medium text-gray-500">Postagem</label>
+                <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500">Tipo</label>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {(Object.keys(MARKETING_POST_TYPE_LABEL) as MarketingPostType[]).map(t => {
-                    const Icon = TYPE_ICON[t]; const st = TYPE_STYLE[t]; const active = type === t
+                <label className="text-xs font-medium text-gray-500">Captação</label>
+                <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
+              </div>
+            </div>
+          </Section>
+
+          {/* Linha 2 */}
+          <Section icon={BookOpen} title="Conteúdo" action={
+            <a href={DRIVE_URL} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 normal-case">
+              <FolderOpen className="w-3.5 h-3.5" /> Link do Drive
+            </a>
+          }>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Linha editorial</label>
+              <EditorialCombobox lines={editorialLines} value={editorialId} onChange={setEditorialId}
+                onCreated={line => { onEditorialLineCreated(line); setEditorialId(line.id) }} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Link do criativo</label>
+              <div className="relative mt-1">
+                <ImageIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input value={creative} onChange={e => setCreative(e.target.value)} className="input pl-9" placeholder="Link da arte / vídeo final" />
+              </div>
+            </div>
+            {/* Roteiro — toggle (discreto quando desligado) */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-500">Roteiro (Google Docs)</label>
+                <ToggleSwitch on={roteiroOn} onChange={setRoteiroOn} />
+              </div>
+              {roteiroOn && (
+                <div className="relative mt-1.5">
+                  <LinkIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input value={roteiro} onChange={e => setRoteiro(e.target.value)} className="input pl-9" placeholder="https://docs.google.com/..." autoFocus />
+                </div>
+              )}
+            </div>
+          </Section>
+
+          <Section icon={CircleDot} title="Status">
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => {
+                const on = status === s
+                const dot = s === 'posted' ? 'bg-emerald-500' : 'bg-amber-500'
+                return (
+                  <button key={s} onClick={() => setStatus(s)}
+                    className={cn('flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                      on
+                        ? (s === 'posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-inset ring-emerald-200'
+                                          : 'bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-inset ring-amber-200')
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                    <span className={cn('w-2 h-2 rounded-full', on ? dot : 'bg-gray-300')} />
+                    {MARKETING_POST_STATUS_LABEL[s]}
+                  </button>
+                )
+              })}
+            </div>
+          </Section>
+
+          {/* Linha 3 — Participantes (toggle), largura total */}
+          <div className="md:col-span-2">
+            <Section icon={Users} title={`Participantes${participantesOn && participantIds.length ? ` · ${participantIds.length}` : ''}`}
+              action={<ToggleSwitch on={participantesOn} onChange={setParticipantesOn} />}>
+              {participantesOn && (
+                <div className="flex flex-wrap gap-1.5">
+                  {users.map(u => {
+                    const on = participantIds.includes(u.id)
                     return (
-                      <button key={t} onClick={() => setType(t)}
-                        className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
-                          active ? st.active : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
-                        <Icon className={cn('w-4 h-4', active ? st.icon : 'text-gray-400')} />
-                        {MARKETING_POST_TYPE_LABEL[t]}
+                      <button key={u.id} onClick={() => toggleParticipant(u.id)}
+                        className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
+                          on ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                        <Avatar user={u} size={20} />
+                        {u.name}
+                        {on && <Check className="w-3.5 h-3.5" />}
                       </button>
                     )
                   })}
                 </div>
-              </div>
-            </Section>
-
-            {/* Conteúdo — com atalho do Drive no cabeçalho */}
-            <Section icon={BookOpen} title="Conteúdo" action={
-              <a href={DRIVE_URL} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 normal-case">
-                <FolderOpen className="w-3.5 h-3.5" /> Link do Drive
-              </a>
-            }>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Linha editorial</label>
-                <EditorialCombobox lines={editorialLines} value={editorialId} onChange={setEditorialId}
-                  onCreated={line => { onEditorialLineCreated(line); setEditorialId(line.id) }} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Roteiro (link do Google Docs)</label>
-                <div className="relative mt-1">
-                  <LinkIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                  <input value={roteiro} onChange={e => setRoteiro(e.target.value)} className="input pl-9" placeholder="https://docs.google.com/..." />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500">Link do criativo</label>
-                <div className="relative mt-1">
-                  <ImageIcon className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                  <input value={creative} onChange={e => setCreative(e.target.value)} className="input pl-9" placeholder="Link da arte / vídeo final" />
-                </div>
-              </div>
+              )}
             </Section>
           </div>
 
-          {/* ── Coluna direita ── */}
-          <div className="space-y-6">
-            {/* Datas */}
-            <Section icon={Calendar} title="Datas">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Postagem</label>
-                  <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className="input mt-1" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Captação</label>
-                  <input type="date" value={captureDate} onChange={e => setCaptureDate(e.target.value)} className="input mt-1" />
-                </div>
-              </div>
-            </Section>
-
-            {/* Status */}
-            <Section icon={CircleDot} title="Status">
-              <div className="grid grid-cols-2 gap-2">
-                {(Object.keys(MARKETING_POST_STATUS_LABEL) as MarketingPostStatus[]).map(s => {
-                  const on = status === s
-                  const dot = s === 'posted' ? 'bg-emerald-500' : 'bg-amber-500'
-                  return (
-                    <button key={s} onClick={() => setStatus(s)}
-                      className={cn('flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
-                        on
-                          ? (s === 'posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-inset ring-emerald-200'
-                                            : 'bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-inset ring-amber-200')
-                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
-                      <span className={cn('w-2 h-2 rounded-full', on ? dot : 'bg-gray-300')} />
-                      {MARKETING_POST_STATUS_LABEL[s]}
-                    </button>
-                  )
-                })}
-              </div>
-            </Section>
-
-            {/* Participantes */}
-            <Section icon={Users} title={`Participantes${participantIds.length ? ` · ${participantIds.length}` : ''}`}>
-              <div className="flex flex-wrap gap-1.5">
-                {users.map(u => {
-                  const on = participantIds.includes(u.id)
-                  return (
-                    <button key={u.id} onClick={() => toggleParticipant(u.id)}
-                      className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
-                        on ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
-                      <Avatar user={u} size={20} />
-                      {u.name}
-                      {on && <Check className="w-3.5 h-3.5" />}
-                    </button>
-                  )
-                })}
-              </div>
-            </Section>
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-          </div>
+          {error && <p className="md:col-span-2 text-sm text-red-600">{error}</p>}
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-end gap-2">
