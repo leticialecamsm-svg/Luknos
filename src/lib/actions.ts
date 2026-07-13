@@ -761,13 +761,17 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
 
   let quotesQuery = supabase
     .from('quotes')
-    .select('quoted_value, final_value, temperature, closed_at')
+    .select('quoted_value, final_value, temperature, closed_at, temperature_updated_at')
     .eq('temperature', 'closed')
 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
 
   const { data: closedQuotes } = await quotesQuery
-  const closedMonth = (closedQuotes ?? []).filter((q: any) => q.temperature === 'closed' && q.closed_at && q.closed_at >= monthStart)
+  // Se closed_at não existir, usa temperature_updated_at (como PERDIDAS fazem)
+  const closedMonth = (closedQuotes ?? []).filter((q: any) => {
+    const dateToCheck = q.closed_at || (String(q.temperature_updated_at ?? '').slice(0, 10))
+    return q.temperature === 'closed' && dateToCheck >= monthStart
+  })
   const closedValue = closedMonth.reduce((sum: number, q: any) => sum + (Number(q.final_value ?? q.quoted_value ?? 0)), 0)
 
   const { data: goal } = await supabase
