@@ -767,7 +767,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
 
   const { data: closedQuotes } = await quotesQuery
-  const closedMonth = (closedQuotes ?? []).filter((q: any) => q.temperature === 'closed' && (q.closed_at ?? '') >= monthStart)
+  const closedMonth = (closedQuotes ?? []).filter((q: any) => q.temperature === 'closed' && q.closed_at && q.closed_at >= monthStart)
   const closedValue = closedMonth.reduce((sum: number, q: any) => sum + (Number(q.final_value ?? q.quoted_value ?? 0)), 0)
 
   const { data: goal } = await supabase
