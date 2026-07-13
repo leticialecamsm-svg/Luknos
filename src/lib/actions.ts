@@ -758,8 +758,6 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // Calcula faturamento do mês usando a mesma lógica que negociações ("Fechada")
   // garante consistência entre dashboard e listagem de negociações
   const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
-  const monthEnd = new Date(y, m + 1, 0)  // Último dia do mês atual
-  const monthEndStr = monthEnd.toISOString().split('T')[0]
 
   let quotesQuery = supabase
     .from('quotes')
@@ -769,7 +767,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
 
   const { data: closedQuotes } = await quotesQuery
-  const closedMonth = (closedQuotes ?? []).filter((q: any) => (q.closed_at ?? '') >= monthStart && (q.closed_at ?? '') <= monthEndStr)
+  const closedMonth = (closedQuotes ?? []).filter((q: any) => q.temperature === 'closed' && (q.closed_at ?? '') >= monthStart)
   const closedValue = closedMonth.reduce((sum: number, q: any) => sum + (Number(q.final_value ?? q.quoted_value ?? 0)), 0)
 
   const { data: goal } = await supabase
