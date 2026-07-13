@@ -759,8 +759,8 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // garante consistência entre dashboard e listagem de negociações
   const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
 
-  let quotesQuery = supabase
-    .from('quotes')
+  let quotesQuery = createAdminClient()
+    .from('quotes_full')
     .select('quoted_value, final_value, temperature, closed_at, temperature_updated_at')
     .eq('temperature', 'closed')
 
