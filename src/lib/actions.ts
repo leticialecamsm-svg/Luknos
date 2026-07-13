@@ -778,7 +778,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
     .eq('year', y).eq('month', m)
     .single()
 
-  return { funnel: funnel ?? [], sales: [{ total: closedValue, month: m, year: y }], storeGoal: goal?.target ?? 0 }
+  return { funnel: funnel ?? [], sales: [{ total_sold: closedValue, month: m, year: y }], storeGoal: goal?.target ?? 0 }
 }
 
 export async function getActiveUsers() {
