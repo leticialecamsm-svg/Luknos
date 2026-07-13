@@ -758,7 +758,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // Calcula faturamento do mês usando a mesma lógica que negociações ("Fechada")
   // garante consistência entre dashboard e listagem de negociações
   const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
-  const monthEnd = new Date(y, m, 0)
+  const monthEnd = new Date(y, m + 1, 0)  // Último dia do mês atual
   const monthEndStr = monthEnd.toISOString().split('T')[0]
 
   let quotesQuery = supabase
