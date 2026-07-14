@@ -522,6 +522,15 @@ export async function updateSalePayment(quoteId: string, data: {
   payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
 }) {
   const supabase = createClient()
+  // Integridade: a soma das formas de pagamento tem que bater com o valor final
+  if (!(data.final_value > 0)) return { error: 'Valor final inválido' }
+  const splits = data.payment_splits ?? []
+  if (splits.length > 0) {
+    const soma = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    if (Math.abs(soma - data.final_value) > 0.01) {
+      return { error: 'A soma das formas de pagamento não confere com o valor final.' }
+    }
+  }
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
   const { error } = await supabase
     .from('negotiations')
@@ -541,16 +550,30 @@ export async function closeSale(quoteId: string, data: {
   payment_splits?: { method_key: string; amount: number; status?: string; date?: string }[]
   notes?: string
   update_quoted_value?: boolean
+  closed_date?: string // data local (YYYY-MM-DD) enviada pelo cliente — evita erro de fuso no mês da venda
 }) {
   const supabase = createClient()
+
+  // Integridade financeira: se houver formas de pagamento, a soma tem que bater com o valor final.
+  // Protege comissão/faturamento de dados divergentes, independentemente da tela.
+  const splits = data.payment_splits ?? []
+  if (!(data.final_value > 0)) return { error: 'Valor final inválido' }
+  if (splits.length > 0) {
+    const soma = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    if (Math.abs(soma - data.final_value) > 0.01) {
+      return { error: 'A soma das formas de pagamento não confere com o valor final.' }
+    }
+  }
+
+  const closedAtDate = data.closed_date || new Date().toISOString().split('T')[0]
   const { error: negError } = await supabase
     .from('negotiations')
     .upsert({
       quote_id: quoteId, temperature: 'closed',
       final_value: data.final_value,
       payment_method: methodKeyToEnum(data.payment_method),
-      payment_splits: data.payment_splits ?? [],
-      closed_at: new Date().toISOString().split('T')[0], notes: data.notes || null,
+      payment_splits: splits,
+      closed_at: closedAtDate, notes: data.notes || null,
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
   const quoteUpdate: Record<string, any> = { status: 'done' }
@@ -577,7 +600,7 @@ export async function closeSale(quoteId: string, data: {
     if (rate > 0) {
       const saleValue = data.final_value || Number(quote.quoted_value ?? 0)
       const amount = parseFloat(((saleValue * rate) / 100).toFixed(2))
-      const closedAt = new Date()
+      const closedAt = new Date(closedAtDate + 'T00:00:00')
       const dueDate = new Date(closedAt)
       dueDate.setDate(dueDate.getDate() + 30)
       await admin.from('commissions').upsert({

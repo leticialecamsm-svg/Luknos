@@ -50,7 +50,12 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
     setSplits(prev => [...prev, { method_key: 'pix', amount: remaining, status: 'paid', date: todayISO() }])
   }
 
-  const removeSplit = (i: number) => setSplits(prev => prev.filter((_, idx) => idx !== i))
+  const removeSplit = (i: number) => setSplits(prev => {
+    const next = prev.filter((_, idx) => idx !== i)
+    // Se sobrar só um método, ele volta a valer o total — evita soma divergente do valor final
+    if (next.length === 1) return [{ ...next[0], amount: fv }]
+    return next
+  })
 
   const updateSplit = (i: number, field: keyof PaymentSplit, value: string | number) => {
     setSplits(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
@@ -67,6 +72,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
         payment_method: primaryMethod,
         payment_splits: splits,
         update_quoted_value: baseValue !== quotedValue,
+        closed_date: todayISO(),
       })
       if (result?.error) { setError(result.error); return }
       onConfirm()
