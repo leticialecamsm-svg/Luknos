@@ -28,7 +28,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
 import { NegotiationTracker } from '@/components/negotiations/NegotiationTracker'
-import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS } from './OptionPills'
+import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS, PRIORITY_OPTS } from './OptionPills'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
@@ -228,6 +228,10 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             </div>
           </div>
           <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Prioridade</p>
+            <div className="mt-1"><OptionTag options={PRIORITY_OPTS} value={quote.priority} /></div>
+          </div>
+          <div>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Etapa da obra</p>
             <div className="mt-1"><OptionTag options={STAGE_OPTS} value={quote.work_stage} /></div>
           </div>
@@ -247,7 +251,16 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             <span className="text-xs text-gray-400">Propostas</span>
             <button
               type="button"
-              onClick={() => { setShowProposalForm(v => !v); setEditingProposalId(null) }}
+              onClick={() => {
+                const opening = !showProposalForm
+                setShowProposalForm(opening)
+                setEditingProposalId(null)
+                // Ao abrir, já preenche com a data de hoje (data local, sem erro de fuso)
+                if (opening && !proposalDate) {
+                  const d = new Date()
+                  setProposalDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+                }
+              }}
               className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
             >
               <PlusCircle className="w-3.5 h-3.5" />
