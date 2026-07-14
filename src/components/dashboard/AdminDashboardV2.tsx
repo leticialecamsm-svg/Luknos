@@ -44,7 +44,7 @@ export function AdminDashboardV2({
   const router = useRouter()
   const now = new Date()
   const currentMonth = new Date(selectedYear ?? now.getFullYear(), (selectedMonth ?? now.getMonth() + 1) - 1, 1)
-  const [detail, setDetail] = useState<{ title: string; items: any[]; field: 'final' | 'quoted' } | null>(null)
+  const [detail, setDetail] = useState<{ title: string; items: any[]; field: 'final' | 'quoted' | 'recebido' } | null>(null)
 
   function navigateMonth(delta: number) {
     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
@@ -60,9 +60,17 @@ export function AdminDashboardV2({
     .filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd)
     .sort((a, b) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')))
 
-  // FATURAMENTO = soma exata da MESMA lista que o popup mostra (final_value ?? quoted_value).
-  // Fonte única: garante que o card, o ticket médio e o drill-down nunca divirjam.
-  const totalFaturamento = closedThisMonth.reduce((sum, q) => sum + Number((q.final_value ?? q.quoted_value) ?? 0), 0)
+  // FATURAMENTO = apenas o valor efetivamente RECEBIDO (splits com status 'paid').
+  // Se a venda não tem splits (pagamento único sem controle "em aberto"), conta o valor cheio.
+  // O que estiver "em aberto" some do faturamento e passa a aparecer no Financeiro como conta a receber.
+  const recebidoDeQuote = (q: any) => {
+    const splits = Array.isArray(q.payment_splits) ? q.payment_splits : []
+    if (splits.length === 0) return Number((q.final_value ?? q.quoted_value) ?? 0)
+    return splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+  }
+  const totalFaturamento = closedThisMonth.reduce((sum, q) => sum + recebidoDeQuote(q), 0)
+  const detailValue = (q: any, field: 'final' | 'quoted' | 'recebido') =>
+    field === 'recebido' ? recebidoDeQuote(q) : Number((field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0)
 
   // Perdidas no mês — ordenadas pelas mais recentes primeiro (data da perda = temperature_updated_at)
   const lostThisMonth = quotes
@@ -258,7 +266,7 @@ export function AdminDashboardV2({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        <div onClick={() => setDetail({ title: 'Vendas fechadas no mês', items: closedThisMonth, field: 'final' })}
+        <div onClick={() => setDetail({ title: 'Vendas fechadas no mês (recebido)', items: closedThisMonth, field: 'recebido' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-green-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento do mês</p>
@@ -279,7 +287,7 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length} oportunidades</p>
         </div>
 
-        <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio)', items: closedThisMonth, field: 'final' })}
+        <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio, recebido)', items: closedThisMonth, field: 'recebido' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-amber-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ticket médio</p>
@@ -670,14 +678,16 @@ export function AdminDashboardV2({
                 <h2 className="text-base font-semibold text-gray-900">{detail.title}</h2>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {detail.items.length} {detail.items.length === 1 ? 'orçamento' : 'orçamentos'} ·{' '}
-                  Total: <strong className="text-gray-700">{formatCurrency(detail.items.reduce((s, q) => s + Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0), 0))}</strong>
+                  Total: <strong className="text-gray-700">{formatCurrency(detail.items.reduce((s, q) => s + detailValue(q, detail.field), 0))}</strong>
                 </p>
               </div>
               <button onClick={() => setDetail(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">✕</button>
             </div>
             <div className="divide-y divide-gray-100">
               {detail.items.length === 0 && <p className="px-6 py-8 text-center text-sm text-gray-400">Nenhum orçamento</p>}
-              {detail.items.map((q: any) => (
+              {detail.items.map((q: any) => {
+                const aberto = detail.field === 'recebido' ? (Number((q.final_value ?? q.quoted_value) ?? 0) - recebidoDeQuote(q)) : 0
+                return (
                 <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 px-6 py-3 hover:bg-gray-50">
                   <span className="text-xs text-gray-400 w-12 shrink-0">#{String(q.number).padStart(3,'0')}</span>
                   <div className="flex-1 min-w-0">
@@ -687,14 +697,16 @@ export function AdminDashboardV2({
                   {q.owners?.slice(0,2).map((o: any) => <Avatar key={o.user_id} user={o} size={22} className="ring-1 ring-white" />)}
                   <div className="shrink-0 ml-1 text-right">
                     <span className="text-sm font-semibold text-gray-800 block">
-                      {formatCurrency(Number((detail.field === 'final' ? (q.final_value ?? q.quoted_value) : q.quoted_value) ?? 0))}
+                      {formatCurrency(detailValue(q, detail.field))}
                     </span>
+                    {aberto > 0.01 && <span className="text-[10px] text-amber-600 block">+{formatCurrency(aberto)} em aberto</span>}
                     {(q.temperature === 'closed' ? q.closed_at : q.temperature === 'lost' ? q.temperature_updated_at : null) && (
                       <span className="text-[10px] text-gray-400">{formatDate(q.temperature === 'closed' ? q.closed_at : q.temperature_updated_at)}</span>
                     )}
                   </div>
                 </a>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>

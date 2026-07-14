@@ -362,7 +362,9 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
                       {isReceivable ? <ArrowDownCircle className="w-4 h-4 text-emerald-500 shrink-0" /> : <ArrowUpCircle className="w-4 h-4 text-red-400 shrink-0" />}
                       <div className="min-w-0">
                         <p className={cn('text-sm font-medium', e.status === 'paid' ? 'text-gray-400 line-through' : 'text-gray-800')}>
-                          {e.description}
+                          {e.quote_id ? (
+                            <a href={`/quotes/${e.quote_id}`} className="hover:underline hover:text-brand-600" title="Ver orçamento">{e.description}</a>
+                          ) : e.description}
                           {e.installments_total ? <span className="text-xs text-gray-400 ml-1">({e.installment_number}/{e.installments_total})</span> : null}
                         </p>
                         <div className="flex items-center gap-2">

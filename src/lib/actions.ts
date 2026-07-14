@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
+import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
 async function enrichOwnersAvatars(quotes: any[]) {
@@ -517,6 +518,53 @@ function methodKeyToEnum(key: string): string {
   return 'other'
 }
 
+// Sincroniza o módulo Financeiro com os splits "em aberto" de uma venda fechada.
+// Cada split com status 'open' vira (ou atualiza) uma conta a receber vinculada à venda;
+// splits pagos ou removidos baixam/apagam a entrada correspondente. Idempotente — pode
+// ser chamada toda vez que os splits mudam (fechar, editar pagamento, cancelar).
+async function syncReceivablesFromSplits(
+  quoteId: string,
+  splits: { method_key: string; amount: number; status?: string; date?: string }[],
+  clientName?: string | null,
+) {
+  const admin = createAdminClient()
+  const { data: existing } = await admin
+    .from('finance_entries')
+    .select('id, payment_split_index, status')
+    .eq('quote_id', quoteId)
+    .eq('type', 'receivable')
+
+  const openSplits = splits
+    .map((s, idx) => ({ ...s, idx }))
+    .filter(s => s.status === 'open' && Number(s.amount) > 0)
+
+  const RATE_LABEL: Record<string, string> = Object.fromEntries(DEFAULT_PAYMENT_RATES.map(r => [r.method_key, r.label]))
+
+  // Upsert: uma entrada por split aberto (identificada por payment_split_index)
+  for (const s of openSplits) {
+    const match = (existing ?? []).find(e => e.payment_split_index === s.idx)
+    // Se já foi baixado manualmente no Financeiro, não reabre — só reflete valor/data
+    const row: Record<string, any> = {
+      description: `Venda${clientName ? ` — ${clientName}` : ''} (${RATE_LABEL[s.method_key] ?? s.method_key})`,
+      type: 'receivable',
+      amount: Number(s.amount),
+      due_date: s.date || new Date().toISOString().split('T')[0],
+      quote_id: quoteId,
+      payment_split_index: s.idx,
+    }
+    if (!match) { row.status = 'pending'; await admin.from('finance_entries').insert(row) }
+    else await admin.from('finance_entries').update(row).eq('id', match.id)
+  }
+
+  // Remove entradas de splits que não estão mais abertos (pagos ou excluídos),
+  // exceto as já baixadas manualmente no Financeiro — ficam como histórico de recebimento.
+  const openIdxs = new Set(openSplits.map(s => s.idx))
+  const toRemove = (existing ?? []).filter(e => !openIdxs.has(e.payment_split_index) && e.status !== 'paid')
+  if (toRemove.length > 0) {
+    await admin.from('finance_entries').delete().in('id', toRemove.map(e => e.id))
+  }
+}
+
 export async function updateSalePayment(quoteId: string, data: {
   final_value: number
   payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
@@ -541,7 +589,13 @@ export async function updateSalePayment(quoteId: string, data: {
     })
     .eq('quote_id', quoteId)
   if (error) throw new Error(error.message)
+
+  const { data: q } = await supabase.from('quotes_full').select('client_name').eq('id', quoteId).maybeSingle()
+  await syncReceivablesFromSplits(quoteId, splits, q?.client_name)
+
   revalidatePath('/quotes')
+  revalidatePath('/finance')
+  revalidatePath('/dashboard')
 }
 
 export async function closeSale(quoteId: string, data: {
@@ -581,6 +635,10 @@ export async function closeSale(quoteId: string, data: {
   const { error: updateError } = await supabase.from('quotes').update(quoteUpdate).eq('id', quoteId)
   if (updateError) return { error: updateError.message }
 
+  // Splits em aberto viram contas a receber no módulo Financeiro
+  const { data: closedQuoteInfo } = await supabase.from('quotes_full').select('client_name').eq('id', quoteId).maybeSingle()
+  await syncReceivablesFromSplits(quoteId, splits, closedQuoteInfo?.client_name)
+
   // Create shipment automatically after closing sale (use admin to bypass RLS)
   // Insere só se ainda não existir (evita depender de unique constraint p/ upsert)
   {
@@ -619,6 +677,7 @@ export async function closeSale(quoteId: string, data: {
   revalidatePath('/quotes')
   revalidatePath('/shipping')
   revalidatePath('/partners')
+  revalidatePath('/finance')
   return { ok: true }
 }
 
@@ -786,9 +845,10 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // garante consistência entre dashboard e listagem de negociações
   const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
 
-  let quotesQuery = createAdminClient()
+  const admin = createAdminClient()
+  let quotesQuery = admin
     .from('quotes_full')
-    .select('quoted_value, final_value, temperature, closed_at, temperature_updated_at')
+    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at')
     .eq('temperature', 'closed')
 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
@@ -799,7 +859,21 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
     const dateToCheck = q.closed_at || (String(q.temperature_updated_at ?? '').slice(0, 10))
     return q.temperature === 'closed' && dateToCheck >= monthStart
   })
-  const closedValue = closedMonth.reduce((sum: number, q: any) => sum + (Number(q.final_value ?? q.quoted_value ?? 0)), 0)
+
+  // quotes_full não traz payment_splits — busca de negotiations pra aplicar a regra do recebido
+  const { data: negs } = closedMonth.length
+    ? await admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', closedMonth.map((q: any) => q.id))
+    : { data: [] as any[] }
+  const splitsByQuote = new Map((negs ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+
+  // Só conta o RECEBIDO (splits pagos); o "em aberto" vira conta a receber no Financeiro
+  const closedValue = closedMonth.reduce((sum: number, q: any) => {
+    const splits = splitsByQuote.get(q.id) ?? []
+    const val = splits.length === 0
+      ? Number(q.final_value ?? q.quoted_value ?? 0)
+      : splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+    return sum + val
+  }, 0)
 
   const { data: goal } = await supabase
     .from('monthly_goals').select('target')
@@ -2310,7 +2384,14 @@ export async function cancelSale(quoteId: string) {
     .update({ status: 'in_progress' })
     .eq('id', quoteId)
   if (qErr) return { error: qErr.message }
+
+  // Venda cancelada: remove as contas a receber ainda pendentes geradas pelos splits em aberto
+  // (as já baixadas ficam como histórico de recebimento)
+  const admin = createAdminClient()
+  await admin.from('finance_entries').delete().eq('quote_id', quoteId).eq('type', 'receivable').eq('status', 'pending')
+
   revalidatePath(`/quotes/${quoteId}`)
+  revalidatePath('/finance')
   return {}
 }
 
