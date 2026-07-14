@@ -880,6 +880,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
   )
 }
 
+
 function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }: {
   tasks: Task[]
   showUser: boolean
@@ -891,8 +892,7 @@ function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }:
   const today = new Date()
   const weekStart = startOfWeek(today, { weekStartsOn: 1 })
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-
-  const [draggedTask, setDraggedTask] = useState<Task | null>(null)
+  const [moveTaskId, setMoveTaskId] = useState<string | null>(null)
 
   const tasksByDay = days.reduce((acc, day) => {
     acc[day.toISOString().split('T')[0]] = tasks.filter(t => {
@@ -904,87 +904,78 @@ function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }:
 
   const backlogTasks = tasks.filter(t => !t.due_date).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
-  const handleDrop = (dateStr: string | null) => {
-    if (!draggedTask) return
-    if (dateStr === null) {
-      updateTask(draggedTask.id, { due_date: null }).catch(() => {})
-    } else {
-      updateTask(draggedTask.id, { due_date: dateStr }).catch(() => {})
-    }
-    setDraggedTask(null)
-  }
-
   return (
-    <div className="pb-6 space-y-4">
-      {/* Backlog */}
-      <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
-          <h3 className="font-bold text-sm text-gray-900">Backlog</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{backlogTasks.length} tarefas sem prazo</p>
+    <div className="pb-6">
+      {backlogTasks.length > 0 && (
+        <div className="mb-6 bg-white rounded-lg border border-gray-200 p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Backlog ({backlogTasks.length})</h3>
+          <div className="space-y-2">
+            {backlogTasks.map(task => (
+              <div key={task.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 group">
+                <button
+                  onClick={() => onToggle(task)}
+                  className={cn('w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center',
+                    task.status === 'done' ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300')}
+                >
+                  {task.status === 'done' && <Check className="w-2.5 h-2.5 text-white" />}
+                </button>
+                <span className={cn('text-sm flex-1 truncate', task.status === 'done' && 'line-through text-gray-400')}>
+                  {task.title}
+                </span>
+                <button
+                  onClick={() => setMoveTaskId(task.id)}
+                  className="text-xs px-2 py-1 text-gray-600 hover:bg-blue-50 hover:text-brand-600 rounded opacity-0 group-hover:opacity-100">
+                  Agendar
+                </button>
+                <button
+                  onClick={() => onDelete(task.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-        <div
-          onDragOver={e => e.preventDefault()}
-          onDrop={() => handleDrop(null)}
-          className={cn('min-h-32 max-h-64 overflow-y-auto p-3 space-y-2 transition-colors',
-            draggedTask && 'bg-gray-50')}
-        >
-          {backlogTasks.length === 0 ? (
-            <div className="text-xs text-gray-400 text-center py-6">Nenhuma tarefa no backlog</div>
-          ) : (
-            backlogTasks.map(task => (
-              <TaskCardWeek key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} onSelect={onSelect}
-                isSelected={selectedId === task.id}
-                onDragStart={() => setDraggedTask(task)}
-                onDragEnd={() => setDraggedTask(null)} />
-            ))
-          )}
-        </div>
-      </div>
+      )}
 
-      {/* Week days */}
-      <div className="grid grid-cols-7 gap-3">
+      <div className="grid grid-cols-7 gap-2">
         {days.map(day => {
           const dateStr = day.toISOString().split('T')[0]
           const dayTasks = tasksByDay[dateStr] || []
           const isToday_ = isSameDay(day, today)
-          const dayName = format(day, 'EEEE', { locale: ptBR })
-          const dayDate = format(day, 'dd', { locale: ptBR })
 
           return (
-            <div
-              key={dateStr}
-              onDragOver={e => e.preventDefault()}
-              onDrop={() => handleDrop(dateStr)}
-              className={cn(
-                'rounded-2xl border-2 min-h-96 flex flex-col overflow-hidden transition-all',
-                draggedTask ? 'border-dashed' : 'border-solid',
-                isToday_
-                  ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white'
-                  : 'border-gray-200 bg-white hover:border-gray-300'
-              )}
-            >
-              {/* Header */}
-              <div className={cn('px-4 py-3 border-b-2 font-semibold',
-                isToday_
-                  ? 'bg-gradient-to-r from-brand-500 to-brand-600 text-white'
-                  : 'bg-gradient-to-r from-gray-100 to-gray-50 text-gray-900 border-gray-200'
-              )}>
-                <div className="text-sm font-bold capitalize">{dayName}</div>
-                <div className={cn('text-2xl font-black', isToday_ ? 'text-brand-100' : 'text-gray-300')}>{dayDate}</div>
+            <div key={dateStr} className={cn('rounded-lg border p-3 min-h-80 flex flex-col',
+              isToday_ ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200')}>
+              <div className="mb-3 pb-2 border-b border-gray-200">
+                <div className={cn('text-xs font-semibold uppercase', isToday_ ? 'text-brand-600' : 'text-gray-500')}>
+                  {format(day, 'EEE', { locale: ptBR })}
+                </div>
+                <div className={cn('text-lg font-bold', isToday_ ? 'text-brand-700' : 'text-gray-900')}>
+                  {format(day, 'dd')}
+                </div>
               </div>
-
-              {/* Tasks */}
-              <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+              <div className="flex-1 overflow-y-auto space-y-1">
                 {dayTasks.length === 0 ? (
-                  <div className="text-xs text-gray-300 text-center py-12 font-medium">
-                    {isToday_ ? 'Dia livre! 🎉' : 'Sem tarefas'}
-                  </div>
+                  <div className="text-xs text-gray-300 text-center py-8">—</div>
                 ) : (
                   dayTasks.map(task => (
-                    <TaskCardWeek key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} onSelect={onSelect}
-                      isSelected={selectedId === task.id}
-                      onDragStart={() => setDraggedTask(task)}
-                      onDragEnd={() => setDraggedTask(null)} />
+                    <div key={task.id} onClick={() => onSelect(task)}
+                      className={cn('p-2 rounded text-xs cursor-pointer group border',
+                        task.status === 'done' ? 'bg-emerald-50 border-emerald-200' :
+                        task.priority === 'high' ? 'bg-red-50 border-red-200' :
+                        task.priority === 'mid' ? 'bg-amber-50 border-amber-200' :
+                        'bg-gray-50 border-gray-200')}>
+                      <div className={cn('font-medium truncate', task.status === 'done' && 'line-through text-gray-400')}>
+                        {task.title}
+                      </div>
+                      {task.quote && <div className="text-[10px] text-brand-600 mt-0.5">#{task.quote.number}</div>}
+                      <button
+                        onClick={e => { e.stopPropagation(); setMoveTaskId(task.id) }}
+                        className="text-[10px] mt-1 px-1.5 py-0.5 bg-white border rounded opacity-0 group-hover:opacity-100">
+                        Mover
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
@@ -992,73 +983,32 @@ function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }:
           )
         })}
       </div>
-    </div>
-  )
-}
 
-function TaskCardWeek({ task, onToggle, onDelete, onSelect, isSelected, onDragStart, onDragEnd }: {
-  task: Task
-  onToggle: (t: Task) => void
-  onDelete: (id: string) => void
-  onSelect: (t: Task) => void
-  isSelected: boolean
-  onDragStart: () => void
-  onDragEnd: () => void
-}) {
-  const done = task.status === 'done'
-
-  return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={() => onSelect(task)}
-      className={cn(
-        'group text-xs p-2.5 rounded-xl border-2 cursor-move transition-all hover:shadow-md',
-        done
-          ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'
-          : task.priority === 'high'
-            ? 'border-red-300 bg-red-50 hover:bg-red-100 hover:border-red-400'
-            : task.priority === 'mid'
-              ? 'border-amber-300 bg-amber-50 hover:bg-amber-100 hover:border-amber-400'
-              : 'border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-gray-400',
-        isSelected && 'ring-2 ring-brand-400 ring-offset-1'
-      )}
-    >
-      <div className="flex items-start gap-1.5">
-        <button
-          onClick={e => {
-            e.stopPropagation()
-            onToggle(task)
-          }}
-          className={cn(
-            'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-all',
-            done ? 'bg-emerald-500 border-emerald-500' : P[task.priority].dot + ' border-current'
-          )}
-        >
-          {done && <Check className="w-2.5 h-2.5 text-white" />}
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className={cn('font-medium truncate text-[11px] leading-tight',
-            done && 'line-through text-gray-400')}>
-            {task.title}
+      {moveTaskId && (
+        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-4 w-96 shadow-lg max-h-96 overflow-y-auto">
+            <h3 className="font-semibold text-gray-900 mb-3">Mover para:</h3>
+            <button
+              onClick={() => { updateTask(moveTaskId, { due_date: null }).catch(() => {}); setMoveTaskId(null) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded mb-2 border border-gray-200">
+              📋 Backlog
+            </button>
+            {days.map(day => (
+              <button key={day.toISOString()}
+                onClick={() => { updateTask(moveTaskId, { due_date: day.toISOString().split('T')[0] }).catch(() => {}); setMoveTaskId(null) }}
+                className={cn('w-full text-left px-3 py-2 text-sm rounded border mb-1',
+                  isSameDay(day, today) ? 'border-brand-300 bg-brand-50 hover:bg-brand-100' : 'border-gray-200 hover:bg-gray-50')}>
+                <div className="font-medium">{format(day, 'EEEE', { locale: ptBR })}</div>
+                <div className="text-xs text-gray-500">{format(day, 'dd/MM')}</div>
+              </button>
+            ))}
+            <button onClick={() => setMoveTaskId(null)}
+              className="w-full mt-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">
+              Cancelar
+            </button>
           </div>
-          {task.quote && (
-            <div className="text-[9px] text-brand-700 mt-1 flex items-center gap-0.5">
-              <Link2 className="w-2 h-2" />#{task.quote.number}
-            </div>
-          )}
         </div>
-        <button
-          onClick={e => {
-            e.stopPropagation()
-            onDelete(task.id)
-          }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 transition-all shrink-0"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
+      )}
     </div>
   )
 }
