@@ -235,6 +235,10 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
     quote_id: quoteId,
     temperature,
     temperature_updated_at: now,
+    // Ao arrastar para "Fechada", grava a data de fechamento (fonte do FATURAMENTO no dashboard).
+    // Sem isso, vendas fechadas pelo quadro somem do faturamento. Ao reabrir, limpa a data.
+    ...(temperature === 'closed' ? { closed_at: now.split('T')[0] } : {}),
+    ...(temperature !== 'closed' && fromTemp === 'closed' ? { closed_at: null } : {}),
     // Limpa o badge oposto ao movimento
     ...(promoted ? { last_promoted_at: now, last_auto_demoted_at: null } : {}),
     ...(demoted  ? { last_auto_demoted_at: now, last_promoted_at: null } : {}),
