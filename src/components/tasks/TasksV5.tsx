@@ -8,9 +8,10 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical } from 'lucide-react'
-import { format, isToday, isPast, isTomorrow } from 'date-fns'
+import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar } from 'lucide-react'
+import { format, isToday, isPast, isTomorrow, startOfWeek, addDays, isSameDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 type Status   = 'todo' | 'doing' | 'paused' | 'done'
 type Priority = 'high' | 'mid' | 'low'
@@ -79,6 +80,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [newPriority, setNewPriority] = useState<Priority>('mid')
   const [doneOpen, setDoneOpen] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
+  const [view, setView] = useState<'day' | 'week'>('day')
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
 
   // Estado local de tarefas (optimistic)
   const [tasks, setTasks] = useState<Task[]>(() => myTasks)
@@ -194,6 +197,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   }
 
   return (
+    <>
     <div className="flex gap-5 h-full min-h-0">
       <div className="flex flex-col flex-1 min-w-0 gap-4">
 
@@ -208,17 +212,28 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
               }
             </p>
           </div>
-          {isAdmin && (
+          <div className="flex gap-2">
+            {isAdmin && (
+              <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+                {(['mine', 'team'] as const).map(s => (
+                  <button key={s} onClick={() => setScope(s)}
+                    className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                      scope === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                    {s === 'mine' ? 'Minhas' : <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Equipe</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
-              {(['mine', 'team'] as const).map(s => (
-                <button key={s} onClick={() => setScope(s)}
-                  className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                    scope === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                  {s === 'mine' ? 'Minhas' : <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Equipe</span>}
+              {(['day', 'week'] as const).map(v => (
+                <button key={v} onClick={() => setView(v)}
+                  className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+                    view === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                  {v === 'day' ? 'Dia' : <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />Semana</span>}
                 </button>
               ))}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Quick add */}
@@ -252,31 +267,38 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 
         {/* Lists */}
         <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+          {view === 'day' ? (
+            <>
+              <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
+                {(['high', 'mid', 'low'] as Priority[]).map(p => (
+                  <PriorityGroup
+                    key={p} priority={p} tasks={todayByP[p]}
+                    showUser={scope === 'team'}
+                    draggingId={draggingId} dropTarget={dropTarget}
+                    onDrop={applyDrop}
+                    onToggle={toggleDone} onDelete={removeTask}
+                    onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
+                    onQuoteClick={setSelectedQuoteId}
+                    selectedId={selected?.id}
+                  />
+                ))}
+              </Section>
 
-          <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
-            {(['high', 'mid', 'low'] as Priority[]).map(p => (
-              <PriorityGroup
-                key={p} priority={p} tasks={todayByP[p]}
-                showUser={scope === 'team'}
-                draggingId={draggingId} dropTarget={dropTarget}
-                onDrop={applyDrop}
-                onToggle={toggleDone} onDelete={removeTask}
-                onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
-                selectedId={selected?.id}
-              />
-            ))}
-          </Section>
-
-          <Section title="Depois" count={laterTasks.length} accent="text-gray-500" defaultOpen>
-            <DropList
-              tasks={laterTasks} showUser={scope === 'team'}
-              draggingId={draggingId} dropTarget={dropTarget}
-              onDrop={applyDrop}
-              onToggle={toggleDone} onDelete={removeTask}
-              onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
-              selectedId={selected?.id}
-            />
-          </Section>
+              <Section title="Depois" count={laterTasks.length} accent="text-gray-500" defaultOpen>
+                <DropList
+                  tasks={laterTasks} showUser={scope === 'team'}
+                  draggingId={draggingId} dropTarget={dropTarget}
+                  onDrop={applyDrop}
+                  onToggle={toggleDone} onDelete={removeTask}
+                  onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
+                  onQuoteClick={setSelectedQuoteId}
+                  selectedId={selected?.id}
+                />
+              </Section>
+            </>
+          ) : (
+            <WeekView tasks={active} showUser={scope === 'team'} onToggle={toggleDone} onDelete={removeTask} onSelect={t => setSelected(s => s?.id === t.id ? null : t)} selectedId={selected?.id} />
+          )}
 
           {done.length > 0 && (
             <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
@@ -294,6 +316,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                       onToggle={() => toggleDone(task)}
                       onDelete={() => removeTask(task.id)}
                       onSelect={() => setSelected(s => s?.id === task.id ? null : task)}
+                      onQuoteClick={setSelectedQuoteId}
                     />
                   ))}
                 </div>
@@ -313,6 +336,11 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
         />
       )}
     </div>
+
+    {selectedQuoteId && (
+      <QuoteQuickViewModal quoteId={selectedQuoteId} onClose={() => setSelectedQuoteId(null)} />
+    )}
+    </>
   )
 }
 
@@ -337,13 +365,13 @@ function Section({ title, count, accent, defaultOpen, children }: {
 
 // ── Priority group ────────────────────────────────────────────────────────────
 
-function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete, onSelect, selectedId }: {
+function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete, onSelect, onQuoteClick, selectedId }: {
   priority: Priority; tasks: Task[]; showUser: boolean
   draggingId: React.MutableRefObject<string | null>
   dropTarget: React.MutableRefObject<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>
   onDrop: () => void
   onToggle: (t: Task) => void; onDelete: (id: string) => void
-  onSelect: (t: Task) => void; selectedId?: string
+  onSelect: (t: Task) => void; onQuoteClick?: (quoteId: string) => void; selectedId?: string
 }) {
   const cfg = P[priority]
   const [overIdx, setOverIdx] = useState<number | null>(null)
@@ -391,6 +419,7 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDr
               onToggle={() => onToggle(task)}
               onDelete={() => onDelete(task.id)}
               onSelect={() => onSelect(task)}
+              onQuoteClick={onQuoteClick}
             />
           </div>
         ))}
@@ -406,13 +435,13 @@ function PriorityGroup({ priority, tasks, showUser, draggingId, dropTarget, onDr
 
 // ── Drop list ─────────────────────────────────────────────────────────────────
 
-function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete, onSelect, selectedId }: {
+function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, onDelete, onSelect, onQuoteClick, selectedId }: {
   tasks: Task[]; showUser: boolean
   draggingId: React.MutableRefObject<string | null>
   dropTarget: React.MutableRefObject<{ section: 'today' | 'later'; priority: Priority | null; insertBeforeId: string | null }>
   onDrop: () => void
   onToggle: (t: Task) => void; onDelete: (id: string) => void
-  onSelect: (t: Task) => void; selectedId?: string
+  onSelect: (t: Task) => void; onQuoteClick?: (quoteId: string) => void; selectedId?: string
 }) {
   const [overIdx, setOverIdx] = useState<number | null>(null)
 
@@ -452,6 +481,7 @@ function DropList({ tasks, showUser, draggingId, dropTarget, onDrop, onToggle, o
             onToggle={() => onToggle(task)}
             onDelete={() => onDelete(task.id)}
             onSelect={() => onSelect(task)}
+            onQuoteClick={onQuoteClick}
           />
         </div>
       ))}
@@ -474,14 +504,14 @@ function Line({ active }: { active: boolean }) {
 
 function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
   draggingId, onRowDragOver, onRowDrop, onDragStart, onDragEnd,
-  onToggle, onDelete, onSelect,
+  onToggle, onDelete, onSelect, onQuoteClick,
 }: {
   task: Task; showUser?: boolean; showPriorityPill?: boolean; isDone?: boolean; isSelected?: boolean
   draggingId?: React.MutableRefObject<string | null>
   onRowDragOver?: (e: React.DragEvent) => void
   onRowDrop?: (e: React.DragEvent) => void
   onDragStart?: () => void; onDragEnd?: () => void
-  onToggle: () => void; onDelete: () => void; onSelect: () => void
+  onToggle: () => void; onDelete: () => void; onSelect: () => void; onQuoteClick?: (quoteId: string) => void
 }) {
   const done    = task.status === 'done'
   const due     = task.due_date ? parseLocalDate(task.due_date) : null
@@ -552,9 +582,10 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
             </span>
           )}
           {task.quote && (
-            <span className="text-[10px] text-brand-500 flex items-center gap-0.5 font-medium">
+            <button onClick={(e) => { e.stopPropagation(); onQuoteClick?.(task.quote_id!) }}
+              className="text-[10px] text-brand-500 flex items-center gap-0.5 font-medium hover:text-brand-700 transition-colors cursor-pointer">
               <Link2 className="w-2.5 h-2.5" />#{task.quote.number} · {task.quote.client_name}
-            </span>
+            </button>
           )}
           {allItems.length > 0 && (
             <span className="text-[10px] text-gray-400">
@@ -610,8 +641,11 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
     ...(task.checklist ?? []).map(c => ({ text: c.text, done: c.done })),
   ]
 
+  const [showQuoteModal, setShowQuoteModal] = useState(false)
+
   return (
-    <div className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
+    <>
+      <div className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
       <div className={cn('flex items-center gap-2 px-4 py-3 border-b border-gray-100',
         task.priority === 'high' ? 'bg-red-50' : task.priority === 'mid' ? 'bg-amber-50' : 'bg-gray-50')}>
         <span className={cn('w-2 h-2 rounded-full', P[task.priority].dot)} />
@@ -640,10 +674,11 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
         </div>
 
         {task.quote && (
-          <div className="flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
+          <button onClick={() => setShowQuoteModal(true)}
+            className="w-full flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2 hover:bg-brand-100 transition-colors cursor-pointer">
             <Link2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
             <span className="flex-1 text-xs font-medium text-brand-700 truncate">#{task.quote.number} · {task.quote.client_name}</span>
-          </div>
+          </button>
         )}
 
         <div className="space-y-2.5">
@@ -726,6 +761,74 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           Criada em {format(new Date(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
         </p>
       </div>
+    </div>
+
+    {task.quote_id && showQuoteModal && (
+      <QuoteQuickViewModal quoteId={task.quote_id} onClose={() => setShowQuoteModal(false)} />
+    )}
+    </>
+  )
+}
+
+function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }: {
+  tasks: Task[]
+  showUser: boolean
+  onToggle: (t: Task) => void
+  onDelete: (id: string) => void
+  onSelect: (t: Task) => void
+  selectedId?: string
+}) {
+  const today = new Date()
+  const weekStart = startOfWeek(today, { weekStartsOn: 1 })
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+
+  const tasksByDay = days.reduce((acc, day) => {
+    acc[day.toISOString().split('T')[0]] = tasks.filter(t => {
+      if (!t.due_date) return false
+      return isSameDay(parseLocalDate(t.due_date), day)
+    })
+    return acc
+  }, {} as Record<string, Task[]>)
+
+  return (
+    <div className="grid grid-cols-7 gap-2 pb-6">
+      {days.map(day => {
+        const dateStr = day.toISOString().split('T')[0]
+        const dayTasks = tasksByDay[dateStr] || []
+        const isToday_ = isSameDay(day, today)
+
+        return (
+          <div key={dateStr} className={cn('rounded-2xl border min-h-96 flex flex-col overflow-hidden',
+            isToday_ ? 'border-brand-200 bg-brand-50' : 'border-gray-200 bg-white')}>
+            <div className={cn('px-3 py-2 border-b font-semibold text-sm',
+              isToday_ ? 'bg-brand-100 text-brand-700 border-brand-100' : 'bg-gray-50 text-gray-700 border-gray-100')}>
+              <div>{format(day, 'EEE', { locale: ptBR })}</div>
+              <div className="text-xs font-normal text-gray-500">{format(day, 'dd MMM', { locale: ptBR })}</div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {dayTasks.length === 0 ? (
+                <div className="text-xs text-gray-300 text-center py-8">Sem tarefas</div>
+              ) : (
+                dayTasks.map(task => (
+                  <div key={task.id} onClick={() => onSelect(task)}
+                    className={cn('text-xs p-2 rounded-lg border cursor-pointer transition-all',
+                      isToday_ ? 'border-brand-100 bg-white hover:bg-brand-50' : 'border-gray-100 bg-gray-50 hover:bg-gray-100',
+                      selectedId === task.id && 'ring-2 ring-brand-400')}>
+                    <div className={cn('font-medium truncate', task.status === 'done' && 'line-through text-gray-400')}>
+                      {task.title}
+                    </div>
+                    {task.quote && (
+                      <div className="text-[10px] text-brand-600 mt-0.5 flex items-center gap-0.5">
+                        <Link2 className="w-2 h-2" />#{task.quote.number}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

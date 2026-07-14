@@ -674,7 +674,8 @@ export async function closeSale(quoteId: string, data: {
   }
 
   revalidatePath('/dashboard')
-  revalidatePath('/quotes')
+  revalidatePath(`/quotes/${quoteId}`, 'page')
+  revalidatePath('/quotes', 'layout')
   revalidatePath('/shipping')
   revalidatePath('/partners')
   revalidatePath('/finance')
@@ -2374,16 +2375,12 @@ export async function deleteQuoteProposal(id: string, quoteId: string) {
 export async function cancelSale(quoteId: string) {
   const supabase = createClient()
   // Reverte temperature para 'hot' (estava em negociação quente antes de fechar)
+  // Nota: NÃO altera o status da quote — deixa como 'done', só reabre a negociação
   const { error: negErr } = await supabase
     .from('negotiations')
     .update({ temperature: 'hot', final_value: null, closed_at: null, payment_splits: [], payment_method: null })
     .eq('quote_id', quoteId)
   if (negErr) return { error: negErr.message }
-  const { error: qErr } = await supabase
-    .from('quotes')
-    .update({ status: 'in_progress' })
-    .eq('id', quoteId)
-  if (qErr) return { error: qErr.message }
 
   // Venda cancelada: remove as contas a receber ainda pendentes geradas pelos splits em aberto
   // (as já baixadas ficam como histórico de recebimento)
@@ -2392,6 +2389,7 @@ export async function cancelSale(quoteId: string) {
 
   revalidatePath(`/quotes/${quoteId}`)
   revalidatePath('/finance')
+  revalidatePath('/dashboard')
   return {}
 }
 
