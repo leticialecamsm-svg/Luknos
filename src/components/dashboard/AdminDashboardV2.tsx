@@ -51,17 +51,18 @@ export function AdminDashboardV2({
     router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
   }
 
-  // KPIs — filtrados pelo mês selecionado
-  const totalFaturamento = (sales ?? []).reduce((sum: number, r: any) => sum + Number(r.total_sold ?? 0), 0)
-
   // Limites do mês selecionado (YYYY-MM-DD)
   const mStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
   const mEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
 
-  // Vendas fechadas no mês — ordenadas pelas mais recentes primeiro
+  // Vendas fechadas no mês — filtra por closed_at (única data de fechamento confiável na quotes_full)
   const closedThisMonth = quotes
     .filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= mStart && q.closed_at <= mEnd)
     .sort((a, b) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')))
+
+  // FATURAMENTO = soma exata da MESMA lista que o popup mostra (final_value ?? quoted_value).
+  // Fonte única: garante que o card, o ticket médio e o drill-down nunca divirjam.
+  const totalFaturamento = closedThisMonth.reduce((sum, q) => sum + Number((q.final_value ?? q.quoted_value) ?? 0), 0)
 
   // Perdidas no mês — ordenadas pelas mais recentes primeiro (data da perda = temperature_updated_at)
   const lostThisMonth = quotes
