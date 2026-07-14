@@ -1405,7 +1405,7 @@ export async function updateTask(id: string, formData: {
   description?: string
   priority?: string
   status?: string
-  due_date?: string
+  due_date?: string | null
   checklist?: { text: string; done: boolean }[]
   subtasks?: { id?: string; title: string; done: boolean }[]
   quote_id?: string | null

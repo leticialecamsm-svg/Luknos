@@ -257,13 +257,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
           )}
         </form>
 
-        {/* Search */}
-        <div className="relative max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa..."
-            className="input pl-9 h-9 text-sm w-full" />
-          {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"><X className="w-3 h-3" /></button>}
-        </div>
 
         {/* Lists */}
         <div className="flex-1 overflow-y-auto space-y-3 pb-6">
@@ -887,53 +880,173 @@ function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }:
   const weekStart = startOfWeek(today, { weekStartsOn: 1 })
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null)
+
   const tasksByDay = days.reduce((acc, day) => {
     acc[day.toISOString().split('T')[0]] = tasks.filter(t => {
       if (!t.due_date) return false
       return isSameDay(parseLocalDate(t.due_date), day)
-    })
+    }).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     return acc
   }, {} as Record<string, Task[]>)
 
-  return (
-    <div className="grid grid-cols-7 gap-2 pb-6">
-      {days.map(day => {
-        const dateStr = day.toISOString().split('T')[0]
-        const dayTasks = tasksByDay[dateStr] || []
-        const isToday_ = isSameDay(day, today)
+  const backlogTasks = tasks.filter(t => !t.due_date).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
-        return (
-          <div key={dateStr} className={cn('rounded-2xl border min-h-96 flex flex-col overflow-hidden',
-            isToday_ ? 'border-brand-200 bg-brand-50' : 'border-gray-200 bg-white')}>
-            <div className={cn('px-3 py-2 border-b font-semibold text-sm',
-              isToday_ ? 'bg-brand-100 text-brand-700 border-brand-100' : 'bg-gray-50 text-gray-700 border-gray-100')}>
-              <div>{format(day, 'EEE', { locale: ptBR })}</div>
-              <div className="text-xs font-normal text-gray-500">{format(day, 'dd MMM', { locale: ptBR })}</div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {dayTasks.length === 0 ? (
-                <div className="text-xs text-gray-300 text-center py-8">Sem tarefas</div>
-              ) : (
-                dayTasks.map(task => (
-                  <div key={task.id} onClick={() => onSelect(task)}
-                    className={cn('text-xs p-2 rounded-lg border cursor-pointer transition-all',
-                      isToday_ ? 'border-brand-100 bg-white hover:bg-brand-50' : 'border-gray-100 bg-gray-50 hover:bg-gray-100',
-                      selectedId === task.id && 'ring-2 ring-brand-400')}>
-                    <div className={cn('font-medium truncate', task.status === 'done' && 'line-through text-gray-400')}>
-                      {task.title}
-                    </div>
-                    {task.quote && (
-                      <div className="text-[10px] text-brand-600 mt-0.5 flex items-center gap-0.5">
-                        <Link2 className="w-2 h-2" />#{task.quote.number}
-                      </div>
-                    )}
-                  </div>
-                ))
+  const handleDrop = (dateStr: string | null) => {
+    if (!draggedTask) return
+    if (dateStr === null) {
+      updateTask(draggedTask.id, { due_date: null }).catch(() => {})
+    } else {
+      updateTask(draggedTask.id, { due_date: dateStr }).catch(() => {})
+    }
+    setDraggedTask(null)
+  }
+
+  return (
+    <div className="pb-6 space-y-4">
+      {/* Backlog */}
+      <div className="bg-white rounded-2xl border-2 border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
+          <h3 className="font-bold text-sm text-gray-900">Backlog</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{backlogTasks.length} tarefas sem prazo</p>
+        </div>
+        <div
+          onDragOver={e => e.preventDefault()}
+          onDrop={() => handleDrop(null)}
+          className={cn('min-h-32 max-h-64 overflow-y-auto p-3 space-y-2 transition-colors',
+            draggedTask && 'bg-gray-50')}
+        >
+          {backlogTasks.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-6">Nenhuma tarefa no backlog</div>
+          ) : (
+            backlogTasks.map(task => (
+              <TaskCardWeek key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} onSelect={onSelect}
+                isSelected={selectedId === task.id}
+                onDragStart={() => setDraggedTask(task)}
+                onDragEnd={() => setDraggedTask(null)} />
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Week days */}
+      <div className="grid grid-cols-7 gap-3">
+        {days.map(day => {
+          const dateStr = day.toISOString().split('T')[0]
+          const dayTasks = tasksByDay[dateStr] || []
+          const isToday_ = isSameDay(day, today)
+          const dayName = format(day, 'EEEE', { locale: ptBR })
+          const dayDate = format(day, 'dd', { locale: ptBR })
+
+          return (
+            <div
+              key={dateStr}
+              onDragOver={e => e.preventDefault()}
+              onDrop={() => handleDrop(dateStr)}
+              className={cn(
+                'rounded-2xl border-2 min-h-96 flex flex-col overflow-hidden transition-all',
+                draggedTask ? 'border-dashed' : 'border-solid',
+                isToday_
+                  ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
               )}
+            >
+              {/* Header */}
+              <div className={cn('px-4 py-3 border-b-2 font-semibold',
+                isToday_
+                  ? 'bg-gradient-to-r from-brand-500 to-brand-600 text-white'
+                  : 'bg-gradient-to-r from-gray-100 to-gray-50 text-gray-900 border-gray-200'
+              )}>
+                <div className="text-sm font-bold capitalize">{dayName}</div>
+                <div className={cn('text-2xl font-black', isToday_ ? 'text-brand-100' : 'text-gray-300')}>{dayDate}</div>
+              </div>
+
+              {/* Tasks */}
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                {dayTasks.length === 0 ? (
+                  <div className="text-xs text-gray-300 text-center py-12 font-medium">
+                    {isToday_ ? 'Dia livre! 🎉' : 'Sem tarefas'}
+                  </div>
+                ) : (
+                  dayTasks.map(task => (
+                    <TaskCardWeek key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} onSelect={onSelect}
+                      isSelected={selectedId === task.id}
+                      onDragStart={() => setDraggedTask(task)}
+                      onDragEnd={() => setDraggedTask(null)} />
+                  ))
+                )}
+              </div>
             </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TaskCardWeek({ task, onToggle, onDelete, onSelect, isSelected, onDragStart, onDragEnd }: {
+  task: Task
+  onToggle: (t: Task) => void
+  onDelete: (id: string) => void
+  onSelect: (t: Task) => void
+  isSelected: boolean
+  onDragStart: () => void
+  onDragEnd: () => void
+}) {
+  const done = task.status === 'done'
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onClick={() => onSelect(task)}
+      className={cn(
+        'group text-xs p-2.5 rounded-xl border-2 cursor-move transition-all hover:shadow-md',
+        done
+          ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'
+          : task.priority === 'high'
+            ? 'border-red-300 bg-red-50 hover:bg-red-100 hover:border-red-400'
+            : task.priority === 'mid'
+              ? 'border-amber-300 bg-amber-50 hover:bg-amber-100 hover:border-amber-400'
+              : 'border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-gray-400',
+        isSelected && 'ring-2 ring-brand-400 ring-offset-1'
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            onToggle(task)
+          }}
+          className={cn(
+            'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-all',
+            done ? 'bg-emerald-500 border-emerald-500' : P[task.priority].dot + ' border-current'
+          )}
+        >
+          {done && <Check className="w-2.5 h-2.5 text-white" />}
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className={cn('font-medium truncate text-[11px] leading-tight',
+            done && 'line-through text-gray-400')}>
+            {task.title}
           </div>
-        )
-      })}
+          {task.quote && (
+            <div className="text-[9px] text-brand-700 mt-1 flex items-center gap-0.5">
+              <Link2 className="w-2 h-2" />#{task.quote.number}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            onDelete(task.id)
+          }}
+          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 transition-all shrink-0"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
     </div>
   )
 }
