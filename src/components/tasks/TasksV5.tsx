@@ -634,10 +634,14 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
 }) {
   const [title, setTitle] = useState(task.title)
   const [desc, setDesc]   = useState(task.description ?? '')
+  const [subtasks, setSubtasks] = useState<{ id: string; title: string; done: boolean }[]>(
+    (task.subtasks ?? []).map(s => ({ id: s.id ?? '', title: s.title ?? s.text ?? '', done: s.done || !!s.completed }))
+  )
+  const [newSubtask, setNewSubtask] = useState('')
   const done = task.status === 'done'
 
   const allItems = [
-    ...(task.subtasks ?? []).map(s => ({ text: s.title ?? s.text ?? '', done: s.done || !!s.completed })),
+    ...subtasks,
     ...(task.checklist ?? []).map(c => ({ text: c.text, done: c.done })),
   ]
 
@@ -673,12 +677,23 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
             )} />
         </div>
 
-        {task.quote && (
-          <button onClick={() => setShowQuoteModal(true)}
-            className="w-full flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2 hover:bg-brand-100 transition-colors cursor-pointer">
-            <Link2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
-            <span className="flex-1 text-xs font-medium text-brand-700 truncate">#{task.quote.number} · {task.quote.client_name}</span>
-          </button>
+        {task.quote ? (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowQuoteModal(true)}
+              className="flex-1 flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2 hover:bg-brand-100 transition-colors cursor-pointer">
+              <Link2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+              <span className="flex-1 text-xs font-medium text-brand-700 truncate">#{task.quote.number} · {task.quote.client_name}</span>
+            </button>
+            <button onClick={() => onChange({ quote_id: null })}
+              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              title="Desatrelar orçamento">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500 px-3 py-2 bg-gray-50 rounded-xl border border-gray-100">
+            Sem orçamento atrelado
+          </div>
         )}
 
         <div className="space-y-2.5">
@@ -723,31 +738,68 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
         </div>
 
         {/* Subtarefas / checklist */}
-        {allItems.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Subtarefas</span>
-              <span className="text-[11px] text-gray-400">{allItems.filter(i => i.done).length}/{allItems.length}</span>
-            </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Subtarefas</span>
+            {allItems.length > 0 && <span className="text-[11px] text-gray-400">{allItems.filter(i => i.done).length}/{allItems.length}</span>}
+          </div>
+          {allItems.length > 0 && (
             <div className="h-1.5 bg-gray-100 rounded-full">
               <div className="h-full bg-emerald-400 rounded-full transition-all"
                 style={{ width: `${(allItems.filter(i => i.done).length / allItems.length) * 100}%` }} />
             </div>
-            <div className="space-y-1 pt-1">
-              {allItems.map((item, i) => (
-                <div key={i} className="flex items-start gap-2 py-0.5">
-                  <div className={cn('mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center',
-                    item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white')}>
-                    {item.done && <span className="text-white text-[8px] font-bold">✓</span>}
-                  </div>
-                  <span className={cn('text-sm text-gray-700 leading-snug', item.done && 'line-through text-gray-400')}>
-                    {item.text}
-                  </span>
-                </div>
-              ))}
-            </div>
+          )}
+          <div className="space-y-1 pt-1">
+            {subtasks.map((item, i) => (
+              <div key={item.id || i} className="flex items-start gap-2 py-0.5 group">
+                <button onClick={() => {
+                  const updated = [...subtasks]
+                  updated[i].done = !updated[i].done
+                  setSubtasks(updated)
+                  onChange({ subtasks: updated })
+                }}
+                  className={cn('mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-all',
+                    item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white hover:border-gray-400')}>
+                  {item.done && <span className="text-white text-[8px] font-bold">✓</span>}
+                </button>
+                <span className={cn('text-sm text-gray-700 leading-snug flex-1', item.done && 'line-through text-gray-400')}>
+                  {item.title}
+                </span>
+                <button onClick={() => {
+                  const updated = subtasks.filter((_, idx) => idx !== i)
+                  setSubtasks(updated)
+                  onChange({ subtasks: updated })
+                }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-500 transition-all">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
           </div>
-        )}
+          <div className="flex gap-1.5 pt-2">
+            <input value={newSubtask} onChange={e => setNewSubtask(e.target.value)} onKeyDown={e => {
+              if (e.key === 'Enter' && newSubtask.trim()) {
+                const updated = [...subtasks, { id: Date.now().toString(), title: newSubtask.trim(), done: false }]
+                setSubtasks(updated)
+                onChange({ subtasks: updated })
+                setNewSubtask('')
+              }
+            }}
+              placeholder="Adicionar subtarefa..."
+              className="flex-1 text-xs px-2 py-1 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-300" />
+            <button onClick={() => {
+              if (newSubtask.trim()) {
+                const updated = [...subtasks, { id: Date.now().toString(), title: newSubtask.trim(), done: false }]
+                setSubtasks(updated)
+                onChange({ subtasks: updated })
+                setNewSubtask('')
+              }
+            }}
+              className="px-2 py-1 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
+              +
+            </button>
+          </div>
+        </div>
 
         <div>
           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Notas</label>

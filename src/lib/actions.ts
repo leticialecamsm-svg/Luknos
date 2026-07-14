@@ -1407,6 +1407,7 @@ export async function updateTask(id: string, formData: {
   status?: string
   due_date?: string
   checklist?: { text: string; done: boolean }[]
+  subtasks?: { id?: string; title: string; done: boolean }[]
   quote_id?: string | null
 }) {
   const db = await getDbClient()
