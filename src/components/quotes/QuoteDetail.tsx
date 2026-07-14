@@ -569,14 +569,34 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                   <p className="text-sm font-semibold text-green-800">Venda fechada</p>
                   <p className="text-xs text-green-700">
                     {formatCurrency(localFinalValue ?? quote.final_value)}
-                    {localSplits.length > 0
-                      ? ' · ' + localSplits.map((s: any) => {
-                          const r = DEFAULT_PAYMENT_RATES.find(x => x.method_key === s.method_key)
-                          return `${r?.label ?? s.method_key} R$${Number(s.amount).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
-                        }).join(' + ')
-                      : quote.payment_method ? ` · ${quote.payment_method}` : ''}
                     {' · '}{formatDate(quote.closed_at)}
                   </p>
+                  {localSplits.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {localSplits.map((s: any, idx: number) => {
+                        const r = DEFAULT_PAYMENT_RATES.find(x => x.method_key === s.method_key)
+                        const isOpen = s.status === 'open'
+                        return (
+                          <span key={idx} className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border',
+                            isOpen ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200')}>
+                            <span className={cn('w-1.5 h-1.5 rounded-full', isOpen ? 'bg-amber-500' : 'bg-emerald-500')} />
+                            {r?.label ?? s.method_key} R${Number(s.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            <span className="opacity-70">· {isOpen ? 'em aberto' : 'pago'}</span>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {(() => {
+                    const recebido = localSplits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+                    const aberto = localSplits.filter((s: any) => s.status === 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+                    if (aberto <= 0) return null
+                    return (
+                      <p className="text-[11px] mt-1 text-green-800">
+                        Recebido <strong>{formatCurrency(recebido)}</strong> · Em aberto <strong className="text-amber-700">{formatCurrency(aberto)}</strong>
+                      </p>
+                    )
+                  })()}
                 </div>
               </div>
               <button onClick={() => setShowEditPayment(v => !v)}

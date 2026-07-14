@@ -71,7 +71,9 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
         final_value: fv,
         payment_method: primaryMethod,
         payment_splits: splits,
-        update_quoted_value: baseValue !== quotedValue,
+        // Nunca sobrescreve o valor orçado: ele é a Proposta 1 (dado histórico).
+        // O valor da venda é o final_value, usado em faturamento/comissão em todo o sistema.
+        update_quoted_value: false,
         closed_date: todayISO(),
       })
       if (result?.error) { setError(result.error); return }
