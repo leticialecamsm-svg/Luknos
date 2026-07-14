@@ -8,7 +8,7 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar, Check } from 'lucide-react'
 import { format, isToday, isPast, isTomorrow, startOfWeek, addDays, isSameDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
@@ -638,6 +638,9 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
     (task.subtasks ?? []).map(s => ({ id: s.id ?? '', title: s.title ?? s.text ?? '', done: s.done || !!s.completed }))
   )
   const [newSubtask, setNewSubtask] = useState('')
+  const [searchQuote, setSearchQuote] = useState('')
+  const [quotesList, setQuotesList] = useState<any[]>([])
+  const [showQuoteSearch, setShowQuoteSearch] = useState(false)
   const done = task.status === 'done'
 
   const allItems = [
@@ -646,6 +649,21 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
   ]
 
   const [showQuoteModal, setShowQuoteModal] = useState(false)
+
+  useEffect(() => {
+    if (showQuoteSearch) {
+      // Busca quotes que contenham o termo de busca
+      const filtered = (quotesList || []).filter(q =>
+        (q.number?.toString() || '').includes(searchQuote) ||
+        (q.client_name || '').toLowerCase().includes(searchQuote.toLowerCase())
+      )
+      // Se lista vazia, carrega todos
+      if (quotesList.length === 0 && searchQuote === '') {
+        // Idealmente aqui faria uma chamada a getQuotesList(), mas é server-side
+        // Por enquanto, vamos deixar o input vazio e o usuário digita
+      }
+    }
+  }, [searchQuote, showQuoteSearch, quotesList])
 
   return (
     <>
@@ -691,8 +709,43 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
             </button>
           </div>
         ) : (
-          <div className="text-xs text-gray-500 px-3 py-2 bg-gray-50 rounded-xl border border-gray-100">
-            Sem orçamento atrelado
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Colar ID do orçamento..."
+              value={searchQuote}
+              onChange={e => {
+                setSearchQuote(e.target.value)
+                setShowQuoteSearch(true)
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && searchQuote.trim()) {
+                  // Atrelar o orçamento (usuário cola o UUID)
+                  onChange({ quote_id: searchQuote.trim() })
+                  setSearchQuote('')
+                  setShowQuoteSearch(false)
+                }
+              }}
+              onFocus={() => setShowQuoteSearch(true)}
+              onBlur={() => setTimeout(() => setShowQuoteSearch(false), 200)}
+              className="w-full text-xs px-3 py-2 border border-gray-200 rounded-xl outline-none focus:ring-1 focus:ring-brand-300 placeholder-gray-400"
+            />
+            {showQuoteSearch && searchQuote && (
+              <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange({ quote_id: searchQuote.trim() })
+                    setSearchQuote('')
+                    setShowQuoteSearch(false)
+                  }}
+                  className="w-full flex items-center gap-2 text-xs px-2 py-1.5 text-left bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition-colors">
+                  <Check className="w-3 h-3 text-brand-600" />
+                  <span className="text-brand-700 font-medium">Atrelar orçamento</span>
+                  <span className="text-brand-600 text-[10px] truncate ml-auto">{searchQuote.slice(0, 8)}...</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
