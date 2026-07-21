@@ -11,6 +11,7 @@ import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { DashboardAgenda } from './DashboardAgenda'
 import { SalesSuggestions } from './SalesSuggestions'
+import { NegociacoesListView } from './NegociacoesListView'
 
 export function AdminDashboardV2({
   quotes,
@@ -45,6 +46,7 @@ export function AdminDashboardV2({
   const now = new Date()
   const currentMonth = new Date(selectedYear ?? now.getFullYear(), (selectedMonth ?? now.getMonth() + 1) - 1, 1)
   const [detail, setDetail] = useState<{ title: string; items: any[]; field: 'final' | 'quoted' | 'recebido' } | null>(null)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pipeline'>('dashboard')
 
   function navigateMonth(delta: number) {
     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
@@ -261,8 +263,38 @@ export function AdminDashboardV2({
         </div>
       </div>
 
-      {/* Working days banner */}
-      <WorkingDaysCard />
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={cn(
+            'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+            activeTab === 'dashboard'
+              ? 'text-brand-600 border-brand-600'
+              : 'text-gray-600 border-transparent hover:text-gray-900'
+          )}
+        >
+          Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab('pipeline')}
+          className={cn(
+            'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+            activeTab === 'pipeline'
+              ? 'text-brand-600 border-brand-600'
+              : 'text-gray-600 border-transparent hover:text-gray-900'
+          )}
+        >
+          Pipeline de Negociações
+        </button>
+      </div>
+
+      {activeTab === 'pipeline' ? (
+        <NegociacoesListView />
+      ) : (
+        <>
+          {/* Working days banner */}
+          <WorkingDaysCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
@@ -667,6 +699,8 @@ export function AdminDashboardV2({
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
         <TasksCardDashboard />
       </div>
+        </>
+      )}
 
       {/* Modal de detalhamento do card */}
       {detail && (

@@ -224,15 +224,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                 ))}
               </div>
             )}
-            <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
-              {(['day', 'week'] as const).map(v => (
-                <button key={v} onClick={() => setView(v)}
-                  className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
-                    view === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                  {v === 'day' ? 'Dia' : <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />Semana</span>}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -652,6 +643,33 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
   ]
 
   const [showQuoteModal, setShowQuoteModal] = useState(false)
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null)
+  const [editingSubtaskText, setEditingSubtaskText] = useState('')
+  const descRef = useRef<HTMLTextAreaElement>(null)
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  const handleDescChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    setDesc(textarea.value)
+    textarea.style.height = 'auto'
+    textarea.style.height = Math.max(100, textarea.scrollHeight) + 'px'
+  }
+
+  const saveSubtaskEdit = (index: number) => {
+    if (editingSubtaskText.trim()) {
+      const updated = [...subtasks]
+      updated[index].title = editingSubtaskText.trim()
+      setSubtasks(updated)
+      onChange({ subtasks: updated })
+    }
+    setEditingSubtaskId(null)
+    setEditingSubtaskText('')
+  }
+
+  const cancelSubtaskEdit = () => {
+    setEditingSubtaskId(null)
+    setEditingSubtaskText('')
+  }
 
   return (
     <>
@@ -690,7 +708,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
               <Link2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
               <span className="flex-1 text-xs font-medium text-brand-700 truncate">#{task.quote.number} · {task.quote.client_name}</span>
             </button>
-            <button onClick={() => onChange({ quote_id: null })}
+            <button onClick={() => onChange({ quote_id: null, quote: null })}
               className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
               title="Desatrelar orçamento">
               <X className="w-3.5 h-3.5" />
@@ -739,7 +757,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
                     <div
                       key={q.id}
                       onClick={() => {
-                        onChange({ quote_id: q.id })
+                        onChange({ quote_id: q.id, quote: { number: q.number, client_name: q.client_name } })
                         setSearchQuote('')
                         setShowQuoteSearch(false)
                       }}
@@ -820,9 +838,30 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
                     item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white hover:border-gray-400')}>
                   {item.done && <span className="text-white text-[8px] font-bold">✓</span>}
                 </button>
-                <span className={cn('text-sm text-gray-700 leading-snug flex-1', item.done && 'line-through text-gray-400')}>
-                  {item.title}
-                </span>
+                {editingSubtaskId === item.id ? (
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    value={editingSubtaskText}
+                    onChange={e => setEditingSubtaskText(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') saveSubtaskEdit(i)
+                      if (e.key === 'Escape') cancelSubtaskEdit()
+                    }}
+                    onBlur={() => saveSubtaskEdit(i)}
+                    autoFocus
+                    className="flex-1 text-sm px-2 py-1 border border-brand-300 rounded-lg outline-none focus:ring-1 focus:ring-brand-300 bg-white"
+                  />
+                ) : (
+                  <span
+                    onClick={() => {
+                      setEditingSubtaskId(item.id)
+                      setEditingSubtaskText(item.title)
+                    }}
+                    className={cn('text-sm text-gray-700 leading-snug flex-1 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors', item.done && 'line-through text-gray-400')}>
+                    {item.title}
+                  </span>
+                )}
                 <button onClick={() => {
                   const updated = subtasks.filter((_, idx) => idx !== i)
                   setSubtasks(updated)
@@ -861,10 +900,10 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
 
         <div>
           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Notas</label>
-          <textarea value={desc} onChange={e => setDesc(e.target.value)}
+          <textarea ref={descRef} value={desc} onChange={handleDescChange}
             onBlur={() => onChange({ description: desc })}
             placeholder="Adicionar notas..." rows={4}
-            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed" />
+            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed max-h-48 overflow-y-auto" />
         </div>
 
         <p className="text-[11px] text-gray-300 border-t border-gray-100 pt-3">
