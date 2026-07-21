@@ -126,6 +126,28 @@ export function AdminDashboardV2({
 
   const maxValue = Math.max(...monthlyData.map(d => Math.max(d.faturado, d.meta))) || 1
 
+  // Faturamento do mês anterior pra comparação
+  const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+  const prevStart = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), 1).toISOString().split('T')[0]
+  const prevEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).toISOString().split('T')[0]
+  const prevMonthClosed = quotes.filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= prevStart && q.closed_at <= prevEnd)
+  const prevFaturamento = prevMonthClosed.reduce((sum, q) => sum + recebidoDeQuote(q), 0)
+  const faturamentoChange = totalFaturamento - prevFaturamento
+
+  // Ticket médio do mês anterior
+  const prevTicketMedio = prevMonthClosed.length > 0 ? prevFaturamento / prevMonthClosed.length : 0
+  const ticketMedioChange = ticketMedio - prevTicketMedio
+
+  // Taxa de conversão do mês anterior
+  const prevLostThisMonth = quotes.filter(q => {
+    if (q.temperature !== 'lost') return false
+    const d = String(q.temperature_updated_at ?? '').slice(0, 10)
+    return d >= prevStart && d <= prevEnd
+  })
+  const prevTotalQuotes = prevMonthClosed.length + prevLostThisMonth.length
+  const prevConversionRate = prevTotalQuotes > 0 ? Math.round((prevMonthClosed.length / prevTotalQuotes) * 100) : 0
+  const conversionRateChange = conversionRate - prevConversionRate
+
   // Ranking colaboradores
   const userPerformance = users.map(u => {
     // Vendas do mês — mesma fonte do "Faturamento do mês" (sales_by_month), evita divergência
@@ -307,7 +329,9 @@ export function AdminDashboardV2({
           <div className="h-1 bg-gray-200 rounded-full mt-2 overflow-hidden">
             <div className="h-full bg-green-500" style={{ width: `${Math.min((totalFaturamento / 140000) * 100, 100)}%` }}></div>
           </div>
-          <p className="text-xs text-gray-400 mt-1">↓ vs maio: R$ 0</p>
+          <p className={`text-xs mt-1 ${faturamentoChange >= 0 ? 'text-green-600' : 'text-red-500'} font-semibold`}>
+            {faturamentoChange >= 0 ? '↑' : '↓'} vs mês anterior: {formatCurrency(Math.abs(faturamentoChange))}
+          </p>
         </div>
 
         <div onClick={() => setDetail({ title: 'Oportunidades em aberto', items: quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')), field: 'quoted' })}
@@ -325,7 +349,9 @@ export function AdminDashboardV2({
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ticket médio</p>
           <p className="text-xl font-bold text-amber-600 mt-2">{formatCurrency(ticketMedio)}</p>
           <p className="text-xs text-gray-500 mt-1">por venda fechada</p>
-          <p className="text-xs text-green-600 font-semibold mt-1">↑ vs média histórica</p>
+          <p className={`text-xs mt-1 font-semibold ${ticketMedioChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+            {ticketMedioChange >= 0 ? '↑' : '↓'} {formatCurrency(Math.abs(ticketMedioChange))} vs mês anterior
+          </p>
         </div>
 
         <div onClick={() => setDetail({ title: 'Vendas fechadas (taxa de conversão)', items: closedThisMonth, field: 'final' })}
@@ -334,7 +360,9 @@ export function AdminDashboardV2({
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Taxa de conversão</p>
           <p className="text-xl font-bold text-purple-600 mt-2">{conversionRate}%</p>
           <p className="text-xs text-gray-500 mt-1">fechadas / total orç.</p>
-          <p className="text-xs text-green-600 font-semibold mt-1">↑ +5pp vs maio</p>
+          <p className={`text-xs mt-1 font-semibold ${conversionRateChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+            {conversionRateChange >= 0 ? '↑' : '↓'} {Math.abs(conversionRateChange)}pp vs mês anterior
+          </p>
         </div>
 
         <div onClick={() => setDetail({ title: 'Negociações perdidas no mês', items: lostThisMonth, field: 'quoted' })}
