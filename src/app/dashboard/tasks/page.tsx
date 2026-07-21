@@ -1,31 +1,29 @@
-import { TasksListNew } from '@/components/tasks/TasksListNew'
 import { getTasks, getAllTasks, getCurrentUser, getActiveUsers } from '@/lib/actions'
+import { TasksV5 } from '@/components/tasks/TasksV5'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
-
-export const metadata = {
-  title: 'Tarefas — Luknos',
-}
+export const metadata = { title: 'Tarefas — Luknos' }
 
 export default async function TasksPage() {
-  const [user, myTasks] = await Promise.all([
-    getCurrentUser(),
-    getTasks(),
-  ])
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/login')
 
-  const isAdmin = user?.role === 'admin'
-
+  const [currentUser, myTasks] = await Promise.all([getCurrentUser(), getTasks()])
+  const isAdmin = currentUser?.role === 'admin'
   const [allTasks, allUsers] = isAdmin
     ? await Promise.all([getAllTasks(), getActiveUsers()])
     : [[], []]
 
   return (
-    <TasksListNew
-      initialMyTasks={myTasks as any}
-      initialAllTasks={allTasks as any}
-      initialUsers={allUsers as any}
-      initialUserName={user?.name ?? 'Usuário'}
-      initialUserRole={user?.role ?? 'seller'}
+    <TasksV5
+      myTasks={myTasks as any[]}
+      allTasks={allTasks as any[]}
+      allUsers={allUsers as any[]}
+      currentUser={currentUser as any}
+      isAdmin={isAdmin}
     />
   )
 }

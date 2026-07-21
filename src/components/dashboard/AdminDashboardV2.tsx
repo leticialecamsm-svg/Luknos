@@ -13,6 +13,9 @@ import { DashboardAgenda } from './DashboardAgenda'
 import { SalesSuggestions } from './SalesSuggestions'
 import { NegociacoesListView } from './NegociacoesListView'
 
+// Pipeline de negociações ainda não liberado para os usuários — mantido no código para reativar depois
+const PIPELINE_ENABLED = false
+
 export function AdminDashboardV2({
   quotes,
   users,
@@ -286,32 +289,34 @@ export function AdminDashboardV2({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          className={cn(
-            'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'dashboard'
-              ? 'text-brand-600 border-brand-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          )}
-        >
-          Dashboard
-        </button>
-        <button
-          onClick={() => setActiveTab('pipeline')}
-          className={cn(
-            'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'pipeline'
-              ? 'text-brand-600 border-brand-600'
-              : 'text-gray-600 border-transparent hover:text-gray-900'
-          )}
-        >
-          Pipeline de Negociações
-        </button>
-      </div>
+      {PIPELINE_ENABLED && (
+        <div className="flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={cn(
+              'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+              activeTab === 'dashboard'
+                ? 'text-brand-600 border-brand-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            )}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('pipeline')}
+            className={cn(
+              'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+              activeTab === 'pipeline'
+                ? 'text-brand-600 border-brand-600'
+                : 'text-gray-600 border-transparent hover:text-gray-900'
+            )}
+          >
+            Pipeline de Negociações
+          </button>
+        </div>
+      )}
 
-      {activeTab === 'pipeline' ? (
+      {PIPELINE_ENABLED && activeTab === 'pipeline' ? (
         <NegociacoesListView />
       ) : (
         <>
