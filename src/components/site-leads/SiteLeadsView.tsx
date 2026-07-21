@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MessageCircle } from 'lucide-react'
+import { MessageCircle, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatRelativeWithTime } from '@/lib/utils'
 
@@ -61,6 +61,18 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
     const { error } = await supabase.from('site_leads').update({ status }).eq('id', id)
     if (error) {
       console.error('Erro ao atualizar status:', error.message)
+    }
+  }
+
+  async function deleteLead(id: string, name: string) {
+    if (!window.confirm(`Excluir o contato de ${name}? Essa ação não pode ser desfeita.`)) return
+    const previous = leads
+    setLeads((prev) => prev.filter((l) => l.id !== id))
+    const supabase = createClient()
+    const { error } = await supabase.from('site_leads').delete().eq('id', id)
+    if (error) {
+      console.error('Erro ao excluir contato:', error.message)
+      setLeads(previous)
     }
   }
 
@@ -129,6 +141,7 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
                   <th className="text-left px-4 py-3 font-semibold text-gray-900">Recebido</th>
                   <th className="text-center px-4 py-3 font-semibold text-gray-900">Status</th>
                   <th className="text-center px-4 py-3 font-semibold text-gray-900">WhatsApp</th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-900"></th>
                 </tr>
               </thead>
               <tbody>
@@ -168,6 +181,16 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
                       >
                         <MessageCircle size={16} />
                       </a>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => deleteLead(lead.id, lead.name)}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                        title="Excluir contato"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}

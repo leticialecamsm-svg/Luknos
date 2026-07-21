@@ -32,3 +32,8 @@ CREATE POLICY "site_leads_authenticated_update" ON site_leads
   TO authenticated
   USING (true)
   WITH CHECK (true);
+
+CREATE POLICY "site_leads_authenticated_delete" ON site_leads
+  FOR DELETE
+  TO authenticated
+  USING (true);
