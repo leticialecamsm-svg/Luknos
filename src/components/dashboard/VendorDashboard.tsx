@@ -84,10 +84,12 @@ export function VendorDashboard({
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 5)
 
-  // Cálculos para aba "Geral"
+  // Cálculos para aba "Geral" — filtrados pelo mês selecionado (mStart/mEnd)
+  const gMStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
+  const gMEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
   const totalFaturamento = (allQuotes ?? [])
-    .filter(q => q.status === 'done' && q.temperature === 'closed')
-    .reduce((sum, q) => sum + (q.final_value ?? 0), 0)
+    .filter(q => q.status === 'done' && q.temperature === 'closed' && q.closed_at && q.closed_at >= gMStart && q.closed_at <= gMEnd)
+    .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
 
   const pipelineTotal = (allQuotes ?? [])
     .filter(q => q.status !== 'done')
@@ -420,7 +422,7 @@ export function VendorDashboard({
               <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
               <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento da loja</p>
               <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(totalFaturamento)}</p>
-              <p className="text-xs text-gray-500 mt-2">Todos os vendedores</p>
+              <p className="text-xs text-gray-500 mt-2">Todos os vendedores · {monthName}</p>
             </div>
 
             <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
