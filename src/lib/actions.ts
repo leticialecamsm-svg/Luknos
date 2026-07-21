@@ -849,7 +849,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   const admin = createAdminClient()
   let quotesQuery = admin
     .from('quotes_full')
-    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at')
+    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at, owners:quote_owners(user_id)')
     .eq('temperature', 'closed')
 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
@@ -867,14 +867,27 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
     : { data: [] as any[] }
   const splitsByQuote = new Map((negs ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
 
-  // Só conta o RECEBIDO (splits pagos); o "em aberto" vira conta a receber no Financeiro
-  const closedValue = closedMonth.reduce((sum: number, q: any) => {
+  const valueOf = (q: any) => {
     const splits = splitsByQuote.get(q.id) ?? []
-    const val = splits.length === 0
+    return splits.length === 0
       ? Number(q.final_value ?? q.quoted_value ?? 0)
       : splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
-    return sum + val
-  }, 0)
+  }
+
+  // Só conta o RECEBIDO (splits pagos); o "em aberto" vira conta a receber no Financeiro
+  const closedValue = closedMonth.reduce((sum: number, q: any) => sum + valueOf(q), 0)
+
+  // Vendido por usuário — divide o valor entre os donos do orçamento (mesma regra da comissão)
+  const salesByUserMap: Record<string, number> = {}
+  for (const q of closedMonth) {
+    const owners: string[] = (q.owners ?? []).map((o: any) => o.user_id).filter(Boolean)
+    if (owners.length === 0) continue
+    const perOwner = valueOf(q) / owners.length
+    for (const uid of owners) {
+      salesByUserMap[uid] = (salesByUserMap[uid] ?? 0) + perOwner
+    }
+  }
+  const salesByUserRows = Object.entries(salesByUserMap).map(([user_id, total_sold]) => ({ user_id, total_sold, month: m, year: y }))
 
   const { data: goal } = await supabase
     .from('monthly_goals').select('target')
@@ -882,7 +895,11 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
     .eq('year', y).eq('month', m)
     .single()
 
-  return { funnel: funnel ?? [], sales: [{ total_sold: closedValue, month: m, year: y }], storeGoal: goal?.target ?? 0 }
+  return {
+    funnel: funnel ?? [],
+    sales: userId ? [{ user_id: userId, total_sold: closedValue, month: m, year: y }] : salesByUserRows,
+    storeGoal: goal?.target ?? 0,
+  }
 }
 
 export async function getActiveUsers() {
