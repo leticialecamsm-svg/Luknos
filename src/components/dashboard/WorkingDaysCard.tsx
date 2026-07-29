@@ -13,7 +13,7 @@ function calcWorkingDaysLeft() {
     const dow = new Date(year, month, d).getDay()
     if (dow !== 0) { // domingo não conta, sábado sim
       total++
-      if (d > now.getDate()) remaining++
+      if (d >= now.getDate()) remaining++
     }
   }
   return { remaining, total }
