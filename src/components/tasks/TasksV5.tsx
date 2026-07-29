@@ -127,14 +127,16 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 
   async function toggleDone(task: Task) {
     const prevStatus = task.status
+    const prevCompletedAt = task.completed_at
     const next: Status = task.status === 'done' ? 'todo' : 'done'
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: next } : t))
-    if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next } : p)
+    const nextCompletedAt = next === 'done' ? new Date().toISOString() : null
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: next, completed_at: nextCompletedAt } : t))
+    if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next, completed_at: nextCompletedAt } : p)
     try {
       const res = await updateTaskStatus(task.id, next)
       if (res?.error) throw new Error(res.error)
     } catch (e: any) {
-      revertTask(task.id, { status: prevStatus })
+      revertTask(task.id, { status: prevStatus, completed_at: prevCompletedAt })
       toast.error('Não foi possível salvar', 'Tente marcar a tarefa novamente.')
     }
   }
@@ -555,12 +557,13 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
   onDragStart?: () => void; onDragEnd?: () => void
   onToggle: () => void; onDelete: () => void; onSelect: () => void; onQuoteClick?: (quoteId: string) => void
 }) {
-  const done    = task.status === 'done'
-  const due     = task.due_date ? parseLocalDate(task.due_date) : null
-  const overdue = due && isPast(due) && !isToday(due) && !done
-  const dueLabel = due
-    ? (isToday(due) ? 'Hoje' : isTomorrow(due) ? 'Amanhã' : format(due, 'dd/MM', { locale: ptBR }))
-    : null
+  const done      = task.status === 'done'
+  const due       = task.due_date ? parseLocalDate(task.due_date) : null
+  const overdue   = due && isPast(due) && !isToday(due) && !done
+  const completed = task.completed_at ? new Date(task.completed_at) : null
+  const dueLabel  = done
+    ? (completed ? (isToday(completed) ? 'Hoje' : format(completed, 'dd/MM', { locale: ptBR })) : null)
+    : (due ? (isToday(due) ? 'Hoje' : isTomorrow(due) ? 'Amanhã' : format(due, 'dd/MM', { locale: ptBR })) : null)
 
   const canDrag = useRef(false)
 
