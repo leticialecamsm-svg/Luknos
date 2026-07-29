@@ -101,6 +101,12 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const todayTasks = sortedBy(active.filter(isInToday))
   const laterTasks = sortedBy(active.filter(t => !isInToday(t)))
 
+  const byCompletedDesc = (a: Task, b: Task) =>
+    (b.completed_at ?? b.created_at).localeCompare(a.completed_at ?? a.created_at)
+  const wasCompletedToday = (t: Task) => !!t.completed_at && isToday(new Date(t.completed_at))
+  const doneToday   = done.filter(wasCompletedToday).sort(byCompletedDesc)
+  const doneEarlier = done.filter(t => !wasCompletedToday(t)).sort(byCompletedDesc)
+
   // ── Mutations (optimistic, DB em background) ──────────────────────────────
 
   async function handleAdd(e: React.FormEvent) {
@@ -114,23 +120,52 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     if (res?.error) { toast.error('Erro', res.error); setTasks(prev => prev.filter(t => t.id !== tmp.id)) }
   }
 
-  function toggleDone(task: Task) {
+  function revertTask(id: string, prevSnapshot: Partial<Task>) {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...prevSnapshot } : t))
+    if (selected?.id === id) setSelected(p => p ? { ...p, ...prevSnapshot } : p)
+  }
+
+  async function toggleDone(task: Task) {
+    const prevStatus = task.status
     const next: Status = task.status === 'done' ? 'todo' : 'done'
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: next } : t))
     if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next } : p)
-    updateTaskStatus(task.id, next).catch(() => {})
+    try {
+      const res = await updateTaskStatus(task.id, next)
+      if (res?.error) throw new Error(res.error)
+    } catch (e: any) {
+      revertTask(task.id, { status: prevStatus })
+      toast.error('Não foi possível salvar', 'Tente marcar a tarefa novamente.')
+    }
   }
 
-  function removeTask(id: string) {
+  async function removeTask(id: string) {
+    const prevTask = tasks.find(t => t.id === id)
     setTasks(prev => prev.filter(t => t.id !== id))
     if (selected?.id === id) setSelected(null)
-    deleteTask(id).catch(() => {})
+    try {
+      const res = await deleteTask(id)
+      if (res?.error) throw new Error(res.error)
+    } catch (e: any) {
+      if (prevTask) setTasks(prev => [...prev, prevTask])
+      toast.error('Não foi possível excluir', 'Tente novamente.')
+    }
   }
 
-  function changeTask(id: string, updates: Partial<Task>) {
+  async function changeTask(id: string, updates: Partial<Task>) {
+    const prevTask = tasks.find(t => t.id === id)
+    const prevSnapshot: Partial<Task> = prevTask
+      ? Object.fromEntries(Object.keys(updates).map(k => [k, (prevTask as any)[k]]))
+      : {}
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
     if (selected?.id === id) setSelected(p => p ? { ...p, ...updates } : p)
-    updateTask(id, updates as any).catch(() => {})
+    try {
+      const res = await updateTask(id, updates as any)
+      if (res?.error) throw new Error(res.error)
+    } catch (e: any) {
+      revertTask(id, prevSnapshot)
+      toast.error('Não foi possível salvar', 'Tente novamente.')
+    }
   }
 
   // ── Drag & Drop ───────────────────────────────────────────────────────────
@@ -293,16 +328,39 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                 <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 ml-auto transition-transform', !doneOpen && '-rotate-90')} />
               </button>
               {doneOpen && (
-                <div className="divide-y divide-gray-100">
-                  {done.map(task => (
-                    <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
-                      isSelected={selected?.id === task.id}
-                      onToggle={() => toggleDone(task)}
-                      onDelete={() => removeTask(task.id)}
-                      onSelect={() => setSelected(s => s?.id === task.id ? null : task)}
-                      onQuoteClick={setSelectedQuoteId}
-                    />
-                  ))}
+                <div>
+                  {doneToday.length > 0 && (
+                    <div>
+                      <p className="px-4 pt-3 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">Hoje</p>
+                      <div className="divide-y divide-gray-100">
+                        {doneToday.map(task => (
+                          <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
+                            isSelected={selected?.id === task.id}
+                            onToggle={() => toggleDone(task)}
+                            onDelete={() => removeTask(task.id)}
+                            onSelect={() => setSelected(s => s?.id === task.id ? null : task)}
+                            onQuoteClick={setSelectedQuoteId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {doneEarlier.length > 0 && (
+                    <div>
+                      <p className="px-4 pt-3 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">Anteriores</p>
+                      <div className="divide-y divide-gray-100">
+                        {doneEarlier.map(task => (
+                          <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
+                            isSelected={selected?.id === task.id}
+                            onToggle={() => toggleDone(task)}
+                            onDelete={() => removeTask(task.id)}
+                            onSelect={() => setSelected(s => s?.id === task.id ? null : task)}
+                            onQuoteClick={setSelectedQuoteId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
