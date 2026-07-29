@@ -119,7 +119,15 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     const tmp: Task = { id: '__tmp__' + Date.now(), title, status: 'todo', priority: newPriority, created_at: new Date().toISOString(), due_date: TODAY, sort_order: -1 }
     setTasks(prev => [tmp, ...prev])
     const res = await createTask({ title, priority: newPriority, status: 'todo', due_date: TODAY })
-    if (res?.error) { toast.error('Erro', res.error); setTasks(prev => prev.filter(t => t.id !== tmp.id)) }
+    if (res?.error) {
+      toast.error('Erro', res.error)
+      setTasks(prev => prev.filter(t => t.id !== tmp.id))
+    } else if (res?.data?.id) {
+      // Troca o id temporário pelo id real assim que o servidor confirma —
+      // sem isso, uma ação rápida (marcar como feita, editar) na tarefa recém
+      // criada tentaria salvar usando o id fake e falharia.
+      setTasks(prev => prev.map(t => t.id === tmp.id ? { ...t, id: res.data.id } : t))
+    }
   }
 
   function revertTask(id: string, prevSnapshot: Partial<Task>) {

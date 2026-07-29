@@ -1392,7 +1392,7 @@ export async function createTask(formData: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
-  const { error } = await supabase.from('tasks').insert({
+  const { data, error } = await supabase.from('tasks').insert({
     user_id: user.id,
     title: formData.title,
     description: formData.description || null,
@@ -1401,12 +1401,12 @@ export async function createTask(formData: {
     due_date: formData.due_date,
     checklist: formData.checklist || [],
     quote_id: formData.quote_id || null,
-  })
+  }).select().single()
 
   if (error) return { error: error.message }
   revalidatePath('/dashboard/tasks')
   revalidatePath('/dashboard')
-  return { ok: true }
+  return { ok: true, data }
 }
 
 async function getDbClient() {
