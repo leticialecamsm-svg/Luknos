@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder, getQuotesList,
+  createSubtask, updateSubtask, deleteSubtask,
 } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
@@ -725,20 +726,72 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
     textarea.style.height = Math.max(100, textarea.scrollHeight) + 'px'
   }
 
-  const saveSubtaskEdit = (index: number) => {
-    if (editingSubtaskText.trim()) {
-      const updated = [...subtasks]
-      updated[index].title = editingSubtaskText.trim()
-      setSubtasks(updated)
-      onChange({ subtasks: updated })
-    }
+  const toast = useToast()
+
+  const saveSubtaskEdit = async (index: number) => {
+    const newTitle = editingSubtaskText.trim()
+    const prevTitle = subtasks[index]?.title
+    const id = subtasks[index]?.id
     setEditingSubtaskId(null)
     setEditingSubtaskText('')
+    if (!newTitle || !id || newTitle === prevTitle) return
+    setSubtasks(prev => prev.map((s, i) => i === index ? { ...s, title: newTitle } : s))
+    try {
+      const res = await updateSubtask(id, { title: newTitle })
+      if (res?.error) throw new Error(res.error)
+    } catch {
+      setSubtasks(prev => prev.map((s, i) => i === index ? { ...s, title: prevTitle } : s))
+      toast.error('Não foi possível salvar', 'Tente editar a subtarefa novamente.')
+    }
   }
 
   const cancelSubtaskEdit = () => {
     setEditingSubtaskId(null)
     setEditingSubtaskText('')
+  }
+
+  async function toggleSubtask(index: number) {
+    const item = subtasks[index]
+    if (!item?.id) return
+    const nextDone = !item.done
+    setSubtasks(prev => prev.map((s, i) => i === index ? { ...s, done: nextDone } : s))
+    try {
+      const res = await updateSubtask(item.id, { done: nextDone })
+      if (res?.error) throw new Error(res.error)
+    } catch {
+      setSubtasks(prev => prev.map((s, i) => i === index ? { ...s, done: !nextDone } : s))
+      toast.error('Não foi possível salvar', 'Tente novamente.')
+    }
+  }
+
+  async function removeSubtask(index: number) {
+    const item = subtasks[index]
+    if (!item?.id) return
+    setSubtasks(prev => prev.filter((_, i) => i !== index))
+    try {
+      const res = await deleteSubtask(item.id)
+      if (res?.error) throw new Error(res.error)
+    } catch {
+      setSubtasks(prev => {
+        const restored = [...prev]
+        restored.splice(index, 0, item)
+        return restored
+      })
+      toast.error('Não foi possível excluir', 'Tente novamente.')
+    }
+  }
+
+  async function addSubtask() {
+    const title = newSubtask.trim()
+    if (!title) return
+    setNewSubtask('')
+    try {
+      const res = await createSubtask(task.id, title)
+      if (res?.error || !res?.data) throw new Error(res?.error ?? 'Erro ao criar subtarefa')
+      setSubtasks(prev => [...prev, { id: res.data.id, title: res.data.title, done: res.data.done }])
+    } catch {
+      toast.error('Não foi possível criar', 'Tente adicionar a subtarefa novamente.')
+    }
   }
 
   return (
@@ -898,12 +951,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           <div className="space-y-1 pt-1">
             {subtasks.map((item, i) => (
               <div key={item.id || i} className="flex items-start gap-2 py-0.5 group">
-                <button onClick={() => {
-                  const updated = [...subtasks]
-                  updated[i].done = !updated[i].done
-                  setSubtasks(updated)
-                  onChange({ subtasks: updated })
-                }}
+                <button onClick={() => toggleSubtask(i)}
                   className={cn('mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-all',
                     item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white hover:border-gray-400')}>
                   {item.done && <span className="text-white text-[8px] font-bold">✓</span>}
@@ -932,11 +980,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
                     {item.title}
                   </span>
                 )}
-                <button onClick={() => {
-                  const updated = subtasks.filter((_, idx) => idx !== i)
-                  setSubtasks(updated)
-                  onChange({ subtasks: updated })
-                }}
+                <button onClick={() => removeSubtask(i)}
                   className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-500 transition-all">
                   <X className="w-3 h-3" />
                 </button>
@@ -945,23 +989,11 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           </div>
           <div className="flex gap-1.5 pt-2">
             <input value={newSubtask} onChange={e => setNewSubtask(e.target.value)} onKeyDown={e => {
-              if (e.key === 'Enter' && newSubtask.trim()) {
-                const updated = [...subtasks, { id: Date.now().toString(), title: newSubtask.trim(), done: false }]
-                setSubtasks(updated)
-                onChange({ subtasks: updated })
-                setNewSubtask('')
-              }
+              if (e.key === 'Enter') addSubtask()
             }}
               placeholder="Adicionar subtarefa..."
               className="flex-1 text-xs px-2 py-1 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-300" />
-            <button onClick={() => {
-              if (newSubtask.trim()) {
-                const updated = [...subtasks, { id: Date.now().toString(), title: newSubtask.trim(), done: false }]
-                setSubtasks(updated)
-                onChange({ subtasks: updated })
-                setNewSubtask('')
-              }
-            }}
+            <button onClick={addSubtask}
               className="px-2 py-1 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
               +
             </button>

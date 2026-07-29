@@ -1328,7 +1328,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
 
   let query = supabase
     .from('tasks')
-    .select('*, subtasks(id, done)')
+    .select('*, subtasks(id, title, done)')
     .eq('user_id', user.id)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -1364,7 +1364,7 @@ export async function getTasksByQuote(quoteId: string) {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, subtasks(id, done)')
+    .select('*, subtasks(id, title, done)')
     .eq('quote_id', quoteId)
     .order('created_at', { ascending: false })
   if (error) return []
@@ -1619,7 +1619,7 @@ export async function getAllTasks() {
 
   const { data: tasks } = await adminSupabase
     .from('tasks')
-    .select('*, subtasks(id, done)')
+    .select('*, subtasks(id, title, done)')
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 
