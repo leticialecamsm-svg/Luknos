@@ -602,8 +602,7 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
       onClick={onSelect}
       className={cn(
         'group flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 last:border-0 cursor-pointer transition-colors select-none',
-        isSelected ? 'bg-brand-50' : 'hover:bg-gray-50/80',
-        done && 'opacity-50'
+        isSelected ? 'bg-brand-50' : 'hover:bg-gray-50/80'
       )}
     >
       {/* Drag handle — único ponto que inicia o drag */}
@@ -631,7 +630,7 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
 
       {/* Title + sub-info */}
       <div className="flex-1 min-w-0">
-        <span className={cn('text-sm text-gray-800 truncate block', done && 'line-through text-gray-400')}>
+        <span className={cn('text-sm text-gray-800 truncate block', done && 'line-through text-gray-500')}>
           {task.title}
         </span>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -670,7 +669,9 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
         <span className={cn(
           'text-[11px] font-medium w-12 text-right',
           !dueLabel && 'invisible',
-          overdue ? 'text-red-500' : due && isToday(due) ? 'text-sky-500' : 'text-gray-400'
+          overdue ? 'text-red-500'
+            : done ? (completed && isToday(completed) ? 'text-sky-500' : 'text-gray-500')
+            : due && isToday(due) ? 'text-sky-500' : 'text-gray-400'
         )}>
           {dueLabel ?? '—'}
         </span>
