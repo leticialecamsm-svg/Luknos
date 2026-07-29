@@ -9,7 +9,7 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar, Check } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar, Check, StickyNote } from 'lucide-react'
 import { format, isToday, isPast, isTomorrow, startOfWeek, addDays, isSameDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
@@ -651,6 +651,12 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
               {subtaskDone}/{allItems.length} subtarefas
             </span>
           )}
+          {task.description?.trim() && (
+            <span className="text-[10px] text-gray-400 flex items-center gap-1 min-w-0" title={task.description}>
+              <StickyNote className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate max-w-[160px]">{task.description.trim()}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -664,7 +670,7 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
         <span className={cn(
           'text-[11px] font-medium w-12 text-right',
           !dueLabel && 'invisible',
-          overdue ? 'text-red-500' : due && isToday(due) ? 'text-orange-500' : 'text-gray-400'
+          overdue ? 'text-red-500' : due && isToday(due) ? 'text-sky-500' : 'text-gray-400'
         )}>
           {dueLabel ?? '—'}
         </span>
@@ -1016,7 +1022,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
           <textarea ref={descRef} value={desc} onChange={handleDescChange}
             onBlur={() => onChange({ description: desc })}
             placeholder="Adicionar notas..." rows={4}
-            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed max-h-48 overflow-y-auto" />
+            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed max-h-[60vh] overflow-y-auto" />
         </div>
 
         <p className="text-[11px] text-gray-300 border-t border-gray-100 pt-3">
