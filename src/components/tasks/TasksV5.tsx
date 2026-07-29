@@ -79,6 +79,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [newTitle, setNewTitle] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('mid')
   const [doneOpen, setDoneOpen] = useState(false)
+  const [showAllEarlier, setShowAllEarlier] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
   const [view, setView] = useState<'day' | 'week'>('day')
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
@@ -326,7 +327,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
               <button onClick={() => setDoneOpen(o => !o)}
                 className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-100">
                 <span className="text-xs font-bold text-emerald-600">✓ Concluídas</span>
-                <span className="text-xs text-gray-400">{done.length}</span>
+                <span className="text-xs text-gray-400">{doneToday.length}</span>
                 <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 ml-auto transition-transform', !doneOpen && '-rotate-90')} />
               </button>
               {doneOpen && (
@@ -351,7 +352,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                     <div>
                       <p className="px-4 pt-3 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">Anteriores</p>
                       <div className="divide-y divide-gray-100">
-                        {doneEarlier.map(task => (
+                        {(showAllEarlier ? doneEarlier : doneEarlier.slice(0, 3)).map(task => (
                           <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
                             isSelected={selected?.id === task.id}
                             onToggle={() => toggleDone(task)}
@@ -361,6 +362,14 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                           />
                         ))}
                       </div>
+                      {doneEarlier.length > 3 && (
+                        <button
+                          onClick={() => setShowAllEarlier(v => !v)}
+                          className="w-full text-center py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 border-t border-gray-100 transition-colors"
+                        >
+                          {showAllEarlier ? 'Mostrar menos' : `Mostrar tudo (${doneEarlier.length})`}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -859,7 +868,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
           <Row2 label="Prazo">
             <input
               type="date"
-              value={task.due_date ?? ''}
+              value={task.due_date ? task.due_date.slice(0, 10) : ''}
               onChange={e => onChange({ due_date: e.target.value || null })}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
             />
@@ -969,6 +978,9 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
 
         <p className="text-[11px] text-gray-300 border-t border-gray-100 pt-3">
           Criada em {format(new Date(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+          {done && task.completed_at && (
+            <> · Concluída em {format(new Date(task.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</>
+          )}
         </p>
       </div>
     </div>
