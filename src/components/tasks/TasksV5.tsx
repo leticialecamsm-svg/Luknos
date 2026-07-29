@@ -387,6 +387,10 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
           onToggle={() => toggleDone(selected)}
           onDelete={() => removeTask(selected.id)}
           onChange={updates => changeTask(selected.id, updates)}
+          onSubtasksSync={subtasks => {
+            setTasks(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
+            setSelected(p => p ? { ...p, subtasks } : p)
+          }}
         />
       )}
     </div>
@@ -682,16 +686,23 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({ task, onClose, onToggle, onDelete, onChange }: {
+function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSync }: {
   task: Task; onClose: () => void
   onToggle: () => void; onDelete: () => void
   onChange: (u: Partial<Task>) => void
+  onSubtasksSync?: (subtasks: { id: string; title: string; done: boolean }[]) => void
 }) {
   const [title, setTitle] = useState(task.title)
   const [desc, setDesc]   = useState(task.description ?? '')
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; done: boolean }[]>(
     (task.subtasks ?? []).map(s => ({ id: s.id ?? '', title: s.title ?? s.text ?? '', done: s.done || !!s.completed }))
   )
+
+  // Sincroniza com a linha da lista (badge "X/Y subtarefas") sem gravar no banco de novo —
+  // cada mutação de subtarefa já se persiste sozinha via createSubtask/updateSubtask/deleteSubtask.
+  useEffect(() => {
+    onSubtasksSync?.(subtasks)
+  }, [subtasks])
   const [newSubtask, setNewSubtask] = useState('')
   const [quotes, setQuotes] = useState<{ id: string; number: number; client_name: string }[]>([])
   const [searchQuote, setSearchQuote] = useState('')
