@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
-import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { ChevronDown, ChevronUp, Search, X, Pencil, Trash2, Loader2, AlertTriangle, LayoutList, LayoutGrid } from 'lucide-react'
+import { QUOTE_STATUS_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, QuotePriority } from '@/types'
+import { ChevronDown, ChevronUp, ChevronRight, Search, X, Pencil, Trash2, Loader2, AlertTriangle, LayoutList, LayoutGrid } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -13,6 +13,14 @@ import { Avatar } from '@/components/ui/Avatar'
 
 type SortField = 'status' | 'deadline' | 'quoted_value' | null
 type SortOrder = 'asc' | 'desc'
+
+// Ordem por urgência — mais crítico primeiro, pra decisão rápida
+const PRIORITY_GROUPS: { key: QuotePriority; dot: string; bg: string; text: string; border: string }[] = [
+  { key: 'urgent', dot: 'bg-red-500',    bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-l-red-400' },
+  { key: 'high',   dot: 'bg-orange-500', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-l-orange-400' },
+  { key: 'normal', dot: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-l-blue-400' },
+  { key: 'low',    dot: 'bg-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-600',   border: 'border-l-gray-300' },
+]
 
 export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; allQuotes: any[]; isAdmin: boolean }) {
   const router = useRouter()
@@ -29,6 +37,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [showDone, setShowDone] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
   const quotes = view === 'mine' ? myQuotes : allQuotes
 
@@ -84,6 +93,20 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
     return sortOrder === 'asc' ? cmp : -cmp
   })
+
+  // Agrupa por prioridade — igual à tela de tarefas, do mais urgente pro menos urgente
+  const grouped = PRIORITY_GROUPS.map(g => ({
+    ...g,
+    items: sorted.filter(q => (q.priority ?? 'normal') === g.key),
+  })).filter(g => g.items.length > 0)
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   // Totals always from current view (before status filter so counts stay stable)
   const totals: Record<string, number> = {
@@ -296,7 +319,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
       {layout === 'list' && <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
+            <tr className="border-b border-gray-100 bg-gray-50/80">
               <th className="px-4 py-3 text-left">
                 <input
                   type="checkbox"
@@ -305,32 +328,79 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                   className="w-4 h-4 rounded cursor-pointer"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">Nº</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">CLIENTE</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">Nº</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">CLIENTE</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">
                 <button onClick={() => toggleSort('status')} className="flex items-center gap-1 hover:text-brand-600">
                   STATUS <SortIcon field="status" />
                 </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">NEGOCIAÇÃO</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">EQUIPE</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">EQUIPE</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">
                 <button onClick={() => toggleSort('deadline')} className="flex items-center gap-1 hover:text-brand-600">
                   PRAZO <SortIcon field="deadline" />
                 </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">
                 <button onClick={() => toggleSort('quoted_value')} className="flex items-center gap-1 hover:text-brand-600">
                   VALOR <SortIcon field="quoted_value" />
                 </button>
               </th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700">AÇÕES</th>
+              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 tracking-wide">AÇÕES</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map(q => {
-              const overdue = isOverdue(q.deadline) && q.status !== 'done'
-              const tempC = q.temperature ? TEMPERATURE_COLOR[q.temperature as keyof typeof TEMPERATURE_COLOR] : null
+            {grouped.map(group => (
+              <QuoteGroupRows
+                key={group.key}
+                group={group}
+                collapsed={collapsedGroups.has(group.key)}
+                onToggle={() => toggleGroup(group.key)}
+                router={router}
+                selected={selected}
+                toggleSelectQuote={toggleSelectQuote}
+                handleDelete={handleDelete}
+              />
+            ))}
+          </tbody>
+        </table>
+
+        {sorted.length === 0 && (
+          <div className="px-6 py-12 text-center">
+            <p className="text-gray-500">Nenhum orçamento encontrado</p>
+          </div>
+        )}
+      </div>}
+      {ConfirmDialog}
+    </div>
+  )
+}
+
+function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSelectQuote, handleDelete }: {
+  group: { key: QuotePriority; dot: string; bg: string; text: string; border: string; items: any[] }
+  collapsed: boolean
+  onToggle: () => void
+  router: ReturnType<typeof useRouter>
+  selected: Set<string>
+  toggleSelectQuote: (id: string) => void
+  handleDelete: (e: React.MouseEvent, id: string, clientName: string) => void
+}) {
+  return (
+    <>
+      <tr className={cn('border-b border-gray-100 cursor-pointer select-none', group.bg)} onClick={onToggle}>
+        <td colSpan={8} className={cn('px-6 py-2.5 border-l-4', group.border)}>
+          <div className="flex items-center gap-2">
+            <ChevronRight className={cn('w-3.5 h-3.5 text-gray-400 transition-transform', !collapsed && 'rotate-90')} />
+            <span className={cn('w-2 h-2 rounded-full', group.dot)} />
+            <span className={cn('text-xs font-bold uppercase tracking-wide', group.text)}>
+              {PRIORITY_LABEL[group.key]}
+            </span>
+            <span className="text-xs text-gray-400">{group.items.length}</span>
+          </div>
+        </td>
+      </tr>
+      {!collapsed && group.items.map(q => {
+        const overdue = isOverdue(q.deadline) && q.status !== 'done'
 
               // Calculate days using local timezone (string-based)
               const getDaysUntil = (deadline: string | null) => {
@@ -384,6 +454,15 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                         <div className="flex flex-col">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-medium text-gray-900">{q.client_name}</span>
+                            {(() => {
+                              const p = (q.priority ?? 'normal') as QuotePriority
+                              const pc = PRIORITY_COLOR[p]
+                              return (
+                                <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap', pc.bg, pc.text)}>
+                                  {PRIORITY_LABEL[p]}
+                                </span>
+                              )
+                            })()}
                             {Array.isArray(q.payment_splits) && q.payment_splits.some((s: any) => s.status === 'open') && (
                               <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">⏳ Pgto pendente</span>
                             )}
@@ -401,13 +480,6 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                       }`}>
                         {QUOTE_STATUS_LABEL[q.status as keyof typeof QUOTE_STATUS_LABEL]}
                       </span>
-                    </td>
-                    <td className="px-6 py-3">
-                      {tempC ? (
-                        <span className={cn('inline-flex text-xs font-medium px-2 py-1 rounded-full', tempC.bg, tempC.text)}>
-                          {TEMPERATURE_LABEL[q.temperature as keyof typeof TEMPERATURE_LABEL]}
-                        </span>
-                      ) : '-'}
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-1">
@@ -457,16 +529,6 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
                   </tr>
               )
             })}
-          </tbody>
-        </table>
-
-        {sorted.length === 0 && (
-          <div className="px-6 py-12 text-center">
-            <p className="text-gray-500">Nenhum orçamento encontrado</p>
-          </div>
-        )}
-      </div>}
-      {ConfirmDialog}
-    </div>
+    </>
   )
 }

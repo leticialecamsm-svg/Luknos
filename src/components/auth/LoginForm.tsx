@@ -21,7 +21,10 @@ export function LoginForm() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
-      setError('Email ou senha incorretos')
+      const isRateLimit = error.status === 429 || /rate limit/i.test(error.message)
+      setError(isRateLimit
+        ? 'Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.'
+        : 'Email ou senha incorretos')
       setLoading(false)
       return
     }
