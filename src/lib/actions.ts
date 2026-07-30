@@ -1424,8 +1424,8 @@ export async function updateTask(id: string, formData: {
   status?: string
   due_date?: string | null
   checklist?: { text: string; done: boolean }[]
-  subtasks?: { id?: string; title: string; done: boolean }[]
   quote_id?: string | null
+  pinned_to_today?: boolean
 }) {
   const db = await getDbClient()
   const extra: Record<string, unknown> = {}

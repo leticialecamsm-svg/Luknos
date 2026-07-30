@@ -9,8 +9,8 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, Calendar, Check, StickyNote } from 'lucide-react'
-import { format, isToday, isPast, isTomorrow, startOfWeek, addDays, isSameDay } from 'date-fns'
+import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, StickyNote } from 'lucide-react'
+import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
@@ -82,7 +82,6 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [doneOpen, setDoneOpen] = useState(false)
   const [showAllEarlier, setShowAllEarlier] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
-  const [view, setView] = useState<'day' | 'week'>('day')
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
 
   // Estado local de tarefas (optimistic)
@@ -171,8 +170,11 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
       : {}
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
     if (selected?.id === id) setSelected(p => p ? { ...p, ...updates } : p)
+    // `quote` é só um campo de exibição local (join com quotes) — não existe
+    // como coluna na tabela tasks, então não pode ir no payload do updateTask.
+    const { quote, ...dbUpdates } = updates as any
     try {
-      const res = await updateTask(id, updates as any)
+      const res = await updateTask(id, dbUpdates)
       if (res?.error) throw new Error(res.error)
     } catch (e: any) {
       revertTask(id, prevSnapshot)
@@ -186,8 +188,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     section: 'today', priority: null, insertBeforeId: null,
   })
 
-  // Sem await — optimistic instantâneo, DB dispara em background
-  function applyDrop() {
+  async function applyDrop() {
     const taskId = draggingId.current
     if (!taskId) return
     const { section: toSection, priority: toPriority, insertBeforeId } = dropTarget.current
@@ -224,6 +225,10 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     }
     const orderUpdates = inserted.map((t, i) => ({ id: t.id, sort_order: i * 10 }))
 
+    // Snapshot pra poder desfazer tudo (posição + campos movidos) se a gravação falhar
+    const prevOrder = orderUpdates.map(u => ({ id: u.id, sort_order: tasks.find(t => t.id === u.id)?.sort_order }))
+    const prevTaskFields: Partial<Task> = Object.fromEntries(Object.keys(updates).map(k => [k, (task as any)[k]]))
+
     // Optimistic instantâneo
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) return { ...t, ...updates, sort_order: orderUpdates.find(u => u.id === taskId)?.sort_order ?? t.sort_order }
@@ -232,9 +237,22 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     }))
     if (selected?.id === taskId) setSelected(p => p ? { ...p, ...updates } : p)
 
-    // DB em background (sem bloquear UI)
-    updateTasksOrder(orderUpdates).catch(() => {})
-    if (Object.keys(updates).length) updateTask(taskId, updates as any).catch(() => {})
+    try {
+      const results = await Promise.all([
+        updateTasksOrder(orderUpdates),
+        Object.keys(updates).length ? updateTask(taskId, updates as any) : Promise.resolve(null),
+      ])
+      const err = results.find((r: any) => r?.error)
+      if (err) throw new Error((err as any).error)
+    } catch (e: any) {
+      setTasks(prev => prev.map(t => {
+        const po = prevOrder.find(o => o.id === t.id)
+        const base = po ? { ...t, sort_order: po.sort_order } : t
+        return t.id === taskId ? { ...base, ...prevTaskFields } : base
+      }))
+      if (selected?.id === taskId) setSelected(p => p ? { ...p, ...prevTaskFields } : p)
+      toast.error('Não foi possível salvar', 'A tarefa voltou pra posição anterior. Tente arrastar novamente.')
+    }
   }
 
   const todayByP: Record<Priority, Task[]> = {
@@ -298,38 +316,32 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 
         {/* Lists */}
         <div className="flex-1 overflow-y-auto space-y-3 pb-6">
-          {view === 'day' ? (
-            <>
-              <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
-                {(['high', 'mid', 'low'] as Priority[]).map(p => (
-                  <PriorityGroup
-                    key={p} priority={p} tasks={todayByP[p]}
-                    showUser={scope === 'team'}
-                    draggingId={draggingId} dropTarget={dropTarget}
-                    onDrop={applyDrop}
-                    onToggle={toggleDone} onDelete={removeTask}
-                    onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
-                    onQuoteClick={setSelectedQuoteId}
-                    selectedId={selected?.id}
-                  />
-                ))}
-              </Section>
+          <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
+            {(['high', 'mid', 'low'] as Priority[]).map(p => (
+              <PriorityGroup
+                key={p} priority={p} tasks={todayByP[p]}
+                showUser={scope === 'team'}
+                draggingId={draggingId} dropTarget={dropTarget}
+                onDrop={applyDrop}
+                onToggle={toggleDone} onDelete={removeTask}
+                onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
+                onQuoteClick={setSelectedQuoteId}
+                selectedId={selected?.id}
+              />
+            ))}
+          </Section>
 
-              <Section title="Depois" count={laterTasks.length} accent="text-gray-500" defaultOpen>
-                <DropList
-                  tasks={laterTasks} showUser={scope === 'team'}
-                  draggingId={draggingId} dropTarget={dropTarget}
-                  onDrop={applyDrop}
-                  onToggle={toggleDone} onDelete={removeTask}
-                  onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
-                  onQuoteClick={setSelectedQuoteId}
-                  selectedId={selected?.id}
-                />
-              </Section>
-            </>
-          ) : (
-            <WeekView tasks={active} showUser={scope === 'team'} onToggle={toggleDone} onDelete={removeTask} onSelect={t => setSelected(s => s?.id === t.id ? null : t)} selectedId={selected?.id} />
-          )}
+          <Section title="Depois" count={laterTasks.length} accent="text-gray-500" defaultOpen>
+            <DropList
+              tasks={laterTasks} showUser={scope === 'team'}
+              draggingId={draggingId} dropTarget={dropTarget}
+              onDrop={applyDrop}
+              onToggle={toggleDone} onDelete={removeTask}
+              onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
+              onQuoteClick={setSelectedQuoteId}
+              selectedId={selected?.id}
+            />
+          </Section>
 
           {done.length > 0 && (
             <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
@@ -816,6 +828,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
       if (res?.error || !res?.data) throw new Error(res?.error ?? 'Erro ao criar subtarefa')
       setSubtasks(prev => [...prev, { id: res.data.id, title: res.data.title, done: res.data.done }])
     } catch {
+      setNewSubtask(title)
       toast.error('Não foi possível criar', 'Tente adicionar a subtarefa novamente.')
     }
   }
@@ -1050,138 +1063,6 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
   )
 }
 
-
-function WeekView({ tasks, showUser, onToggle, onDelete, onSelect, selectedId }: {
-  tasks: Task[]
-  showUser: boolean
-  onToggle: (t: Task) => void
-  onDelete: (id: string) => void
-  onSelect: (t: Task) => void
-  selectedId?: string
-}) {
-  const today = new Date()
-  const weekStart = startOfWeek(today, { weekStartsOn: 1 })
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-  const [moveTaskId, setMoveTaskId] = useState<string | null>(null)
-
-  const tasksByDay = days.reduce((acc, day) => {
-    acc[day.toISOString().split('T')[0]] = tasks.filter(t => {
-      if (!t.due_date) return false
-      return isSameDay(parseLocalDate(t.due_date), day)
-    }).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    return acc
-  }, {} as Record<string, Task[]>)
-
-  const backlogTasks = tasks.filter(t => !t.due_date).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-
-  return (
-    <div className="pb-6">
-      {backlogTasks.length > 0 && (
-        <div className="mb-6 bg-white rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Backlog ({backlogTasks.length})</h3>
-          <div className="space-y-2">
-            {backlogTasks.map(task => (
-              <div key={task.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 group">
-                <button
-                  onClick={() => onToggle(task)}
-                  className={cn('w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center',
-                    task.status === 'done' ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300')}
-                >
-                  {task.status === 'done' && <Check className="w-2.5 h-2.5 text-white" />}
-                </button>
-                <span className={cn('text-sm flex-1 truncate', task.status === 'done' && 'line-through text-gray-400')}>
-                  {task.title}
-                </span>
-                <button
-                  onClick={() => setMoveTaskId(task.id)}
-                  className="text-xs px-2 py-1 text-gray-600 hover:bg-blue-50 hover:text-brand-600 rounded opacity-0 group-hover:opacity-100">
-                  Agendar
-                </button>
-                <button
-                  onClick={() => onDelete(task.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-7 gap-2">
-        {days.map(day => {
-          const dateStr = day.toISOString().split('T')[0]
-          const dayTasks = tasksByDay[dateStr] || []
-          const isToday_ = isSameDay(day, today)
-
-          return (
-            <div key={dateStr} className={cn('rounded-lg border p-3 min-h-80 flex flex-col',
-              isToday_ ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200')}>
-              <div className="mb-3 pb-2 border-b border-gray-200">
-                <div className={cn('text-xs font-semibold uppercase', isToday_ ? 'text-brand-600' : 'text-gray-500')}>
-                  {format(day, 'EEE', { locale: ptBR })}
-                </div>
-                <div className={cn('text-lg font-bold', isToday_ ? 'text-brand-700' : 'text-gray-900')}>
-                  {format(day, 'dd')}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-1">
-                {dayTasks.length === 0 ? (
-                  <div className="text-xs text-gray-300 text-center py-8">—</div>
-                ) : (
-                  dayTasks.map(task => (
-                    <div key={task.id} onClick={() => onSelect(task)}
-                      className={cn('p-2 rounded text-xs cursor-pointer group border',
-                        task.status === 'done' ? 'bg-emerald-50 border-emerald-200' :
-                        task.priority === 'high' ? 'bg-red-50 border-red-200' :
-                        task.priority === 'mid' ? 'bg-amber-50 border-amber-200' :
-                        'bg-gray-50 border-gray-200')}>
-                      <div className={cn('font-medium truncate', task.status === 'done' && 'line-through text-gray-400')}>
-                        {task.title}
-                      </div>
-                      {task.quote && <div className="text-[10px] text-brand-600 mt-0.5">#{task.quote.number}</div>}
-                      <button
-                        onClick={e => { e.stopPropagation(); setMoveTaskId(task.id) }}
-                        className="text-[10px] mt-1 px-1.5 py-0.5 bg-white border rounded opacity-0 group-hover:opacity-100">
-                        Mover
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {moveTaskId && (
-        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 w-96 shadow-lg max-h-96 overflow-y-auto">
-            <h3 className="font-semibold text-gray-900 mb-3">Mover para:</h3>
-            <button
-              onClick={() => { updateTask(moveTaskId, { due_date: null }).catch(() => {}); setMoveTaskId(null) }}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded mb-2 border border-gray-200">
-              📋 Backlog
-            </button>
-            {days.map(day => (
-              <button key={day.toISOString()}
-                onClick={() => { updateTask(moveTaskId, { due_date: day.toISOString().split('T')[0] }).catch(() => {}); setMoveTaskId(null) }}
-                className={cn('w-full text-left px-3 py-2 text-sm rounded border mb-1',
-                  isSameDay(day, today) ? 'border-brand-300 bg-brand-50 hover:bg-brand-100' : 'border-gray-200 hover:bg-gray-50')}>
-                <div className="font-medium">{format(day, 'EEEE', { locale: ptBR })}</div>
-                <div className="text-xs text-gray-500">{format(day, 'dd/MM')}</div>
-              </button>
-            ))}
-            <button onClick={() => setMoveTaskId(null)}
-              className="w-full mt-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 function Row2({ label, children }: { label: string; children: React.ReactNode }) {
   return (
