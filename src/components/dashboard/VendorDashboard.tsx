@@ -96,7 +96,8 @@ export function VendorDashboard({
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   // Ranking de colaboradores — usa a MESMA fonte do card "Vendido no mês" (sales_by_month do mês atual)
-  const userPerformance = (users ?? []).map(u => {
+  // Só entra quem é admin ou vendedor — marketing/logística ficam de fora
+  const userPerformance = (users ?? []).filter((u: any) => u.role === 'admin' || u.role === 'seller').map(u => {
     const totalVendido = salesByUser?.[u.id] ?? 0
     const userGoal = goalsByUser?.[u.id] ?? 0
     const comissao = Math.round(totalVendido * 0.01) // 1% de comissão

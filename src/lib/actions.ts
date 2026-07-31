@@ -849,7 +849,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   const admin = createAdminClient()
   let quotesQuery = admin
     .from('quotes_full')
-    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at, owners:quote_owners(user_id)')
+    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at')
     .eq('temperature', 'closed')
 
   if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
@@ -860,6 +860,18 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
     const dateToCheck = q.closed_at || (String(q.temperature_updated_at ?? '').slice(0, 10))
     return q.temperature === 'closed' && dateToCheck >= monthStart
   })
+
+  // quotes_full é uma view — o Supabase não consegue embutir quote_owners nela
+  // automaticamente (falta a FK visível pro PostgREST), então busca à parte
+  const { data: ownerRows } = closedMonth.length
+    ? await admin.from('quote_owners').select('quote_id, user_id').in('quote_id', closedMonth.map((q: any) => q.id))
+    : { data: [] as any[] }
+  const ownersByQuote = new Map<string, string[]>()
+  for (const o of ownerRows ?? []) {
+    const arr = ownersByQuote.get(o.quote_id) ?? []
+    arr.push(o.user_id)
+    ownersByQuote.set(o.quote_id, arr)
+  }
 
   // quotes_full não traz payment_splits — busca de negotiations pra aplicar a regra do recebido
   const { data: negs } = closedMonth.length
@@ -880,7 +892,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // Vendido por usuário — divide o valor entre os donos do orçamento (mesma regra da comissão)
   const salesByUserMap: Record<string, number> = {}
   for (const q of closedMonth) {
-    const owners: string[] = (q.owners ?? []).map((o: any) => o.user_id).filter(Boolean)
+    const owners: string[] = ownersByQuote.get(q.id) ?? []
     if (owners.length === 0) continue
     const perOwner = valueOf(q) / owners.length
     for (const uid of owners) {
