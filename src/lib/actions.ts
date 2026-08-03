@@ -919,7 +919,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
 
 export async function getActiveUsers() {
   const supabase = createClient()
-  const { data } = await supabase.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true).order('name')
+  const { data } = await supabase.from('users').select('id, name, avatar_color, avatar_url, role, is_projetista').eq('active', true).order('name')
   return data ?? []
 }
 
@@ -2719,5 +2719,126 @@ export async function deleteMarketingPost(id: string) {
   const { error } = await createAdminClient().from('marketing_posts').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/marketing')
+  return { ok: true }
+}
+
+// ── Usuários e papéis (controle de acesso por página) ──────────────────────
+// Todas as mutations aqui checam admin explicitamente — a Sidebar só esconde
+// links, quem realmente barra é isto + a policy "Only admins can manage roles".
+
+async function requireAdmin() {
+  const me = await getCurrentUser()
+  if (!me || me.role !== 'admin') return null
+  return me
+}
+
+export async function getRoles() {
+  const admin = createAdminClient()
+  const { data, error } = await admin.from('roles').select('*').order('name')
+  if (error) return []
+  return data
+}
+
+export async function createRole(name: string, label: string, allowedPages: string[]) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const key = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_')
+  if (!key) return { error: 'Nome inválido' }
+  const { error } = await createAdminClient().from('roles').insert({
+    name: key, label: label.trim() || key, allowed_pages: allowedPages,
+  })
+  if (error) return { error: error.code === '23505' ? 'Já existe um papel com esse nome.' : error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function updateRolePages(name: string, allowedPages: string[]) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  if (name === 'admin') return { error: 'O papel admin sempre tem acesso total.' }
+  const { error } = await createAdminClient().from('roles').update({ allowed_pages: allowedPages }).eq('name', name)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function deleteRole(name: string) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  if (['admin', 'seller', 'marketing', 'logistics'].includes(name)) {
+    return { error: 'Papéis padrão do sistema não podem ser excluídos.' }
+  }
+  const admin = createAdminClient()
+  const { count } = await admin.from('users').select('id', { count: 'exact', head: true }).eq('role', name)
+  if ((count ?? 0) > 0) return { error: 'Existem usuários com esse papel. Mude o papel deles antes de excluir.' }
+  const { error } = await admin.from('roles').delete().eq('name', name)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function getAllUsersForAdmin() {
+  if (!(await requireAdmin())) return []
+  const admin = createAdminClient()
+  const { data } = await admin.from('users').select('*').order('name')
+  return data ?? []
+}
+
+export async function createUserAccount(data: {
+  name: string
+  email: string
+  password: string
+  role: string
+  is_projetista: boolean
+}) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  if (!data.name.trim() || !data.email.trim() || data.password.length < 6) {
+    return { error: 'Preencha nome, email e uma senha com pelo menos 6 caracteres.' }
+  }
+  const admin = createAdminClient()
+  const { data: created, error: authError } = await admin.auth.admin.createUser({
+    email: data.email.trim(),
+    password: data.password,
+    email_confirm: true,
+  })
+  if (authError || !created.user) return { error: authError?.message ?? 'Erro ao criar usuário' }
+
+  const colors = ['#185FA5', '#0F6E56', '#993C1D', '#993556', '#5F5E5A', '#854F0B']
+  const { error: profileError } = await admin.from('users').insert({
+    id: created.user.id,
+    name: data.name.trim(),
+    email: data.email.trim(),
+    role: data.role,
+    is_projetista: data.is_projetista,
+    avatar_color: colors[Math.floor(Math.random() * colors.length)],
+    active: true,
+  })
+  if (profileError) {
+    // Reverte a criação no Auth se o perfil falhar, pra não deixar login órfão sem registro
+    await admin.auth.admin.deleteUser(created.user.id)
+    return { error: profileError.message }
+  }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function updateUserRole(userId: string, role: string) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const { error } = await createAdminClient().from('users').update({ role }).eq('id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function updateUserProjetista(userId: string, isProjetista: boolean) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const { error } = await createAdminClient().from('users').update({ is_projetista: isProjetista }).eq('id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function updateUserActive(userId: string, active: boolean) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const { error } = await createAdminClient().from('users').update({ active }).eq('id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
   return { ok: true }
 }

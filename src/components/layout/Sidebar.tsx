@@ -26,6 +26,7 @@ const ADMIN_NAV = [
   { href: '/hr', label: 'RH', icon: UserCog },
   { href: '/purchases', label: 'Notas de Entrada', icon: ShoppingBag },
   { href: '/admin', label: 'Administração', icon: Settings },
+  { href: '/admin/users', label: 'Usuários e Papéis', icon: Users2 },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
 
@@ -46,7 +47,7 @@ const LogoIcon = () => (
   </svg>
 )
 
-export function Sidebar({ user }: { user: User | null }) {
+export function Sidebar({ user, allowedPages }: { user: User | null; allowedPages?: string[] | null }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -70,7 +71,6 @@ export function Sidebar({ user }: { user: User | null }) {
   }
 
   const isAdmin = user?.role === 'admin'
-  const isLogistics = user?.role === 'logistics'
   const isMarketing = user?.role === 'marketing'
 
   // Botão "Tutorial" (aparece após concluir o onboarding do marketing) — só admin/marketing
@@ -89,11 +89,15 @@ export function Sidebar({ user }: { user: User | null }) {
     marketing: 'Marketing',
   }
 
-  const visibleNav = isLogistics
-    ? NAV.filter(item => ['/dashboard', '/dashboard/tasks', '/shipping'].includes(item.href))
-    : isMarketing
-    ? [MARKETING_ITEM]
-    : NAV
+  const canAccess = (href: string) =>
+    isAdmin || (allowedPages ?? []).some(p => href === p || href.startsWith(p + '/'))
+
+  const visibleNav = isAdmin ? NAV : NAV.filter(item => canAccess(item.href))
+  const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href))
+  // Papéis sem nenhuma página de operação liberada (ex: marketing puro) caem no atalho dedicado
+  if (!isAdmin && visibleNav.length === 0 && visibleAdminNav.length === 0 && isMarketing) {
+    visibleNav.push(MARKETING_ITEM)
+  }
 
   if (!mounted) return null
 
@@ -149,14 +153,14 @@ export function Sidebar({ user }: { user: User | null }) {
             )
           })}
 
-          {isAdmin && (
+          {visibleAdminNav.length > 0 && (
             <>
               {!collapsed && (
                 <div className="pt-4 pb-1 px-3">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-white/25">Admin</p>
                 </div>
               )}
-              {ADMIN_NAV.map(item => {
+              {visibleAdminNav.map(item => {
                 const isFinance = item.href === '/finance'
                 const financeOpen = pathname.startsWith('/finance')
                 const active = pathname === item.href || (isFinance ? pathname === '/finance' : pathname.startsWith(item.href))

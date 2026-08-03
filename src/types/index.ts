@@ -1,6 +1,8 @@
 // ── Enums (espelham o banco) ──────────────────────────────────
 
-export type UserRole = 'admin' | 'seller' | 'logistics' | 'marketing'
+// Papéis agora são dinâmicos (tabela `roles`, criados pelo admin em /admin/users) —
+// esses 4 continuam existindo como valores conhecidos, mas outros nomes são válidos.
+export type UserRole = 'admin' | 'seller' | 'logistics' | 'marketing' | (string & {})
 export type MarketingPostType = 'story' | 'reels' | 'carousel'
 export type MarketingPostStatus = 'scheduled' | 'posted'
 export type ContactType = 'client' | 'architect' | 'designer' | 'engineer' | 'electrician' | 'plasterer' | 'carpenter' | 'other'
@@ -30,6 +32,7 @@ export interface User {
   avatar_color: string
   avatar_url?: string | null
   active: boolean
+  is_projetista?: boolean
   created_at: string
 }
 

@@ -155,7 +155,7 @@ export function AdminDashboardV2({
   const userPerformance = users
     // Ranking é só vendedores, admins e quem atuou como projetista no período —
     // marketing/logística não entram, mesmo tendo cadastro ativo
-    .filter(u => u.role === 'admin' || u.role === 'seller' || (earnings?.[u.id]?.projetistaComm ?? 0) > 0)
+    .filter(u => u.role === 'admin' || u.role === 'seller' || u.is_projetista)
     .map(u => {
     // Vendas do mês — mesma fonte do "Faturamento do mês" (sales_by_month), evita divergência
     const totalVendido = salesByUser?.[u.id] ?? 0
