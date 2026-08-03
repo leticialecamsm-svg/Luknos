@@ -2811,18 +2811,27 @@ export async function createUserAccount(data: {
     return { error: 'Preencha nome, email e uma senha com pelo menos 6 caracteres.' }
   }
   const admin = createAdminClient()
+  const email = data.email.trim()
+
+  // Checa duplicidade antes de criar — evita duplo-clique/duplo-submit gerando
+  // duas contas quase simultâneas pro mesmo email
+  const { data: existing } = await admin.from('users').select('id').eq('email', email).maybeSingle()
+  if (existing) return { error: 'Já existe um usuário com esse email.' }
+
   const { data: created, error: authError } = await admin.auth.admin.createUser({
-    email: data.email.trim(),
+    email,
     password: data.password,
     email_confirm: true,
   })
-  if (authError || !created.user) return { error: authError?.message ?? 'Erro ao criar usuário' }
+  if (authError || !created.user) {
+    return { error: /already.*register/i.test(authError?.message ?? '') ? 'Já existe um usuário com esse email.' : (authError?.message ?? 'Erro ao criar usuário') }
+  }
 
   const colors = ['#185FA5', '#0F6E56', '#993C1D', '#993556', '#5F5E5A', '#854F0B']
   const { error: profileError } = await admin.from('users').insert({
     id: created.user.id,
     name: data.name.trim(),
-    email: data.email.trim(),
+    email,
     role: data.role,
     is_projetista: data.is_projetista,
     avatar_color: colors[Math.floor(Math.random() * colors.length)],

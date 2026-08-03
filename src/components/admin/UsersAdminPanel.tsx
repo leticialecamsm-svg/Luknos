@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import {
   createRole, updateRolePages, deleteRole, updateRoleCollaborator,
   createUserAccount, updateUserRole, updateUserProjetista, updateUserActive,
@@ -291,16 +291,25 @@ function NewUserForm({ roles, onCreated, onCancel }: {
   const [role, setRole] = useState(roles.find(r => !r.is_admin)?.name ?? roles[0]?.name ?? '')
   const [isProjetista, setIsProjetista] = useState(false)
   const [pending, startTransition] = useTransition()
+  const submittingRef = useRef(false)
 
   const handleCreate = () => {
+    // Trava síncrona contra duplo-clique — `pending` do useTransition só vira
+    // true depois de um tick, tempo suficiente pra um segundo clique passar
+    if (submittingRef.current) return
+    submittingRef.current = true
     startTransition(async () => {
-      const res = await createUserAccount({ name, email, password, role, is_projetista: isProjetista })
-      if (res?.error) { toast.error('Erro', res.error); return }
-      onCreated({
-        id: crypto.randomUUID(), name, email, role, is_projetista: isProjetista,
-        active: true, avatar_color: '#185FA5',
-      })
-      toast.success('Criado', 'Usuário criado. Já pode fazer login com o email e senha definidos.')
+      try {
+        const res = await createUserAccount({ name, email, password, role, is_projetista: isProjetista })
+        if (res?.error) { toast.error('Erro', res.error); return }
+        onCreated({
+          id: crypto.randomUUID(), name, email, role, is_projetista: isProjetista,
+          active: true, avatar_color: '#185FA5',
+        })
+        toast.success('Criado', 'Usuário criado. Já pode fazer login com o email e senha definidos.')
+      } finally {
+        submittingRef.current = false
+      }
     })
   }
 
