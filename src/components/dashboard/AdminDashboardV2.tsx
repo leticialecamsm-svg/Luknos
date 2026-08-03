@@ -30,6 +30,7 @@ export function AdminDashboardV2({
   selectedYear,
   selectedMonth,
   goalsFallbackLabel,
+  collaboratorRoles = ['admin', 'seller'],
 }: {
   quotes: any[]
   users: any[]
@@ -40,6 +41,7 @@ export function AdminDashboardV2({
   goalsByUser?: Record<string, number>
   earnings?: Record<string, any>
   criticalNegotiations?: any[]
+  collaboratorRoles?: string[]
   flaggedAlerts?: any[]
   selectedYear?: number
   selectedMonth?: number
@@ -155,7 +157,7 @@ export function AdminDashboardV2({
   const userPerformance = users
     // Ranking é só vendedores, admins e quem atuou como projetista no período —
     // marketing/logística não entram, mesmo tendo cadastro ativo
-    .filter(u => u.role === 'admin' || u.role === 'seller' || u.is_projetista)
+    .filter(u => collaboratorRoles.includes(u.role) || u.is_projetista)
     .map(u => {
     // Vendas do mês — mesma fonte do "Faturamento do mês" (sales_by_month), evita divergência
     const totalVendido = salesByUser?.[u.id] ?? 0

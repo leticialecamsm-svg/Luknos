@@ -13,7 +13,7 @@ import { DashboardAgenda } from './DashboardAgenda'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth, goalsFallbackLabel
+  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth, goalsFallbackLabel, collaboratorRoles = ['admin', 'seller']
 }: {
   myGoal: number
   myQuotes: any[]
@@ -27,6 +27,7 @@ export function VendorDashboard({
   salesByUser?: Record<string, number>
   goalsByUser?: Record<string, number>
   myEarnings?: any
+  collaboratorRoles?: string[]
   selectedYear?: number
   selectedMonth?: number
   goalsFallbackLabel?: string
@@ -97,7 +98,7 @@ export function VendorDashboard({
 
   // Ranking de colaboradores — usa a MESMA fonte do card "Vendido no mês" (sales_by_month do mês atual)
   // Só entra quem é admin ou vendedor — marketing/logística ficam de fora
-  const userPerformance = (users ?? []).filter((u: any) => u.role === 'admin' || u.role === 'seller' || u.is_projetista).map(u => {
+  const userPerformance = (users ?? []).filter((u: any) => collaboratorRoles.includes(u.role) || u.is_projetista).map(u => {
     const totalVendido = salesByUser?.[u.id] ?? 0
     const userGoal = goalsByUser?.[u.id] ?? 0
     const comissao = Math.round(totalVendido * 0.01) // 1% de comissão

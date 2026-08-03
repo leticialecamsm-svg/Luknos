@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts, getCollaboratorRoleNames } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
@@ -66,13 +66,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const year  = searchParams.year  ? parseInt(searchParams.year)  : now.getFullYear()
   const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
 
-  const [stats, myQuotes, allUsers, goalsResult, allQuotes, prospectionsCount] = await Promise.all([
+  const [stats, myQuotes, allUsers, goalsResult, allQuotes, prospectionsCount, collaboratorRoles] = await Promise.all([
     getDashboardStats(isAdmin ? undefined : user.id, year, month),
     getMyQuotes(),
     getActiveUsers(),
     getGoalsWithFallback(year, month),
     getAllQuotes(),
     isAdmin ? getProspectionsThisMonth(undefined, year, month) : getProspectionsThisMonth(user.id, year, month),
+    getCollaboratorRoleNames(),
   ])
 
   const { goals, isFallback, fallbackLabel } = goalsResult
@@ -115,6 +116,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           selectedYear={year}
           selectedMonth={month}
           goalsFallbackLabel={isFallback ? fallbackLabel : undefined}
+          collaboratorRoles={collaboratorRoles}
         />
       ) : (
         <VendorDashboard
@@ -133,6 +135,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           selectedYear={year}
           selectedMonth={month}
           goalsFallbackLabel={isFallback ? fallbackLabel : undefined}
+          collaboratorRoles={collaboratorRoles}
         />
       )}
     </>

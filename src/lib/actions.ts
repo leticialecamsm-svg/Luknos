@@ -2739,12 +2739,21 @@ export async function getRoles() {
   return data
 }
 
-export async function createRole(name: string, label: string, allowedPages: string[]) {
+// Nomes de papéis que contam como "colaborador de verdade" (aparecem em
+// rankings, metas etc.) — admin sempre conta, os demais dependem de
+// roles.is_collaborator, configurável em /admin/users.
+export async function getCollaboratorRoleNames(): Promise<string[]> {
+  const admin = createAdminClient()
+  const { data } = await admin.from('roles').select('name').or('is_admin.eq.true,is_collaborator.eq.true')
+  return (data ?? []).map((r: any) => r.name)
+}
+
+export async function createRole(name: string, label: string, allowedPages: string[], isCollaborator: boolean) {
   if (!(await requireAdmin())) return { error: 'Sem permissão' }
   const key = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_')
   if (!key) return { error: 'Nome inválido' }
   const { error } = await createAdminClient().from('roles').insert({
-    name: key, label: label.trim() || key, allowed_pages: allowedPages,
+    name: key, label: label.trim() || key, allowed_pages: allowedPages, is_collaborator: isCollaborator,
   })
   if (error) return { error: error.code === '23505' ? 'Já existe um papel com esse nome.' : error.message }
   revalidatePath('/admin/users')
@@ -2757,6 +2766,15 @@ export async function updateRolePages(name: string, allowedPages: string[]) {
   const { error } = await createAdminClient().from('roles').update({ allowed_pages: allowedPages }).eq('name', name)
   if (error) return { error: error.message }
   revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+export async function updateRoleCollaborator(name: string, isCollaborator: boolean) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const { error } = await createAdminClient().from('roles').update({ is_collaborator: isCollaborator }).eq('name', name)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  revalidatePath('/dashboard')
   return { ok: true }
 }
 

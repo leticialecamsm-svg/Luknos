@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import {
-  createRole, updateRolePages, deleteRole,
+  createRole, updateRolePages, deleteRole, updateRoleCollaborator,
   createUserAccount, updateUserRole, updateUserProjetista, updateUserActive,
 } from '@/lib/actions'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
@@ -15,6 +15,7 @@ interface Role {
   name: string
   label: string
   is_admin: boolean
+  is_collaborator: boolean
   allowed_pages: string[]
 }
 interface UserRow {
@@ -62,6 +63,18 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
     })
   }
 
+  function toggleCollaborator(role: Role) {
+    const next = !role.is_collaborator
+    setRoles(prev => prev.map(r => r.name === role.name ? { ...r, is_collaborator: next } : r))
+    startTransition(async () => {
+      const res = await updateRoleCollaborator(role.name, next)
+      if (res?.error) {
+        toast.error('Erro', res.error)
+        setRoles(prev => prev.map(r => r.name === role.name ? { ...r, is_collaborator: !next } : r))
+      }
+    })
+  }
+
   return (
     <div className="space-y-8">
       {/* Papéis / tipos de usuário */}
@@ -91,16 +104,28 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
                   <p className="text-sm font-semibold text-gray-900">{role.label}</p>
                   <p className="text-xs text-gray-400">{role.name}</p>
                 </div>
-                {role.is_admin ? (
-                  <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-1 rounded-full">Acesso total</span>
-                ) : (
-                  !['seller', 'marketing', 'logistics'].includes(role.name) && (
-                    <button onClick={() => handleDeleteRole(role.name)} disabled={pending}
-                      className="text-gray-400 hover:text-red-500 p-1.5">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )
-                )}
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={role.is_admin || role.is_collaborator}
+                      disabled={role.is_admin || pending}
+                      onChange={() => toggleCollaborator(role)}
+                      className="w-3.5 h-3.5 rounded"
+                    />
+                    Conta como colaborador
+                  </label>
+                  {role.is_admin ? (
+                    <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-1 rounded-full">Acesso total</span>
+                  ) : (
+                    !['seller', 'marketing', 'logistics'].includes(role.name) && (
+                      <button onClick={() => handleDeleteRole(role.name)} disabled={pending}
+                        className="text-gray-400 hover:text-red-500 p-1.5">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
               {!role.is_admin && (
                 <>
@@ -210,6 +235,7 @@ function NewRoleForm({ onCreated, onCancel }: { onCreated: (r: Role) => void; on
   const toast = useToast()
   const [label, setLabel] = useState('')
   const [pages, setPages] = useState<string[]>([])
+  const [isCollaborator, setIsCollaborator] = useState(false)
   const [pending, startTransition] = useTransition()
 
   const togglePage = (href: string) =>
@@ -218,10 +244,10 @@ function NewRoleForm({ onCreated, onCancel }: { onCreated: (r: Role) => void; on
   const handleCreate = () => {
     if (!label.trim()) { toast.error('Erro', 'Dê um nome pro tipo de usuário.'); return }
     startTransition(async () => {
-      const res = await createRole(label, label, pages)
+      const res = await createRole(label, label, pages, isCollaborator)
       if (res?.error) { toast.error('Erro', res.error); return }
       const key = label.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_')
-      onCreated({ name: key, label: label.trim(), is_admin: false, allowed_pages: pages })
+      onCreated({ name: key, label: label.trim(), is_admin: false, is_collaborator: isCollaborator, allowed_pages: pages })
       toast.success('Criado', 'Tipo de usuário criado.')
     })
   }
@@ -239,6 +265,10 @@ function NewRoleForm({ onCreated, onCancel }: { onCreated: (r: Role) => void; on
           </button>
         ))}
       </div>
+      <label className="flex items-center gap-1.5 text-xs text-gray-600">
+        <input type="checkbox" checked={isCollaborator} onChange={e => setIsCollaborator(e.target.checked)} className="w-3.5 h-3.5 rounded" />
+        Conta como colaborador (aparece em rankings e metas) — deixe desmarcado pra terceirizados
+      </label>
       <div className="flex gap-2">
         <button onClick={handleCreate} disabled={pending} className="btn-primary text-xs py-1.5">
           {pending && <Loader2 className="w-3 h-3 animate-spin" />} Criar tipo
