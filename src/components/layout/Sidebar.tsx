@@ -47,7 +47,7 @@ const LogoIcon = () => (
   </svg>
 )
 
-export function Sidebar({ user, allowedPages }: { user: User | null; allowedPages?: string[] | null }) {
+export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -230,7 +230,7 @@ export function Sidebar({ user, allowedPages }: { user: User | null; allowedPage
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">{user?.name ?? '—'}</p>
                 <p className="text-[10px] text-white/35 truncate">
-                  {ROLE_LABEL[user?.role ?? 'seller'] ?? 'Vendedor'}
+                  {roleLabel ?? ROLE_LABEL[user?.role ?? 'seller'] ?? user?.role ?? 'Vendedor'}
                 </p>
               </div>
               <button onClick={handleLogout} className="text-white/30 hover:text-white transition-colors" title="Sair">

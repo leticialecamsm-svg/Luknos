@@ -13,14 +13,17 @@ export async function requirePageAccess(pagePath: string) {
 
   const { data: profile } = await supabase.from('users').select('*').eq('id', user.id).single()
   if (!profile) redirect('/auth/login')
-  if (profile.role === 'admin') return { profile, allowedPages: null as string[] | null }
 
   const admin = createAdminClient()
-  const { data: role } = await admin.from('roles').select('allowed_pages').eq('name', profile.role).maybeSingle()
+  const { data: role } = await admin.from('roles').select('label, allowed_pages').eq('name', profile.role).maybeSingle()
+  const roleLabel = role?.label ?? profile.role
+
+  if (profile.role === 'admin') return { profile, allowedPages: null as string[] | null, roleLabel }
+
   const allowedPages: string[] = role?.allowed_pages ?? []
 
   const hasAccess = allowedPages.some(p => pagePath === p || pagePath.startsWith(p + '/'))
   if (!hasAccess) redirect(allowedPages[0] ?? '/dashboard')
 
-  return { profile, allowedPages }
+  return { profile, allowedPages, roleLabel }
 }
