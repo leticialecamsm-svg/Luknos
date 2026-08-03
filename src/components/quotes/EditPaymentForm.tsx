@@ -12,13 +12,15 @@ interface Props {
   quoteId: string
   currentFinalValue: number
   currentSplits: PaymentSplit[]
+  currentClosedDate?: string | null
   onSaved: (finalValue: number, splits: PaymentSplit[]) => void
   onCancel: () => void
 }
 
-export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onSaved, onCancel }: Props) {
+export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, currentClosedDate, onSaved, onCancel }: Props) {
   const [rates, setRates] = useState<PaymentRate[]>(DEFAULT_PAYMENT_RATES)
   const [finalValue, setFinalValue] = useState(String(currentFinalValue))
+  const [closedDate, setClosedDate] = useState(currentClosedDate ? currentClosedDate.slice(0, 10) : todayISO())
   const [splits, setSplits] = useState<PaymentSplit[]>(
     currentSplits.length > 0
       ? currentSplits.map(s => ({ ...s, status: s.status ?? 'paid', date: s.date ?? todayISO() }))
@@ -63,7 +65,7 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
     setError(null)
     startTransition(async () => {
       try {
-        await updateSalePayment(quoteId, { final_value: fv, payment_splits: splits })
+        await updateSalePayment(quoteId, { final_value: fv, payment_splits: splits, closed_date: closedDate })
         toast.success('TUDO CERTO!', 'Pagamento atualizado.')
         onSaved(fv, splits)
       } catch (err) {
@@ -75,6 +77,17 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, onS
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-4 mt-3">
       <h3 className="text-sm font-semibold text-blue-800">Editar pagamento</h3>
+
+      <div>
+        <label className="label">Data de fechamento *</label>
+        <input
+          type="date"
+          value={closedDate}
+          onChange={e => setClosedDate(e.target.value)}
+          className="input mt-1"
+        />
+        <p className="text-xs text-gray-400 mt-1">Controla o mês em que a venda entra no faturamento e no ranking.</p>
+      </div>
 
       <div>
         <label className="label">Valor final (R$) *</label>

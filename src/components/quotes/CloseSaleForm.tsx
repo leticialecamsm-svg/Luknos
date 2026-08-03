@@ -21,6 +21,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
   // baseValue = valor de referência para desconto (muda ao selecionar proposta)
   const [baseValue, setBaseValue] = useState<number | null>(quotedValue)
   const [splits, setSplits] = useState<PaymentSplit[]>([{ method_key: 'pix', amount: 0, status: 'paid', date: todayISO() }])
+  const [closedDate, setClosedDate] = useState(todayISO())
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -74,7 +75,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
         // Nunca sobrescreve o valor orçado: ele é a Proposta 1 (dado histórico).
         // O valor da venda é o final_value, usado em faturamento/comissão em todo o sistema.
         update_quoted_value: false,
-        closed_date: todayISO(),
+        closed_date: closedDate,
       })
       if (result?.error) { setError(result.error); return }
       onConfirm()
@@ -121,6 +122,18 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
           </div>
         </div>
       )}
+
+      {/* Data de fechamento — controla o mês em que a venda entra no faturamento/ranking */}
+      <div>
+        <label className="label">Data de fechamento *</label>
+        <input
+          type="date"
+          value={closedDate}
+          onChange={e => setClosedDate(e.target.value)}
+          className="input mt-1"
+        />
+        <p className="text-xs text-gray-400 mt-1">Use a data em que a venda realmente foi fechada, não necessariamente hoje.</p>
+      </div>
 
       {/* Valor final */}
       <div>

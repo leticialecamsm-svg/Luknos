@@ -568,6 +568,7 @@ async function syncReceivablesFromSplits(
 export async function updateSalePayment(quoteId: string, data: {
   final_value: number
   payment_splits: { method_key: string; amount: number; status?: string; date?: string }[]
+  closed_date?: string // data local (YYYY-MM-DD) — permite corrigir o mês em que a venda é contabilizada
 }) {
   const supabase = createClient()
   // Integridade: a soma das formas de pagamento tem que bater com o valor final
@@ -580,13 +581,15 @@ export async function updateSalePayment(quoteId: string, data: {
     }
   }
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
+  const updatePayload: Record<string, unknown> = {
+    final_value: data.final_value,
+    payment_method: primaryMethod,
+    payment_splits: data.payment_splits,
+  }
+  if (data.closed_date) updatePayload.closed_at = data.closed_date
   const { error } = await supabase
     .from('negotiations')
-    .update({
-      final_value: data.final_value,
-      payment_method: primaryMethod,
-      payment_splits: data.payment_splits,
-    })
+    .update(updatePayload)
     .eq('quote_id', quoteId)
   if (error) throw new Error(error.message)
 

@@ -620,6 +620,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                 quoteId={quote.id}
                 currentFinalValue={localFinalValue ?? quote.final_value ?? 0}
                 currentSplits={localSplits}
+                currentClosedDate={quote.closed_at}
                 onSaved={(fv, splits) => {
                   setLocalFinalValue(fv)
                   setLocalSplits(splits)
