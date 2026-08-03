@@ -35,11 +35,14 @@ export function ShippingList({ initialShipments, filterYear, filterMonth }: Ship
   const filtered = shipments.filter(s => {
     const matchSearch = (s.client_name || '').toLowerCase().includes(search.toLowerCase())
     const matchStatus = filterStatus ? s.separation_status === filterStatus : true
-    // Filter by sale close date (created_at as proxy — negotiations closed_at not in shipment)
+    // Expedições ainda não concluídas aparecem sempre, não importa o mês da venda —
+    // o filtro de mês só se aplica ao histórico do que já foi concluído/entregue,
+    // senão pedidos antigos ainda pendentes somem da tela.
+    const isPending = !['completed', 'delivered'].includes(s.separation_status)
     const closedAt = s.created_at ? new Date(s.created_at) : null
-    const matchMonth = closedAt
-      ? closedAt.getFullYear() === filterYear && closedAt.getMonth() + 1 === filterMonth
-      : true
+    const matchMonth = isPending || !closedAt
+      ? true
+      : closedAt.getFullYear() === filterYear && closedAt.getMonth() + 1 === filterMonth
     return matchSearch && matchStatus && matchMonth
   })
 

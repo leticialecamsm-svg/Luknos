@@ -29,6 +29,10 @@ export function ShippingBoard({ initialShipments, filterYear, filterMonth }: Shi
   const [draggedId, setDraggedId] = useState<string | null>(null)
 
   const monthShipments = shipments.filter(s => {
+    // Expedições ainda não concluídas aparecem sempre — o filtro de mês só
+    // vale pro histórico do que já foi concluído/entregue
+    const isPending = !['completed', 'delivered'].includes(s.separation_status)
+    if (isPending) return true
     const d = s.created_at ? new Date(s.created_at) : null
     return d ? (d.getFullYear() === filterYear && d.getMonth() + 1 === filterMonth) : true
   })
