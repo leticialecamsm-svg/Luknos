@@ -2827,16 +2827,18 @@ export async function createUserAccount(data: {
     return { error: /already.*register/i.test(authError?.message ?? '') ? 'Já existe um usuário com esse email.' : (authError?.message ?? 'Erro ao criar usuário') }
   }
 
+  // O trigger on_auth_user_created (handle_new_user) já insere a linha em
+  // public.users assim que o login é criado — com papel "seller" e nome
+  // genérico por padrão. Por isso aqui é UPDATE, não INSERT (evita duplicate
+  // key: a linha com esse id já existe nesse ponto).
   const colors = ['#185FA5', '#0F6E56', '#993C1D', '#993556', '#5F5E5A', '#854F0B']
-  const { error: profileError } = await admin.from('users').insert({
-    id: created.user.id,
+  const { error: profileError } = await admin.from('users').update({
     name: data.name.trim(),
-    email,
     role: data.role,
     is_projetista: data.is_projetista,
     avatar_color: colors[Math.floor(Math.random() * colors.length)],
     active: true,
-  })
+  }).eq('id', created.user.id)
   if (profileError) {
     // Reverte a criação no Auth se o perfil falhar, pra não deixar login órfão sem registro
     await admin.auth.admin.deleteUser(created.user.id)
