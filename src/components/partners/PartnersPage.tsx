@@ -189,7 +189,7 @@ function ContactForm({
                 type="number" min="0" max="100" step="0.1"
                 value={commRate}
                 onChange={e => setCommRate(e.target.value)}
-                placeholder="Ex: 5"
+                placeholder="10 (padrão)"
                 className="input pr-8"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>

@@ -772,6 +772,18 @@ async function backfillCommissionsForContact(contactId: string, rate: number) {
   }
 }
 
+// Taxa padrão de comissão por tipo de parceiro (aplicada quando o cadastro
+// não informa uma taxa explicitamente — inclusive parceiros criados de
+// dentro do orçamento). Arquiteto 10% · Engenheiro 5% · demais 3%.
+const DEFAULT_COMMISSION_RATE_BY_TYPE: Record<string, number> = {
+  architect: 10,
+  engineer: 5,
+  electrician: 3,
+  plasterer: 3,
+  designer: 3,
+  other: 3,
+}
+
 export async function createContact(data: {
   name: string; phone?: string; email?: string; type: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null; linked_user_id?: string | null
 }) {
@@ -781,9 +793,10 @@ export async function createContact(data: {
   if (!user) return { error: 'Não autenticado' }
   const prospection_date = data.new_prospection ? new Date().toISOString() : null
   const assigned_to = data.assigned_to ?? user.id
+  const commission_rate = data.commission_rate ?? (data.type !== 'client' ? DEFAULT_COMMISSION_RATE_BY_TYPE[data.type] ?? null : null)
   const { data: contact, error } = await admin
     .from('contacts')
-    .insert({ ...data, created_by: user.id, prospection_date, assigned_to })
+    .insert({ ...data, commission_rate, created_by: user.id, prospection_date, assigned_to })
     .select('*')
     .single()
   if (error) return { error: error.message }
