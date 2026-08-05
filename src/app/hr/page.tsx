@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getCommissionEarnings, getPayrollData, getPayrollMonthUpload } from '@/lib/actions'
+import { getCommissionEarnings, getPayrollData, getPayrollMonthUpload, getCollaboratorRoleNames } from '@/lib/actions'
 
 function prevMonthYear(year: number, month: number) {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
@@ -16,12 +16,13 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
 
   const admin = createAdminClient()
   const prev = prevMonthYear(year, month)
-  const [earnings, prevEarnings, payroll, monthUpload, { data: allUsers }] = await Promise.all([
+  const [earnings, prevEarnings, payroll, monthUpload, { data: allUsers }, collaboratorRoles] = await Promise.all([
     getCommissionEarnings(year, month),
     getCommissionEarnings(prev.year, prev.month),
     getPayrollData(year, month),
     getPayrollMonthUpload(year, month),
-    admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true).order('name'),
+    admin.from('users').select('id, name, avatar_color, avatar_url, role, is_projetista').eq('active', true).order('name'),
+    getCollaboratorRoleNames(),
   ])
 
   return (
@@ -31,6 +32,7 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
       payroll={payroll}
       monthUpload={monthUpload}
       allUsers={allUsers ?? []}
+      collaboratorRoles={collaboratorRoles}
       year={year}
       month={month}
       initialTab={(searchParams.tab as 'comissao' | 'remuneracao') ?? 'comissao'}

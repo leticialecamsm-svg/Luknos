@@ -21,6 +21,7 @@ interface Props {
   payroll: any[]
   monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
+  collaboratorRoles?: string[]
   year: number
   month: number
   initialTab: 'comissao' | 'remuneracao'
@@ -112,23 +113,23 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 
           return (
             <div key={r.user?.id} className="border-b border-gray-100 last:border-0">
-              <div className="grid grid-cols-[1fr_160px_180px_160px_140px] items-center hover:bg-gray-50 transition-colors">
+              <div
+                onClick={() => setDetailUser(isDetail ? null : r.user?.id)}
+                className="grid grid-cols-[1fr_160px_180px_160px_140px] items-center hover:bg-gray-50 transition-colors cursor-pointer"
+              >
                 <div className="px-4 py-3.5 flex items-center gap-3">
                   <Avatar user={r.user} size={32} />
                   <div>
-                    <button
-                      onClick={() => setDetailUser(isDetail ? null : r.user?.id)}
-                      className="text-sm font-semibold text-gray-900 hover:text-brand-600 text-left"
-                    >
+                    <span className="text-sm font-semibold text-gray-900">
                       {r.user?.name}
-                    </button>
+                    </span>
                     <div className="flex gap-1.5 mt-0.5">
                       {r.sellerComm > 0 && <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Vendedor</span>}
                       {r.projetistaComm > 0 && <span className="text-[10px] font-semibold bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">Projetista</span>}
                     </div>
                   </div>
                   {hasProjDetails && (
-                    <button onClick={() => setExpanded(isOpen ? null : r.user?.id)} className="ml-auto">
+                    <button onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : r.user?.id) }} className="ml-auto">
                       <ChevronRight className={cn('w-4 h-4 text-gray-400 transition-transform', isOpen && 'rotate-90')} />
                     </button>
                   )}
@@ -275,6 +276,7 @@ function RemuneracaoTab({
   payroll,
   monthUpload: initialMonthUpload,
   allUsers,
+  collaboratorRoles,
   year,
   month,
 }: {
@@ -283,6 +285,7 @@ function RemuneracaoTab({
   payroll: any[]
   monthUpload: { file_url: string; file_name: string } | null
   allUsers: any[]
+  collaboratorRoles: string[]
   year: number
   month: number
 }) {
@@ -301,9 +304,12 @@ function RemuneracaoTab({
   })
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Exclude admins and known owner accounts from Remuneração
+  // Remuneração é só pra quem conta como colaborador (papel marcado em
+  // /admin/users, ou marcado individualmente como projetista) — exclui
+  // terceirizados como marketing/tráfego pago — e nunca inclui admin/donos
   const collaborators = allUsers.filter((u: any) =>
-    u.role !== 'admin' && !ADMIN_NAMES.includes(u.name)
+    u.role !== 'admin' && !ADMIN_NAMES.includes(u.name) &&
+    (collaboratorRoles.includes(u.role) || u.is_projetista)
   )
 
   function matchUser(pdfName: string) {
@@ -645,7 +651,7 @@ function RemuneracaoTab({
 
 // ── Componente principal ───────────────────────────────────────────────────────
 
-export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers, year, month, initialTab }: Props) {
+export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers, collaboratorRoles = ['admin', 'seller'], year, month, initialTab }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<'comissao' | 'remuneracao'>(initialTab)
 
@@ -698,6 +704,7 @@ export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers,
           payroll={payroll}
           monthUpload={monthUpload}
           allUsers={allUsers}
+          collaboratorRoles={collaboratorRoles}
           year={year}
           month={month}
         />
