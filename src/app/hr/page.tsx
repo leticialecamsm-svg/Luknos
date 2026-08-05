@@ -21,7 +21,7 @@ export default async function HumanResourcesPage({ searchParams }: { searchParam
     getCommissionEarnings(prev.year, prev.month),
     getPayrollData(year, month),
     getPayrollMonthUpload(year, month),
-    admin.from('users').select('id, name, avatar_color, avatar_url, role, is_projetista').eq('active', true).order('name'),
+    admin.from('users').select('id, name, avatar_color, avatar_url, role, is_projetista, pix_key').eq('active', true).order('name'),
     getCollaboratorRoleNames(),
   ])
 

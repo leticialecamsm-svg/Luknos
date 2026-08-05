@@ -2884,3 +2884,12 @@ export async function updateUserActive(userId: string, active: boolean) {
   revalidatePath('/admin/users')
   return { ok: true }
 }
+
+export async function updateUserPixKey(userId: string, pixKey: string) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const { error } = await createAdminClient().from('users').update({ pix_key: pixKey.trim() || null }).eq('id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/hr')
+  revalidatePath('/admin/users')
+  return { ok: true }
+}

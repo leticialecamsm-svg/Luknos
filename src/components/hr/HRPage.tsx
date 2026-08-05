@@ -6,7 +6,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { ChevronRight, Upload, X, Pencil, Check, AlertCircle, FileText, Trash2 } from 'lucide-react'
 import { useState, useRef, useTransition } from 'react'
 import { cn } from '@/lib/utils'
-import { upsertPayrollEntry, savePayrollMonthUpload, deletePayrollMonthUpload, deletePayrollEntry } from '@/lib/actions'
+import { upsertPayrollEntry, savePayrollMonthUpload, deletePayrollMonthUpload, deletePayrollEntry, updateUserPixKey } from '@/lib/actions'
 
 const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -65,6 +65,48 @@ function EditableValue({ value, onSave }: { value: number; onSave: (v: number) =
         <X className="w-4 h-4 text-gray-400" />
       </button>
     </div>
+  )
+}
+
+function EditablePix({ userId, pixKey }: { userId: string; pixKey: string | null }) {
+  const [editing, setEditing] = useState(false)
+  const [str, setStr] = useState(pixKey ?? '')
+  const [saved, setSaved] = useState(pixKey)
+  const [, startTransition] = useTransition()
+
+  const save = () => {
+    setEditing(false)
+    setSaved(str.trim() || null)
+    startTransition(() => { updateUserPixKey(userId, str) })
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 mt-0.5" onClick={e => e.stopPropagation()}>
+        <input
+          autoFocus
+          placeholder="Chave PIX"
+          className="w-32 text-xs border border-brand-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500"
+          value={str}
+          onChange={e => setStr(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+        />
+        <button onClick={save}><Check className="w-3.5 h-3.5 text-emerald-500" /></button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); setStr(saved ?? ''); setEditing(true) }}
+      className="flex items-center gap-1 group text-[11px] text-gray-400 hover:text-gray-600 mt-0.5"
+    >
+      {saved ? <>PIX: <span className="text-gray-500 font-medium">{saved}</span></> : 'Adicionar PIX'}
+      <Pencil className="w-2.5 h-2.5 text-gray-300 group-hover:text-gray-500 transition-colors" />
+    </button>
   )
 }
 
@@ -566,6 +608,7 @@ function RemuneracaoTab({
                 <Avatar user={u} size={32} />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-900 truncate">{u.name}</p>
+                  <EditablePix userId={u.id} pixKey={u.pix_key ?? null} />
                   {!hasData && (
                     <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full">
                       Sem recibo importado
