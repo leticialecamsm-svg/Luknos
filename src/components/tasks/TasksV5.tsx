@@ -614,9 +614,9 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
 
   return (
     <div
-      draggable={!!draggingId}
+      draggable={!!draggingId && !isPending}
       onDragStart={e => {
-        if (!canDrag.current) { e.preventDefault(); return }
+        if (!canDrag.current || isPending) { e.preventDefault(); return }
         e.dataTransfer.effectAllowed = 'move'
         onDragStart?.()
       }}
@@ -633,10 +633,11 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
       {/* Drag handle — único ponto que inicia o drag */}
       {draggingId && (
         <div
-          onMouseDown={() => { canDrag.current = true }}
+          onMouseDown={() => { if (!isPending) canDrag.current = true }}
           onMouseUp={() => { canDrag.current = false }}
           onClick={e => e.stopPropagation()}
-          className="w-5 flex items-center justify-center text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
+          className={cn('w-5 flex items-center justify-center text-gray-300 shrink-0',
+            isPending ? 'cursor-wait' : 'hover:text-gray-500 cursor-grab active:cursor-grabbing')}
         >
           <GripVertical className="w-3.5 h-3.5" />
         </div>
