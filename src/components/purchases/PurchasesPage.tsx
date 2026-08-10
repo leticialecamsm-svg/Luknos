@@ -106,6 +106,9 @@ interface InvoiceRow {
   maquininha: number
   created_at: string
   purchase_invoice_items: { count: number }[]
+  ultima_passagem_uf?: string | null
+  ultima_passagem_data?: string | null
+  ultima_passagem_desc?: string | null
 }
 
 interface ItemDraft {
@@ -1010,9 +1013,9 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] bg-gray-50 border-b border-gray-100">
-              {['Fornecedor / Nota', 'Chave NF-e', 'Data', 'Produtos', 'Registrado em', ''].map((h, i) => (
-                <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 3 && 'text-right')}>{h}</div>
+            <div className="grid grid-cols-[1fr_160px_130px_150px_80px_80px_44px] bg-gray-50 border-b border-gray-100">
+              {['Fornecedor / Nota', 'Chave NF-e', 'Data', 'Última passagem', 'Produtos', 'Registrado em', ''].map((h, i) => (
+                <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 4 && 'text-right')}>{h}</div>
               ))}
             </div>
             {invoices.map(inv => {
@@ -1022,7 +1025,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               return (
                 <div
                   key={inv.id}
-                  className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="grid grid-cols-[1fr_160px_130px_150px_80px_80px_44px] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
                   onClick={() => handleRowClick(inv)}
                 >
                   <div className="px-4 py-3.5">
@@ -1031,6 +1034,15 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   </div>
                   <div className="px-4 py-3.5 font-mono text-xs text-gray-400 truncate">{inv.chave_nfe.slice(0, 20)}…</div>
                   <div className="px-4 py-3.5 text-sm text-gray-600">{fmtDate(inv.data_emissao)}</div>
+                  <div className="px-4 py-3.5">
+                    {inv.ultima_passagem_uf ? (
+                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1 rounded-full">
+                        📍 {inv.ultima_passagem_uf} · {fmtDate(inv.ultima_passagem_data ?? null)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </div>
                   <div className="px-4 py-3.5 text-sm text-right tabular-nums text-gray-700">{count}</div>
                   <div className="px-4 py-3.5 text-xs text-right text-gray-400">{fmtDate(inv.created_at)}</div>
                   <div className="px-2 py-3.5 flex justify-center">

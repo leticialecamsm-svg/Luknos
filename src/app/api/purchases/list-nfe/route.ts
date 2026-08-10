@@ -81,6 +81,34 @@ interface NFeResumida {
   items: NFeItem[] | null // preenchido só quando há XML completo (nfeProc)
 }
 
+interface EventoPassagem {
+  chave: string
+  uf: string
+  data: string
+  descricao: string
+}
+
+// Códigos IBGE de UF usados no campo cOrgao/cUF dos eventos — só as usadas em trânsito interestadual
+const UF_POR_CODIGO: Record<string, string> = {
+  '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+  '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+  '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP',
+  '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF',
+}
+
+// resEvento – resumo de evento (registro de passagem, confirmação de operação, etc.)
+// A NT 2014/002 distribui o "Registro de Passagem" pelo mesmo NFeDistribuicaoDFe já usado
+// pra baixar as notas — não precisa da tela pública com captcha da SEFAZ.
+function parseResEvento(xml: string): EventoPassagem | null {
+  const chave = get(xml, 'chNFe')
+  const xEvento = get(xml, 'xEvento')
+  const dhEvento = get(xml, 'dhEvento')
+  const cOrgao = get(xml, 'cOrgao')
+  if (!chave || !xEvento) return null
+  if (!/passagem/i.test(xEvento)) return null // só nos interessa registro de passagem
+  return { chave, uf: UF_POR_CODIGO[cOrgao] ?? cOrgao, data: dhEvento, descricao: xEvento }
+}
+
 function parseResNFe(xml: string, nsu: string, schema: string): NFeResumida {
   // resNFe – resumo da nota (schema resNFe_v1.01.xsd)
   const chave = get(xml, 'chNFe')
@@ -168,6 +196,7 @@ export async function POST() {
       // Processa cada docZip retornado
       const docRegex = /<docZip[^>]*NSU="(\d+)"[^>]*schema="([^"]+)"[^>]*>([A-Za-z0-9+/=\s]+)<\/docZip>/g
       const docs: NFeResumida[] = []
+      const eventos: EventoPassagem[] = []
       let m: RegExpExecArray | null
 
       while ((m = docRegex.exec(xml)) !== null) {
@@ -176,6 +205,11 @@ export async function POST() {
         const b64 = m[3]
         try {
           const inner = await dezipDoc(b64)
+          if (schema.includes('resEvento')) {
+            const evt = parseResEvento(inner)
+            if (evt) eventos.push(evt)
+            continue
+          }
           let nfe: NFeResumida | null = null
           if (schema.includes('resNFe')) nfe = parseResNFe(inner, nsu, schema)
           else if (schema.includes('nfeProc') || schema.includes('procNFe')) nfe = parseNFeProc(inner, nsu, schema)
@@ -183,6 +217,15 @@ export async function POST() {
         } catch {
           // ignora doc com erro de parsing
         }
+      }
+
+      // Atualiza o registro de passagem mais recente de cada nota já lançada em Compras
+      for (const evt of eventos) {
+        await supabase
+          .from('purchase_invoices')
+          .update({ ultima_passagem_uf: evt.uf, ultima_passagem_data: evt.data, ultima_passagem_desc: evt.descricao })
+          .eq('chave_nfe', evt.chave)
+          .or(`ultima_passagem_data.is.null,ultima_passagem_data.lt.${evt.data}`)
       }
 
       // Upsert no banco
