@@ -36,7 +36,7 @@ export function getAgent() {
   return new https.Agent({ pfx: Buffer.from(pfxB64, 'base64'), passphrase, rejectUnauthorized: false })
 }
 
-function buildDistChaveSoap(chave: string) {
+export function buildDistChaveSoap(chave: string) {
   const inner = `<distDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><cUFAutor>27</cUFAutor><CNPJ>${CNPJ_EMPRESA}</CNPJ><consChNFe><chNFe>${chave}</chNFe></consChNFe></distDFeInt>`
   return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="${DIST_NS}"><nfeDadosMsg>${inner}</nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>`
 }
@@ -136,4 +136,45 @@ export async function consultarNFeCompleta(chave: string): Promise<{ ok: boolean
   }
 
   return { ok: false, cStat, xMotivo }
+}
+
+// Códigos IBGE de UF usados no campo cOrgao dos eventos
+const UF_POR_CODIGO: Record<string, string> = {
+  '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+  '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+  '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP',
+  '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF',
+}
+
+export interface EventoPassagem { uf: string; data: string; descricao: string }
+
+// Consulta por chave (consChNFe) devolve TODOS os documentos/eventos ainda disponíveis
+// pra aquela nota (não só os novos, como a sincronização por NSU) — é o jeito de
+// recuperar retroativamente eventos de passagem de notas mais antigas.
+// ATENÇÃO: consome da mesma cota de 20 consultas/hora por CNPJ da SEFAZ.
+export async function consultarEventosPassagem(chave: string): Promise<EventoPassagem[]> {
+  const soap = buildDistChaveSoap(chave)
+  const xml = await soapPost(DIST_URL, soap, {
+    'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
+  })
+
+  const docRegex = /<docZip[^>]*schema="([^"]+)"[^>]*>([A-Za-z0-9+/=\s]+)<\/docZip>/g
+  const eventos: EventoPassagem[] = []
+  let m: RegExpExecArray | null
+  while ((m = docRegex.exec(xml)) !== null) {
+    const schema = m[1]
+    if (!schema.includes('resEvento')) continue
+    try {
+      const inner = await unzipDoc(m[2])
+      const xEvento = tag(inner, 'xEvento')
+      const dhEvento = tag(inner, 'dhEvento')
+      const cOrgao = tag(inner, 'cOrgao')
+      if (xEvento && /passagem/i.test(xEvento)) {
+        eventos.push({ uf: UF_POR_CODIGO[cOrgao] ?? cOrgao, data: dhEvento, descricao: xEvento })
+      }
+    } catch {
+      // ignora evento com erro de parsing
+    }
+  }
+  return eventos
 }

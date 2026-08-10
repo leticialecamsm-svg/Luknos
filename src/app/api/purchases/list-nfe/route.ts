@@ -222,7 +222,7 @@ export async function POST() {
       // Atualiza o registro de passagem mais recente de cada nota já lançada em Compras
       for (const evt of eventos) {
         await supabase
-          .from('purchase_invoices')
+          .from('nfe_received')
           .update({ ultima_passagem_uf: evt.uf, ultima_passagem_data: evt.data, ultima_passagem_desc: evt.descricao })
           .eq('chave_nfe', evt.chave)
           .or(`ultima_passagem_data.is.null,ultima_passagem_data.lt.${evt.data}`)

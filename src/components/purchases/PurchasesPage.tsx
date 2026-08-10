@@ -106,9 +106,6 @@ interface InvoiceRow {
   maquininha: number
   created_at: string
   purchase_invoice_items: { count: number }[]
-  ultima_passagem_uf?: string | null
-  ultima_passagem_data?: string | null
-  ultima_passagem_desc?: string | null
 }
 
 interface ItemDraft {
@@ -802,6 +799,9 @@ interface NFeRecebida {
   nsu: string | null
   status: 'pending' | 'added'
   created_at: string
+  ultima_passagem_uf?: string | null
+  ultima_passagem_data?: string | null
+  ultima_passagem_desc?: string | null
 }
 
 export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] }) {
@@ -848,6 +848,24 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       }
     } finally {
       setSyncingNfes(false)
+    }
+  }
+
+  const [refreshingPassagem, setRefreshingPassagem] = useState(false)
+  async function refreshPassagem() {
+    setRefreshingPassagem(true)
+    setSyncMsg('')
+    try {
+      const res = await fetch('/api/purchases/refresh-passagem', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setSyncMsg(`Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`)
+        await loadNfesRecebidas()
+      } else {
+        setSyncMsg(`Erro: ${data.error}`)
+      }
+    } finally {
+      setRefreshingPassagem(false)
     }
   }
 
@@ -906,10 +924,16 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           </button>
         )}
         {tab === 'recebidas' && (
-          <button onClick={syncNfes} disabled={syncingNfes} className="btn-secondary flex items-center gap-2">
-            <RefreshCw className={cn('w-4 h-4', syncingNfes && 'animate-spin')} />
-            {syncingNfes ? 'Buscando...' : 'Buscar novas NFs'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={refreshPassagem} disabled={refreshingPassagem} className="btn-secondary flex items-center gap-2" title="Consulta o histórico completo de cada nota recente pra recuperar registros de passagem antigos (limitado por causa da cota da SEFAZ)">
+              <RefreshCw className={cn('w-4 h-4', refreshingPassagem && 'animate-spin')} />
+              {refreshingPassagem ? 'Atualizando...' : 'Atualizar passagens'}
+            </button>
+            <button onClick={syncNfes} disabled={syncingNfes} className="btn-secondary flex items-center gap-2">
+              <RefreshCw className={cn('w-4 h-4', syncingNfes && 'animate-spin')} />
+              {syncingNfes ? 'Buscando...' : 'Buscar novas NFs'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -955,8 +979,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_190px] bg-gray-50 border-b border-gray-100 items-center">
-                  {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', ''].map((h, i) => (
+                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_150px_190px] bg-gray-50 border-b border-gray-100 items-center">
+                  {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', 'Última passagem', ''].map((h, i) => (
                     <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide truncate', i === 3 && 'text-right')}>{h}</div>
                   ))}
                 </div>
@@ -964,7 +988,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   <div
                     key={nfe.id}
                     onClick={() => setNfeDetail(nfe)}
-                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
+                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_150px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
                   >
                     <div className="px-4 py-3.5 min-w-0">
                       <p className={cn('text-sm font-semibold truncate', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
@@ -980,6 +1004,15 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                           <span className="truncate">{nfe.transportadora_nome}</span>
                         </span>
                       ) : <span className="text-xs text-gray-300">—</span>}
+                    </div>
+                    <div className="px-4 py-3.5">
+                      {nfe.ultima_passagem_uf ? (
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap">
+                          📍 {nfe.ultima_passagem_uf} · {fmtDate(nfe.ultima_passagem_data ?? null)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
                     </div>
                     <div className="px-4 py-3.5 flex justify-end">
                       {nfe.status === 'added' ? (
@@ -1013,9 +1046,9 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-[1fr_160px_130px_150px_80px_80px_44px] bg-gray-50 border-b border-gray-100">
-              {['Fornecedor / Nota', 'Chave NF-e', 'Data', 'Última passagem', 'Produtos', 'Registrado em', ''].map((h, i) => (
-                <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 4 && 'text-right')}>{h}</div>
+            <div className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] bg-gray-50 border-b border-gray-100">
+              {['Fornecedor / Nota', 'Chave NF-e', 'Data', 'Produtos', 'Registrado em', ''].map((h, i) => (
+                <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 3 && 'text-right')}>{h}</div>
               ))}
             </div>
             {invoices.map(inv => {
@@ -1025,7 +1058,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               return (
                 <div
                   key={inv.id}
-                  className="grid grid-cols-[1fr_160px_130px_150px_80px_80px_44px] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
                   onClick={() => handleRowClick(inv)}
                 >
                   <div className="px-4 py-3.5">
@@ -1034,15 +1067,6 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   </div>
                   <div className="px-4 py-3.5 font-mono text-xs text-gray-400 truncate">{inv.chave_nfe.slice(0, 20)}…</div>
                   <div className="px-4 py-3.5 text-sm text-gray-600">{fmtDate(inv.data_emissao)}</div>
-                  <div className="px-4 py-3.5">
-                    {inv.ultima_passagem_uf ? (
-                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1 rounded-full">
-                        📍 {inv.ultima_passagem_uf} · {fmtDate(inv.ultima_passagem_data ?? null)}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-300">—</span>
-                    )}
-                  </div>
                   <div className="px-4 py-3.5 text-sm text-right tabular-nums text-gray-700">{count}</div>
                   <div className="px-4 py-3.5 text-xs text-right text-gray-400">{fmtDate(inv.created_at)}</div>
                   <div className="px-2 py-3.5 flex justify-center">
