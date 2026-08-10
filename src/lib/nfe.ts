@@ -152,17 +152,22 @@ export interface EventoPassagem { uf: string; data: string; descricao: string }
 // pra aquela nota (não só os novos, como a sincronização por NSU) — é o jeito de
 // recuperar retroativamente eventos de passagem de notas mais antigas.
 // ATENÇÃO: consome da mesma cota de 20 consultas/hora por CNPJ da SEFAZ.
-export async function consultarEventosPassagem(chave: string): Promise<EventoPassagem[]> {
+export async function consultarEventosPassagem(chave: string): Promise<{ eventos: EventoPassagem[]; cStat: string; xMotivo: string; schemasEncontrados: string[] }> {
   const soap = buildDistChaveSoap(chave)
   const xml = await soapPost(DIST_URL, soap, {
     'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
   })
 
+  const cStat = tag(xml, 'cStat')
+  const xMotivo = tag(xml, 'xMotivo')
+
   const docRegex = /<docZip[^>]*schema="([^"]+)"[^>]*>([A-Za-z0-9+/=\s]+)<\/docZip>/g
   const eventos: EventoPassagem[] = []
+  const schemasEncontrados: string[] = []
   let m: RegExpExecArray | null
   while ((m = docRegex.exec(xml)) !== null) {
     const schema = m[1]
+    schemasEncontrados.push(schema)
     if (!schema.includes('resEvento')) continue
     try {
       const inner = await unzipDoc(m[2])
@@ -176,5 +181,5 @@ export async function consultarEventosPassagem(chave: string): Promise<EventoPas
       // ignora evento com erro de parsing
     }
   }
-  return eventos
+  return { eventos, cStat, xMotivo, schemasEncontrados }
 }

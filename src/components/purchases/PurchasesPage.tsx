@@ -859,7 +859,14 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       const res = await fetch('/api/purchases/refresh-passagem', { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
-        setSyncMsg(`Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`)
+        let msg = `Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`
+        if (data.updated === 0 && data.checked > 0) {
+          msg += data.semEvento === data.checked
+            ? ' — nenhuma tinha evento de passagem disponível'
+            : ''
+          if (data.ultimoMotivo) msg += ` (${data.ultimoMotivo})`
+        }
+        setSyncMsg(msg)
         await loadNfesRecebidas()
       } else {
         setSyncMsg(`Erro: ${data.error}`)
