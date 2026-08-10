@@ -4,10 +4,11 @@ import { consultarEventosPassagem } from '@/lib/nfe'
 
 // Backfill retroativo: consulta por chave (consChNFe) devolve todo o histórico de
 // eventos ainda disponível pra aquela nota, ao contrário da sincronização por NSU
-// (que só traz o que é novo desde a última vez). Limitado a poucas notas por
-// clique pra não estourar a cota de 20 consultas/hora da SEFAZ compartilhada com
-// as outras buscas (impostos, produtos, novas NFs).
-const MAX_POR_EXECUCAO = 6
+// (que só traz o que é novo desde a última vez). Só verifica notas marcadas como
+// "não entregues" (ainda em trânsito) — as já entregues não precisam de consulta,
+// isso economiza a cota de 20 consultas/hora da SEFAZ compartilhada com as outras
+// buscas (impostos, produtos, novas NFs).
+const MAX_POR_EXECUCAO = 10
 
 export async function POST() {
   try {
@@ -15,6 +16,7 @@ export async function POST() {
     const { data: nfes } = await supabase
       .from('nfe_received')
       .select('chave_nfe, ultima_passagem_data')
+      .eq('entregue', false)
       .order('data_emissao', { ascending: false })
       .limit(MAX_POR_EXECUCAO)
 

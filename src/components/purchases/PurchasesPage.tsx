@@ -802,6 +802,7 @@ interface NFeRecebida {
   ultima_passagem_uf?: string | null
   ultima_passagem_data?: string | null
   ultima_passagem_desc?: string | null
+  entregue?: boolean
 }
 
 export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] }) {
@@ -877,6 +878,17 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const patchNfeRow = useCallback((chave: string, patch: any) => {
     setNfesRecebidas(prev => prev.map(n => n.chave_nfe === chave ? { ...n, ...patch } : n))
   }, [])
+
+  async function toggleEntregue(nfe: NFeRecebida, e: React.MouseEvent) {
+    e.stopPropagation()
+    const novoValor = !nfe.entregue
+    patchNfeRow(nfe.chave_nfe, { entregue: novoValor })
+    await fetch('/api/purchases/marcar-entregue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave_nfe: nfe.chave_nfe, entregue: novoValor }),
+    })
+  }
 
   function handleSelectTab(t: 'notas' | 'recebidas') {
     setTab(t)
@@ -987,7 +999,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_150px_190px] bg-gray-50 border-b border-gray-100 items-center">
+                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] bg-gray-50 border-b border-gray-100 items-center">
                   {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', 'Última passagem', ''].map((h, i) => (
                     <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide truncate', i === 3 && 'text-right')}>{h}</div>
                   ))}
@@ -996,7 +1008,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   <div
                     key={nfe.id}
                     onClick={() => setNfeDetail(nfe)}
-                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_150px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
+                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
                   >
                     <div className="px-4 py-3.5 min-w-0">
                       <p className={cn('text-sm font-semibold truncate', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
@@ -1013,14 +1025,25 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                         </span>
                       ) : <span className="text-xs text-gray-300">—</span>}
                     </div>
-                    <div className="px-4 py-3.5">
-                      {nfe.ultima_passagem_uf ? (
+                    <div className="px-4 py-3.5 flex items-center gap-1.5 min-w-0">
+                      {nfe.entregue ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap">
+                          ✅ Entregue em AL
+                        </span>
+                      ) : nfe.ultima_passagem_uf ? (
                         <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap">
                           📍 {nfe.ultima_passagem_uf} · {fmtDate(nfe.ultima_passagem_data ?? null)}
                         </span>
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
                       )}
+                      <button
+                        onClick={e => toggleEntregue(nfe, e)}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 underline shrink-0"
+                        title={nfe.entregue ? 'Marcar como ainda em trânsito' : 'Marcar como entregue'}
+                      >
+                        {nfe.entregue ? 'desmarcar' : 'marcar entregue'}
+                      </button>
                     </div>
                     <div className="px-4 py-3.5 flex justify-end">
                       {nfe.status === 'added' ? (
