@@ -118,6 +118,112 @@ export async function getSalesForUserInRange(userId: string, startDate: string, 
   return total
 }
 
+// Dias úteis (seg-sáb) de um mês — usado no cálculo de ritmo da meta.
+function businessDaysInMonth(year: number, month: number) {
+  const lastDay = new Date(year, month, 0).getDate()
+  let count = 0
+  for (let d = 1; d <= lastDay; d++) {
+    if (new Date(year, month - 1, d).getDay() !== 0) count++
+  }
+  return count
+}
+
+// Dados agregados pra tela de teste "meta-preview" — status da meta com ritmo
+// necessário/projeção, meta de hoje e pipeline em jogo (quente/morna/fria).
+export async function getGoalPreviewData(userId: string, year: number, month: number) {
+  const admin = createAdminClient()
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+
+  // Meta do mês (com fallback pro mês mais recente cadastrado, igual ao dashboard)
+  const { data: exactGoal } = await admin.from('monthly_goals').select('target').eq('user_id', userId).eq('year', year).eq('month', month).maybeSingle()
+  let myGoal = Number(exactGoal?.target ?? 0)
+  if (!myGoal) {
+    const { data: recent } = await admin.from('monthly_goals').select('target, year, month').eq('user_id', userId).order('year', { ascending: false }).order('month', { ascending: false }).limit(1)
+    myGoal = Number(recent?.[0]?.target ?? 0)
+  }
+
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEndDate = new Date(year, month, 0)
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDate.getDate()).padStart(2, '0')}`
+
+  // Vendido no mês (mesma regra de owner-splitting usada no dashboard)
+  const { data: closedQuotes } = await admin
+    .from('quotes_full')
+    .select('id, quoted_value, final_value, closed_at')
+    .eq('temperature', 'closed')
+    .gte('closed_at', monthStart)
+    .lte('closed_at', monthEnd)
+  const closedIds = (closedQuotes ?? []).map((q: any) => q.id)
+  const [{ data: ownerRows }, { data: negs }] = await Promise.all([
+    closedIds.length ? admin.from('quote_owners').select('quote_id, user_id').in('quote_id', closedIds) : Promise.resolve({ data: [] as any[] }),
+    closedIds.length ? admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', closedIds) : Promise.resolve({ data: [] as any[] }),
+  ])
+  const ownersByQuote = new Map<string, string[]>()
+  for (const o of ownerRows ?? []) {
+    const arr = ownersByQuote.get(o.quote_id) ?? []
+    arr.push(o.user_id)
+    ownersByQuote.set(o.quote_id, arr)
+  }
+  const splitsByQuote = new Map((negs ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+  const valueOf = (q: any) => {
+    const splits = splitsByQuote.get(q.id) ?? []
+    return splits.length === 0
+      ? Number(q.final_value ?? q.quoted_value ?? 0)
+      : splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+  }
+
+  let sales = 0
+  let dealsCount = 0
+  for (const q of closedQuotes ?? []) {
+    const owners = ownersByQuote.get(q.id) ?? []
+    if (!owners.includes(userId)) continue
+    sales += valueOf(q) / owners.length
+    dealsCount++
+  }
+  const avgTicket = dealsCount > 0 ? sales / dealsCount : 3000
+
+  // Dias úteis do mês / já passados / restantes
+  const totalBusinessDays = businessDaysInMonth(year, month)
+  const daysPassed = isCurrentMonth ? now.getDate() : monthEndDate.getDate()
+  let businessDaysPassed = 0
+  for (let d = 1; d <= Math.min(daysPassed, monthEndDate.getDate()); d++) {
+    if (new Date(year, month - 1, d).getDay() !== 0) businessDaysPassed++
+  }
+  const businessDaysRemaining = Math.max(0, totalBusinessDays - businessDaysPassed + (isCurrentMonth && now.getDay() !== 0 ? 1 : 0))
+
+  const remaining = Math.max(0, myGoal - sales)
+  const requiredPace = businessDaysRemaining > 0 ? remaining / businessDaysRemaining : remaining
+  const currentPace = businessDaysPassed > 0 ? sales / businessDaysPassed : 0
+  const paceBehindPct = requiredPace > 0 ? Math.round(((requiredPace - currentPace) / requiredPace) * 100) : 0
+  const projection = totalBusinessDays > 0 ? currentPace * totalBusinessDays : sales
+  const onPace = currentPace >= requiredPace
+
+  // Meta / vendido de hoje
+  const todayStr = isCurrentMonth ? `${year}-${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` : monthEnd
+  const dailyGoal = totalBusinessDays > 0 ? myGoal / totalBusinessDays : 0
+  const todaySold = isCurrentMonth ? await getSalesForUserInRange(userId, todayStr, todayStr) : 0
+  const todayRemaining = Math.max(0, dailyGoal - todaySold)
+  const closingsNeededToday = todayRemaining > 0 ? Math.max(1, Math.round(todayRemaining / avgTicket)) : 0
+
+  // Pipeline em jogo — oportunidades abertas do vendedor por temperatura
+  const { data: funnel } = await admin.from('funnel_by_user').select('*').eq('user_id', userId)
+  const bucket = (temps: string[]) => (funnel ?? []).filter((f: any) => temps.includes(f.temperature))
+    .reduce((acc: any, f: any) => ({ count: acc.count + Number(f.count ?? 0), total: acc.total + Number(f.total_quoted ?? 0) }), { count: 0, total: 0 })
+  const hot = bucket(['hot'])
+  const warm = bucket(['warm'])
+  const cold = bucket(['cold', 'no_forecast'])
+  const pipelineTotal = hot.total + warm.total + cold.total
+  const pipelineCount = hot.count + warm.count + cold.count
+  const coverage = remaining > 0 ? pipelineTotal / remaining : (pipelineTotal > 0 ? Infinity : 0)
+
+  return {
+    myGoal, sales, remaining, requiredPace, currentPace, paceBehindPct, projection, onPace, totalBusinessDays, businessDaysRemaining,
+    dailyGoal, todaySold, todayRemaining, closingsNeededToday, avgTicket,
+    pipeline: { hot, warm, cold, total: pipelineTotal, count: pipelineCount, coverage },
+  }
+}
+
 export async function getAllQuotes() {
   const { data } = await createAdminClient()
     .from('quotes_full')
