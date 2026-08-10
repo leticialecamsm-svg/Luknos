@@ -167,26 +167,30 @@ export function VendorDashboard({
       {/* Aba: Meu Dashboard */}
       {activeTab === 'meu' && (
         <>
-      {/* Working days banner */}
-      <WorkingDaysCard />
-
-      {/* Metas de dia / semana / mês + acesso à comissão detalhada */}
-      <div className="space-y-2">
+      {/* Dias úteis + acesso à comissão detalhada, lado a lado */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <WorkingDaysCard />
         {myEarnings && (
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowEarningsModal(true)}
-              className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1.5 transition-colors"
-            >
-              <Maximize2 className="w-3 h-3" /> Minha comissão do mês: {formatCurrency(myEarnings.total)}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowEarningsModal(true)}
+            className="flex items-center gap-3 px-3 py-2 rounded-xl border h-full bg-white border-surface-border hover:bg-emerald-50/50 transition-colors text-left"
+          >
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50">
+              <Maximize2 className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-gray-500">Minha comissão do mês</p>
+              <p className="text-base font-bold leading-none text-emerald-700 mt-0.5">{formatCurrency(myEarnings.total)}</p>
+            </div>
+          </button>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <GoalCard color="amber" label="Meta do dia" achieved={todaySold} target={dailyGoal} />
-          <GoalCard color="orange" label="Meta da semana" achieved={weekSold} target={weeklyGoal} />
-          <GoalCard color="violet" label="Meta do mês" achieved={sales} target={myGoal} />
-        </div>
+      </div>
+
+      {/* Metas de dia / semana / mês */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <GoalCard color="amber" label="Meta do dia" achieved={todaySold} target={dailyGoal} />
+        <GoalCard color="orange" label="Meta da semana" achieved={weekSold} target={weeklyGoal} />
+        <GoalCard color="violet" label="Meta do mês" achieved={sales} target={myGoal} />
       </div>
 
       {showEarningsModal && myEarnings && (

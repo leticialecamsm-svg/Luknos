@@ -923,14 +923,15 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   // quote_owners (quotes_full não tem coluna primary_owner_id; um .eq() nela
   // falhava silenciosamente e zerava "Vendido no mês" pra todo vendedor,
   // todo mês, mesmo com vendas reais fechadas).
+  // temperature_updated_at NÃO existe na view quotes_full — selecioná-la fazia o
+  // PostgREST rejeitar a query inteira (erro não checado), zerando "Vendido no mês"
+  // pra todo vendedor mesmo com vendas reais fechadas no mês.
   const { data: closedQuotes } = await admin
     .from('quotes_full')
-    .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at')
+    .select('id, quoted_value, final_value, temperature, closed_at')
     .eq('temperature', 'closed')
-  // Se closed_at não existir, usa temperature_updated_at (como PERDIDAS fazem)
   const closedMonth = (closedQuotes ?? []).filter((q: any) => {
-    const dateToCheck = q.closed_at || (String(q.temperature_updated_at ?? '').slice(0, 10))
-    return q.temperature === 'closed' && dateToCheck >= monthStart
+    return q.temperature === 'closed' && q.closed_at && q.closed_at >= monthStart
   })
 
   // quotes_full é uma view — o Supabase não consegue embutir quote_owners nela
