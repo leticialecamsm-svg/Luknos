@@ -861,10 +861,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       if (res.ok) {
         let msg = `Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`
         if (data.updated === 0 && data.checked > 0) {
-          msg += data.semEvento === data.checked
-            ? ' — nenhuma tinha evento de passagem disponível'
-            : ''
-          if (data.ultimoMotivo) msg += ` (${data.ultimoMotivo})`
+          if (data.ultimoMotivo) msg += ` — ${data.ultimoMotivo}`
+          else if (data.semEvento === data.checked) msg += ' — nenhuma tinha evento de passagem disponível'
         }
         setSyncMsg(msg)
         await loadNfesRecebidas()
@@ -966,12 +964,15 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       {/* Aba: NFs Recebidas */}
       {tab === 'recebidas' && (
         <div className="space-y-3">
-          {syncMsg && (
-            <div className={cn('flex items-center gap-2 text-sm px-3 py-2 rounded-lg', syncMsg.startsWith('Erro') ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>
-              {syncMsg.startsWith('Erro') ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
-              {syncMsg}
-            </div>
-          )}
+          {syncMsg && (() => {
+            const isError = syncMsg.startsWith('Erro') || /consumo indevido|limite/i.test(syncMsg)
+            return (
+              <div className={cn('flex items-center gap-2 text-sm px-3 py-2 rounded-lg', isError ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700')}>
+                {isError ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                {syncMsg}
+              </div>
+            )
+          })()}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {loadingNfes || syncingNfes ? (
               <div className="flex items-center justify-center py-16 gap-3 text-gray-400">

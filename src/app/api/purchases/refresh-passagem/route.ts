@@ -7,7 +7,7 @@ import { consultarEventosPassagem } from '@/lib/nfe'
 // (que só traz o que é novo desde a última vez). Limitado a poucas notas por
 // clique pra não estourar a cota de 20 consultas/hora da SEFAZ compartilhada com
 // as outras buscas (impostos, produtos, novas NFs).
-const MAX_POR_EXECUCAO = 12
+const MAX_POR_EXECUCAO = 6
 
 export async function POST() {
   try {
@@ -22,13 +22,17 @@ export async function POST() {
 
     let updated = 0
     let semEvento = 0
+    let checked = 0
     const statusCount: Record<string, number> = {}
     let ultimoMotivo = ''
 
     for (const n of nfes) {
+      checked++
       try {
         const { eventos, cStat, xMotivo } = await consultarEventosPassagem(n.chave_nfe)
         statusCount[cStat] = (statusCount[cStat] ?? 0) + 1
+        // 656 = cota de 20 consultas/hora estourada — para na hora, sem gastar o resto do lote à toa
+        if (cStat === '656') { ultimoMotivo = `${cStat}: ${xMotivo}`; break }
         if (cStat !== '137' && cStat !== '138') ultimoMotivo = `${cStat}: ${xMotivo}`
         if (eventos.length === 0) { semEvento++; continue }
         const ultimo = eventos.reduce((a, b) => (a.data > b.data ? a : b))
@@ -44,7 +48,7 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({ updated, checked: nfes.length, semEvento, statusCount, ultimoMotivo })
+    return NextResponse.json({ updated, checked, semEvento, statusCount, ultimoMotivo })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }
