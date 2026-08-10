@@ -144,48 +144,51 @@ export function VendorDashboard({
         </div>
       </div>
 
-      {/* Abas */}
-      <div className="flex gap-1 bg-surface-secondary rounded-lg p-1 w-fit">
-        <button
-          onClick={() => setActiveTab('meu')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-            activeTab === 'meu' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Meu Dashboard
-        </button>
-        <button
-          onClick={() => setActiveTab('geral')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-            activeTab === 'geral' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Geral
-        </button>
+      {/* Abas + Dias úteis/comissão na mesma linha */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1 bg-surface-secondary rounded-lg p-1 w-fit shrink-0">
+          <button
+            onClick={() => setActiveTab('meu')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'meu' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Meu Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('geral')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'geral' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Geral
+          </button>
+        </div>
+
+        {activeTab === 'meu' && (
+          <div className="flex-1 min-w-[280px] grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <WorkingDaysCard />
+            {myEarnings && (
+              <button
+                onClick={() => setShowEarningsModal(true)}
+                className="flex items-center gap-3 px-3 py-2 rounded-xl border h-full bg-white border-surface-border hover:bg-emerald-50/50 transition-colors text-left"
+              >
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50">
+                  <Maximize2 className="w-4 h-4 text-emerald-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-500">Minha comissão do mês</p>
+                  <p className="text-base font-bold leading-none text-emerald-700 mt-0.5">{formatCurrency(myEarnings.total)}</p>
+                </div>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Aba: Meu Dashboard */}
       {activeTab === 'meu' && (
         <>
-      {/* Dias úteis + acesso à comissão detalhada, lado a lado */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <WorkingDaysCard />
-        {myEarnings && (
-          <button
-            onClick={() => setShowEarningsModal(true)}
-            className="flex items-center gap-3 px-3 py-2 rounded-xl border h-full bg-white border-surface-border hover:bg-emerald-50/50 transition-colors text-left"
-          >
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50">
-              <Maximize2 className="w-4 h-4 text-emerald-600" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-gray-500">Minha comissão do mês</p>
-              <p className="text-base font-bold leading-none text-emerald-700 mt-0.5">{formatCurrency(myEarnings.total)}</p>
-            </div>
-          </button>
-        )}
-      </div>
-
       {/* Metas de dia / semana / mês */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <GoalCard color="amber" label="Meta do dia" achieved={todaySold} target={dailyGoal} />
@@ -197,12 +200,6 @@ export function VendorDashboard({
         <EarningsModal myEarnings={myEarnings} onClose={() => setShowEarningsModal(false)} />
       )}
 
-      {goalsFallbackLabel && (
-        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
-          ⚠️ Meta não cadastrada para este mês — exibindo meta de <strong>{goalsFallbackLabel}</strong>. <a href="/admin" className="underline">Cadastrar meta</a>
-        </div>
-      )}
-
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
@@ -211,7 +208,6 @@ export function VendorDashboard({
           <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(sales)}</p>
           <p className="text-xs text-gray-500 mt-2">
             Meta: {myGoal > 0 ? formatCurrency(myGoal) : <span className="text-amber-500">não cadastrada</span>}
-            {goalsFallbackLabel && <span className="text-amber-500"> ({goalsFallbackLabel})</span>}
           </p>
           <div className="h-1 bg-gray-200 rounded-full mt-2 overflow-hidden">
             <div className="h-full bg-green-500" style={{ width: `${Math.min(metaPercent, 100)}%` }}></div>
@@ -247,58 +243,8 @@ export function VendorDashboard({
         </div>
       </div>
 
-      {/* Grid 3 colunas: Meta + Tarefas */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Minha Meta */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Minha meta</h3>
-            <p className="text-xs text-gray-500">{monthName}</p>
-          </div>
-          <div className="p-4">
-            <div className="text-center">
-              <div className="w-24 h-24 mx-auto relative mb-4">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 90 90">
-                  <circle cx="45" cy="45" r="38" fill="none" stroke="#f0f0f0" strokeWidth="8" />
-                  <circle
-                    cx="45"
-                    cy="45"
-                    r="38"
-                    fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="8"
-                    strokeDasharray={`${2 * Math.PI * 38}`}
-                    strokeDashoffset={`${2 * Math.PI * 38 * (1 - metaPercent / 100)}`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <p className="text-lg font-bold text-blue-600">{metaPercent}%</p>
-                </div>
-              </div>
-              <p className="font-semibold text-gray-900">{formatCurrency(sales)} vendido</p>
-              <p className="text-xs text-gray-500 mt-1">faltam {formatCurrency(metaRemaining)} para a meta</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              <div className="bg-gray-50 rounded-lg p-2 text-center">
-                <p className="text-sm font-bold text-gray-900">{funnelByTemp.hot.count}</p>
-                <p className="text-xs text-gray-500">Quentes</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-2 text-center">
-                <p className="text-sm font-bold text-gray-900">{funnelByTemp.closed.count}</p>
-                <p className="text-xs text-gray-500">Fechadas</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-2 text-center">
-                <p className="text-sm font-bold text-green-600">{formatCurrency(negotiating)}</p>
-                <p className="text-xs text-gray-500">Pipeline</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Minhas Tarefas */}
-        <TasksCardDashboard />
-      </div>
+      {/* Minhas Tarefas */}
+      <TasksCardDashboard />
 
       {/* Agenda */}
       <DashboardAgenda />
