@@ -1,12 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts, getCollaboratorRoleNames } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getQuotesForUser, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getTasksForUser, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts, getCollaboratorRoleNames } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
+import { ViewAsBanner } from '@/components/dashboard/ViewAsBanner'
 
 export const dynamic = 'force-dynamic'
+
+// Colaboradores que o admin pode visualizar como se fosse eles (modo "ver como").
+// Por enquanto uma lista fixa, combinada no pedido — não é geral pra todo mundo ainda.
+const VIEW_AS_ALLOWED_NAMES = ['Jennifer', 'Dalisson', 'Isabelle Medeiros', 'Gabriel']
 
 // Busca metas para o mês; se vazio, faz fallback para o mês mais recente com metas cadastradas
 async function getGoalsWithFallback(year: number, month: number) {
@@ -39,26 +44,49 @@ async function getGoalsWithFallback(year: number, month: number) {
   return { goals: fallbackGoals, isFallback: true, fallbackLabel }
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams: { year?: string; month?: string } }) {
+export default async function DashboardPage({ searchParams }: { searchParams: { year?: string; month?: string; viewAs?: string } }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
   const { data: profile } = await supabase.from('users').select('*').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
-  const isLogistics = profile?.role === 'logistics'
 
   // Perfil de marketing vê apenas o módulo de marketing
   if (profile?.role === 'marketing') redirect('/marketing')
 
-  if (isLogistics) {
-    const [shipments, tasks] = await Promise.all([getShipments(), getTasks()])
+  // Modo "visualizar como colaborador" — só admin consegue ativar, e só pra
+  // quem está na allowlist acima. A sessão real continua sendo a do admin;
+  // só os DADOS exibidos passam a ser os do colaborador escolhido.
+  let viewAsTarget: any = null
+  if (isAdmin && searchParams.viewAs) {
+    const admin = createAdminClient()
+    const { data: target } = await admin.from('users').select('*').eq('id', searchParams.viewAs).eq('active', true).maybeSingle()
+    if (target && VIEW_AS_ALLOWED_NAMES.includes(target.name)) viewAsTarget = target
+  }
+
+  const effectiveUserId  = viewAsTarget?.id ?? user.id
+  const effectiveIsAdmin = viewAsTarget ? false : isAdmin
+  const effectiveIsLogistics = viewAsTarget ? viewAsTarget.role === 'logistics' : profile?.role === 'logistics'
+  const effectiveName = viewAsTarget?.name ?? profile?.name
+
+  const collaboratorsForBanner = isAdmin ? await getActiveUsers() : []
+  const viewAsOptions = collaboratorsForBanner.filter((u: any) => VIEW_AS_ALLOWED_NAMES.includes(u.name))
+
+  if (effectiveIsLogistics) {
+    const [shipments, tasks] = await Promise.all([
+      getShipments(),
+      viewAsTarget ? getTasksForUser(effectiveUserId) : getTasks(),
+    ])
     return (
-      <LogisticsDashboard
-        shipments={shipments}
-        tasks={tasks}
-        userName={profile?.name ?? 'Logística'}
-      />
+      <>
+        {isAdmin && <ViewAsBanner options={viewAsOptions} activeId={viewAsTarget?.id ?? null} />}
+        <LogisticsDashboard
+          shipments={shipments}
+          tasks={tasks}
+          userName={effectiveName ?? 'Logística'}
+        />
+      </>
     )
   }
 
@@ -67,28 +95,28 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
 
   const [stats, myQuotes, allUsers, goalsResult, allQuotes, prospectionsCount, collaboratorRoles] = await Promise.all([
-    getDashboardStats(isAdmin ? undefined : user.id, year, month),
-    getMyQuotes(),
+    getDashboardStats(effectiveIsAdmin ? undefined : effectiveUserId, year, month),
+    viewAsTarget ? getQuotesForUser(effectiveUserId) : getMyQuotes(),
     getActiveUsers(),
     getGoalsWithFallback(year, month),
     getAllQuotes(),
-    isAdmin ? getProspectionsThisMonth(undefined, year, month) : getProspectionsThisMonth(user.id, year, month),
+    effectiveIsAdmin ? getProspectionsThisMonth(undefined, year, month) : getProspectionsThisMonth(effectiveUserId, year, month),
     getCollaboratorRoleNames(),
   ])
 
   const { goals, isFallback, fallbackLabel } = goalsResult
 
-  // Meta do vendedor logado — também com fallback
-  const myGoalEntry = goals.find((g: any) => g.user_id === user.id)
+  // Meta do vendedor logado (ou do colaborador visualizado) — também com fallback
+  const myGoalEntry = goals.find((g: any) => g.user_id === effectiveUserId)
   const myGoal = myGoalEntry?.target ?? 0
 
-  const criticalNegotiations = isAdmin ? await getCriticalNegotiations() : []
-  const flaggedAlerts = isAdmin ? await getFlaggedAlerts() : []
+  const criticalNegotiations = effectiveIsAdmin ? await getCriticalNegotiations() : []
+  const flaggedAlerts = effectiveIsAdmin ? await getFlaggedAlerts() : []
   const earnings = await getCommissionEarnings(year, month)
-  const myEarnings = earnings.byUser[user.id] ?? null
+  const myEarnings = earnings.byUser[effectiveUserId] ?? null
 
   const totalSold = stats.sales
-    .filter((r: any) => isAdmin || r.user_id === user.id)
+    .filter((r: any) => effectiveIsAdmin || r.user_id === effectiveUserId)
     .reduce((s: number, r: any) => s + Number(r.total_sold ?? 0), 0)
 
   const salesByUser: Record<string, number> = Object.fromEntries(
@@ -101,7 +129,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
   return (
     <>
-      {isAdmin ? (
+      {isAdmin && <ViewAsBanner options={viewAsOptions} activeId={viewAsTarget?.id ?? null} />}
+      {effectiveIsAdmin ? (
         <AdminDashboardV2
           quotes={allQuotes}
           users={allUsers}
@@ -128,8 +157,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           sales={totalSold}
           salesByUser={salesByUser}
           goalsByUser={goalsByUser}
-          userName={profile?.name ?? 'Vendedor'}
-          currentUserId={user.id}
+          userName={effectiveName ?? 'Vendedor'}
+          currentUserId={effectiveUserId}
           prospectionsThisMonth={prospectionsCount as number}
           myEarnings={myEarnings}
           selectedYear={year}

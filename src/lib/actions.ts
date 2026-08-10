@@ -62,6 +62,20 @@ export async function getMyQuotes() {
   return enrichOwnersAvatars(data ?? [])
 }
 
+// Mesma query de getMyQuotes, mas pra um usuário arbitrário — usado só pelo
+// admin no modo "visualizar como colaborador" em /dashboard (nunca chamado
+// diretamente pelo usuário-alvo). Usa admin client pra não depender da
+// sessão de quem está sendo visualizado.
+export async function getQuotesForUser(userId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quotes_full')
+    .select('*')
+    .filter('owners', 'cs', JSON.stringify([{ user_id: userId }]))
+    .order('created_at', { ascending: false })
+  return enrichOwnersAvatars(data ?? [])
+}
+
 export async function getAllQuotes() {
   const { data } = await createAdminClient()
     .from('quotes_full')
@@ -1375,6 +1389,27 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
       .from('quotes_full')
       .select('id, number, client_name')
       .in('id', quoteIds)
+    if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
+  }
+  return tasks.map((t: any) => ({ ...t, quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null }))
+}
+
+// Mesma query de getTasks, mas pra um usuário arbitrário — usado só pelo
+// admin no modo "visualizar como colaborador".
+export async function getTasksForUser(userId: string) {
+  const admin = createAdminClient()
+  const { data: tasks } = await admin
+    .from('tasks')
+    .select('*, subtasks(id, title, done)')
+    .eq('user_id', userId)
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false })
+  if (!tasks) return []
+
+  const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
+  let quotesMap: Record<string, any> = {}
+  if (quoteIds.length > 0) {
+    const { data: quotes } = await admin.from('quotes_full').select('id, number, client_name').in('id', quoteIds)
     if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
   }
   return tasks.map((t: any) => ({ ...t, quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null }))
