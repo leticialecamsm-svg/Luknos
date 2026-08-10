@@ -76,6 +76,48 @@ export async function getQuotesForUser(userId: string) {
   return enrichOwnersAvatars(data ?? [])
 }
 
+// Total vendido por um usuário num intervalo de datas (closed_at), dividindo
+// o valor entre os donos do orçamento — mesma regra usada no mês inteiro em
+// getDashboardStats. Usado pras metas de dia/semana no dashboard do vendedor.
+export async function getSalesForUserInRange(userId: string, startDate: string, endDate: string): Promise<number> {
+  const admin = createAdminClient()
+  const { data: closedQuotes } = await admin
+    .from('quotes_full')
+    .select('id, quoted_value, final_value')
+    .eq('temperature', 'closed')
+    .gte('closed_at', startDate)
+    .lte('closed_at', endDate)
+  if (!closedQuotes || closedQuotes.length === 0) return 0
+
+  const ids = closedQuotes.map((q: any) => q.id)
+  const [{ data: ownerRows }, { data: negs }] = await Promise.all([
+    admin.from('quote_owners').select('quote_id, user_id').in('quote_id', ids),
+    admin.from('negotiations').select('quote_id, payment_splits').in('quote_id', ids),
+  ])
+
+  const ownersByQuote = new Map<string, string[]>()
+  for (const o of ownerRows ?? []) {
+    const arr = ownersByQuote.get(o.quote_id) ?? []
+    arr.push(o.user_id)
+    ownersByQuote.set(o.quote_id, arr)
+  }
+  const splitsByQuote = new Map((negs ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
+  const valueOf = (q: any) => {
+    const splits = splitsByQuote.get(q.id) ?? []
+    return splits.length === 0
+      ? Number(q.final_value ?? q.quoted_value ?? 0)
+      : splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
+  }
+
+  let total = 0
+  for (const q of closedQuotes) {
+    const owners = ownersByQuote.get(q.id) ?? []
+    if (!owners.includes(userId)) continue
+    total += valueOf(q) / owners.length
+  }
+  return total
+}
+
 export async function getAllQuotes() {
   const { data } = await createAdminClient()
     .from('quotes_full')

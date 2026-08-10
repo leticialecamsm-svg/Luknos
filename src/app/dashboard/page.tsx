@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { getDashboardStats, getMyQuotes, getQuotesForUser, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getTasksForUser, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts, getCollaboratorRoleNames } from '@/lib/actions'
+import { getDashboardStats, getMyQuotes, getQuotesForUser, getActiveUsers, getAllQuotes, getProspectionsThisMonth, getShipments, getTasks, getTasksForUser, getCommissionEarnings, getCriticalNegotiations, getFlaggedAlerts, getCollaboratorRoleNames, getSalesForUserInRange } from '@/lib/actions'
 import { AdminDashboardV2 } from '@/components/dashboard/AdminDashboardV2'
 import { VendorDashboard } from '@/components/dashboard/VendorDashboard'
 import { LogisticsDashboard } from '@/components/dashboard/LogisticsDashboard'
@@ -42,6 +42,34 @@ async function getGoalsWithFallback(year: number, month: number) {
   const fallbackLabel = `${MONTH_NAMES[latestMonth - 1]}/${latestYear}`
 
   return { goals: fallbackGoals, isFallback: true, fallbackLabel }
+}
+
+// Dias úteis do mês (segunda a sábado — só domingo fica de fora), usado pra
+// dividir a meta do mês em meta diária/semanal no dashboard do vendedor.
+function businessDaysInMonth(year: number, month: number) {
+  const lastDay = new Date(year, month, 0).getDate()
+  let count = 0
+  for (let d = 1; d <= lastDay; d++) {
+    if (new Date(year, month - 1, d).getDay() !== 0) count++
+  }
+  return count
+}
+
+function toISODate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Semana atual (segunda a sábado) que contém "hoje" de verdade — independe
+// do mês selecionado no seletor do dashboard.
+function currentBusinessWeekRange() {
+  const now = new Date()
+  const dow = now.getDay() // 0=domingo, 1=segunda, ... 6=sábado
+  const diffToMonday = dow === 0 ? -6 : 1 - dow
+  const start = new Date(now)
+  start.setDate(now.getDate() + diffToMonday)
+  const end = new Date(start)
+  end.setDate(start.getDate() + 5) // segunda + 5 = sábado
+  return { start: toISODate(start), end: toISODate(end) }
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: { year?: string; month?: string; viewAs?: string } }) {
@@ -127,6 +155,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     (goals as any[]).filter((g: any) => g.user_id).map((g: any) => [g.user_id, Number(g.target ?? 0)])
   )
 
+  // Metas de dia/semana — só fazem sentido pro vendedor vendo o próprio painel
+  let dailyGoal = 0, weeklyGoal = 0, todaySold = 0, weekSold = 0
+  if (!effectiveIsAdmin) {
+    const businessDays = businessDaysInMonth(year, month)
+    dailyGoal = businessDays > 0 ? myGoal / businessDays : 0
+    weeklyGoal = dailyGoal * 6
+    const todayStr = toISODate(now)
+    const week = currentBusinessWeekRange()
+    ;[todaySold, weekSold] = await Promise.all([
+      getSalesForUserInRange(effectiveUserId, todayStr, todayStr),
+      getSalesForUserInRange(effectiveUserId, week.start, week.end),
+    ])
+  }
+
   return (
     <>
       {isAdmin && <ViewAsBanner options={viewAsOptions} activeId={viewAsTarget?.id ?? null} />}
@@ -150,6 +192,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       ) : (
         <VendorDashboard
           myGoal={myGoal}
+          dailyGoal={dailyGoal}
+          weeklyGoal={weeklyGoal}
+          todaySold={todaySold}
+          weekSold={weekSold}
           myQuotes={myQuotes}
           allQuotes={allQuotes}
           users={allUsers}

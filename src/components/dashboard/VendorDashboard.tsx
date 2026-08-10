@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
-import { TrendingUp, AlertCircle, Calendar } from 'lucide-react'
+import { TrendingUp, AlertCircle, Calendar, Maximize2, X } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { WorkingDaysCard } from './WorkingDaysCard'
@@ -13,9 +13,13 @@ import { DashboardAgenda } from './DashboardAgenda'
 import { NewQuoteButton } from '@/components/quotes/NewQuoteButton'
 
 export function VendorDashboard({
-  myGoal, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth, goalsFallbackLabel, collaboratorRoles = ['admin', 'seller']
+  myGoal, dailyGoal = 0, weeklyGoal = 0, todaySold = 0, weekSold = 0, myQuotes, funnel, sales, userName, allQuotes, users, currentUserId, prospectionsThisMonth, salesByUser, goalsByUser, myEarnings, selectedYear, selectedMonth, goalsFallbackLabel, collaboratorRoles = ['admin', 'seller']
 }: {
   myGoal: number
+  dailyGoal?: number
+  weeklyGoal?: number
+  todaySold?: number
+  weekSold?: number
   myQuotes: any[]
   funnel: any[]
   sales: number
@@ -34,6 +38,7 @@ export function VendorDashboard({
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
+  const [showEarningsModal, setShowEarningsModal] = useState(false)
 
   const now = new Date()
   const currentMonth = new Date(selectedYear ?? now.getFullYear(), (selectedMonth ?? now.getMonth() + 1) - 1, 1)
@@ -165,33 +170,27 @@ export function VendorDashboard({
       {/* Working days banner */}
       <WorkingDaysCard />
 
-      {/* Minha comissão do mês (privado) */}
-      {myEarnings && (
-        <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Minha comissão do mês</p>
-              <p className="text-3xl font-bold text-emerald-700 mt-1">{formatCurrency(myEarnings.total)}</p>
-            </div>
-            <div className="text-right text-xs text-gray-500 space-y-1">
-              <p>1% das minhas vendas: <strong className="text-gray-700">{formatCurrency(myEarnings.sellerComm)}</strong></p>
-              {myEarnings.projetistaComm > 0 && (
-                <p>Como projetista: <strong className="text-gray-700">{formatCurrency(myEarnings.projetistaComm)}</strong></p>
-              )}
-            </div>
+      {/* Metas de dia / semana / mês + acesso à comissão detalhada */}
+      <div className="space-y-2">
+        {myEarnings && (
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowEarningsModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1.5 transition-colors"
+            >
+              <Maximize2 className="w-3 h-3" /> Minha comissão do mês: {formatCurrency(myEarnings.total)}
+            </button>
           </div>
-          {myEarnings.projetistaSales?.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-emerald-100 space-y-1">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase">Vendas como projetista</p>
-              {myEarnings.projetistaSales.map((p: any) => (
-                <div key={p.number} className="flex items-center justify-between text-xs text-gray-600">
-                  <span><span className="font-semibold text-brand-600">#{p.number}</span> {p.client_name} <span className="text-gray-400">({p.rate}%)</span></span>
-                  <span className="font-medium text-emerald-700">{formatCurrency(p.comm)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <GoalCard color="amber" label="Meta do dia" achieved={todaySold} target={dailyGoal} />
+          <GoalCard color="orange" label="Meta da semana" achieved={weekSold} target={weeklyGoal} />
+          <GoalCard color="violet" label="Meta do mês" achieved={sales} target={myGoal} />
         </div>
+      </div>
+
+      {showEarningsModal && myEarnings && (
+        <EarningsModal myEarnings={myEarnings} onClose={() => setShowEarningsModal(false)} />
       )}
 
       {goalsFallbackLabel && (
@@ -467,6 +466,117 @@ export function VendorDashboard({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const GOAL_CARD_COLORS = {
+  amber:  { bg: 'bg-amber-50',  border: 'border-amber-200',  text: 'text-amber-700',  bar: 'bg-amber-400',  barBg: 'bg-amber-100' },
+  orange: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', bar: 'bg-orange-400', barBg: 'bg-orange-100' },
+  violet: { bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', bar: 'bg-violet-400', barBg: 'bg-violet-100' },
+}
+
+function GoalCard({ color, label, achieved, target }: {
+  color: keyof typeof GOAL_CARD_COLORS
+  label: string
+  achieved: number
+  target: number
+}) {
+  const c = GOAL_CARD_COLORS[color]
+  const pct = target > 0 ? Math.round((achieved / target) * 100) : 0
+  const remaining = Math.max(0, target - achieved)
+
+  return (
+    <div className={cn('rounded-2xl border p-4', c.bg, c.border)}>
+      <p className={cn('text-xs font-semibold uppercase tracking-wide', c.text)}>{label}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(achieved)}</p>
+      <p className="text-xs text-gray-500 mt-0.5">
+        Meta: {target > 0 ? formatCurrency(target) : <span className="text-amber-500">não cadastrada</span>}
+      </p>
+      {target > 0 && (
+        <>
+          <div className={cn('h-1.5 rounded-full mt-2 overflow-hidden', c.barBg)}>
+            <div className={cn('h-full rounded-full', c.bar)} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <p className="text-xs text-gray-500 mt-1.5">
+            <strong className={c.text}>{pct}%</strong> atingido
+            {remaining > 0 && <> · falta <strong className="text-gray-700">{formatCurrency(remaining)}</strong></>}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function EarningsModal({ myEarnings, onClose }: { myEarnings: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Minha comissão do mês</h2>
+            <p className="text-2xl font-bold text-emerald-700 mt-0.5">{formatCurrency(myEarnings.total)}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase">1% das minhas vendas</p>
+              <p className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(myEarnings.sellerComm)}</p>
+            </div>
+            {myEarnings.projetistaComm > 0 && (
+              <div className="bg-violet-50 rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-violet-600 uppercase">Como projetista</p>
+                <p className="text-lg font-bold text-violet-700 mt-0.5">{formatCurrency(myEarnings.projetistaComm)}</p>
+              </div>
+            )}
+          </div>
+
+          {myEarnings.sellerDetails?.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Minhas vendas do mês</p>
+              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                {myEarnings.sellerDetails.map((s: any) => (
+                  <div key={s.number} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-brand-600">#{s.number}</span>{' '}
+                      <span className="text-gray-700 truncate">{s.client_name}</span>
+                      {s.num_owners > 1 && <span className="text-gray-400"> · 1/{s.num_owners}</span>}
+                    </div>
+                    <div className="text-right shrink-0 ml-2">
+                      <p className="text-gray-900 font-medium">{formatCurrency(s.value)}</p>
+                      <p className="text-[11px] text-emerald-600">{formatCurrency(s.comm)} comissão</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {myEarnings.projetistaSales?.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-violet-600 uppercase tracking-wide mb-2">Vendas como projetista</p>
+              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                {myEarnings.projetistaSales.map((p: any) => (
+                  <div key={p.number} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span><span className="font-semibold text-brand-600">#{p.number}</span> <span className="text-gray-700">{p.client_name}</span> <span className="text-gray-400">({p.rate}%)</span></span>
+                    <span className="font-medium text-violet-700">{formatCurrency(p.comm)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!myEarnings.sellerDetails?.length && !myEarnings.projetistaSales?.length && (
+            <p className="text-sm text-gray-400 text-center py-6">Nenhuma venda fechada este mês ainda.</p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
