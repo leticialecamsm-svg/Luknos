@@ -877,14 +877,14 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
   const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
 
   const admin = createAdminClient()
-  let quotesQuery = admin
+  // Busca TODOS os fechados do mês — o filtro por dono acontece depois, via
+  // quote_owners (quotes_full não tem coluna primary_owner_id; um .eq() nela
+  // falhava silenciosamente e zerava "Vendido no mês" pra todo vendedor,
+  // todo mês, mesmo com vendas reais fechadas).
+  const { data: closedQuotes } = await admin
     .from('quotes_full')
     .select('id, quoted_value, final_value, temperature, closed_at, temperature_updated_at')
     .eq('temperature', 'closed')
-
-  if (userId) quotesQuery = quotesQuery.eq('primary_owner_id', userId)
-
-  const { data: closedQuotes } = await quotesQuery
   // Se closed_at não existir, usa temperature_updated_at (como PERDIDAS fazem)
   const closedMonth = (closedQuotes ?? []).filter((q: any) => {
     const dateToCheck = q.closed_at || (String(q.temperature_updated_at ?? '').slice(0, 10))
@@ -916,10 +916,8 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
       : splits.filter((s: any) => s.status !== 'open').reduce((a: number, s: any) => a + Number(s.amount ?? 0), 0)
   }
 
-  // Só conta o RECEBIDO (splits pagos); o "em aberto" vira conta a receber no Financeiro
-  const closedValue = closedMonth.reduce((sum: number, q: any) => sum + valueOf(q), 0)
-
-  // Vendido por usuário — divide o valor entre os donos do orçamento (mesma regra da comissão)
+  // Vendido por usuário — divide o valor entre os donos do orçamento (mesma regra da comissão),
+  // contando só o RECEBIDO (splits pagos); o "em aberto" vira conta a receber no Financeiro
   const salesByUserMap: Record<string, number> = {}
   for (const q of closedMonth) {
     const owners: string[] = ownersByQuote.get(q.id) ?? []
@@ -939,7 +937,7 @@ export async function getDashboardStats(userId?: string, year?: number, month?: 
 
   return {
     funnel: funnel ?? [],
-    sales: userId ? [{ user_id: userId, total_sold: closedValue, month: m, year: y }] : salesByUserRows,
+    sales: userId ? [{ user_id: userId, total_sold: salesByUserMap[userId] ?? 0, month: m, year: y }] : salesByUserRows,
     storeGoal: goal?.target ?? 0,
   }
 }

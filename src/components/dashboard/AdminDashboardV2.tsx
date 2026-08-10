@@ -258,14 +258,17 @@ export function AdminDashboardV2({
     pct: totalOrigins > 0 ? Math.round((o.value / totalOrigins) * 100) : 0,
   }))
 
-  // Atenção necessária
+  // Atenção necessária — "aberto" é definido pela temperatura da negociação
+  // (cold/warm/hot/no_forecast), não pelo status do orçamento (que quase
+  // sempre já é "done" assim que a proposta é enviada, mesmo com a
+  // negociação ainda rolando)
   const urgentQuotes = quotes
-    .filter(q => isOverdue(q.deadline) && q.status !== 'done')
+    .filter(q => isOverdue(q.deadline) && !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
     .slice(0, 2)
 
   const hotNoFollowup = quotes
-    .filter(q => q.temperature === 'hot' && q.status !== 'done')
+    .filter(q => q.temperature === 'hot')
     .filter(q => {
       const lastUpdate = new Date(q.updated_at)
       const daysSince = Math.floor((Date.now() - lastUpdate.getTime()) / 86400000)
@@ -385,7 +388,7 @@ export function AdminDashboardV2({
           <p className="text-xs text-green-600 font-semibold mt-1">✓ Melhor que maio</p>
         </div>
 
-        <div onClick={() => setDetail({ title: 'Orçamentos quentes', items: quotes.filter(q => q.temperature === 'hot' && q.status !== 'done'), field: 'quoted' })}
+        <div onClick={() => setDetail({ title: 'Orçamentos quentes', items: quotes.filter(q => q.temperature === 'hot'), field: 'quoted' })}
           className="cursor-pointer bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden hover:shadow-md hover:border-orange-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-orange-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Orç. quentes</p>

@@ -45,13 +45,16 @@ export function VendorDashboard({
     router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
   }
 
-  // KPIs
+  // KPIs — abertura/fechamento de negociação é definido pela TEMPERATURA
+  // (cold/warm/hot/no_forecast = aberto, closed/lost = encerrado), não pelo
+  // status do orçamento (que só indica se a proposta em si já foi enviada —
+  // quase todo orçamento aberto já está com status "done" nesse sentido).
   const negotiating = myQuotes
-    .filter(q => q.temperature && ['warm', 'hot'].includes(q.temperature) && q.status !== 'done')
+    .filter(q => q.temperature && ['warm', 'hot'].includes(q.temperature))
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
-  const opportunities = myQuotes.filter(q => q.status !== 'done').length
-  const urgent = myQuotes.filter(q => isOverdue(q.deadline) && q.status !== 'done').length
+  const opportunities = myQuotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length
+  const urgent = myQuotes.filter(q => isOverdue(q.deadline) && !['closed', 'lost'].includes(q.temperature ?? 'cold')).length
 
   // Meta progress
   const metaPercent = myGoal > 0 ? Math.round((sales / myGoal) * 100) : 0
@@ -76,7 +79,7 @@ export function VendorDashboard({
 
   // Urgências
   const urgentQuotes = myQuotes
-    .filter(q => isOverdue(q.deadline) && q.status !== 'done')
+    .filter(q => isOverdue(q.deadline) && !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
     .slice(0, 3)
 
@@ -93,7 +96,7 @@ export function VendorDashboard({
     .reduce((sum, q) => sum + (q.final_value ?? q.quoted_value ?? 0), 0)
 
   const pipelineTotal = (allQuotes ?? [])
-    .filter(q => q.status !== 'done')
+    .filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold'))
     .reduce((sum, q) => sum + (q.quoted_value ?? 0), 0)
 
   // Ranking de colaboradores — usa a MESMA fonte do card "Vendido no mês" (sales_by_month do mês atual)
