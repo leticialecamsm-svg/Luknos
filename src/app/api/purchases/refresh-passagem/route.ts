@@ -27,12 +27,14 @@ export async function POST() {
     let checked = 0
     const statusCount: Record<string, number> = {}
     let ultimoMotivo = ''
+    const debug: any[] = []
 
     for (const n of nfes) {
       checked++
       try {
-        const { eventos, cStat, xMotivo } = await consultarEventosPassagem(n.chave_nfe)
+        const { eventos, cStat, xMotivo, schemasEncontrados, todosEventos } = await consultarEventosPassagem(n.chave_nfe)
         statusCount[cStat] = (statusCount[cStat] ?? 0) + 1
+        debug.push({ chave: n.chave_nfe, cStat, xMotivo, schemasEncontrados, todosEventos })
         // 656 = cota de 20 consultas/hora estourada — para na hora, sem gastar o resto do lote à toa
         if (cStat === '656') { ultimoMotivo = `${cStat}: ${xMotivo}`; break }
         if (cStat !== '137' && cStat !== '138') ultimoMotivo = `${cStat}: ${xMotivo}`
@@ -50,7 +52,8 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({ updated, checked, semEvento, statusCount, ultimoMotivo })
+    console.log('[refresh-passagem] debug:', JSON.stringify(debug))
+    return NextResponse.json({ updated, checked, semEvento, statusCount, ultimoMotivo, debug })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }

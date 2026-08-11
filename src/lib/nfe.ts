@@ -152,7 +152,7 @@ export interface EventoPassagem { uf: string; data: string; descricao: string }
 // pra aquela nota (não só os novos, como a sincronização por NSU) — é o jeito de
 // recuperar retroativamente eventos de passagem de notas mais antigas.
 // ATENÇÃO: consome da mesma cota de 20 consultas/hora por CNPJ da SEFAZ.
-export async function consultarEventosPassagem(chave: string): Promise<{ eventos: EventoPassagem[]; cStat: string; xMotivo: string; schemasEncontrados: string[] }> {
+export async function consultarEventosPassagem(chave: string): Promise<{ eventos: EventoPassagem[]; cStat: string; xMotivo: string; schemasEncontrados: string[]; todosEventos: string[] }> {
   const soap = buildDistChaveSoap(chave)
   const xml = await soapPost(DIST_URL, soap, {
     'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
@@ -164,6 +164,7 @@ export async function consultarEventosPassagem(chave: string): Promise<{ eventos
   const docRegex = /<docZip[^>]*schema="([^"]+)"[^>]*>([A-Za-z0-9+/=\s]+)<\/docZip>/g
   const eventos: EventoPassagem[] = []
   const schemasEncontrados: string[] = []
+  const todosEventos: string[] = [] // diagnóstico: xEvento de TODO resEvento, mesmo os que não são passagem
   let m: RegExpExecArray | null
   while ((m = docRegex.exec(xml)) !== null) {
     const schema = m[1]
@@ -174,6 +175,7 @@ export async function consultarEventosPassagem(chave: string): Promise<{ eventos
       const xEvento = tag(inner, 'xEvento')
       const dhEvento = tag(inner, 'dhEvento')
       const cOrgao = tag(inner, 'cOrgao')
+      if (xEvento) todosEventos.push(xEvento)
       if (xEvento && /passagem/i.test(xEvento)) {
         eventos.push({ uf: UF_POR_CODIGO[cOrgao] ?? cOrgao, data: dhEvento, descricao: xEvento })
       }
@@ -181,5 +183,5 @@ export async function consultarEventosPassagem(chave: string): Promise<{ eventos
       // ignora evento com erro de parsing
     }
   }
-  return { eventos, cStat, xMotivo, schemasEncontrados }
+  return { eventos, cStat, xMotivo, schemasEncontrados, todosEventos }
 }
