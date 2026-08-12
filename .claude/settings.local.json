@@ -79,7 +79,9 @@
       "Bash(python3 -c \"import fitz; print\\('pymupdf ok'\\)\")",
       "Bash(python3 -c \"import fitz; d=fitz.open\\('PRO-LUM-ORÇ-SUELLEN-Model.pdf'\\); print\\('pages:',d.page_count\\); [print\\('page',i,'size',round\\(p.rect.width\\),'x',round\\(p.rect.height\\)\\) for i,p in enumerate\\(d\\)]\")",
       "Bash(python3 -c ' *)",
-      "Bash(python3 template_luknos.py)"
+      "Bash(python3 template_luknos.py)",
+      "mcp__53ad7dfc-b221-4ade-8033-45c0aa06b148__whoami",
+      "mcp__53ad7dfc-b221-4ade-8033-45c0aa06b148__get_figma_skill"
     ]
   }
 }

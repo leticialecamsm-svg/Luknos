@@ -137,7 +137,7 @@ function fmtPct(v: number) {
 const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  const dt = new Date(d + 'T12:00:00')
+  const dt = new Date(d.includes('T') ? d : d + 'T12:00:00')
   return `${dt.getDate()} ${MONTH_NAMES[dt.getMonth()]} ${dt.getFullYear()}`
 }
 
