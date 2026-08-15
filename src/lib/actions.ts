@@ -2452,7 +2452,7 @@ export async function getCommissionEarnings(year?: number, month?: number) {
   const [salesRes, contactsRes, quotesRes, usersRes, closedQuotesRes] = await Promise.all([
     admin.from('sales_by_month').select('user_id, total_sold').eq('year', y).eq('month', m),
     admin.from('contacts').select('*').gt('commission_rate', 0),
-    admin.from('quotes_full').select('number, architect_id, final_value, quoted_value, closed_at, temperature, client_name')
+    admin.from('quotes_full').select('id, number, architect_id, final_value, quoted_value, closed_at, temperature, client_name')
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
     admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true),
     admin.from('quotes_full')
@@ -2463,6 +2463,14 @@ export async function getCommissionEarnings(year?: number, month?: number) {
   const linkedContacts = (contactsRes.data ?? []).filter((c: any) => c.linked_user_id)
   const contactToUser = new Map(linkedContacts.map((c: any) => [c.id, c.linked_user_id]))
   const contactRate = new Map(linkedContacts.map((c: any) => [c.id, Number(c.commission_rate)]))
+
+  // Se a comissão do orçamento foi dividida entre parceiros (quote_partners), usa a
+  // taxa específica de cada um em vez da taxa padrão cheia do contato.
+  const closedQuoteIds = (quotesRes.data ?? []).map((q: any) => q.id).filter(Boolean)
+  const { data: splitRows } = closedQuoteIds.length
+    ? await admin.from('quote_partners').select('quote_id, contact_id, rate').in('quote_id', closedQuoteIds)
+    : { data: [] as any[] }
+  const splitRateMap = new Map((splitRows ?? []).map((s: any) => [`${s.quote_id}:${s.contact_id}`, Number(s.rate)]))
 
   // Build seller details per user from closed quotes
   const sellerDetailsMap: Record<string, any[]> = {}
@@ -2501,7 +2509,7 @@ export async function getCommissionEarnings(year?: number, month?: number) {
   for (const q of quotesRes.data ?? []) {
     const uid = q.architect_id ? contactToUser.get(q.architect_id) : null
     if (!uid || !result[uid]) continue
-    const rate = contactRate.get(q.architect_id) ?? 0
+    const rate = splitRateMap.get(`${q.id}:${q.architect_id}`) ?? contactRate.get(q.architect_id) ?? 0
     const value = Number(q.final_value ?? q.quoted_value ?? 0)
     const comm = parseFloat((value * rate / 100).toFixed(2))
     result[uid].projetistaComm += comm
