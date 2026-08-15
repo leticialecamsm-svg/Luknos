@@ -176,6 +176,7 @@ export async function POST() {
     let newCount = 0
     let pagesRead = 0
     const MAX_PAGES = 10 // limite de segurança
+    let lastStat = ''
 
     while (pagesRead < MAX_PAGES) {
       pagesRead++
@@ -186,10 +187,13 @@ export async function POST() {
       const xMotivo = get(xml, 'xMotivo')
       const maxNSU = get(xml, 'maxNSU')
       const ultNSUResp = get(xml, 'ultNSU')
+      lastStat = `${cStat}: ${xMotivo}`
 
-      // 137/138 = documentos retornados, 656 = sem documentos novos
-      if (cStat !== '137' && cStat !== '138') {
-        if (cStat === '656' || ultNSU !== '0') break // sem mais documentos
+      // 137 = nenhum documento novo além do que já temos (situação normal, não é erro).
+      // Qualquer outro código fora 137/138 é problema de verdade (cota estourada,
+      // certificado, servidor fora do ar etc.) e não deve ser tratado como "sem novidades".
+      if (cStat === '137') break
+      if (cStat !== '138') {
         return NextResponse.json({ error: `SEFAZ: ${xMotivo} (cStat ${cStat})` }, { status: 400 })
       }
 
@@ -273,7 +277,7 @@ export async function POST() {
       if (!maxNSU || ultNSU >= maxNSU || docs.length === 0) break
     }
 
-    return NextResponse.json({ ok: true, novasNFs: newCount })
+    return NextResponse.json({ ok: true, novasNFs: newCount, ultimoStatusSefaz: lastStat })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }

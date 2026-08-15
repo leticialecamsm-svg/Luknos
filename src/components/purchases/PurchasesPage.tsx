@@ -842,7 +842,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       const res = await fetch('/api/purchases/list-nfe', { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
-        setSyncMsg(data.novasNFs > 0 ? `${data.novasNFs} nova(s) NF-e encontrada(s)` : 'Nenhuma NF-e nova')
+        const base = data.novasNFs > 0 ? `${data.novasNFs} nova(s) NF-e encontrada(s)` : 'Nenhuma NF-e nova'
+        setSyncMsg(data.ultimoStatusSefaz ? `${base} (SEFAZ: ${data.ultimoStatusSefaz})` : base)
         await loadNfesRecebidas()
       } else {
         setSyncMsg(`Erro: ${data.error}`)
