@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, Check, Clock, AlertCircle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
+import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -36,6 +37,7 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
   const [year, setYear]       = useState(initialYear)
   const [month, setMonth]     = useState(initialMonth)
   const [commissions, setCommissions] = useState<any[]>(initialCommissions)
+  const [openQuoteId, setOpenQuoteId] = useState<string | null>(null)
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear(y => y - 1); load(year - 1, 12) }
@@ -148,7 +150,11 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
                 const Icon = cfg.icon
                 const overdueDays = c.status === 'overdue' ? daysDiff(c.due_date) : 0
                 return (
-                  <tr key={c.id} className={cn('border-b border-surface-border hover:bg-surface transition-colors', idx === commissions.length - 1 ? 'border-0' : '')}>
+                  <tr
+                    key={c.id}
+                    onClick={() => c.quote_id && setOpenQuoteId(c.quote_id)}
+                    className={cn('border-b border-surface-border hover:bg-surface transition-colors', c.quote_id && 'cursor-pointer', idx === commissions.length - 1 ? 'border-0' : '')}
+                  >
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-gray-900">{c.contact?.name ?? '—'}</p>
                       <p className="text-xs text-gray-400">{c.quote?.client?.name ?? '—'}</p>
@@ -170,7 +176,7 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
                     <td className="px-4 py-3 text-right">
                       {c.status !== 'paid' && (
                         <button
-                          onClick={() => markPaid(c.id)}
+                          onClick={e => { e.stopPropagation(); markPaid(c.id) }}
                           disabled={pending}
                           className="text-xs px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium transition-colors border border-emerald-200"
                         >
@@ -189,6 +195,10 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
             </tbody>
           </table>
         </div>
+      )}
+
+      {openQuoteId && (
+        <QuoteQuickViewModal quoteId={openQuoteId} onClose={() => setOpenQuoteId(null)} />
       )}
     </div>
   )
