@@ -1,6 +1,7 @@
 import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
+import { logSefazDistCall } from '@/lib/sefaz-quota'
 
 const gunzip = promisify(zlib.gunzip)
 
@@ -41,7 +42,8 @@ export function buildDistChaveSoap(chave: string) {
   return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="${DIST_NS}"><nfeDadosMsg>${inner}</nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>`
 }
 
-export function soapPost(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+export async function soapPost(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+  await logSefazDistCall() // toda chamada aqui consome da cota de 20/hora da SEFAZ
   return new Promise((resolve, reject) => {
     const agent = getAgent()
     const url = new URL(urlStr)

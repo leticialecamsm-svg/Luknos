@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
+import { logSefazDistCall } from '@/lib/sefaz-quota'
 
 const gunzip = promisify(zlib.gunzip)
 
@@ -34,7 +35,10 @@ function getAgent() {
   })
 }
 
-function soapRequest(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+async function soapRequest(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+  // Só o webservice nacional (DIST_URL) conta na cota de 20/hora — o fallback
+  // SVRS é outro serviço, com limite próprio.
+  if (urlStr === DIST_URL) await logSefazDistCall()
   return new Promise((resolve, reject) => {
     const agent = getAgent()
     const url = new URL(urlStr)

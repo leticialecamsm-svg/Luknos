@@ -822,6 +822,18 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [addingChave, setAddingChave] = useState<string | null>(null)
   const [nfeDetail, setNfeDetail] = useState<NFeRecebida | null>(null)
 
+  // Cota de 20 consultas/hora da SEFAZ (compartilhada por todas as buscas nesta tela)
+  const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null)
+  async function loadQuota() {
+    try {
+      const res = await fetch('/api/purchases/sefaz-quota')
+      if (res.ok) setQuota(await res.json())
+    } catch {
+      // silencioso — é só um indicador auxiliar
+    }
+  }
+  useEffect(() => { loadQuota() }, [])
+
   async function loadNfesRecebidas() {
     setLoadingNfes(true)
     try {
@@ -850,6 +862,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       }
     } finally {
       setSyncingNfes(false)
+      loadQuota()
     }
   }
 
@@ -873,6 +886,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       }
     } finally {
       setRefreshingPassagem(false)
+      loadQuota()
     }
   }
 
@@ -943,6 +957,17 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         )}
         {tab === 'recebidas' && (
           <div className="flex items-center gap-2">
+            {quota && (
+              <span
+                className={cn(
+                  'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
+                  quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-500'
+                )}
+                title="Consultas ao webservice nacional da SEFAZ (NFeDistribuicaoDFe) usadas na última hora — limite é por CNPJ, compartilhado entre todas as buscas"
+              >
+                {quota.used}/{quota.limit} consultas SEFAZ nessa hora
+              </span>
+            )}
             <button onClick={refreshPassagem} disabled={refreshingPassagem} className="btn-secondary flex items-center gap-2" title="Consulta o histórico completo de cada nota recente pra recuperar registros de passagem antigos (limitado por causa da cota da SEFAZ)">
               <RefreshCw className={cn('w-4 h-4', refreshingPassagem && 'animate-spin')} />
               {refreshingPassagem ? 'Atualizando...' : 'Atualizar passagens'}
