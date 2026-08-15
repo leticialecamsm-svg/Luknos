@@ -151,7 +151,7 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
                   <tr key={c.id} className={cn('border-b border-surface-border hover:bg-surface transition-colors', idx === commissions.length - 1 ? 'border-0' : '')}>
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-gray-900">{c.contact?.name ?? '—'}</p>
-                      <p className="text-xs text-gray-400">{c.contact?.commission_rate}% comissão</p>
+                      <p className="text-xs text-gray-400">{c.quote?.client?.name ?? '—'}</p>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       #{c.quote?.number ?? '—'}

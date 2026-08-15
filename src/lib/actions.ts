@@ -21,7 +21,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
     ids.length ? admin.from('users').select('id, avatar_url').in('id', ids) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('negotiations').select('quote_id, payment_splits, temperature_updated_at, last_auto_demoted_at, last_promoted_at, is_flagged_alert, flagged_alert_at').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     quoteIds.length ? admin.from('quote_proposals').select('quote_id').in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
-    architectIds.length ? admin.from('contacts').select('id, type').in('id', architectIds) : Promise.resolve({ data: [] }),
+    architectIds.length ? admin.from('contacts').select('id, type, commission_rate').in('id', architectIds) : Promise.resolve({ data: [] }),
   ])
   const avatarMap = new Map((usersRes.data ?? []).map((u: any) => [u.id, u.avatar_url]))
   const splitsMap = new Map((negRes.data ?? []).map((n: any) => [n.quote_id, n.payment_splits ?? []]))
@@ -35,6 +35,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
     proposalCountMap.set(p.quote_id, (proposalCountMap.get(p.quote_id) ?? 0) + 1)
   }
   const architectTypeMap = new Map((architectsRes.data ?? []).map((a: any) => [a.id, a.type]))
+  const architectRateMap = new Map((architectsRes.data ?? []).map((a: any) => [a.id, a.commission_rate]))
 
   return quotes.map(q => ({
     ...q,
@@ -47,6 +48,7 @@ async function enrichOwnersAvatars(quotes: any[]) {
     is_flagged_alert: isFlaggedAlertMap.get(q.id) ?? false,
     flagged_alert_at: flaggedAlertAtMap.get(q.id) ?? null,
     architect_type: architectTypeMap.get(q.architect_id) ?? null,
+    architect_commission_rate: architectRateMap.get(q.architect_id) ?? 0,
   }))
 }
 
@@ -814,28 +816,37 @@ export async function closeSale(quoteId: string, data: {
     }
   }
 
-  // Create commission if quote has a partner with commission_rate > 0
+  // Cria comissão pra cada parceiro do orçamento. Se a comissão foi dividida
+  // (quote_partners tem registros), usa a taxa que cada um ficou — senão cai no
+  // comportamento de sempre: parceiro único (architect_id) com sua taxa padrão.
   const admin = createAdminClient()
   const { data: quote } = await admin.from('quotes').select('architect_id, quoted_value').eq('id', quoteId).single()
-  if (quote?.architect_id) {
+  const { data: splitPartners } = await admin.from('quote_partners').select('contact_id, rate').eq('quote_id', quoteId)
+
+  let partners: { contact_id: string; rate: number }[] = []
+  if (splitPartners && splitPartners.length > 0) {
+    partners = splitPartners.map(p => ({ contact_id: p.contact_id, rate: Number(p.rate ?? 0) }))
+  } else if (quote?.architect_id) {
     const { data: contact } = await admin.from('contacts').select('commission_rate').eq('id', quote.architect_id).single()
-    const rate = Number(contact?.commission_rate ?? 0)
-    if (rate > 0) {
-      const saleValue = data.final_value || Number(quote.quoted_value ?? 0)
-      const amount = parseFloat(((saleValue * rate) / 100).toFixed(2))
-      const closedAt = new Date(closedAtDate + 'T00:00:00')
-      const dueDate = new Date(closedAt)
-      dueDate.setDate(dueDate.getDate() + 30)
-      await admin.from('commissions').upsert({
-        contact_id: quote.architect_id,
-        quote_id: quoteId,
-        quote_value: saleValue,
-        rate,
-        amount,
-        due_date: dueDate.toISOString().split('T')[0],
-        status: 'scheduled',
-      }, { onConflict: 'quote_id,contact_id' })
-    }
+    partners = [{ contact_id: quote.architect_id, rate: Number(contact?.commission_rate ?? 0) }]
+  }
+
+  for (const p of partners) {
+    if (p.rate <= 0) continue
+    const saleValue = data.final_value || Number(quote?.quoted_value ?? 0)
+    const amount = parseFloat(((saleValue * p.rate) / 100).toFixed(2))
+    const closedAt = new Date(closedAtDate + 'T00:00:00')
+    const dueDate = new Date(closedAt)
+    dueDate.setDate(dueDate.getDate() + 30)
+    await admin.from('commissions').upsert({
+      contact_id: p.contact_id,
+      quote_id: quoteId,
+      quote_value: saleValue,
+      rate: p.rate,
+      amount,
+      due_date: dueDate.toISOString().split('T')[0],
+      status: 'scheduled',
+    }, { onConflict: 'quote_id,contact_id' })
   }
 
   revalidatePath('/dashboard')
@@ -877,6 +888,56 @@ export async function searchContacts(query: string, type?: string, excludeType?:
   else if (type) q = q.eq('type', type)
   const { data } = await q.limit(10)
   return data ?? []
+}
+
+// Parceiros extras num orçamento, além do "Parceiro" principal (architect_id) —
+// usado quando a comissão precisa ser dividida entre mais de uma pessoa
+// (ex: projetista + arquiteta que entrou depois na mesma venda).
+export async function getQuotePartners(quoteId: string) {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quote_partners')
+    .select('id, contact_id, rate, contact:contacts(name, commission_rate)')
+    .eq('quote_id', quoteId)
+    .order('created_at')
+  return data ?? []
+}
+
+// Divide a comissão entre o parceiro principal (architect_id) e um novo parceiro —
+// grava os dois na quote_partners com a taxa que o admin definiu na tela.
+export async function splitQuoteCommission(quoteId: string, partners: { contactId: string; rate: number }[]) {
+  const admin = createAdminClient()
+  const rows = partners.map(p => ({ quote_id: quoteId, contact_id: p.contactId, rate: p.rate }))
+  const { error } = await admin.from('quote_partners').upsert(rows, { onConflict: 'quote_id,contact_id' })
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`, 'page')
+  return { ok: true }
+}
+
+export async function addQuotePartner(quoteId: string, contactId: string, rate: number) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('quote_partners').upsert(
+    { quote_id: quoteId, contact_id: contactId, rate },
+    { onConflict: 'quote_id,contact_id' }
+  )
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`, 'page')
+  return { ok: true }
+}
+
+export async function updateQuotePartnerRate(id: string, rate: number) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('quote_partners').update({ rate }).eq('id', id)
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+export async function removeQuotePartner(id: string, quoteId: string) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('quote_partners').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`, 'page')
+  return { ok: true }
 }
 
 export async function getAllContacts(type?: string) {
@@ -2065,7 +2126,7 @@ export async function getCommissions(year: number, month: number) {
 
   const { data, error } = await admin
     .from('commissions')
-    .select('*, contact:contacts(*), quote:quotes(number, quoted_value)')
+    .select('*, contact:contacts(*), quote:quotes(number, quoted_value, client:contacts!quotes_client_id_fkey(name))')
     .gte('due_date', start)
     .lte('due_date', end)
     .order('due_date')

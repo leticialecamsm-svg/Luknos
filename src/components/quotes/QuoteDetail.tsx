@@ -28,6 +28,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
 import { NegotiationTracker } from '@/components/negotiations/NegotiationTracker'
+import { QuotePartnersSplit } from './QuotePartnersSplit'
 import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS, PRIORITY_OPTS } from './OptionPills'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
@@ -194,6 +195,12 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                 )}
               </div>
             )}
+            <QuotePartnersSplit
+              quoteId={quote.id}
+              architectId={quote.architect_id}
+              architectName={quote.architect_name}
+              defaultRate={Number(quote.architect_commission_rate ?? 0)}
+            />
           </div>
 
           {/* Donos */}
