@@ -104,16 +104,16 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   return (
     <div className="relative shrink-0 flex">
       <aside
-        className={`flex flex-col transition-all duration-300 ${collapsed ? 'w-16' : 'w-56'}`}
+        className={`flex flex-col h-full min-h-0 transition-all duration-300 ${collapsed ? 'w-16' : 'w-56'}`}
         style={{ background: '#1A1A2E', borderTopRightRadius: '43px' }}
       >
         {/* Logo */}
-        <div className={`flex items-center ${collapsed ? 'justify-center px-2 pt-6 pb-5' : 'px-5 pt-6 pb-5'}`}>
+        <div className={`shrink-0 flex items-center ${collapsed ? 'justify-center px-2 pt-6 pb-5' : 'px-5 pt-6 pb-5'}`}>
           {!collapsed ? <LogoFull /> : <LogoIcon />}
         </div>
 
         {/* Nav */}
-        <nav className={`flex-1 space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
+        <nav className={`flex-1 min-h-0 overflow-y-auto space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
           {visibleNav.map(item => {
             const active = pathname === item.href || (pathname.startsWith(item.href + '/') && item.href !== '/dashboard')
             const isPartners = item.href === '/partners'
@@ -202,7 +202,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
 
         {/* Tutorial (marketing) — acima das notificações, após concluir o onboarding */}
         {(isAdmin || isMarketing) && tutorialDone && (
-          <div className={collapsed ? 'px-1 pb-1' : 'px-3 pb-1'}>
+          <div className={cn('shrink-0', collapsed ? 'px-1 pb-1' : 'px-3 pb-1')}>
             <Link href="/marketing?tour=1" title={collapsed ? 'Tutorial' : undefined}
               className={cn('flex items-center rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors',
                 collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2')}>
@@ -213,10 +213,10 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
         )}
 
         {/* Notificações */}
-        {!collapsed && <ScheduleNotifier mode="sidebar" />}
+        {!collapsed && <div className="shrink-0"><ScheduleNotifier mode="sidebar" /></div>}
 
         {/* Footer: usuário + logout */}
-        <div className={`border-t border-white/10 ${collapsed ? 'px-3 py-3 flex justify-center' : 'p-3'}`}>
+        <div className={`shrink-0 border-t border-white/10 ${collapsed ? 'px-3 py-3 flex justify-center' : 'p-3'}`}>
           {collapsed ? (
             <button onClick={handleLogout} className="text-white/30 hover:text-white transition-colors" title="Sair">
               <LogOut className="w-4 h-4" />
