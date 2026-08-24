@@ -821,6 +821,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [syncMsg, setSyncMsg] = useState('')
   const [addingChave, setAddingChave] = useState<string | null>(null)
   const [nfeDetail, setNfeDetail] = useState<NFeRecebida | null>(null)
+  const [cooldownMinutesLeft, setCooldownMinutesLeft] = useState(0)
 
   // Cota de 20 consultas/hora da SEFAZ (compartilhada por todas as buscas nesta tela)
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null)
@@ -841,6 +842,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       if (res.ok) {
         const data = await res.json()
         setNfesRecebidas(data.nfes ?? [])
+        setCooldownMinutesLeft(data.cooldownMinutesLeft ?? 0)
       }
     } finally {
       setLoadingNfes(false)
@@ -859,6 +861,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         await loadNfesRecebidas()
       } else {
         setSyncMsg(`Erro: ${data.error}`)
+        await loadNfesRecebidas()
       }
     } finally {
       setSyncingNfes(false)
@@ -972,9 +975,14 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               <RefreshCw className={cn('w-4 h-4', refreshingPassagem && 'animate-spin')} />
               {refreshingPassagem ? 'Atualizando...' : 'Atualizar passagens'}
             </button>
-            <button onClick={syncNfes} disabled={syncingNfes} className="btn-secondary flex items-center gap-2">
+            <button
+              onClick={syncNfes}
+              disabled={syncingNfes || cooldownMinutesLeft > 0}
+              className="btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={cooldownMinutesLeft > 0 ? `A última consulta não trouxe nada novo — a SEFAZ exige esperar 1h nessa situação, senão bloqueia o CNPJ. Faltam ${cooldownMinutesLeft} min.` : undefined}
+            >
               <RefreshCw className={cn('w-4 h-4', syncingNfes && 'animate-spin')} />
-              {syncingNfes ? 'Buscando...' : 'Buscar novas NFs'}
+              {syncingNfes ? 'Buscando...' : cooldownMinutesLeft > 0 ? `Aguarde ${cooldownMinutesLeft} min` : 'Buscar novas NFs'}
             </button>
           </div>
         )}

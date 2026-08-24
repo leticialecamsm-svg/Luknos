@@ -163,16 +163,33 @@ function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
   return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null }
 }
 
+// A SEFAZ exige esperar 1h depois de uma resposta "sem documentos novos" (cStat 137)
+// antes de consultar de novo — consultar antes disso gera rejeição 656 (Consumo
+// Indevido) e bloqueia o CNPJ por 1h, mesmo com pouquíssimas tentativas. Guardamos
+// quando foi a última consulta e o que ela retornou pra bloquear o próprio botão
+// antes de bater nesse limite.
+const COOLDOWN_MS = 60 * 60 * 1000
+
 export async function POST() {
   try {
     const supabase = createAdminClient()
 
-    // Lê último NSU sincronizado
+    // Lê último NSU sincronizado + estado do cooldown
     const { data: syncState } = await supabase
       .from('nfe_sync_state')
-      .select('ultimo_nsu')
+      .select('ultimo_nsu, last_query_at, last_cstat')
       .eq('id', 'default')
       .single()
+
+    if (syncState?.last_cstat === '137' && syncState.last_query_at) {
+      const elapsed = Date.now() - new Date(syncState.last_query_at).getTime()
+      if (elapsed < COOLDOWN_MS) {
+        const minutesLeft = Math.ceil((COOLDOWN_MS - elapsed) / 60000)
+        return NextResponse.json({
+          error: `A última consulta não trouxe notas novas — a SEFAZ exige esperar 1h entre consultas nessa situação, senão bloqueia o CNPJ. Faltam ${minutesLeft} min.`,
+        }, { status: 429 })
+      }
+    }
 
     let ultNSU = syncState?.ultimo_nsu ?? '0'
     let newCount = 0
@@ -190,6 +207,10 @@ export async function POST() {
       const maxNSU = get(xml, 'maxNSU')
       const ultNSUResp = get(xml, 'ultNSU')
       lastStat = `${cStat}: ${xMotivo}`
+
+      // Registra a consulta (pra respeitar o cooldown de 1h da SEFAZ) antes de
+      // decidir o que fazer com o resultado — mesmo um "sem novidade" conta.
+      await supabase.from('nfe_sync_state').update({ last_query_at: new Date().toISOString(), last_cstat: cStat }).eq('id', 'default')
 
       // 137 = nenhum documento novo além do que já temos (situação normal, não é erro).
       // Qualquer outro código fora 137/138 é problema de verdade (cota estourada,
@@ -305,7 +326,19 @@ export async function GET() {
       status: chavesLancadas.has(n.chave_nfe) ? 'added' : n.status,
     }))
 
-    return NextResponse.json({ nfes })
+    // Cooldown de "Buscar novas NFs" (ver comentário no POST)
+    const { data: syncState } = await supabase
+      .from('nfe_sync_state')
+      .select('last_query_at, last_cstat')
+      .eq('id', 'default')
+      .single()
+    let cooldownMinutesLeft = 0
+    if (syncState?.last_cstat === '137' && syncState.last_query_at) {
+      const elapsed = Date.now() - new Date(syncState.last_query_at).getTime()
+      if (elapsed < COOLDOWN_MS) cooldownMinutesLeft = Math.ceil((COOLDOWN_MS - elapsed) / 60000)
+    }
+
+    return NextResponse.json({ nfes, cooldownMinutesLeft })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }
