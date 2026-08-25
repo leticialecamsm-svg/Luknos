@@ -3,6 +3,7 @@ import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
 import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { getAgent } from '@/lib/nfe'
 
 const gunzip = promisify(zlib.gunzip)
 
@@ -22,17 +23,6 @@ function buildDistSoap(chave: string, cnpj: string) {
 function buildSvrsConsultaSoap(chave: string) {
   const inner = `<consSitNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><xServ>CONSULTAR</xServ><chNFe>${chave}</chNFe></consSitNFe>`
   return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Header/><soap:Body><nfeDadosMsg xmlns="${SVRS_NS}">${inner}</nfeDadosMsg></soap:Body></soap:Envelope>`
-}
-
-function getAgent() {
-  const pfxB64 = process.env.CERT_PFX_B64
-  const passphrase = process.env.CERT_PFX_PASSWORD
-  if (!pfxB64 || !passphrase) throw new Error('Certificado digital não configurado (CERT_PFX_B64 / CERT_PFX_PASSWORD)')
-  return new https.Agent({
-    pfx: Buffer.from(pfxB64, 'base64'),
-    passphrase,
-    rejectUnauthorized: false,
-  })
 }
 
 async function soapRequest(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {

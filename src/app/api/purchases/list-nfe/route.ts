@@ -4,19 +4,13 @@ import zlib from 'zlib'
 import { promisify } from 'util'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { getAgent } from '@/lib/nfe'
 
 const gunzip = promisify(zlib.gunzip)
 
 const DIST_URL = 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
 const DIST_NS  = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe'
 const CNPJ     = process.env.EMPRESA_CNPJ ?? '45118870000106'
-
-function getAgent() {
-  const pfxB64 = process.env.CERT_PFX_B64
-  const passphrase = process.env.CERT_PFX_PASSWORD
-  if (!pfxB64 || !passphrase) throw new Error('Certificado digital não configurado')
-  return new https.Agent({ pfx: Buffer.from(pfxB64, 'base64'), passphrase, rejectUnauthorized: false })
-}
 
 function buildDistNsuSoap(ultNSU: string) {
   const inner = `<distDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><cUFAutor>27</cUFAutor><CNPJ>${CNPJ}</CNPJ><distNSU><ultNSU>${ultNSU.padStart(15, '0')}</ultNSU></distNSU></distDFeInt>`

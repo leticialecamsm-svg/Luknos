@@ -30,11 +30,37 @@ export interface NFeParsed {
   items: NFeItemParsed[]
 }
 
+// Um .pfx é um DER: começa com 0x30 e o próprio cabeçalho declara o tamanho total.
+// Comparar o tamanho declarado com o tamanho real detecta um base64 truncado (o caso
+// clássico de colar a variável pela metade no painel), que o Node só denuncia lá na
+// hora do handshake com um enigmático "not enough data".
+function validatePfx(buf: Buffer) {
+  if (buf.length === 0) throw new Error('CERT_PFX_B64 está vazia.')
+  if (buf[0] !== 0x30) {
+    throw new Error('CERT_PFX_B64 não parece um certificado .pfx válido (cabeçalho inesperado). Verifique se colou o conteúdo completo do arquivo base64.')
+  }
+  const lenByte = buf[1]
+  if (lenByte & 0x80) {
+    const n = lenByte & 0x7f
+    if (buf.length >= 2 + n) {
+      const declared = buf.readUIntBE(2, n) + 2 + n
+      if (buf.length < declared) {
+        throw new Error(
+          `Certificado digital truncado: CERT_PFX_B64 tem ${buf.length} bytes mas o arquivo completo tem ${declared}. ` +
+          'O valor foi colado pela metade no painel da Vercel — recole o conteúdo inteiro do arquivo base64.'
+        )
+      }
+    }
+  }
+}
+
 export function getAgent() {
   const pfxB64 = process.env.CERT_PFX_B64
   const passphrase = process.env.CERT_PFX_PASSWORD
   if (!pfxB64 || !passphrase) throw new Error('Certificado digital não configurado (CERT_PFX_B64 / CERT_PFX_PASSWORD)')
-  return new https.Agent({ pfx: Buffer.from(pfxB64, 'base64'), passphrase, rejectUnauthorized: false })
+  const pfx = Buffer.from(pfxB64.replace(/\s/g, ''), 'base64')
+  validatePfx(pfx)
+  return new https.Agent({ pfx, passphrase, rejectUnauthorized: false })
 }
 
 export function buildDistChaveSoap(chave: string) {
