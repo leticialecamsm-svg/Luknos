@@ -69,9 +69,11 @@ export function buildDistChaveSoap(chave: string) {
 }
 
 export async function soapPost(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+  // Monta o agent ANTES de registrar na cota: se o certificado estiver inválido,
+  // nem chegamos a falar com a SEFAZ, então isso não deve contar como consulta.
+  const agent = getAgent()
   await logSefazDistCall() // toda chamada aqui consome da cota de 20/hora da SEFAZ
   return new Promise((resolve, reject) => {
-    const agent = getAgent()
     const url = new URL(urlStr)
     const req = https.request({
       hostname: url.hostname, path: url.pathname, method: 'POST', agent,

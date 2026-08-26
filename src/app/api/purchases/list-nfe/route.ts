@@ -18,9 +18,10 @@ function buildDistNsuSoap(ultNSU: string) {
 }
 
 async function soapPost(body: string): Promise<string> {
+  // Ver comentário em lib/nfe.ts: certificado inválido não deve consumir cota.
+  const agent = getAgent()
   await logSefazDistCall()
   return new Promise((resolve, reject) => {
-    const agent = getAgent()
     const url = new URL(DIST_URL)
     const req = https.request({
       hostname: url.hostname, path: url.pathname, method: 'POST', agent,
