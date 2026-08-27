@@ -3144,3 +3144,149 @@ export async function updateUserPixKey(userId: string, pixKey: string) {
   revalidatePath('/admin/users')
   return { ok: true }
 }
+
+// ── Metropolitano: lançamento de pontuação dos especificadores ────────────────
+// Uma venda pode ter mais de um especificador: o parceiro principal do orçamento
+// (architect_id) e/ou os parceiros da divisão de comissão (quote_partners). Cada
+// especificador recebe pontos próprios no Metropolitano, então a unidade de
+// controle é o par (venda, especificador) — não a venda sozinha.
+const METROPOLITANO_TYPES = ['architect', 'engineer']
+
+export interface MetropolitanoRow {
+  quote_id: string
+  contact_id: string
+  numero: number
+  cliente: string
+  especificador: string
+  especificador_tipo: string
+  valor: number
+  data_venda: string | null
+  lancado: boolean
+  lancado_em: string | null
+  lancado_por: string | null
+  venda_cancelada: boolean
+}
+
+export async function getMetropolitanoLancamentos(): Promise<MetropolitanoRow[]> {
+  const admin = createAdminClient()
+
+  // Busca as vendas fechadas e também as já lançadas que possam ter saído de
+  // "fechada" depois (venda cancelada/revertida) — essas não podem sumir sem aviso.
+  const COLS = 'id, number, client_name, architect_id, temperature, closed_at, final_value, quoted_value'
+  const [{ data: closedQuotes }, { data: partners }, { data: launches }] = await Promise.all([
+    // Filtra no banco: buscar a tabela inteira sem filtro seria cortado em 1000
+    // linhas pelo PostgREST sem avisar, escondendo vendas conforme a base cresce.
+    admin.from('quotes_full').select(COLS).eq('temperature', 'closed'),
+    admin.from('quote_partners').select('quote_id, contact_id'),
+    admin.from('metropolitano_launches').select('quote_id, contact_id, launched_at, launched_by'),
+  ])
+
+  // Traz também os orçamentos já lançados que possam ter saído de "fechada"
+  // (não vieram na busca acima, mas não podem sumir da tela).
+  const idsLancados = Array.from(new Set((launches ?? []).map((l: any) => l.quote_id)))
+  const idsFechados = new Set((closedQuotes ?? []).map((q: any) => q.id))
+  const idsFaltando = idsLancados.filter(id => !idsFechados.has(id))
+  const { data: extras } = idsFaltando.length
+    ? await admin.from('quotes_full').select(COLS).in('id', idsFaltando)
+    : { data: [] as any[] }
+  const quotes = [...(closedQuotes ?? []), ...(extras ?? [])]
+
+  const launchMap = new Map(
+    (launches ?? []).map((l: any) => [`${l.quote_id}:${l.contact_id}`, l])
+  )
+
+  // Monta os pares (venda, especificador) sem duplicar quando o parceiro principal
+  // também aparece na divisão de comissão.
+  const pares = new Set<string>()
+  const quoteById = new Map((quotes ?? []).map((q: any) => [q.id, q]))
+  for (const q of quotes ?? []) {
+    if (q.temperature === 'closed' && q.architect_id) pares.add(`${q.id}:${q.architect_id}`)
+  }
+  for (const p of partners ?? []) {
+    const q = quoteById.get(p.quote_id)
+    if (q?.temperature === 'closed') pares.add(`${p.quote_id}:${p.contact_id}`)
+  }
+  // Já lançados continuam na lista mesmo se a venda deixou de ser "fechada",
+  // pra ninguém perder de vista uma pontuação lançada de venda que caiu.
+  for (const key of Array.from(launchMap.keys())) pares.add(key)
+
+  const contactIds = Array.from(new Set(Array.from(pares).map(k => k.split(':')[1])))
+  const userIds = Array.from(new Set((launches ?? []).map((l: any) => l.launched_by).filter(Boolean)))
+  const [{ data: contacts }, { data: users }] = await Promise.all([
+    contactIds.length ? admin.from('contacts').select('id, name, type').in('id', contactIds) : Promise.resolve({ data: [] as any[] }),
+    userIds.length ? admin.from('users').select('id, name').in('id', userIds) : Promise.resolve({ data: [] as any[] }),
+  ])
+  const contactById = new Map((contacts ?? []).map((c: any) => [c.id, c]))
+  const userById = new Map((users ?? []).map((u: any) => [u.id, u.name]))
+
+  const rows: MetropolitanoRow[] = []
+  for (const key of Array.from(pares)) {
+    const [quoteId, contactId] = key.split(':')
+    const q = quoteById.get(quoteId)
+    const c = contactById.get(contactId)
+    if (!q || !c) continue
+    if (!METROPOLITANO_TYPES.includes(c.type)) continue // só arquitetos e engenheiros
+
+    const l = launchMap.get(key)
+    rows.push({
+      quote_id: quoteId,
+      contact_id: contactId,
+      numero: q.number,
+      cliente: q.client_name ?? '—',
+      especificador: c.name,
+      especificador_tipo: c.type,
+      valor: Number(q.final_value ?? q.quoted_value ?? 0),
+      data_venda: q.closed_at ?? null,
+      lancado: !!l,
+      lancado_em: l?.launched_at ?? null,
+      lancado_por: l?.launched_by ? (userById.get(l.launched_by) ?? null) : null,
+      venda_cancelada: q.temperature !== 'closed',
+    })
+  }
+
+  // Mais recentes primeiro; vendas sem data de fechamento vão para o fim.
+  rows.sort((a, b) => (b.data_venda ?? '').localeCompare(a.data_venda ?? ''))
+  return rows
+}
+
+async function requireMetropolitanoAccess() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' as const }
+  const admin = createAdminClient()
+  const { data: profile } = await admin
+    .from('users').select('id, role, extra_pages').eq('id', user.id).maybeSingle()
+  if (!profile) return { error: 'Usuário não encontrado' as const }
+
+  let liberado = profile.role === 'admin'
+  if (!liberado) {
+    // Mesma regra do requirePageAccess: papel OU liberação individual.
+    const { data: role } = await admin.from('roles').select('allowed_pages').eq('name', profile.role).maybeSingle()
+    const paginas = [...(role?.allowed_pages ?? []), ...(profile.extra_pages ?? [])]
+    liberado = paginas.some((p: string) => p === '/metropolitano' || '/metropolitano'.startsWith(p + '/'))
+  }
+  if (!liberado) return { error: 'Sem permissão para lançar pontuação' as const }
+  return { userId: profile.id }
+}
+
+export async function setMetropolitanoLancado(quoteId: string, contactId: string, lancado: boolean) {
+  const auth = await requireMetropolitanoAccess()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+
+  if (lancado) {
+    // onConflict evita erro se dois usuários marcarem a mesma linha ao mesmo tempo.
+    const { error } = await admin.from('metropolitano_launches').upsert(
+      { quote_id: quoteId, contact_id: contactId, launched_by: auth.userId, launched_at: new Date().toISOString() },
+      { onConflict: 'quote_id,contact_id' }
+    )
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await admin.from('metropolitano_launches')
+      .delete().eq('quote_id', quoteId).eq('contact_id', contactId)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/metropolitano')
+  return { ok: true }
+}

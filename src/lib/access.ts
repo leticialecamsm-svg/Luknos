@@ -20,7 +20,12 @@ export async function requirePageAccess(pagePath: string) {
 
   if (profile.role === 'admin') return { profile, allowedPages: null as string[] | null, roleLabel }
 
-  const allowedPages: string[] = role?.allowed_pages ?? []
+  // allowed_pages vem do papel; extra_pages libera páginas para um usuário
+  // específico sem precisar dar acesso ao papel inteiro.
+  const allowedPages: string[] = [
+    ...(role?.allowed_pages ?? []),
+    ...((profile.extra_pages as string[] | null) ?? []),
+  ]
 
   const hasAccess = allowedPages.some(p => pagePath === p || pagePath.startsWith(p + '/'))
   if (!hasAccess) redirect(allowedPages[0] ?? '/dashboard')
