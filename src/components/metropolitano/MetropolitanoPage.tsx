@@ -78,6 +78,22 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
     )
   }, [rows, tab, busca])
 
+  // Uma mensagem por pessoa, não por venda: a mensagem fala em "suas últimas
+  // pontuações" no plural, então quem tem várias vendas recebe um aviso só.
+  // O botão sai na primeira linha visível da pessoa; as outras linhas dela
+  // apontam para cima em vez de repetir o botão.
+  const { totalPorPessoa, linhaDoBotao } = useMemo(() => {
+    const total = new Map<string, number>()
+    for (const r of rows) {
+      if (r.lancado) total.set(r.contact_id, (total.get(r.contact_id) ?? 0) + 1)
+    }
+    const primeira = new Map<string, string>()
+    for (const r of filtradas) {
+      if (r.lancado && !primeira.has(r.contact_id)) primeira.set(r.contact_id, keyOf(r))
+    }
+    return { totalPorPessoa: total, linhaDoBotao: primeira }
+  }, [rows, filtradas])
+
   const pendentes = rows.filter(r => !r.lancado)
   const realizados = rows.filter(r => r.lancado)
   const valorPendente = pendentes.reduce((s, r) => s + r.valor, 0)
@@ -275,15 +291,23 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
                           >
                             <IconeWhatsapp className="w-4 h-4" /> aguardando
                           </span>
+                        ) : linhaDoBotao.get(r.contact_id) !== key ? (
+                          <span
+                            className="text-[11px] text-gray-300"
+                            title={`${r.especificador} recebe um aviso só, no botão da primeira venda dela nesta lista`}
+                          >
+                            incluída no aviso ↑
+                          </span>
                         ) : (
                           <a
                             href={linkWhatsapp(r.especificador_telefone, r.especificador.split(' ')[0])}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={`Abrir conversa com ${r.especificador} no WhatsApp`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg px-2.5 py-1.5 transition-colors"
+                            title={`Abrir conversa com ${r.especificador} no WhatsApp — uma mensagem cobrindo ${totalPorPessoa.get(r.contact_id) ?? 1} venda(s)`}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg px-2.5 py-1.5 transition-colors whitespace-nowrap"
                           >
-                            <IconeWhatsapp className="w-3.5 h-3.5" /> Avisar
+                            <IconeWhatsapp className="w-3.5 h-3.5" />
+                            Avisar{(totalPorPessoa.get(r.contact_id) ?? 1) > 1 ? ` (${totalPorPessoa.get(r.contact_id)} vendas)` : ''}
                           </a>
                         )}
                       </td>
