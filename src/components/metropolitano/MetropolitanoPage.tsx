@@ -6,7 +6,7 @@ import { formatCurrency, cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { Award, Search, Loader2, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-react'
 
-const TIPO_LABEL: Record<string, string> = { architect: 'Arquiteto', engineer: 'Engenheiro' }
+const TIPO_LABEL: Record<string, string> = { architect: 'Arquiteto', engineer: 'Engenheiro', designer: 'Designer' }
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
@@ -76,7 +76,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Metropolitano: Lançamentos de Pontuação</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Vendas com especificador (arquiteto ou engenheiro) para lançar pontuação no sistema do Metropolitano
+            Vendas com especificador (arquiteto, engenheiro ou designer) para lançar pontuação no sistema do Metropolitano
           </p>
         </div>
         <div className="relative">

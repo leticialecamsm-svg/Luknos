@@ -3164,7 +3164,7 @@ export async function updateUserPixKey(userId: string, pixKey: string) {
 // (architect_id) e/ou os parceiros da divisão de comissão (quote_partners). Cada
 // especificador recebe pontos próprios no Metropolitano, então a unidade de
 // controle é o par (venda, especificador) — não a venda sozinha.
-const METROPOLITANO_TYPES = ['architect', 'engineer']
+const METROPOLITANO_TYPES = ['architect', 'engineer', 'designer']
 
 export interface MetropolitanoRow {
   quote_id: string
@@ -3239,7 +3239,7 @@ export async function getMetropolitanoLancamentos(): Promise<MetropolitanoRow[]>
     const q = quoteById.get(quoteId)
     const c = contactById.get(contactId)
     if (!q || !c) continue
-    if (!METROPOLITANO_TYPES.includes(c.type)) continue // só arquitetos e engenheiros
+    if (!METROPOLITANO_TYPES.includes(c.type)) continue // arquitetos, engenheiros e designers
 
     const l = launchMap.get(key)
     rows.push({
