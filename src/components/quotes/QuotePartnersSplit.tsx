@@ -119,7 +119,13 @@ export function QuotePartnersSplit({
           {saving ? (
             <div className="flex items-center gap-2 text-xs text-gray-400"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Salvando...</div>
           ) : (
-            <ContactSearch label="Segundo parceiro" placeholder="Buscar arquiteto, engenheiro..." onSelect={startSplit} />
+            <ContactSearch
+              label="Segundo parceiro"
+              placeholder="Buscar arquiteto, engenheiro..."
+              type="architect"
+              excludeType="client"
+              onSelect={startSplit}
+            />
           )}
         </div>
       )}

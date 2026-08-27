@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef } from 'react'
 import {
   createRole, updateRolePages, deleteRole, updateRoleCollaborator,
-  createUserAccount, updateUserRole, updateUserProjetista, updateUserActive,
+  createUserAccount, updateUserRole, updateUserProjetista, updateUserActive, updateUserExtraPages,
 } from '@/lib/actions'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
 import { useToast } from '@/components/ui/Toast'
@@ -24,6 +24,7 @@ interface UserRow {
   email: string
   role: string
   is_projetista: boolean
+  extra_pages?: string[] | null
   active: boolean
   avatar_color: string
   avatar_url?: string | null
@@ -33,6 +34,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
   const toast = useToast()
   const [roles, setRoles] = useState<Role[]>(initialRoles)
   const [users, setUsers] = useState<UserRow[]>(initialUsers)
+  const [editandoPaginas, setEditandoPaginas] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const [showNewRole, setShowNewRole] = useState(false)
   const [showNewUser, setShowNewUser] = useState(false)
@@ -209,6 +211,68 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
                 />
                 Projetista
               </label>
+              <div className="relative">
+                <button
+                  onClick={() => setEditandoPaginas(editandoPaginas === u.id ? null : u.id)}
+                  disabled={u.role === 'admin'}
+                  title={u.role === 'admin' ? 'Admin já acessa todas as páginas' : 'Liberar páginas extras só para este usuário'}
+                  className={cn('text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap border transition-colors',
+                    u.role === 'admin'
+                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                      : (u.extra_pages?.length ?? 0) > 0
+                        ? 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50')}
+                >
+                  + Páginas{(u.extra_pages?.length ?? 0) > 0 ? ` (${u.extra_pages!.length})` : ''}
+                </button>
+                {editandoPaginas === u.id && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setEditandoPaginas(null)} />
+                    <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-20">
+                      <p className="text-xs font-semibold text-gray-700">Páginas extras para {u.name}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5 mb-2">
+                        Liberadas só para esta pessoa, além do que o papel dela já dá.
+                      </p>
+                      <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                        {PAGE_CATALOG.map(pg => {
+                          const doPapel = roles.find(r => r.name === u.role)?.allowed_pages.includes(pg.href) ?? false
+                          const marcada = (u.extra_pages ?? []).includes(pg.href)
+                          return (
+                            <label key={pg.href}
+                              className={cn('flex items-center gap-2 text-xs rounded-md px-2 py-1.5',
+                                doPapel ? 'text-gray-300' : 'text-gray-700 hover:bg-gray-50 cursor-pointer')}
+                              title={doPapel ? 'Já liberada pelo papel deste usuário' : undefined}
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={doPapel}
+                                checked={doPapel || marcada}
+                                onChange={e => {
+                                  const atuais = u.extra_pages ?? []
+                                  const next = e.target.checked
+                                    ? [...atuais, pg.href]
+                                    : atuais.filter(x => x !== pg.href)
+                                  setUsers(prev => prev.map(x => x.id === u.id ? { ...x, extra_pages: next } : x))
+                                  startTransition(async () => {
+                                    const res = await updateUserExtraPages(u.id, next)
+                                    if (res?.error) {
+                                      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, extra_pages: atuais } : x))
+                                      toast.error('Erro', res.error)
+                                    }
+                                  })
+                                }}
+                                className="w-3.5 h-3.5 rounded"
+                              />
+                              <span className="flex-1">{pg.label}</span>
+                              {doPapel && <span className="text-[10px] text-gray-300">pelo papel</span>}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
               <button
                 onClick={() => {
                   const next = !u.active

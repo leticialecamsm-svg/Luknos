@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
+import { PAGE_CATALOG } from '@/lib/pages-catalog'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
 async function enrichOwnersAvatars(quotes: any[]) {
@@ -3115,6 +3116,19 @@ export async function createUserAccount(data: {
 export async function updateUserRole(userId: string, role: string) {
   if (!(await requireAdmin())) return { error: 'Sem permissão' }
   const { error } = await createAdminClient().from('users').update({ role }).eq('id', userId)
+  if (error) return { error: error.message }
+  revalidatePath('/admin/users')
+  return { ok: true }
+}
+
+// Libera páginas para um usuário específico, além do que o papel dele já dá.
+// Serve pra casos como "só a Jennifer vê o Metropolitano" sem abrir a página
+// para todos os vendedores.
+export async function updateUserExtraPages(userId: string, extraPages: string[]) {
+  if (!(await requireAdmin())) return { error: 'Sem permissão' }
+  const validas = PAGE_CATALOG.map(p => p.href)
+  const limpo = Array.from(new Set(extraPages.filter(p => validas.includes(p))))
+  const { error } = await createAdminClient().from('users').update({ extra_pages: limpo }).eq('id', userId)
   if (error) return { error: error.message }
   revalidatePath('/admin/users')
   return { ok: true }
