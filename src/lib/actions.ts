@@ -3166,6 +3166,19 @@ export async function updateUserPixKey(userId: string, pixKey: string) {
 // controle é o par (venda, especificador) — não a venda sozinha.
 const METROPOLITANO_TYPES = ['architect', 'engineer', 'designer']
 
+// Deixa o telefone no formato que o link do WhatsApp espera (só dígitos, com DDI).
+// Os cadastros têm as duas formas: "82 99999-9999" e "+55 82 99999-9999".
+// Devolve null quando não dá pra montar um número confiável, pra tela não
+// oferecer um botão que abriria uma conversa errada.
+function normalizarWhatsapp(telefone: string | null | undefined): string | null {
+  if (!telefone) return null
+  const d = telefone.replace(/\D/g, '')
+  if (d.length === 12 || d.length === 13) return d.startsWith('55') ? d : null
+  if (d.length === 10 || d.length === 11) return '55' + d
+  return null
+}
+
+
 export interface MetropolitanoRow {
   quote_id: string
   contact_id: string
@@ -3173,6 +3186,7 @@ export interface MetropolitanoRow {
   cliente: string
   especificador: string
   especificador_tipo: string
+  especificador_telefone: string | null
   valor: number
   data_venda: string | null
   lancado: boolean
@@ -3227,7 +3241,7 @@ export async function getMetropolitanoLancamentos(): Promise<MetropolitanoRow[]>
   const contactIds = Array.from(new Set(Array.from(pares).map(k => k.split(':')[1])))
   const userIds = Array.from(new Set((launches ?? []).map((l: any) => l.launched_by).filter(Boolean)))
   const [{ data: contacts }, { data: users }] = await Promise.all([
-    contactIds.length ? admin.from('contacts').select('id, name, type').in('id', contactIds) : Promise.resolve({ data: [] as any[] }),
+    contactIds.length ? admin.from('contacts').select('id, name, type, phone').in('id', contactIds) : Promise.resolve({ data: [] as any[] }),
     userIds.length ? admin.from('users').select('id, name').in('id', userIds) : Promise.resolve({ data: [] as any[] }),
   ])
   const contactById = new Map((contacts ?? []).map((c: any) => [c.id, c]))
@@ -3249,6 +3263,7 @@ export async function getMetropolitanoLancamentos(): Promise<MetropolitanoRow[]>
       cliente: q.client_name ?? '—',
       especificador: c.name,
       especificador_tipo: c.type,
+      especificador_telefone: normalizarWhatsapp(c.phone),
       valor: Number(q.final_value ?? q.quoted_value ?? 0),
       data_venda: q.closed_at ?? null,
       lancado: !!l,
