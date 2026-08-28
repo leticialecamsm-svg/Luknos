@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { closeSale, getPaymentRates } from '@/lib/actions'
-import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct, todayISO } from '@/lib/payment-rates'
+import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct, todayISO, round2 } from '@/lib/payment-rates'
 import { Plus, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PaymentMethodPicker } from './PaymentMethodPicker'
@@ -31,15 +31,15 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
 
   // Keep first split amount in sync with finalValue when only 1 split
   useEffect(() => {
-    const val = parseFloat(finalValue) || 0
+    const val = round2(parseFloat(finalValue) || 0)
     if (splits.length === 1) {
       setSplits([{ ...splits[0], amount: val }])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalValue])
 
-  const totalSplits = splits.reduce((s, p) => s + (p.amount || 0), 0)
-  const fv = parseFloat(finalValue) || 0
+  const totalSplits = round2(splits.reduce((s, p) => s + (p.amount || 0), 0))
+  const fv = round2(parseFloat(finalValue) || 0)
   const splitsValid = splits.length === 1 || Math.abs(totalSplits - fv) < 0.01
   const maxDisc = calcWeightedMaxDiscount(splits.filter(s => s.amount > 0), rates)
   const minPrice = baseValue && fv > 0 ? baseValue * (1 - maxDisc / 100) : null
@@ -47,7 +47,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
   const overDiscount = actualDiscount !== null && actualDiscount > maxDisc + 0.001
 
   const addSplit = () => {
-    const remaining = Math.max(0, fv - totalSplits)
+    const remaining = round2(Math.max(0, fv - totalSplits))
     setSplits(prev => [...prev, { method_key: 'pix', amount: remaining, status: 'paid', date: todayISO() }])
   }
 
@@ -182,7 +182,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
               <input
                 type="number" step="0.01" min="0"
                 value={split.amount || ''}
-                onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
+                onChange={e => updateSplit(i, 'amount', round2(parseFloat(e.target.value) || 0))}
                 className="input w-32 shrink-0"
                 placeholder="R$ 0,00"
               />

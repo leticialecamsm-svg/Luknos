@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
-import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
+import { DEFAULT_PAYMENT_RATES, round2 } from '@/lib/payment-rates'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
@@ -737,17 +737,18 @@ export async function updateSalePayment(quoteId: string, data: {
 }) {
   const supabase = createClient()
   // Integridade: a soma das formas de pagamento tem que bater com o valor final
-  if (!(data.final_value > 0)) return { error: 'Valor final inválido' }
-  const splits = data.payment_splits ?? []
+  const finalValueRounded = round2(data.final_value)
+  if (!(finalValueRounded > 0)) return { error: 'Valor final inválido' }
+  const splits = (data.payment_splits ?? []).map(s => ({ ...s, amount: round2(Number(s.amount) || 0) }))
   if (splits.length > 0) {
-    const soma = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    if (Math.abs(soma - data.final_value) > 0.01) {
+    const soma = round2(splits.reduce((s, p) => s + p.amount, 0))
+    if (Math.abs(soma - finalValueRounded) > 0.01) {
       return { error: 'A soma das formas de pagamento não confere com o valor final.' }
     }
   }
   const primaryMethod = methodKeyToEnum(data.payment_splits[0]?.method_key ?? 'pix')
   const updatePayload: Record<string, unknown> = {
-    final_value: data.final_value,
+    final_value: finalValueRounded,
     payment_method: primaryMethod,
     payment_splits: data.payment_splits,
   }
@@ -778,11 +779,15 @@ export async function closeSale(quoteId: string, data: {
 
   // Integridade financeira: se houver formas de pagamento, a soma tem que bater com o valor final.
   // Protege comissão/faturamento de dados divergentes, independentemente da tela.
-  const splits = data.payment_splits ?? []
-  if (!(data.final_value > 0)) return { error: 'Valor final inválido' }
+  // Trava de segurança: arredonda pra centavo aqui também, mesmo que a tela já
+  // mande arredondado — erro de ponto flutuante em JS (ex: 0.1 + 0.2 =
+  // 0.30000000000000004) não deve conseguir chegar até o banco de jeito nenhum.
+  const finalValueRounded = round2(data.final_value)
+  const splits = (data.payment_splits ?? []).map(s => ({ ...s, amount: round2(Number(s.amount) || 0) }))
+  if (!(finalValueRounded > 0)) return { error: 'Valor final inválido' }
   if (splits.length > 0) {
-    const soma = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    if (Math.abs(soma - data.final_value) > 0.01) {
+    const soma = round2(splits.reduce((s, p) => s + p.amount, 0))
+    if (Math.abs(soma - finalValueRounded) > 0.01) {
       return { error: 'A soma das formas de pagamento não confere com o valor final.' }
     }
   }
@@ -792,14 +797,14 @@ export async function closeSale(quoteId: string, data: {
     .from('negotiations')
     .upsert({
       quote_id: quoteId, temperature: 'closed',
-      final_value: data.final_value,
+      final_value: finalValueRounded,
       payment_method: methodKeyToEnum(data.payment_method),
       payment_splits: splits,
       closed_at: closedAtDate, notes: data.notes || null,
     }, { onConflict: 'quote_id' })
   if (negError) return { error: negError.message }
   const quoteUpdate: Record<string, any> = { status: 'done' }
-  if (data.update_quoted_value) quoteUpdate.quoted_value = data.final_value
+  if (data.update_quoted_value) quoteUpdate.quoted_value = finalValueRounded
   const { error: updateError } = await supabase.from('quotes').update(quoteUpdate).eq('id', quoteId)
   if (updateError) return { error: updateError.message }
 
@@ -834,7 +839,7 @@ export async function closeSale(quoteId: string, data: {
 
   for (const p of partners) {
     if (p.rate <= 0) continue
-    const saleValue = data.final_value || Number(quote?.quoted_value ?? 0)
+    const saleValue = finalValueRounded || Number(quote?.quoted_value ?? 0)
     const amount = parseFloat(((saleValue * p.rate) / 100).toFixed(2))
     const closedAt = new Date(closedAtDate + 'T00:00:00')
     const dueDate = new Date(closedAt)

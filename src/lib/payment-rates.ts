@@ -15,6 +15,14 @@ export interface PaymentSplit {
   date?: string // YYYY-MM-DD
 }
 
+// Arredonda pra centavo, cortando o erro de ponto flutuante do JS (ex: 0.1 + 0.2
+// = 0.30000000000000004). Usado em todo lugar que soma/subtrai valores em R$
+// antes de mostrar ou salvar — sem isso, "faltam" ou "sobram" frações de centavo
+// que o banco grava exatamente como vieram, distorcendo o valor final da venda.
+export function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
 export function todayISO(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
