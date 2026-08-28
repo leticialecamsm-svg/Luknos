@@ -17,9 +17,15 @@ function IconeWhatsapp({ className }: { className?: string }) {
   )
 }
 
+// Emoji montado por code point (em vez de embutir o caractere direto na string)
+// - evita depender da codificacao do arquivo fonte, que foi o motivo de ter
+// virado um "tofu" ilegivel quando a mensagem chegava no WhatsApp.
+const SPARKLES = String.fromCodePoint(0x2728)
+
 function linkWhatsapp(telefone: string, nome: string) {
-  const msg = `Oii, ${nome}!\nPassando pra te avisar que acabei de lançar suas últimas pontuações no sistema do Metropolitano!! \u2728`
-  return `https://wa.me/${telefone}?text=${encodeURIComponent(msg)}`
+  const msg = `Oii, ${nome}!\nPassando pra te avisar que acabei de lançar suas últimas pontuações no sistema do Metropolitano!! ${SPARKLES}`
+  const params = new URLSearchParams({ text: msg })
+  return `https://wa.me/${telefone}?${params.toString()}`
 }
 
 function fmtDate(d: string | null) {
