@@ -1,0 +1,35 @@
+# Supabase CLI config — usado apenas por comandos `supabase ...` locais
+# (deploy de Edge Functions, `functions serve`). As migrações do banco
+# continuam sendo aplicadas como já era feito no projeto.
+project_id = "luknos"
+
+# ---------------------------------------------------------------------------
+# Edge Functions — Módulo Robô de Orçamentos WhatsApp
+# ---------------------------------------------------------------------------
+# verify_jwt = false  -> a função valida a própria origem (segredo do webhook,
+#                        service role ou cron). NÃO exige Supabase Auth.
+# verify_jwt = true   -> exige usuário logado (painel admin).
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.bot-conversation-engine]
+verify_jwt = false
+
+[functions.resolve-contact]
+verify_jwt = false
+
+[functions.submit-quote]
+verify_jwt = false
+
+[functions.send-whatsapp-message]
+verify_jwt = false
+
+[functions.notification-worker]
+verify_jwt = false
+
+[functions.retry-failed-submissions]
+verify_jwt = false
+
+[functions.generate-attachment-signed-url]
+verify_jwt = true

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -28,6 +28,7 @@ const ADMIN_NAV = [
   { href: '/purchases', label: 'Notas de Entrada', icon: ShoppingBag },
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/admin/users', label: 'Usuários e Papéis', icon: Users2 },
+  { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
 
@@ -164,7 +165,12 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
               {visibleAdminNav.map(item => {
                 const isFinance = item.href === '/finance'
                 const financeOpen = pathname.startsWith('/finance')
-                const active = pathname === item.href || (isFinance ? pathname === '/finance' : pathname.startsWith(item.href))
+                const isBot = item.href === '/bot-config'
+                const botOpen = pathname.startsWith('/bot-')
+                const active = pathname === item.href
+                  || (isFinance ? pathname === '/finance' : false)
+                  || (isBot ? pathname.startsWith('/bot-') : false)
+                  || (!isFinance && !isBot && pathname.startsWith(item.href))
                 return (
                   <div key={item.href}>
                     <Link href={item.href}
@@ -177,7 +183,24 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                       <item.icon className="w-4 h-4 shrink-0" />
                       {!collapsed && <span className="flex-1">{item.label}</span>}
                       {isFinance && !collapsed && financeOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
+                      {isBot && !collapsed && botOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
                     </Link>
+                    {isBot && !collapsed && botOpen && (
+                      <>
+                        <Link href="/bot-config"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname === '/bot-config' ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Configuração
+                        </Link>
+                        <Link href="/bot-collaborators"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/bot-collaborators') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Colaboradores
+                        </Link>
+                      </>
+                    )}
                     {isFinance && !collapsed && financeOpen && (
                       <>
                         <Link href="/finance/suppliers"

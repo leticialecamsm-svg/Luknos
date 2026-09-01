@@ -7,3 +7,8 @@ build/
 *.log
 .DS_Store
 .env.production
+
+# Supabase CLI / Edge Functions
+supabase/functions/.env
+supabase/.temp/
+supabase/.branches/

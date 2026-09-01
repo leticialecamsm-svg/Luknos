@@ -76,6 +76,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 }) {
   const toast = useToast()
   const [scope, setScope]   = useState<'mine' | 'team'>('mine')
+  const [memberFilter, setMemberFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [newTitle, setNewTitle] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('mid')
@@ -89,13 +90,15 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
 
   useEffect(() => {
     setTasks(scope === 'mine' ? myTasks : allTasks)
+    if (scope === 'mine') setMemberFilter('all')
   }, [scope])
 
   const filtered = useMemo(() => {
     let t = tasks
     if (search) t = t.filter(x => x.title.toLowerCase().includes(search.toLowerCase()))
+    if (scope === 'team' && memberFilter !== 'all') t = t.filter(x => x.user_id === memberFilter)
     return t
-  }, [tasks, search])
+  }, [tasks, search, scope, memberFilter])
 
   const active     = filtered.filter(t => t.status !== 'done')
   const done       = filtered.filter(t => t.status === 'done')
@@ -278,6 +281,18 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             </p>
           </div>
           <div className="flex gap-2">
+            {isAdmin && scope === 'team' && (
+              <select
+                value={memberFilter}
+                onChange={e => setMemberFilter(e.target.value)}
+                className="bg-white border border-gray-200 rounded-xl px-3 text-sm font-medium text-gray-700 outline-none"
+              >
+                <option value="all">Todo mundo</option>
+                {allUsers.map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            )}
             {isAdmin && (
               <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
                 {(['mine', 'team'] as const).map(s => (
@@ -348,7 +363,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
               <button onClick={() => setDoneOpen(o => !o)}
                 className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-100">
                 <span className="text-xs font-bold text-emerald-600">✓ Concluídas</span>
-                <span className="text-xs text-gray-400">{doneToday.length}</span>
+                <span className="text-xs text-gray-400">{done.length} no total{doneToday.length > 0 ? ` · ${doneToday.length} hoje` : ''}</span>
+                <span className="text-[11px] text-gray-300 italic ml-1">continuam guardadas aqui, não são apagadas</span>
                 <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 ml-auto transition-transform', !doneOpen && '-rotate-90')} />
               </button>
               {doneOpen && (
