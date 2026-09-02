@@ -1894,11 +1894,16 @@ export async function getAllTasks() {
   // Usar admin client para bypassar RLS e buscar tarefas de todos os usuários
   const adminSupabase = createAdminClient()
 
+  // Sem .limit(), o PostgREST corta em 1000 linhas por padrão — com a tabela
+  // já passando de ~2000 registros, e ordenando por due_date ascendente, esse
+  // corte descartava justo as tarefas mais recentes (as de due_date mais
+  // distante no futuro/hoje), fazendo tarefas novas "sumirem" da aba Equipe.
   const { data: tasks } = await adminSupabase
     .from('tasks')
     .select('*, subtasks(id, title, done)')
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
+    .limit(5000)
 
   if (!tasks || tasks.length === 0) return []
 
