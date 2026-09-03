@@ -1,4 +1,4 @@
-import { getTasks, getAllTasks, getCurrentUser, getActiveUsers } from '@/lib/actions'
+import { getMyTasksWeek, getAllTasksWeek, getCurrentUser, getActiveUsers } from '@/lib/actions'
 import { TasksV5 } from '@/components/tasks/TasksV5'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -11,10 +11,12 @@ export default async function TasksPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const [currentUser, myTasks] = await Promise.all([getCurrentUser(), getTasks()])
+  // Ativas: sempre todas. Concluídas: só a semana atual (weekOffset 0) —
+  // o resto do histórico é buscado sob demanda pelo passador de semana.
+  const [currentUser, myTasks] = await Promise.all([getCurrentUser(), getMyTasksWeek(0)])
   const isAdmin = currentUser?.role === 'admin'
   const [allTasks, allUsers] = isAdmin
-    ? await Promise.all([getAllTasks(), getActiveUsers()])
+    ? await Promise.all([getAllTasksWeek(0), getActiveUsers()])
     : [[], []]
 
   return (

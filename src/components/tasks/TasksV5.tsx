@@ -5,11 +5,12 @@ import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder, getQuotesList,
   createSubtask, updateSubtask, deleteSubtask,
+  getMyDoneTasksWeek, getTeamDoneTasksWeek,
 } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, Link2, Trash2, Users, GripVertical, StickyNote, Loader2 } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, ChevronLeft, ChevronRight, Link2, Trash2, Users, GripVertical, StickyNote, Loader2 } from 'lucide-react'
 import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
@@ -68,6 +69,19 @@ function sortedBy(tasks: Task[]) {
   return [...tasks].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 }
 
+// Segunda da semana corrente + weekOffset semanas, só pra exibir o rótulo
+// (o cálculo de verdade, com fuso de Brasília, é feito no servidor).
+function weekLabel(weekOffset: number): string {
+  if (weekOffset === 0) return 'Esta semana'
+  if (weekOffset === -1) return 'Semana passada'
+  const now = new Date()
+  const day = (now.getDay() + 6) % 7 // 0 = segunda
+  const monday = new Date(now); monday.setDate(now.getDate() - day + weekOffset * 7)
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
+  const fmt = (d: Date) => format(d, 'dd/MM')
+  return `${fmt(monday)} — ${fmt(sunday)}`
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
@@ -85,31 +99,83 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [selected, setSelected] = useState<Task | null>(null)
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
 
-  // Estado local de tarefas (optimistic)
-  const [tasks, setTasks] = useState<Task[]>(() => myTasks)
+  // As concluídas só vêm da semana selecionada (weekOffset 0 = atual) — o
+  // resto do histórico não é carregado de cara, pra nunca esbarrar de novo
+  // no limite de 1000 linhas do Supabase. As ativas continuam sempre inteiras.
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [completedLoading, setCompletedLoading] = useState(false)
+
+  // Estado local de tarefas (optimistic) — separado em ativas e concluídas
+  // porque agora vêm de fontes diferentes (ativas: sempre; concluídas: por semana).
+  const [tasks, setTasks] = useState<Task[]>(() => myTasks.filter(t => t.status !== 'done'))
+  const [completed, setCompleted] = useState<Task[]>(() => myTasks.filter(t => t.status === 'done'))
 
   useEffect(() => {
-    setTasks(scope === 'mine' ? myTasks : allTasks)
+    const src = scope === 'mine' ? myTasks : allTasks
+    setTasks(src.filter(t => t.status !== 'done'))
+    setCompleted(src.filter(t => t.status === 'done'))
+    setWeekOffset(0)
     if (scope === 'mine') setMemberFilter('all')
   }, [scope])
 
-  const filtered = useMemo(() => {
+  async function loadCompletedWeek(offset: number) {
+    if (offset === 0) {
+      const src = scope === 'mine' ? myTasks : allTasks
+      setCompleted(src.filter(t => t.status === 'done'))
+      return
+    }
+    setCompletedLoading(true)
+    try {
+      const data = await (scope === 'mine' ? getMyDoneTasksWeek(offset) : getTeamDoneTasksWeek(offset))
+      setCompleted(data as Task[])
+    } catch {
+      toast.error('Não foi possível carregar', 'Tente selecionar a semana de novo.')
+    } finally {
+      setCompletedLoading(false)
+    }
+  }
+
+  function goWeek(delta: number) {
+    const next = Math.min(0, weekOffset + delta) // não deixa navegar pro futuro
+    if (next === weekOffset) return
+    setWeekOffset(next)
+    loadCompletedWeek(next)
+  }
+
+  const activeFiltered = useMemo(() => {
     let t = tasks
     if (search) t = t.filter(x => x.title.toLowerCase().includes(search.toLowerCase()))
     if (scope === 'team' && memberFilter !== 'all') t = t.filter(x => x.user_id === memberFilter)
     return t
   }, [tasks, search, scope, memberFilter])
 
-  const active     = filtered.filter(t => t.status !== 'done')
-  const done       = filtered.filter(t => t.status === 'done')
-  const todayTasks = sortedBy(active.filter(isInToday))
-  const laterTasks = sortedBy(active.filter(t => !isInToday(t)))
+  const doneFiltered = useMemo(() => {
+    let t = completed
+    if (search) t = t.filter(x => x.title.toLowerCase().includes(search.toLowerCase()))
+    if (scope === 'team' && memberFilter !== 'all') t = t.filter(x => x.user_id === memberFilter)
+    return t
+  }, [completed, search, scope, memberFilter])
+
+  const todayTasks = sortedBy(activeFiltered.filter(isInToday))
+  const laterTasks = sortedBy(activeFiltered.filter(t => !isInToday(t)))
 
   const byCompletedDesc = (a: Task, b: Task) =>
     (b.completed_at ?? b.created_at).localeCompare(a.completed_at ?? a.created_at)
   const wasCompletedToday = (t: Task) => !!t.completed_at && isToday(new Date(t.completed_at))
-  const doneToday   = done.filter(wasCompletedToday).sort(byCompletedDesc)
-  const doneEarlier = done.filter(t => !wasCompletedToday(t)).sort(byCompletedDesc)
+  const done         = doneFiltered
+  const doneToday    = done.filter(wasCompletedToday).sort(byCompletedDesc)
+  const doneEarlier  = done.filter(t => !wasCompletedToday(t)).sort(byCompletedDesc)
+
+  // Acha uma tarefa em qualquer uma das duas listas (ativa ou concluída) e
+  // aplica uma mudança nela onde quer que esteja — usado por edições que não
+  // mexem em status (título, prioridade, checklist etc).
+  function findTask(id: string): Task | undefined {
+    return tasks.find(t => t.id === id) ?? completed.find(t => t.id === id)
+  }
+  function mapTask(id: string, fn: (t: Task) => Task) {
+    setTasks(prev => prev.map(t => t.id === id ? fn(t) : t))
+    setCompleted(prev => prev.map(t => t.id === id ? fn(t) : t))
+  }
 
   // ── Mutations (optimistic, DB em background) ──────────────────────────────
 
@@ -132,46 +198,64 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     }
   }
 
-  function revertTask(id: string, prevSnapshot: Partial<Task>) {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...prevSnapshot } : t))
-    if (selected?.id === id) setSelected(p => p ? { ...p, ...prevSnapshot } : p)
-  }
-
   async function toggleDone(task: Task) {
+    const goingDone = task.status !== 'done'
     const prevStatus = task.status
     const prevCompletedAt = task.completed_at
-    const next: Status = task.status === 'done' ? 'todo' : 'done'
-    const nextCompletedAt = next === 'done' ? new Date().toISOString() : null
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: next, completed_at: nextCompletedAt } : t))
-    if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next, completed_at: nextCompletedAt } : p)
+    const nextCompletedAt = goingDone ? new Date().toISOString() : null
+    const moved = { ...task, status: (goingDone ? 'done' : 'todo') as Status, completed_at: nextCompletedAt }
+
+    // Move otimisticamente entre as duas listas. Uma tarefa marcada como
+    // feita só aparece na lista de concluídas se a semana atual estiver
+    // selecionada — senão ela some da tela (foi pra "hoje", que não é a
+    // semana que está sendo visualizada), o que é o comportamento esperado.
+    if (goingDone) {
+      setTasks(prev => prev.filter(t => t.id !== task.id))
+      if (weekOffset === 0) setCompleted(prev => [moved, ...prev])
+    } else {
+      setCompleted(prev => prev.filter(t => t.id !== task.id))
+      setTasks(prev => [moved, ...prev])
+    }
+    if (selected?.id === task.id) setSelected(p => p ? { ...p, ...moved } : p)
+
     try {
-      const res = await updateTaskStatus(task.id, next)
+      const res = await updateTaskStatus(task.id, moved.status)
       if (res?.error) throw new Error(res.error)
     } catch (e: any) {
-      revertTask(task.id, { status: prevStatus, completed_at: prevCompletedAt })
+      const reverted = { ...task, status: prevStatus, completed_at: prevCompletedAt }
+      if (goingDone) {
+        setCompleted(prev => prev.filter(t => t.id !== task.id))
+        setTasks(prev => [reverted, ...prev])
+      } else {
+        setTasks(prev => prev.filter(t => t.id !== task.id))
+        setCompleted(prev => [reverted, ...prev])
+      }
+      if (selected?.id === task.id) setSelected(p => p ? { ...p, ...reverted } : p)
       toast.error('Não foi possível salvar', 'Tente marcar a tarefa novamente.')
     }
   }
 
   async function removeTask(id: string) {
-    const prevTask = tasks.find(t => t.id === id)
+    const prevTask = findTask(id)
+    const wasCompleted = prevTask?.status === 'done'
     setTasks(prev => prev.filter(t => t.id !== id))
+    setCompleted(prev => prev.filter(t => t.id !== id))
     if (selected?.id === id) setSelected(null)
     try {
       const res = await deleteTask(id)
       if (res?.error) throw new Error(res.error)
     } catch (e: any) {
-      if (prevTask) setTasks(prev => [...prev, prevTask])
+      if (prevTask) (wasCompleted ? setCompleted : setTasks)(prev => [...prev, prevTask])
       toast.error('Não foi possível excluir', 'Tente novamente.')
     }
   }
 
   async function changeTask(id: string, updates: Partial<Task>) {
-    const prevTask = tasks.find(t => t.id === id)
+    const prevTask = findTask(id)
     const prevSnapshot: Partial<Task> = prevTask
       ? Object.fromEntries(Object.keys(updates).map(k => [k, (prevTask as any)[k]]))
       : {}
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
+    mapTask(id, t => ({ ...t, ...updates }))
     if (selected?.id === id) setSelected(p => p ? { ...p, ...updates } : p)
     // `quote` é só um campo de exibição local (join com quotes) — não existe
     // como coluna na tabela tasks, então não pode ir no payload do updateTask.
@@ -180,7 +264,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
       const res = await updateTask(id, dbUpdates)
       if (res?.error) throw new Error(res.error)
     } catch (e: any) {
-      revertTask(id, prevSnapshot)
+      mapTask(id, t => ({ ...t, ...prevSnapshot }))
+      if (selected?.id === id) setSelected(p => p ? { ...p, ...prevSnapshot } : p)
       toast.error('Não foi possível salvar', 'Tente novamente.')
     }
   }
@@ -358,16 +443,38 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             />
           </Section>
 
-          {done.length > 0 && (
-            <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
-              <button onClick={() => setDoneOpen(o => !o)}
-                className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-100">
+          <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+              <button onClick={() => setDoneOpen(o => !o)} className="flex items-center gap-2 hover:opacity-70 transition-opacity">
                 <span className="text-xs font-bold text-emerald-600">✓ Concluídas</span>
-                <span className="text-xs text-gray-400">{done.length} no total{doneToday.length > 0 ? ` · ${doneToday.length} hoje` : ''}</span>
-                <span className="text-[11px] text-gray-300 italic ml-1">continuam guardadas aqui, não são apagadas</span>
-                <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 ml-auto transition-transform', !doneOpen && '-rotate-90')} />
+                <span className="text-xs text-gray-400">{done.length} {weekOffset === 0 ? 'nesta semana' : 'nessa semana'}{doneToday.length > 0 ? ` · ${doneToday.length} hoje` : ''}</span>
               </button>
-              {doneOpen && (
+              {weekOffset === 0 && <span className="text-[11px] text-gray-300 italic">não são apagadas, só ficam na semana em que foram concluídas</span>}
+              <div className="flex items-center gap-1 ml-auto">
+                <button onClick={() => goWeek(-1)} disabled={completedLoading}
+                  className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-40"
+                  title="Semana anterior">
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-xs font-medium text-gray-600 w-28 text-center select-none">
+                  {completedLoading ? 'Carregando...' : weekLabel(weekOffset)}
+                </span>
+                <button onClick={() => goWeek(1)} disabled={completedLoading || weekOffset === 0}
+                  className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-40"
+                  title="Próxima semana">
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <button onClick={() => setDoneOpen(o => !o)}>
+                <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 transition-transform', !doneOpen && '-rotate-90')} />
+              </button>
+            </div>
+            {doneOpen && (
+              done.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-gray-400">
+                  {completedLoading ? 'Carregando...' : 'Nenhuma tarefa concluída nessa semana.'}
+                </p>
+              ) : (
                 <div>
                   {doneToday.length > 0 && (
                     <div>
@@ -410,9 +517,9 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
+              )
+            )}
+          </div>
         </div>
       </div>
 

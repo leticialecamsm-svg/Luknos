@@ -1577,6 +1577,137 @@ export async function deleteSchedule(id: string) {
 // TASKS
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Segunda 00:00 → próxima segunda 00:00 (exclusivo), no fuso de Brasília.
+// Brasil não tem mais horário de verão desde 2019, então o offset -03:00 é
+// fixo e seguro de usar aqui.
+function weekBoundsBR(weekOffset: number) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  }).formatToParts(new Date())
+  const y = Number(parts.find(p => p.type === 'year')!.value)
+  const m = Number(parts.find(p => p.type === 'month')!.value)
+  const d = Number(parts.find(p => p.type === 'day')!.value)
+  const wd = parts.find(p => p.type === 'weekday')!.value
+  const dowMap: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }
+  const todayMidnightUTC = new Date(Date.UTC(y, m - 1, d, 3, 0, 0)) // 00:00 em SP == 03:00 UTC
+  const monday = new Date(todayMidnightUTC)
+  monday.setUTCDate(monday.getUTCDate() - ((dowMap[wd] ?? 1) - 1) + weekOffset * 7)
+  const nextMonday = new Date(monday)
+  nextMonday.setUTCDate(monday.getUTCDate() + 7)
+  return { startISO: monday.toISOString(), endISO: nextMonday.toISOString() }
+}
+
+// Junta tarefas com dados de orçamento (number/client_name), usado por várias
+// das funções de listagem de tarefas abaixo.
+async function attachQuoteInfo(tasks: any[], client: ReturnType<typeof createAdminClient>) {
+  if (tasks.length === 0) return []
+  const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
+  let quotesMap: Record<string, any> = {}
+  if (quoteIds.length > 0) {
+    const { data: quotes } = await client.from('quotes_full').select('id, number, client_name').in('id', quoteIds)
+    if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
+  }
+  return tasks.map((t: any) => ({ ...t, quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null }))
+}
+
+// Tarefas de um usuário pra exibição em "semana": ativas (todo/doing/paused)
+// sempre inteiras — poucas o suficiente pra nunca chegar perto do limite de
+// 1000 linhas do Supabase — mais concluídas só da semana pedida (weekOffset
+// 0 = semana atual, -1 = semana passada, etc). Ver getMyDoneTasksWeek pra
+// buscar só as concluídas de uma semana específica, sem recarregar as ativas.
+export async function getMyTasksWeek(weekOffset: number = 0) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { startISO, endISO } = weekBoundsBR(weekOffset)
+
+  const [{ data: active }, { data: doneWeek }] = await Promise.all([
+    supabase.from('tasks').select('*, subtasks(id, title, done)')
+      .eq('user_id', user.id).neq('status', 'done')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false }),
+    supabase.from('tasks').select('*, subtasks(id, title, done)')
+      .eq('user_id', user.id).eq('status', 'done')
+      .gte('completed_at', startISO).lt('completed_at', endISO)
+      .order('completed_at', { ascending: false }),
+  ])
+
+  return attachQuoteInfo([...(active ?? []), ...(doneWeek ?? [])], createAdminClient())
+}
+
+export async function getMyDoneTasksWeek(weekOffset: number = 0) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { startISO, endISO } = weekBoundsBR(weekOffset)
+
+  const { data } = await supabase.from('tasks').select('*, subtasks(id, title, done)')
+    .eq('user_id', user.id).eq('status', 'done')
+    .gte('completed_at', startISO).lt('completed_at', endISO)
+    .order('completed_at', { ascending: false })
+
+  return attachQuoteInfo(data ?? [], createAdminClient())
+}
+
+// Mesma ideia, mas pra todo mundo (aba Equipe, só admin).
+export async function getAllTasksWeek(weekOffset: number = 0) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data: me } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (me?.role !== 'admin') return []
+
+  const admin = createAdminClient()
+  const { startISO, endISO } = weekBoundsBR(weekOffset)
+
+  const [{ data: active }, { data: doneWeek }] = await Promise.all([
+    admin.from('tasks').select('*, subtasks(id, title, done)')
+      .neq('status', 'done')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false }),
+    admin.from('tasks').select('*, subtasks(id, title, done)')
+      .eq('status', 'done')
+      .gte('completed_at', startISO).lt('completed_at', endISO)
+      .order('completed_at', { ascending: false }),
+  ])
+
+  const tasks = [...(active ?? []), ...(doneWeek ?? [])]
+  if (tasks.length === 0) return []
+
+  const userIds = Array.from(new Set(tasks.map((t: any) => t.user_id).filter(Boolean)))
+  const { data: usersData } = await admin.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds)
+  const usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u]))
+
+  const withQuotes = await attachQuoteInfo(tasks, admin)
+  return withQuotes.map((t: any) => ({ ...t, users: usersMap[t.user_id] ?? null }))
+}
+
+export async function getTeamDoneTasksWeek(weekOffset: number = 0) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data: me } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (me?.role !== 'admin') return []
+
+  const admin = createAdminClient()
+  const { startISO, endISO } = weekBoundsBR(weekOffset)
+
+  const { data: doneWeek } = await admin.from('tasks').select('*, subtasks(id, title, done)')
+    .eq('status', 'done')
+    .gte('completed_at', startISO).lt('completed_at', endISO)
+    .order('completed_at', { ascending: false })
+
+  const tasks = doneWeek ?? []
+  if (tasks.length === 0) return []
+
+  const userIds = Array.from(new Set(tasks.map((t: any) => t.user_id).filter(Boolean)))
+  const { data: usersData } = await admin.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds)
+  const usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u]))
+
+  const withQuotes = await attachQuoteInfo(tasks, admin)
+  return withQuotes.map((t: any) => ({ ...t, users: usersMap[t.user_id] ?? null }))
+}
+
 export async function getTasks(filter?: { status?: string; priority?: string }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -1588,6 +1719,7 @@ export async function getTasks(filter?: { status?: string; priority?: string }) 
     .eq('user_id', user.id)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
+    .limit(3000) // rede de segurança contra o corte de 1000 linhas do PostgREST
 
   if (filter?.status) query = query.eq('status', filter.status)
   if (filter?.priority) query = query.eq('priority', filter.priority)
@@ -1618,6 +1750,7 @@ export async function getTasksForUser(userId: string) {
     .eq('user_id', userId)
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
+    .limit(3000)
   if (!tasks) return []
 
   const quoteIds = Array.from(new Set(tasks.map((t: any) => t.quote_id).filter(Boolean)))
