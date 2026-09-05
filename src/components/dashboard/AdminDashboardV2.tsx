@@ -131,10 +131,17 @@ export function AdminDashboardV2({
 
   const maxValue = Math.max(...monthlyData.map(d => Math.max(d.faturado, d.meta))) || 1
 
-  // Faturamento do mês anterior pra comparação
+  // Faturamento do mês anterior pra comparação — só até o mesmo dia do mês
+  // atual (se hoje é dia 5, compara com os primeiros 5 dias do mês passado,
+  // não o mês passado inteiro; senão a comparação sempre mostra "menos"
+  // logo no começo do mês, mesmo sem ter fechado o mês ainda).
+  const isCurrentMonth = currentMonth.getFullYear() === now.getFullYear() && currentMonth.getMonth() === now.getMonth()
   const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+  const prevMonthLastDay = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate()
+  const currentMonthLastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()
+  const cutoffDay = isCurrentMonth ? now.getDate() : currentMonthLastDay
   const prevStart = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), 1).toISOString().split('T')[0]
-  const prevEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).toISOString().split('T')[0]
+  const prevEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), Math.min(cutoffDay, prevMonthLastDay)).toISOString().split('T')[0]
   const prevMonthClosed = quotes.filter(q => q.temperature === 'closed' && q.closed_at && q.closed_at >= prevStart && q.closed_at <= prevEnd)
   const prevFaturamento = prevMonthClosed.reduce((sum, q) => sum + recebidoDeQuote(q), 0)
   const faturamentoChange = totalFaturamento - prevFaturamento
@@ -344,7 +351,7 @@ export function AdminDashboardV2({
             <div className="h-full bg-green-500" style={{ width: `${Math.min((totalFaturamento / 140000) * 100, 100)}%` }}></div>
           </div>
           <p className={`text-xs mt-1 ${faturamentoChange >= 0 ? 'text-green-600' : 'text-red-500'} font-semibold`}>
-            {faturamentoChange >= 0 ? '↑' : '↓'} vs mês anterior: {formatCurrency(Math.abs(faturamentoChange))}
+            {faturamentoChange >= 0 ? '↑' : '↓'} vs mesmo período do mês anterior: {formatCurrency(Math.abs(faturamentoChange))}
           </p>
         </div>
 
