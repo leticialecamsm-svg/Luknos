@@ -2608,13 +2608,21 @@ export async function getCommissionEarnings(year?: number, month?: number) {
   const contactToUser = new Map(linkedContacts.map((c: any) => [c.id, c.linked_user_id]))
   const contactRate = new Map(linkedContacts.map((c: any) => [c.id, Number(c.commission_rate)]))
 
-  // Se a comissão do orçamento foi dividida entre parceiros (quote_partners), usa a
-  // taxa específica de cada um em vez da taxa padrão cheia do contato.
+  // Se a comissão do orçamento foi dividida entre parceiros (quote_partners),
+  // essa tabela tem uma linha por parceiro (incluindo o principal) com a taxa
+  // que cada um ficou — precisa somar a comissão de TODOS eles, não só do
+  // architect_id, senão o segundo parceiro (ex: quando a arquiteta entra
+  // depois do projetista original) nunca aparece no total de ninguém.
   const closedQuoteIds = (quotesRes.data ?? []).map((q: any) => q.id).filter(Boolean)
   const { data: splitRows } = closedQuoteIds.length
     ? await admin.from('quote_partners').select('quote_id, contact_id, rate').in('quote_id', closedQuoteIds)
     : { data: [] as any[] }
-  const splitRateMap = new Map((splitRows ?? []).map((s: any) => [`${s.quote_id}:${s.contact_id}`, Number(s.rate)]))
+  const splitsByQuote = new Map<string, { contact_id: string; rate: number }[]>()
+  for (const s of splitRows ?? []) {
+    const arr = splitsByQuote.get(s.quote_id) ?? []
+    arr.push({ contact_id: s.contact_id, rate: Number(s.rate) })
+    splitsByQuote.set(s.quote_id, arr)
+  }
 
   // Build seller details per user from closed quotes
   const sellerDetailsMap: Record<string, any[]> = {}
@@ -2651,13 +2659,27 @@ export async function getCommissionEarnings(year?: number, month?: number) {
 
   // 5% (taxa do parceiro) das vendas em que o colaborador foi o projetista — mês do fechamento
   for (const q of quotesRes.data ?? []) {
-    const uid = q.architect_id ? contactToUser.get(q.architect_id) : null
-    if (!uid || !result[uid]) continue
-    const rate = splitRateMap.get(`${q.id}:${q.architect_id}`) ?? contactRate.get(q.architect_id) ?? 0
     const value = Number(q.final_value ?? q.quoted_value ?? 0)
-    const comm = parseFloat((value * rate / 100).toFixed(2))
-    result[uid].projetistaComm += comm
-    result[uid].projetistaSales.push({ number: q.number, client_name: q.client_name, value, rate, comm })
+    const splits = splitsByQuote.get(q.id)
+
+    if (splits && splits.length > 0) {
+      // Comissão dividida — soma a parte de cada parceiro com sua própria taxa
+      for (const sp of splits) {
+        const uid = contactToUser.get(sp.contact_id)
+        if (!uid || !result[uid]) continue
+        const comm = parseFloat((value * sp.rate / 100).toFixed(2))
+        result[uid].projetistaComm += comm
+        result[uid].projetistaSales.push({ number: q.number, client_name: q.client_name, value, rate: sp.rate, comm })
+      }
+    } else {
+      // Parceiro único de sempre
+      const uid = q.architect_id ? contactToUser.get(q.architect_id) : null
+      if (!uid || !result[uid]) continue
+      const rate = contactRate.get(q.architect_id) ?? 0
+      const comm = parseFloat((value * rate / 100).toFixed(2))
+      result[uid].projetistaComm += comm
+      result[uid].projetistaSales.push({ number: q.number, client_name: q.client_name, value, rate, comm })
+    }
   }
 
   for (const uid of Object.keys(result)) {
