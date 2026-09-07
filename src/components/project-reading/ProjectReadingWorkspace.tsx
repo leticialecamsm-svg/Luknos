@@ -394,21 +394,21 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     updateWorkingPage(plan.id, pageNum)
   }, [pageNum, plan.id])
 
-  // ── Coordenadas: tela → espaço PDF, usando o viewport atual (zoom +
-  // rotação já resolvidos pelo próprio pdf.js — funciona certo em qualquer
-  // orientação, ao contrário de só dividir pelo zoom). ───────────────────────
-
+  // ── Coordenadas: tela → espaço "canvas em escala 1" ──────────────────────
+  // IMPORTANTE: isso precisa ser sempre pixel do canvas ÷ zoom (não o ponto
+  // PDF de verdade via convertToPdfPoint). O espaço PDF nativo tem origem no
+  // canto inferior esquerdo com Y crescendo pra cima — diferente do espaço
+  // de pixel do canvas (origem no canto superior esquerdo, Y pra baixo) que
+  // é o que sempre foi salvo no banco. Usar convertToPdfPoint quebrava TODAS
+  // as marcações já salvas (aparecem deslocadas/invertidas), porque passou
+  // a gravar num sistema de coordenadas diferente do que já existia.
   function toBase(e: React.MouseEvent): Point {
     const rect = canvasRef.current!.getBoundingClientRect()
     const px = (e.clientX - rect.left) * (canvasRef.current!.width / rect.width)
     const py = (e.clientY - rect.top) * (canvasRef.current!.height / rect.height)
-    if (viewportRef.current) return viewportRef.current.convertToPdfPoint(px, py) as Point
     return [px / renderScale, py / renderScale]
   }
-  function toScreen([x, y]: Point): Point {
-    if (viewportRef.current) return viewportRef.current.convertToViewportPoint(x, y) as Point
-    return [x * renderScale, y * renderScale]
-  }
+  function toScreen([x, y]: Point): Point { return [x * renderScale, y * renderScale] }
 
   // ── Interações do canvas ──────────────────────────────────────────────────
 
