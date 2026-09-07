@@ -10,7 +10,7 @@ import {
   createAnnotation, deleteAnnotation, updateAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
-import { calcularFita, calcularPlanoDeCorte, round2, type TrechoNecessario } from '@/lib/project-reading/calculations'
+import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, type TrechoNecessario } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
@@ -36,7 +36,7 @@ interface LegendItem { id: string; code: string; description?: string | null; po
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
 interface Measurement {
   id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
-  power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null
+  power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null; notes?: string | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 
@@ -1079,6 +1079,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           onMergeMeasurement={mergeMeasurements}
           onViewContents={() => { setTab('ambientes'); setPanelOpen(true); setSelection(null) }}
           onUpdateAnnotation={updateAnnotationData}
+          onDeleteMeasurement={id => deleteEntity('measurement', id)}
         />
       )}
 
@@ -1121,7 +1122,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
 function SelectionPopover({
   selection, anchor, onClose, environments, legendItems, symbols, measurements, annotations, pieceBadgeMap,
-  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation,
+  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation, onDeleteMeasurement,
 }: {
   selection: { kind: EntityKind; id: string }
   anchor: { x: number; y: number }
@@ -1137,6 +1138,7 @@ function SelectionPopover({
   onMergeMeasurement: (idA: string, idB: string) => void
   onViewContents: () => void
   onUpdateAnnotation: (id: string, patch: Record<string, unknown>) => void
+  onDeleteMeasurement: (id: string) => void
 }) {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
@@ -1190,23 +1192,43 @@ function SelectionPopover({
     const m = measurements.find(x => x.id === selection.id)
     if (!m) return null
     showHeaderDelete = false // o card já tem seu próprio botão de excluir
-    const shared = {
-      m, environments,
-      onChangeEnv: (envId: string | null) => onUpdateMeasurement(m.id, { environment_id: envId }),
-      onDelete: onDeleteSelected,
-      onChangeLength: (v: string) => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 }),
-      mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
-      onMerge: (otherId: string) => onMergeMeasurement(m.id, otherId),
-      pieceBadge: pieceBadgeMap.get(m.id),
-      linkNote: linkNoteFor(m, measurements),
+
+    // Perfil + fita da mesma instalação: mostra o card combinado igual à
+    // barra lateral, não importa em qual das duas linhas o clique caiu.
+    const comboPerfil = m.kind === 'perfil' ? m : (m.linked_measurement_id ? measurements.find(x => x.id === m.linked_measurement_id) : undefined)
+    const comboFita = m.kind === 'fita' ? m : measurements.find(x => x.linked_measurement_id === m.id)
+
+    if (comboPerfil && comboFita && comboPerfil.kind === 'perfil' && comboFita.kind === 'fita') {
+      content = (
+        <div className="p-3">
+          <PerfilFitaCard perfil={comboPerfil} fita={comboFita} environments={environments}
+            onChangeEnv={envId => { onUpdateMeasurement(comboPerfil.id, { environment_id: envId }); onUpdateMeasurement(comboFita.id, { environment_id: envId }) }}
+            onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(comboPerfil.id, { length_m: val }); onUpdateMeasurement(comboFita.id, { length_m: val }) }}
+            onChangeBarNote={v => onUpdateMeasurement(comboPerfil.id, { notes: v })}
+            onChangePotencia={v => onUpdateMeasurement(comboFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+            onDelete={() => { onDeleteMeasurement(comboPerfil.id); onDeleteMeasurement(comboFita.id); onClose() }}
+            pieceBadgePerfil={pieceBadgeMap.get(comboPerfil.id)} pieceBadgeFita={pieceBadgeMap.get(comboFita.id)} />
+        </div>
+      )
+    } else {
+      const shared = {
+        m, environments,
+        onChangeEnv: (envId: string | null) => onUpdateMeasurement(m.id, { environment_id: envId }),
+        onDelete: onDeleteSelected,
+        onChangeLength: (v: string) => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 }),
+        mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
+        onMerge: (otherId: string) => onMergeMeasurement(m.id, otherId),
+        pieceBadge: pieceBadgeMap.get(m.id),
+        linkNote: linkNoteFor(m, measurements),
+      }
+      content = (
+        <div className="p-3">
+          {m.kind === 'fita'
+            ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })} />
+            : <SimpleMeasurementCard {...shared} />}
+        </div>
+      )
     }
-    content = (
-      <div className="p-3">
-        {m.kind === 'fita'
-          ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })} />
-          : <SimpleMeasurementCard {...shared} />}
-      </div>
-    )
   } else if (selection.kind === 'annotation') {
     const a = annotations.find(x => x.id === selection.id)
     if (!a) return null
@@ -1309,8 +1331,20 @@ function AmbientesTab({
                     </div>
                   )
                 })}
-                {envMeasurements.map(m => (
-                  m.kind === 'fita'
+                {envMeasurements.filter(m => !(m.kind === 'fita' && envMeasurements.some(p => p.kind === 'perfil' && p.id === m.linked_measurement_id))).map(m => {
+                  const linkedFita = m.kind === 'perfil' ? envMeasurements.find(f => f.linked_measurement_id === m.id) : undefined
+                  if (m.kind === 'perfil' && linkedFita) {
+                    return (
+                      <PerfilFitaCard key={m.id} perfil={m} fita={linkedFita} environments={environments}
+                        onChangeEnv={envId => { onUpdateMeasurement(m.id, { environment_id: envId }); onUpdateMeasurement(linkedFita.id, { environment_id: envId }) }}
+                        onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(m.id, { length_m: val }); onUpdateMeasurement(linkedFita.id, { length_m: val }) }}
+                        onChangeBarNote={v => onUpdateMeasurement(m.id, { notes: v })}
+                        onChangePotencia={v => onUpdateMeasurement(linkedFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+                        onDelete={() => { onDeleteMeasurement(m.id); onDeleteMeasurement(linkedFita.id) }}
+                        pieceBadgePerfil={pieceBadgeMap.get(m.id)} pieceBadgeFita={pieceBadgeMap.get(linkedFita.id)} />
+                    )
+                  }
+                  return m.kind === 'fita'
                     ? <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
                         onDelete={() => onDeleteMeasurement(m.id)} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
@@ -1320,7 +1354,7 @@ function AmbientesTab({
                         onDelete={() => onDeleteMeasurement(m.id)} onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
                         pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                         mergeCandidates={measurements.filter(x => x.kind === m.kind && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
-                ))}
+                })}
                 {envSymbols.length === 0 && envMeasurements.length === 0 && <p className="text-xs text-gray-400">Nada marcado aqui ainda.</p>}
               </div>
             )}
@@ -1405,6 +1439,14 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   const fitas = measurements.filter(m => m.kind === 'fita')
   const medidas = measurements.filter(m => m.kind === 'medida')
 
+  // Todo perfil já vem com uma fita automática (mesma metragem) — agrupa os
+  // dois como uma instalação só, em vez de espalhar o perfil numa seção e a
+  // fita dele em outra, lá embaixo.
+  const combos = perfis.map(p => ({ perfil: p, fita: fitas.find(f => f.linked_measurement_id === p.id) }))
+  const perfisComFita = combos.filter((c): c is { perfil: Measurement; fita: Measurement } => !!c.fita)
+  const perfisSemFita = combos.filter(c => !c.fita).map(c => c.perfil)
+  const fitasAvulsas = fitas.filter(f => !f.linked_measurement_id)
+
   function changePotencia(id: string, value: string) {
     const w = Number(value.replace(',', '.')) || 0
     onUpdate(id, { power_w_per_m: w })
@@ -1414,6 +1456,17 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   }
   function changeLength(id: string, value: string) {
     onUpdate(id, { length_m: Number(value.replace(',', '.')) || 0 })
+  }
+  // Perfil e fita da mesma instalação andam juntos: corrigir o comprimento
+  // de um corrige o outro também (a fita "é" aquele perfil).
+  function changeComboLength(perfilId: string, fitaId: string, value: string) {
+    const v = Number(value.replace(',', '.')) || 0
+    onUpdate(perfilId, { length_m: v })
+    onUpdate(fitaId, { length_m: v })
+  }
+  function changeComboEnv(perfilId: string, fitaId: string, envId: string | null) {
+    onUpdate(perfilId, { environment_id: envId })
+    onUpdate(fitaId, { environment_id: envId })
   }
 
   return (
@@ -1437,49 +1490,72 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
       </section>
 
       <section>
-        <p className="text-xs font-bold text-sky-600 uppercase mb-2">Perfis ({perfis.length})</p>
-        <div className="space-y-2 mb-3">
-          {perfis.map(m => (
-            <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
-              mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
+        <p className="text-xs font-bold text-indigo-600 uppercase mb-2">Perfil + Fita ({perfisComFita.length})</p>
+        <div className="space-y-2">
+          {perfisComFita.map(({ perfil, fita }) => (
+            <PerfilFitaCard key={perfil.id} perfil={perfil} fita={fita} environments={environments}
+              onChangeEnv={envId => changeComboEnv(perfil.id, fita.id, envId)}
+              onChangeLength={v => changeComboLength(perfil.id, fita.id, v)}
+              onChangeBarNote={v => onUpdate(perfil.id, { notes: v })}
+              onChangePotencia={v => changePotencia(fita.id, v)}
+              onDelete={() => { onDelete(perfil.id); onDelete(fita.id) }}
+              pieceBadgePerfil={pieceBadgeMap.get(perfil.id)} pieceBadgeFita={pieceBadgeMap.get(fita.id)} />
           ))}
-          {perfis.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda.</p>}
+          {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
-        {perfis.length > 0 && (
-          <div className="bg-sky-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>Barra comercial:</span>
-              <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
-            </div>
-            {planoPerfil?.kind === 'erro' && <p className="text-xs text-red-600">{planoPerfil.mensagem}</p>}
-            {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} noun="Peça" />}
-          </div>
-        )}
       </section>
 
-      <section>
-        <p className="text-xs font-bold text-pink-600 uppercase mb-2">Fitas de LED ({fitas.length})</p>
-        <div className="space-y-2 mb-3">
-          {fitas.map(m => (
-            <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
-              pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
-              mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
-          ))}
-          {fitas.length === 0 && <p className="text-xs text-gray-400">Nenhuma fita medida ainda.</p>}
-        </div>
-        {fitas.length > 0 && (
-          <div className="bg-pink-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>Rolo comercial:</span>
-              <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
-            </div>
-            {planoFita?.kind === 'erro' && <p className="text-xs text-red-600">{planoFita.mensagem}</p>}
-            {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} noun="Rolo" />}
+      {perfisSemFita.length > 0 && (
+        <section>
+          <p className="text-xs font-bold text-sky-600 uppercase mb-2">Perfis sem fita ({perfisSemFita.length})</p>
+          <div className="space-y-2">
+            {perfisSemFita.map(m => (
+              <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+                onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
+            ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {perfis.length > 0 && (
+        <div className="bg-sky-50 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-bold text-sky-600 uppercase">Plano de corte — perfis</p>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span>Barra comercial:</span>
+            <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
+          </div>
+          {planoPerfil?.kind === 'erro' && <p className="text-xs text-red-600">{planoPerfil.mensagem}</p>}
+          {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} noun="Peça" />}
+        </div>
+      )}
+
+      {fitasAvulsas.length > 0 && (
+        <section>
+          <p className="text-xs font-bold text-pink-600 uppercase mb-2">Fitas avulsas ({fitasAvulsas.length})</p>
+          <p className="text-[10px] text-gray-400 mb-2">Medidas direto com "Medir fita", sem perfil vinculado.</p>
+          <div className="space-y-2">
+            {fitasAvulsas.map(m => (
+              <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+                onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
+                pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {fitas.length > 0 && (
+        <div className="bg-pink-50 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-bold text-pink-600 uppercase">Plano de corte — fitas</p>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span>Rolo comercial:</span>
+            <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
+          </div>
+          {planoFita?.kind === 'erro' && <p className="text-xs text-red-600">{planoFita.mensagem}</p>}
+          {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} noun="Rolo" />}
+        </div>
+      )}
     </div>
   )
 }
@@ -1593,12 +1669,94 @@ function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, on
       {preenchido ? (
         <div>
           <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {m.length_m.toFixed(2)}m × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
           </p>
         </div>
       ) : (
         <p className="text-xs font-medium text-amber-600 bg-amber-50 rounded px-2 py-1.5">⚠ Falta informar o W/m dessa fita pra calcular a fonte</p>
+      )}
+    </div>
+  )
+}
+
+// Linha "Fonte sugerida: 60W (12V)" — catálogo real de estoque (18 a 400W),
+// sempre a próxima potência IGUAL OU ACIMA do mínimo calculado, nunca abaixo.
+function FonteSugeridaLine({ minimaW }: { minimaW: number }) {
+  const sugestao = sugerirFonte(minimaW)
+  return (
+    <p className="text-xs font-semibold text-sky-600">
+      {sugestao ? `Fonte sugerida: ${sugestao}W (12V)` : 'Acima do catálogo — divida em mais de uma fonte'}
+    </p>
+  )
+}
+
+// Perfil + Fita: como todo perfil já gera sua fita automaticamente, faz mais
+// sentido tratar os dois como UMA instalação só na interface (título "Perfil
+// + Fita X"), em vez de dois cards soltos em seções diferentes — inclusive a
+// fonte sugerida já sai calculada em cima dos dois juntos.
+function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLength, onChangeBarNote, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita }: {
+  perfil: Measurement; fita: Measurement; environments: Environment[]
+  onChangeEnv: (envId: string | null) => void; onChangeLength: (v: string) => void; onChangeBarNote: (v: string) => void
+  onChangePotencia: (v: string) => void; onDelete: () => void
+  pieceBadgePerfil?: PieceBadge; pieceBadgeFita?: PieceBadge
+}) {
+  const idxMatch = perfil.label?.match(/\d+/)
+  const preenchido = !!fita.power_w_per_m
+  const calc = calcularFita(fita.length_m, fita.power_w_per_m ?? 0)
+  return (
+    <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-sm font-semibold text-gray-800">Perfil + Fita {idxMatch?.[0] ?? ''}</p>
+            {pieceBadgePerfil && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgePerfil.color }}>{pieceBadgePerfil.label}</span>}
+            {pieceBadgeFita && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgeFita.color }}>{pieceBadgeFita.label}</span>}
+          </div>
+          <select value={perfil.environment_id ?? ''} onChange={e => onChangeEnv(e.target.value || null)}
+            className="text-[11px] text-gray-500 bg-transparent border-none outline-none -ml-0.5 cursor-pointer hover:text-brand-600 max-w-full">
+            <option value="">Sem ambiente</option>
+            {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
+          </select>
+        </div>
+        <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-gray-500 block">Comprimento</label>
+          <div className="flex items-baseline gap-1">
+            <input defaultValue={perfil.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
+              title="Medida errada? Corrija aqui direto — perfil e fita andam juntos."
+              className="w-14 text-sm font-semibold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
+            <span className="text-xs text-gray-400">m</span>
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-500 block">Barra desta instalação</label>
+          <input defaultValue={perfil.notes ?? ''} placeholder="ex: 2m + 1m" onBlur={e => onChangeBarNote(e.target.value)}
+            className="w-full text-xs text-gray-600 border-b border-gray-200 focus:border-brand-400 outline-none" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
+        <input defaultValue={fita.power_w_per_m ?? ''} placeholder="0" onBlur={e => onChangePotencia(e.target.value)}
+          className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
+        <span className="text-xs text-gray-500">W/m</span>
+      </div>
+
+      {preenchido ? (
+        <div>
+          <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} />
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            {fita.length_m.toFixed(2)}m × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs font-medium text-amber-600 bg-amber-50 rounded px-2 py-1.5">⚠ Falta informar o W/m da fita pra calcular a fonte</p>
       )}
     </div>
   )

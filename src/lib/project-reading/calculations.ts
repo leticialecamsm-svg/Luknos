@@ -109,3 +109,15 @@ export function calcularPlanoDeCorte(trechos: TrechoNecessario[], comprimentoCom
 export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
+
+// ── Sugestão de fonte 12V ────────────────────────────────────────────────────
+// Catálogo comercial informado pela Letícia. Sugere a próxima potência
+// disponível acima (ou igual) do mínimo calculado — nunca abaixo, senão a
+// fonte não aguenta a carga. `null` quando a necessidade passa do maior item
+// do catálogo (aí o caso é dividir em mais de uma fonte, não sugerir uma só).
+export const CATALOGO_FONTES_12V = [18, 24, 36, 48, 60, 72, 100, 120, 150, 200, 300, 400]
+
+export function sugerirFonte(minimaW: number): number | null {
+  if (minimaW <= 0) return null
+  return CATALOGO_FONTES_12V.find(w => w >= minimaW) ?? null
+}

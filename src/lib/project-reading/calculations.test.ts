@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularFita, calcularPlanoDeCorte, round2 } from './calculations'
+import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte } from './calculations'
 
 describe('calcularFita', () => {
   it('exemplo do documento: 5m × 10W/m → 60W com margem de 20%', () => {
@@ -107,5 +107,29 @@ describe('round2', () => {
   it('arredonda pra duas casas decimais', () => {
     expect(round2(1.005)).toBeCloseTo(1.01, 2)
     expect(round2(120.955)).toBeCloseTo(120.96, 1)
+  })
+})
+
+describe('sugerirFonte', () => {
+  it('sugere exatamente o valor do catálogo quando bate certinho', () => {
+    expect(sugerirFonte(60)).toBe(60)
+  })
+
+  it('sugere a próxima potência acima quando não bate exato (nunca abaixo do mínimo)', () => {
+    expect(sugerirFonte(45)).toBe(48)
+    expect(sugerirFonte(48.01)).toBe(60)
+  })
+
+  it('exemplo real: fonte mínima 40W (0.80m x 22W/m x 1.2 = 21.12W) sugere 24W', () => {
+    expect(sugerirFonte(21.12)).toBe(24)
+  })
+
+  it('acima do maior item do catálogo retorna null (precisa mais de uma fonte)', () => {
+    expect(sugerirFonte(450)).toBeNull()
+  })
+
+  it('mínimo zero ou negativo retorna null', () => {
+    expect(sugerirFonte(0)).toBeNull()
+    expect(sugerirFonte(-5)).toBeNull()
   })
 })
