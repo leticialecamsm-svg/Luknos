@@ -192,6 +192,63 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     })
   }
 
+  // Junta duas medições do mesmo tipo (ex: os dois trechos de uma fita em L
+  // medidos separados por engano) numa única — pra casos como esse não
+  // precisar remedir. Orienta os pontos pra minimizar o "salto" entre as
+  // duas pontas (assumindo que elas se encontram, ex: no canto do L).
+  async function mergeMeasurements(idA: string, idB: string) {
+    const a = measurements.find(m => m.id === idA)
+    const b = measurements.find(m => m.id === idB)
+    if (!a || !b || a.kind !== b.kind || a.id === b.id) return
+
+    // Escolhe, entre as 4 combinações de ordem/direção possíveis, a que
+    // encosta a ponta de A na ponta de B com a menor distância — assumindo
+    // que os dois trechos se encontram (ex: no canto do L).
+    const combos: [Point[], number][] = [
+      [[...a.points, ...b.points], distance(a.points[a.points.length - 1], b.points[0])],
+      [[...a.points, ...[...b.points].reverse()], distance(a.points[a.points.length - 1], b.points[b.points.length - 1])],
+      [[...[...a.points].reverse(), ...b.points], distance(a.points[0], b.points[0])],
+      [[...[...a.points].reverse(), ...[...b.points].reverse()], distance(a.points[0], b.points[b.points.length - 1])],
+    ]
+    let bestPoints = combos[0][0]
+    let bestGap = combos[0][1]
+    for (const [pts, gap] of combos) { if (gap < bestGap) { bestGap = gap; bestPoints = pts } }
+
+    setBusy(true)
+    const res = await createMeasurement(plan.id, {
+      page: a.page, kind: a.kind, label: a.label ?? MEASURE_LABEL[a.kind],
+      points: bestPoints, length_m: round2(a.length_m + b.length_m),
+      environment_id: a.environment_id ?? b.environment_id ?? null,
+      power_w_per_m: a.kind === 'fita' ? (a.power_w_per_m || b.power_w_per_m || 0) : undefined,
+    })
+    setBusy(false)
+    if (!res?.data) return
+    const merged = res.data as Measurement
+
+    setMeasurements(prev => [...prev.filter(m => m.id !== a.id && m.id !== b.id), merged])
+    await Promise.all([deleteMeasurement(plan.id, a.id), deleteMeasurement(plan.id, b.id)])
+
+    pushHistory({
+      label: 'mesclar medições',
+      undo: async () => {
+        setMeasurements(prev => [...prev.filter(m => m.id !== merged.id), a, b])
+        await Promise.all([
+          restoreRow('plan_measurements', a as any),
+          restoreRow('plan_measurements', b as any),
+          deleteMeasurement(plan.id, merged.id),
+        ])
+      },
+      redo: async () => {
+        setMeasurements(prev => [...prev.filter(m => m.id !== a.id && m.id !== b.id), merged])
+        await Promise.all([
+          deleteMeasurement(plan.id, a.id),
+          deleteMeasurement(plan.id, b.id),
+          restoreRow('plan_measurements', merged as any),
+        ])
+      },
+    })
+  }
+
   async function deleteSelected() {
     if (!selection) return
     await deleteEntity(selection.kind, selection.id)
@@ -480,7 +537,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
-            {isMeasuring && `Clique nos pontos do trecho a medir e aperte Enter pra concluir (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
+            {isMeasuring && `Clique em cada ponto do trecho — inclusive nos cantos de um L ou U, sem parar — e aperte Enter só no final pra salvar tudo como uma peça só (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
             {tool === 'simbolo' && 'Clique no ponto onde tem uma luminária pra marcar a ocorrência.'}
             {tool === 'anot-retangulo' && 'Clique e arraste pra desenhar um retângulo.'}
@@ -665,6 +722,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   if (before) updateEntity('measurement', id, { power_w_per_m: before.power_w_per_m }, updates, updateMeasurement)
                 }}
                 onDelete={id => deleteEntity('measurement', id)}
+                onMerge={mergeMeasurements}
                 busy={busy}
               />
             )}
@@ -766,9 +824,10 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
 
 // ── Aba: Medições (perfil / fita + plano de corte / medidas soltas) ─────────
 
-function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, busy }: {
+function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, onMerge, busy }: {
   planId: string; measurements: Measurement[]; environments: Environment[]
-  onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void; busy: boolean
+  onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
+  onMerge: (idA: string, idB: string) => void; busy: boolean
 }) {
   const [comercialPerfil, setComercialPerfil] = useState('3')
   const [comercialFita, setComercialFita] = useState('5')
@@ -801,17 +860,17 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
 
   return (
     <div className="space-y-6">
+      <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
+        💡 Um trecho em L ou U pode ser medido como uma peça só — clique em cada canto sem apertar Enter,
+        e só finalize no último ponto. Se já mediu em partes separadas, use <b>Mesclar</b> no card pra juntar.
+      </p>
+
       <section>
         <p className="text-xs font-bold text-orange-600 uppercase mb-2">Medidas soltas ({medidas.length})</p>
         <div className="space-y-2">
           {medidas.map(m => (
-            <div key={m.id} className="border border-gray-200 rounded-lg p-2 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium text-gray-700">{m.label} · {envName(m.environment_id)}</p>
-                <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m</p>
-              </div>
-              <button onClick={() => onDelete(m.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
-            </div>
+            <SimpleMeasurementCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
+              mergeCandidates={medidas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {medidas.length === 0 && <p className="text-xs text-gray-400">Nenhuma medida solta ainda — use a ferramenta "Medir" pra medir qualquer coisa na planta.</p>}
         </div>
@@ -821,13 +880,8 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
         <p className="text-xs font-bold text-sky-600 uppercase mb-2">Perfis ({perfis.length})</p>
         <div className="space-y-2 mb-3">
           {perfis.map(m => (
-            <div key={m.id} className="border border-gray-200 rounded-lg p-2 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium text-gray-700">{m.label} · {envName(m.environment_id)}</p>
-                <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m</p>
-              </div>
-              <button onClick={() => onDelete(m.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
-            </div>
+            <SimpleMeasurementCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
+              mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {perfis.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda.</p>}
         </div>
@@ -846,27 +900,11 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
       <section>
         <p className="text-xs font-bold text-pink-600 uppercase mb-2">Fitas de LED ({fitas.length})</p>
         <div className="space-y-2 mb-3">
-          {fitas.map(m => {
-            const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
-            return (
-              <div key={m.id} className="border border-gray-200 rounded-lg p-2.5 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-700">{m.label} · {envName(m.environment_id)}</p>
-                  <button onClick={() => onDelete(m.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-                <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m</p>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-500">Consumo da fita:</span>
-                  <input defaultValue={m.power_w_per_m ?? 0} onBlur={e => changePotencia(m.id, e.target.value)}
-                    className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5" /> W/m
-                </div>
-                <div className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5">
-                  {m.length_m.toFixed(2)}m × {(m.power_w_per_m ?? 0)}W/m = <b>{calc.consumoW}W</b> · com margem de 20%: <b>{calc.fonteMinimaW}W</b>
-                  <div className="text-emerald-700 font-semibold mt-0.5">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</div>
-                </div>
-              </div>
-            )
-          })}
+          {fitas.map(m => (
+            <FitaCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
+              onChangePotencia={v => changePotencia(m.id, v)}
+              mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
+          ))}
           {fitas.length === 0 && <p className="text-xs text-gray-400">Nenhuma fita medida ainda.</p>}
         </div>
         {fitas.length > 0 && (
@@ -880,6 +918,93 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+// Cabeçalho comum: label + ambiente (secundário) + ações (mesclar / excluir).
+// Usado tanto pelas medidas soltas quanto pelos perfis (não têm nenhum dado
+// extra pra preencher, então o card inteiro é "baixa hierarquia").
+function MeasurementHeader({ m, envName, onDelete, mergeCandidates, onMerge }: {
+  m: Measurement; envName: string; onDelete: () => void
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+}) {
+  const [merging, setMerging] = useState(false)
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-gray-800 truncate">{m.label}</p>
+        <p className="text-[11px] text-gray-400">{envName}</p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0 relative">
+        {mergeCandidates.length > 0 && (
+          <button onClick={() => setMerging(v => !v)} title="Mesclar com outra medição"
+            className="text-[10px] font-semibold text-gray-400 hover:text-brand-600 border border-gray-200 hover:border-brand-300 rounded px-1.5 py-0.5">
+            Mesclar
+          </button>
+        )}
+        <button onClick={onDelete} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+        {merging && (
+          <div className="absolute right-0 top-6 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
+            <p className="text-[10px] text-gray-400 px-2 py-1">Mesclar com:</p>
+            {mergeCandidates.map(c => (
+              <button key={c.id} onClick={() => { onMerge(c.id); setMerging(false) }}
+                className="w-full text-left px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 truncate">
+                {c.label} ({c.length_m.toFixed(2)}m)
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Card enxuto pra medida solta e perfil — só tem comprimento pra mostrar,
+// então o comprimento é a única informação em destaque.
+function SimpleMeasurementCard({ m, envName, onDelete, mergeCandidates, onMerge }: {
+  m: Measurement; envName: string; onDelete: () => void
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+}) {
+  return (
+    <div className="border border-gray-200 rounded-lg p-2.5">
+      <MeasurementHeader m={m} envName={envName} onDelete={onDelete} mergeCandidates={mergeCandidates} onMerge={onMerge} />
+      <p className="text-base font-bold text-gray-800 mt-1">{m.length_m.toFixed(2)} m</p>
+    </div>
+  )
+}
+
+// Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
+// mínima resultante — isso fica grande e em destaque. O resto (label,
+// ambiente, a conta em si) fica pequeno e discreto.
+function FitaCard({ m, envName, onDelete, onChangePotencia, mergeCandidates, onMerge }: {
+  m: Measurement; envName: string; onDelete: () => void; onChangePotencia: (v: string) => void
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+}) {
+  const preenchido = !!m.power_w_per_m
+  const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
+  return (
+    <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+      <MeasurementHeader m={m} envName={envName} onDelete={onDelete} mergeCandidates={mergeCandidates} onMerge={onMerge} />
+      <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m de fita</p>
+
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
+        <input defaultValue={m.power_w_per_m ?? ''} placeholder="0" onBlur={e => onChangePotencia(e.target.value)}
+          className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
+        <span className="text-xs text-gray-500">W/m</span>
+      </div>
+
+      {preenchido ? (
+        <div>
+          <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            {m.length_m.toFixed(2)}m × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs font-medium text-amber-600 bg-amber-50 rounded px-2 py-1.5">⚠ Falta informar o W/m dessa fita pra calcular a fonte</p>
+      )}
     </div>
   )
 }
