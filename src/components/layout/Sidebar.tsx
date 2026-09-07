@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, Calendar, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/dashboard/tasks', label: 'Tarefas',     icon: CheckSquare },
   { href: '/schedules',       label: 'Agenda',      icon: Calendar },
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
+  { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
   { href: '/site-leads',      label: 'Contatos do Site', icon: Inbox },
   { href: '/shipping',        label: 'Expedição',   icon: Package },
