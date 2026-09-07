@@ -116,24 +116,37 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     await entry.redo()
   }
 
+  // Sem array de dependências (roda de novo a cada render) de propósito —
+  // o listener precisa sempre fechar sobre o `tool`/`draftPoints`/`selection`
+  // atuais; o custo de re-anexar um keydown a cada render é irrelevante.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement
       const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-      if (!typing && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+      if (typing) return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) redo(); else undo()
+        return
       }
-      if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selection) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
         e.preventDefault()
         deleteSelected()
+        return
       }
-      if (!typing && e.key === 'Escape') setSelection(null)
+      if (e.key === 'Enter' && draftPoints.length > 0) {
+        e.preventDefault()
+        finalizeDraft()
+        return
+      }
+      if (e.key === 'Escape') {
+        setSelection(null)
+        resetDrafts()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, undo, redo])
+  })
 
   // ── Entidades desenhadas no PDF: acesso genérico (delete/restore/undo) ────
 
@@ -276,7 +289,11 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
 
-  async function handleCanvasDoubleClick() {
+  // Finaliza o polígono/polilinha em desenho — chamado pela tecla Enter (não
+  // por duplo clique: o navegador dispara click+click+dblclick numa sequência
+  // de duplo clique, então os 2 cliques de "fechar" viravam pontos extras
+  // fantasmas antes de conseguirmos interceptar, criando cotas erradas).
+  async function finalizeDraft() {
     if (tool === 'ambiente' && draftPoints.length >= 3) {
       const name = window.prompt('Nome do ambiente:')
       if (name?.trim()) {
@@ -462,9 +479,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
-            {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente, dê dois cliques (ou clique duas vezes no último ponto) pra fechar o polígono.'}
-            {isMeasuring && `Clique nos pontos do trecho a medir e dê dois cliques pra concluir.${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
-            {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e finalize com um duplo clique.'}
+            {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
+            {isMeasuring && `Clique nos pontos do trecho a medir e aperte Enter pra concluir (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
+            {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
             {tool === 'simbolo' && 'Clique no ponto onde tem uma luminária pra marcar a ocorrência.'}
             {tool === 'anot-retangulo' && 'Clique e arraste pra desenhar um retângulo.'}
             {tool === 'anot-livre' && 'Clique e arraste pra desenhar livremente.'}
@@ -509,7 +526,6 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               className="absolute inset-0"
               style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
               onClick={handleCanvasClick}
-              onDoubleClick={handleCanvasDoubleClick}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
