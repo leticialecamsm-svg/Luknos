@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   pointInPolygon, distance, polylineLength,
-  computeScaleMetersPerPixel, measurementLengthMeters, groupPointsByEnvironment,
+  computeScaleMetersPerPixel, measurementLengthMeters, groupPointsByEnvironment, closestPointOnPolyline,
 } from './geometry'
 
 describe('pointInPolygon', () => {
@@ -77,5 +77,29 @@ describe('groupPointsByEnvironment', () => {
     const pontos = [{ x: 100, y: 100 }]
     const grupos = groupPointsByEnvironment(pontos, [sala, cozinha])
     expect(grupos.get(null)?.length).toBe(1)
+  })
+})
+
+describe('closestPointOnPolyline', () => {
+  it('acha o ponto mais próximo numa linha reta (perpendicular ao meio)', () => {
+    const p = closestPointOnPolyline([5, 10], [[0, 0], [10, 0]])
+    expect(p[0]).toBeCloseTo(5)
+    expect(p[1]).toBeCloseTo(0)
+  })
+
+  it('gruda numa das pontas quando a projeção cai fora do segmento', () => {
+    const p = closestPointOnPolyline([-5, 5], [[0, 0], [10, 0]])
+    expect(p).toEqual([0, 0])
+  })
+
+  it('escolhe o segmento certo numa polilinha em L', () => {
+    const emL: [number, number][] = [[0, 0], [0, 10], [10, 10]]
+    const p = closestPointOnPolyline([12, 10], emL)
+    expect(p[0]).toBeCloseTo(10)
+    expect(p[1]).toBeCloseTo(10)
+  })
+
+  it('polilinha de um ponto só retorna esse ponto', () => {
+    expect(closestPointOnPolyline([5, 5], [[1, 1]])).toEqual([1, 1])
   })
 })

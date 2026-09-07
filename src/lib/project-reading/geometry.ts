@@ -50,6 +50,29 @@ export function measurementLengthMeters(points: Point[], metersPerPixel: number)
 }
 
 /**
+ * Ponto mais próximo de `target` em cima de uma polilinha — usado pra ancorar
+ * o cabo (linha pontilhada) da fonte no trecho de fita mais perto dela, já
+ * que a fonte quase nunca fica bem em cima da fita na planta.
+ */
+export function closestPointOnPolyline(target: Point, points: Point[]): Point {
+  if (points.length === 0) return target
+  if (points.length === 1) return points[0]
+  let best = points[0]
+  let bestDist = Infinity
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1]
+    const dx = b[0] - a[0], dy = b[1] - a[1]
+    const lenSq = dx * dx + dy * dy
+    let t = lenSq > 0 ? ((target[0] - a[0]) * dx + (target[1] - a[1]) * dy) / lenSq : 0
+    t = Math.max(0, Math.min(1, t))
+    const candidate: Point = [a[0] + t * dx, a[1] + t * dy]
+    const d = distance(target, candidate)
+    if (d < bestDist) { bestDist = d; best = candidate }
+  }
+  return best
+}
+
+/**
  * Agrupa ocorrências de símbolo por ambiente (o primeiro polígono, na ordem
  * recebida, que contém o ponto). Ocorrências fora de qualquer ambiente
  * ficam em `environmentId: null` ("sem ambiente"), pra nunca sumirem

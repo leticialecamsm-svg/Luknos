@@ -8,14 +8,15 @@ import {
   createSymbolOccurrence, updateSymbolOccurrence, deleteSymbolOccurrence,
   createMeasurement, updateMeasurement, deleteMeasurement,
   createAnnotation, deleteAnnotation, updateAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
+  createPowerSupply, updatePowerSupply, deletePowerSupply,
 } from '@/lib/project-reading/actions'
-import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
-import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, type TrechoNecessario } from '@/lib/project-reading/calculations'
+import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, closestPointOnPolyline, type Point } from '@/lib/project-reading/geometry'
+import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download,
+  RotateCw, X, Layers, Download, Zap,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -29,7 +30,7 @@ if (typeof window !== 'undefined') {
 
 type Tool = 'select' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
 type MeasureKind = 'perfil' | 'fita' | 'medida'
-type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation'
+type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation' | 'powerSupply'
 
 interface Environment { id: string; page: number; name: string; polygon: Point[]; origin: string; status: string }
 interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null }
@@ -37,8 +38,10 @@ interface SymbolOccurrence { id: string; page: number; x: number; y: number; leg
 interface Measurement {
   id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
   power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null; notes?: string | null
+  cota_offset?: number | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
+interface PowerSupply { id: string; measurement_id: string; page: number; x: number; y: number; watts: number }
 
 interface Plan {
   id: string; name: string; num_pages: number; pdfUrl: string
@@ -88,9 +91,9 @@ type PieceBadge = { label: string; color: string; siblings: string[] }
 type Selection = { kind: EntityKind; id: string } | null
 type HistoryEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> }
 
-export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendItems: initLegend, symbols: initSymbols, measurements: initMeasurements, annotations: initAnnotations }: {
+export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendItems: initLegend, symbols: initSymbols, measurements: initMeasurements, annotations: initAnnotations, powerSupplies: initPowerSupplies }: {
   plan: Plan; environments: Environment[]; legendItems: LegendItem[]
-  symbols: SymbolOccurrence[]; measurements: Measurement[]; annotations: Annotation[]
+  symbols: SymbolOccurrence[]; measurements: Measurement[]; annotations: Annotation[]; powerSupplies: PowerSupply[]
 }) {
   const [tab, setTab] = useState<'ambientes' | 'legenda' | 'medicoes' | 'resultado'>('ambientes')
   const [panelOpen, setPanelOpen] = useState(true)
@@ -113,6 +116,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [symbols, setSymbols] = useState<SymbolOccurrence[]>(initSymbols)
   const [measurements, setMeasurements] = useState<Measurement[]>(initMeasurements)
   const [annotations, setAnnotations] = useState<Annotation[]>(initAnnotations)
+  const [powerSupplies, setPowerSupplies] = useState<PowerSupply[]>(initPowerSupplies)
   const [scaleMap, setScaleMap] = useState<Record<string, number>>(plan.scale_m_per_px ?? {})
   const [rotationMap, setRotationMap] = useState<Record<string, number>>(plan.page_rotation ?? {})
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null)
@@ -120,7 +124,22 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // + onde há corte reaproveitado da mesma peça, escondendo ambiente/símbolo/
   // anotação — pensada pra exportar em PDF pro instalador.
   const [reaproveitamentoView, setReaproveitamentoView] = useState(false)
+  // "Visualizar fontes": mostra só as fitas (contexto) + as fontes já
+  // posicionadas + o cabo até a fita — escondido por padrão pra não poluir
+  // a visão geral (as fontes só aparecem aqui, nunca na visão normal).
+  const [fontesView, setFontesView] = useState(false)
   const [draggingAnnotation, setDraggingAnnotation] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  // Arrastar a ponta de uma medição selecionada pra redimensionar.
+  const [draggingPoint, setDraggingPoint] = useState<{ measurementId: string; pointIndex: number } | null>(null)
+  // Arrastar a própria cota (linha de medida) pro lado, sem alterar o
+  // comprimento medido — só o deslocamento visual da linha de cota.
+  const [draggingCotaOffset, setDraggingCotaOffset] = useState<{ measurementId: string } | null>(null)
+  const [draggingFonte, setDraggingFonte] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  // Depois de confirmar a potência, aguarda o próximo clique na planta pra
+  // saber onde a fonte fica fisicamente (o buraco do forro mais próximo).
+  const [pendingFontePlacement, setPendingFontePlacement] = useState<{ measurementId: string; watts: number } | null>(null)
+  // Idem, mas pra apontar a seta de uma anotação de texto pra um ponto da planta.
+  const [pendingArrowFor, setPendingArrowFor] = useState<string | null>(null)
 
   const [draftPoints, setDraftPoints] = useState<Point[]>([])
   const [draftFreehand, setDraftFreehand] = useState<Point[]>([])
@@ -186,6 +205,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (e.key === 'Escape') {
         setSelection(null)
         resetDrafts()
+        setPendingFontePlacement(null)
+        setPendingArrowFor(null)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -200,6 +221,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       case 'symbol': return { list: symbols as any[], set: setSymbols as any, table: 'plan_symbol_occurrences' as const, del: deleteSymbolOccurrence }
       case 'measurement': return { list: measurements as any[], set: setMeasurements as any, table: 'plan_measurements' as const, del: deleteMeasurement }
       case 'annotation': return { list: annotations as any[], set: setAnnotations as any, table: 'plan_annotations' as const, del: deleteAnnotation }
+      case 'powerSupply': return { list: powerSupplies as any[], set: setPowerSupplies as any, table: 'plan_power_supplies' as const, del: deletePowerSupply }
     }
   }
 
@@ -217,11 +239,26 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     const row = list.find(x => x.id === id)
     if (!row) return
     set((prev: any[]) => prev.filter(x => x.id !== id))
+    // A fonte de uma fita excluída fica órfã no banco (cascade cuida disso
+    // lá), mas o estado local não sabe — tira ela da tela também.
+    let orphanFonte: PowerSupply | undefined
+    if (kind === 'measurement') {
+      orphanFonte = powerSupplies.find(ps => ps.measurement_id === id)
+      if (orphanFonte) setPowerSupplies(prev => prev.filter(ps => ps.measurement_id !== id))
+    }
     await del(plan.id, id)
     pushHistory({
       label: `excluir ${kind}`,
-      undo: async () => { set((prev: any[]) => [...prev, row]); await restoreRow(table, row) },
-      redo: async () => { set((prev: any[]) => prev.filter(x => x.id !== id)); await del(plan.id, id) },
+      undo: async () => {
+        set((prev: any[]) => [...prev, row])
+        await restoreRow(table, row)
+        if (orphanFonte) { setPowerSupplies(prev => [...prev, orphanFonte!]); await restoreRow('plan_power_supplies', orphanFonte as any) }
+      },
+      redo: async () => {
+        set((prev: any[]) => prev.filter(x => x.id !== id))
+        if (orphanFonte) setPowerSupplies(prev => prev.filter(ps => ps.id !== orphanFonte!.id))
+        await del(plan.id, id)
+      },
     })
   }
 
@@ -337,6 +374,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     const before = { data: row.data }
     const after = { data: { ...row.data, ...patch } }
     updateEntity('annotation', id, before, after, (planId, annId, updates) => updateAnnotation(planId, annId, (updates as any).data))
+  }
+
+  // Usuário já escolheu a potência no card — só falta clicar na planta pra
+  // dizer onde a fonte fica fisicamente (o buraco do forro mais próximo).
+  function startFontePlacement(measurementId: string, watts: number) {
+    setPendingFontePlacement({ measurementId, watts })
+    setSelection(null)
+  }
+  function deleteFonte(id: string) {
+    deleteEntity('powerSupply', id)
   }
 
   function selectShape(kind: EntityKind, id: string, e: React.MouseEvent) {
@@ -546,6 +593,24 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const MEASURE_TOOLS: Tool[] = ['medir', 'medir-perfil', 'medir-fita']
 
   async function handleCanvasClick(e: React.MouseEvent) {
+    // Colocar a fonte ou apontar a seta têm prioridade sobre a ferramenta
+    // ativa — o usuário já confirmou a ação no popover, só falta o clique.
+    if (pendingFontePlacement) {
+      const p = toBase(e)
+      const { measurementId, watts } = pendingFontePlacement
+      setPendingFontePlacement(null)
+      setBusy(true)
+      const res = await createPowerSupply(plan.id, { measurementId, page: pageNum, x: p[0], y: p[1], watts })
+      if (res?.data) { setPowerSupplies(prev => [...prev, res.data]); pushCreateHistory('powerSupply', res.data) }
+      setBusy(false)
+      return
+    }
+    if (pendingArrowFor) {
+      const p = toBase(e)
+      updateAnnotationData(pendingArrowFor, { arrowTo: p })
+      setPendingArrowFor(null)
+      return
+    }
     if (tool === 'select') { setSelection(null); return }
     const p = toBase(e)
     if (tool === 'ambiente' || MEASURE_TOOLS.includes(tool) || tool === 'calibrar') {
@@ -673,12 +738,69 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const nx = p[0] - draggingAnnotation.offsetX, ny = p[1] - draggingAnnotation.offsetY
       setAnnotations(prev => prev.map(a => a.id === draggingAnnotation.id ? { ...a, data: { ...a.data, x: nx, y: ny } } : a))
     }
+    if (draggingFonte) {
+      const nx = p[0] - draggingFonte.offsetX, ny = p[1] - draggingFonte.offsetY
+      setPowerSupplies(prev => prev.map(ps => ps.id === draggingFonte.id ? { ...ps, x: nx, y: ny } : ps))
+    }
+    if (draggingPoint) {
+      setMeasurements(prev => prev.map(m => {
+        if (m.id !== draggingPoint.measurementId) return m
+        const newPoints = m.points.map((pt, i) => i === draggingPoint.pointIndex ? p : pt)
+        const newLength = scale ? round2(polylineLength(newPoints) * scale) : m.length_m
+        return { ...m, points: newPoints, length_m: newLength }
+      }))
+    }
+    if (draggingCotaOffset) {
+      const m = measurements.find(x => x.id === draggingCotaOffset.measurementId)
+      if (m && m.points.length >= 2) {
+        const a = m.points[0], b = m.points[1]
+        const dx = b[0] - a[0], dy = b[1] - a[1]
+        const len = Math.hypot(dx, dy) || 1
+        const nx = -dy / len, ny = dx / len // mesma perpendicular usada no renderCota
+        const signedDistBase = (p[0] - a[0]) * nx + (p[1] - a[1]) * ny
+        const newOffsetPx = round2(signedDistBase * renderScale)
+        setMeasurements(prev => prev.map(x => x.id === m.id ? { ...x, cota_offset: newOffsetPx } : x))
+      }
+    }
   }
   async function handleMouseUp() {
     if (draggingAnnotation) {
       const a = annotations.find(x => x.id === draggingAnnotation.id)
       setDraggingAnnotation(null)
       if (a) await updateAnnotation(plan.id, a.id, a.data)
+      return
+    }
+    if (draggingFonte) {
+      const ps = powerSupplies.find(x => x.id === draggingFonte.id)
+      setDraggingFonte(null)
+      if (ps) await updatePowerSupply(plan.id, ps.id, { x: ps.x, y: ps.y })
+      return
+    }
+    if (draggingPoint) {
+      const dp = draggingPoint
+      setDraggingPoint(null)
+      const m = measurements.find(x => x.id === dp.measurementId)
+      if (m) {
+        setBusy(true)
+        await updateMeasurement(plan.id, m.id, { points: m.points, length_m: m.length_m })
+        // Perfil e sua fita andam com a mesma medida — se um dos dois for
+        // redimensionado, o outro segue junto.
+        const linked = m.linked_measurement_id
+          ? measurements.find(x => x.id === m.linked_measurement_id)
+          : measurements.find(x => x.linked_measurement_id === m.id)
+        if (linked) {
+          setMeasurements(prev => prev.map(x => x.id === linked.id ? { ...x, points: m.points, length_m: m.length_m } : x))
+          await updateMeasurement(plan.id, linked.id, { points: m.points, length_m: m.length_m })
+        }
+        setBusy(false)
+      }
+      return
+    }
+    if (draggingCotaOffset) {
+      const dc = draggingCotaOffset
+      setDraggingCotaOffset(null)
+      const m = measurements.find(x => x.id === dc.measurementId)
+      if (m) await updateMeasurement(plan.id, m.id, { cota_offset: m.cota_offset ?? 16 })
       return
     }
     if (tool === 'anot-retangulo' && rectStart && rectCur) {
@@ -723,8 +845,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
     selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: PieceBadge
+    cotaOffset?: number; onOffsetDragStart?: () => void
   }) {
-    const offsetPx = 16
+    const offsetPx = opts?.cotaOffset ?? 16
     const segs: JSX.Element[] = []
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i], b = points[i + 1]
@@ -756,7 +879,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
           {opts?.onClick && (
             <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="transparent" strokeWidth={14}
-              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); opts.onClick!(e) }} />
+              style={{ cursor: opts.onOffsetDragStart ? 'move' : 'pointer' }}
+              onClick={e => { e.stopPropagation(); opts.onClick!(e) }}
+              onMouseDown={opts.onOffsetDragStart ? e => { e.stopPropagation(); opts.onOffsetDragStart!() } : undefined} />
           )}
           {segLenM != null && (
             <text x={midX} y={midY - 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={color}
@@ -816,10 +941,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomIn className="w-4 h-4" /></button>
             <button onClick={rotatePage} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
             <div className="w-px h-4 bg-gray-200 mx-1" />
-            <button onClick={() => setReaproveitamentoView(v => !v)} title="Visualizar reaproveitamento"
+            <button onClick={() => { setReaproveitamentoView(v => !v); setFontesView(false) }} title="Visualizar reaproveitamento"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
                 reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-gray-600 hover:bg-gray-200')}>
               <Layers className="w-3.5 h-3.5" /> Reaproveitamento
+            </button>
+            <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes (12V) já posicionadas"
+              className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                fontesView ? 'bg-amber-600 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+              <Zap className="w-3.5 h-3.5" /> Fontes
             </button>
             <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 disabled:opacity-40">
@@ -853,6 +983,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             {tool === 'anot-texto' && 'Clique onde quer inserir o texto.'}
           </div>
         )}
+        {pendingFontePlacement && (
+          <div className="px-3 py-1.5 bg-amber-50 text-amber-700 text-xs font-medium border-b border-amber-100 flex items-center justify-between">
+            <span>📍 Clique no buraco do forro/luminária onde essa fonte de {pendingFontePlacement.watts}W vai ficar.</span>
+            <button onClick={() => setPendingFontePlacement(null)} className="text-amber-500 hover:text-amber-700">Cancelar (Esc)</button>
+          </div>
+        )}
+        {pendingArrowFor && (
+          <div className="px-3 py-1.5 bg-cyan-50 text-cyan-700 text-xs font-medium border-b border-cyan-100 flex items-center justify-between">
+            <span>🎯 Clique no ponto da planta pra onde a seta deve apontar.</span>
+            <button onClick={() => setPendingArrowFor(null)} className="text-cyan-500 hover:text-cyan-700">Cancelar (Esc)</button>
+          </div>
+        )}
 
         {/* Canvas + overlay */}
         <div className="flex-1 overflow-auto bg-gray-100 p-4">
@@ -872,11 +1014,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
             >
+              <defs>
+                <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#0891b2" />
+                </marker>
+              </defs>
               {/* Ambientes confirmados — halo branco + traço tracejado grosso,
                   pra nunca se confundir com uma parede ou cota do próprio
                   projeto (que geralmente são linhas finas contínuas).
                   Escondido na "Visualizar reaproveitamento" (visão limpa). */}
-              {!reaproveitamentoView && pagePoints.environments.map((env, i) => {
+              {!reaproveitamentoView && !fontesView && pagePoints.environments.map((env, i) => {
                 const pts = env.polygon.map(toScreen).map(p => p.join(',')).join(' ')
                 const color = ENV_COLORS[i % ENV_COLORS.length]
                 const selected = selection?.kind === 'environment' && selection.id === env.id
@@ -890,7 +1037,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 )
               })}
               {/* Rótulo do ambiente no centroide */}
-              {!reaproveitamentoView && pagePoints.environments.map((env, i) => {
+              {!reaproveitamentoView && !fontesView && pagePoints.environments.map((env, i) => {
                 const cx = env.polygon.reduce((s, p) => s + p[0], 0) / env.polygon.length
                 const cy = env.polygon.reduce((s, p) => s + p[1], 0) / env.polygon.length
                 const [sx, sy] = toScreen([cx, cy])
@@ -911,32 +1058,92 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {draftPoints.map((p, i) => { const [sx, sy] = toScreen(p); return <circle key={i} cx={sx} cy={sy} r={3.5} fill="#f59400" /> })}
 
               {/* Medições — sempre como cota (linha de extensão + medida em metros).
-                  Na visão limpa, só perfil/fita (que têm peça/rolo) aparecem. */}
+                  Na visão limpa (reaproveitamento), só perfil/fita aparecem.
+                  Na visão de fontes, só fita (é o que a fonte alimenta). */}
               {pagePoints.measurements
                 .filter(m => !reaproveitamentoView || m.kind !== 'medida')
-                .map(m => (
-                <g key={m.id}>
-                  {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
-                    selected: selection?.kind === 'measurement' && selection.id === m.id,
-                    onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
-                    badge: pieceBadgeMap.get(m.id),
-                  })}
-                  {reaproveitamentoView && (() => {
-                    const badge = pieceBadgeMap.get(m.id)
-                    if (!badge || badge.siblings.length === 0) return null
-                    const [lx, ly] = toScreen(m.points[m.points.length - 1])
-                    return (
-                      <text key={`${m.id}-emenda`} x={lx + 8} y={ly + 10} fontSize={9} fontWeight={700} fill="#b45309"
-                        stroke="white" strokeWidth={3} paintOrder="stroke">
-                        ↔ emenda com: {badge.siblings.join(', ')}
-                      </text>
-                    )
-                  })()}
-                </g>
-              ))}
+                .filter(m => !fontesView || m.kind === 'fita')
+                .map(m => {
+                  const selected = selection?.kind === 'measurement' && selection.id === m.id
+                  return (
+                    <g key={m.id}>
+                      {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
+                        selected,
+                        onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
+                        badge: fontesView ? undefined : pieceBadgeMap.get(m.id),
+                        cotaOffset: m.cota_offset ?? 16,
+                        onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
+                      })}
+                      {reaproveitamentoView && (() => {
+                        const badge = pieceBadgeMap.get(m.id)
+                        if (!badge || badge.siblings.length === 0) return null
+                        const [lx, ly] = toScreen(m.points[m.points.length - 1])
+                        return (
+                          <text key={`${m.id}-emenda`} x={lx + 8} y={ly + 10} fontSize={9} fontWeight={700} fill="#b45309"
+                            stroke="white" strokeWidth={3} paintOrder="stroke">
+                            ↔ emenda com: {badge.siblings.join(', ')}
+                          </text>
+                        )
+                      })()}
+                      {/* Alças pra arrastar a ponta e redimensionar — só na medição selecionada */}
+                      {selected && tool === 'select' && m.points.map((pt, i) => {
+                        const [sx, sy] = toScreen(pt)
+                        return (
+                          <circle key={i} cx={sx} cy={sy} r={6} fill="white" stroke={MEASURE_COLOR[m.kind]} strokeWidth={2.5}
+                            style={{ cursor: draggingPoint?.measurementId === m.id && draggingPoint.pointIndex === i ? 'grabbing' : 'grab' }}
+                            onMouseDown={e => { e.stopPropagation(); setDraggingPoint({ measurementId: m.id, pointIndex: i }) }} />
+                        )
+                      })}
+                    </g>
+                  )
+                })}
+
+              {/* Fontes (12V) + cabo pontilhado até a fita — só aparece na
+                  "Visualizar fontes", pra nunca poluir a visão geral. */}
+              {fontesView && powerSupplies.filter(ps => ps.page === pageNum).map(ps => {
+                const feeding = measurements.find(m => m.id === ps.measurement_id)
+                const [sx, sy] = toScreen([ps.x, ps.y])
+                const selected = selection?.kind === 'powerSupply' && selection.id === ps.id
+                let cable: JSX.Element | null = null
+                if (feeding) {
+                  const anchor = closestPointOnPolyline([ps.x, ps.y], feeding.points)
+                  const [ex, ey] = toScreen(anchor)
+                  const midX = (sx + ex) / 2, midY = (sy + ey) / 2
+                  const dx = ex - sx, dy = ey - sy
+                  const len = Math.hypot(dx, dy) || 1
+                  const nx = -dy / len, ny = dx / len
+                  const curve = Math.min(30, len * 0.25)
+                  const cx = midX + nx * curve, cy = midY + ny * curve
+                  cable = (
+                    <g pointerEvents="none">
+                      <path d={`M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`} fill="none" stroke="white" strokeWidth={4.5} opacity={0.9} />
+                      <path d={`M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`} fill="none" stroke="#d97706" strokeWidth={2} strokeDasharray="5 4" />
+                    </g>
+                  )
+                }
+                return (
+                  <g key={ps.id}>
+                    {cable}
+                    <g
+                      style={{ cursor: tool === 'select' ? (draggingFonte?.id === ps.id ? 'grabbing' : 'grab') : undefined }}
+                      onClick={e => { e.stopPropagation(); selectShape('powerSupply', ps.id, e) }}
+                      onMouseDown={e => {
+                        if (tool !== 'select') return
+                        e.stopPropagation()
+                        const base = toBase(e)
+                        setDraggingFonte({ id: ps.id, offsetX: base[0] - ps.x, offsetY: base[1] - ps.y })
+                      }}>
+                      <rect x={sx - 12} y={sy - 12} width={24} height={24} rx={5} fill="#d97706" stroke="white" strokeWidth={selected ? 3 : 2} />
+                      <text x={sx} y={sy + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="white" pointerEvents="none">F</text>
+                      <text x={sx} y={sy + 26} textAnchor="middle" fontSize={10} fontWeight={700} fill="#92400e"
+                        stroke="white" strokeWidth={3} paintOrder="stroke" pointerEvents="none">{ps.watts}W</text>
+                    </g>
+                  </g>
+                )
+              })}
 
               {/* Símbolos — escondidos na visão limpa */}
-              {!reaproveitamentoView && pagePoints.symbols.map(s => {
+              {!reaproveitamentoView && !fontesView && pagePoints.symbols.map(s => {
                 const [sx, sy] = toScreen([s.x, s.y])
                 const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
@@ -951,7 +1158,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {/* Anotações — ciano forte (não a cor vermelha que a maioria
                   das plantas já usa pra cotas/observações do próprio CAD),
                   com halo branco por baixo pra sempre se destacar. */}
-              {!reaproveitamentoView && pagePoints.annotations.map(a => {
+              {!reaproveitamentoView && !fontesView && pagePoints.annotations.map(a => {
                 const selected = selection?.kind === 'annotation' && selection.id === a.id
                 const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id, e) }
                 const ANOT_COLOR = '#0891b2'
@@ -978,18 +1185,31 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 }
                 if (a.kind === 'text') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
-                  return <text key={a.id} x={sx} y={sy} fontSize={a.data.fontSize ?? 13} fontWeight={700} fill={ANOT_COLOR}
-                    style={{ cursor: tool === 'select' ? (draggingAnnotation?.id === a.id ? 'grabbing' : 'grab') : undefined }}
-                    onClick={onSel}
-                    onMouseDown={e => {
-                      if (tool !== 'select') return
-                      e.stopPropagation()
-                      const base = toBase(e)
-                      setDraggingAnnotation({ id: a.id, offsetX: base[0] - a.data.x, offsetY: base[1] - a.data.y })
-                    }}
-                    stroke={selected ? '#a5f3fc' : 'white'} strokeWidth={selected ? 5 : 3.5} paintOrder="stroke">
-                    {a.data.text}
-                  </text>
+                  return (
+                    <g key={a.id}>
+                      {a.data.arrowTo && (() => {
+                        const [ex, ey] = toScreen(a.data.arrowTo)
+                        return (
+                          <g pointerEvents="none">
+                            <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="white" strokeWidth={4.5} opacity={0.9} />
+                            <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={ANOT_COLOR} strokeWidth={2} markerEnd="url(#arrowhead)" />
+                          </g>
+                        )
+                      })()}
+                      <text x={sx} y={sy} fontSize={a.data.fontSize ?? 13} fontWeight={700} fill={ANOT_COLOR}
+                        style={{ cursor: tool === 'select' ? (draggingAnnotation?.id === a.id ? 'grabbing' : 'grab') : undefined }}
+                        onClick={onSel}
+                        onMouseDown={e => {
+                          if (tool !== 'select') return
+                          e.stopPropagation()
+                          const base = toBase(e)
+                          setDraggingAnnotation({ id: a.id, offsetX: base[0] - a.data.x, offsetY: base[1] - a.data.y })
+                        }}
+                        stroke={selected ? '#a5f3fc' : 'white'} strokeWidth={selected ? 5 : 3.5} paintOrder="stroke">
+                        {a.data.text}
+                      </text>
+                    </g>
+                  )
                 }
                 return null
               })}
@@ -1034,6 +1254,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onDeleteMeasurement={id => deleteEntity('measurement', id)}
                 onMergeMeasurement={mergeMeasurements}
                 pieceBadgeMap={pieceBadgeMap}
+                powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
               />
             )}
             {tab === 'legenda' && (
@@ -1052,6 +1273,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 comercialPerfil={comercialPerfil} setComercialPerfil={setComercialPerfil}
                 comercialFita={comercialFita} setComercialFita={setComercialFita}
                 planoPerfil={planoPerfil} planoFita={planoFita}
+                powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
               />
             )}
             {tab === 'resultado' && (
@@ -1080,6 +1302,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           onViewContents={() => { setTab('ambientes'); setPanelOpen(true); setSelection(null) }}
           onUpdateAnnotation={updateAnnotationData}
           onDeleteMeasurement={id => deleteEntity('measurement', id)}
+          onStartArrow={id => { setPendingArrowFor(id); setSelection(null) }}
+          powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
         />
       )}
 
@@ -1122,7 +1346,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
 function SelectionPopover({
   selection, anchor, onClose, environments, legendItems, symbols, measurements, annotations, pieceBadgeMap,
-  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation, onDeleteMeasurement,
+  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation, onDeleteMeasurement, onStartArrow,
+  powerSupplies, onStartFontePlacement, onDeleteFonte,
 }: {
   selection: { kind: EntityKind; id: string }
   anchor: { x: number; y: number }
@@ -1139,6 +1364,10 @@ function SelectionPopover({
   onViewContents: () => void
   onUpdateAnnotation: (id: string, patch: Record<string, unknown>) => void
   onDeleteMeasurement: (id: string) => void
+  onStartArrow: (id: string) => void
+  powerSupplies: PowerSupply[]
+  onStartFontePlacement: (measurementId: string, watts: number) => void
+  onDeleteFonte: (id: string) => void
 }) {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
@@ -1207,7 +1436,8 @@ function SelectionPopover({
             onChangeBarNote={v => onUpdateMeasurement(comboPerfil.id, { notes: v })}
             onChangePotencia={v => onUpdateMeasurement(comboFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
             onDelete={() => { onDeleteMeasurement(comboPerfil.id); onDeleteMeasurement(comboFita.id); onClose() }}
-            pieceBadgePerfil={pieceBadgeMap.get(comboPerfil.id)} pieceBadgeFita={pieceBadgeMap.get(comboFita.id)} />
+            pieceBadgePerfil={pieceBadgeMap.get(comboPerfil.id)} pieceBadgeFita={pieceBadgeMap.get(comboFita.id)}
+            powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
         </div>
       )
     } else {
@@ -1224,7 +1454,8 @@ function SelectionPopover({
       content = (
         <div className="p-3">
           {m.kind === 'fita'
-            ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })} />
+            ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+                powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
             : <SimpleMeasurementCard {...shared} />}
         </div>
       )
@@ -1252,6 +1483,12 @@ function SelectionPopover({
             <textarea defaultValue={a.data.note ?? ''} rows={2} placeholder="Observação (opcional, não aparece na planta)..."
               onBlur={e => onUpdateAnnotation(a.id, { note: e.target.value })}
               className="w-full text-xs text-gray-500 border border-gray-100 bg-gray-50 rounded-md p-1.5 outline-none focus:border-brand-300 resize-none" />
+            <div className="flex items-center gap-2">
+              <button onClick={() => onStartArrow(a.id)} className="text-[11px] font-medium text-brand-600 hover:underline">🎯 {a.data.arrowTo ? 'Reapontar seta' : 'Adicionar seta pra um ponto'}</button>
+              {a.data.arrowTo && (
+                <button onClick={() => onUpdateAnnotation(a.id, { arrowTo: null })} className="text-[11px] text-gray-400 hover:text-red-500">remover seta</button>
+              )}
+            </div>
             <p className="text-[10px] text-gray-300">Arraste o texto na planta pra reposicionar.</p>
           </>
         )}
@@ -1279,12 +1516,14 @@ function SelectionPopover({
 function AmbientesTab({
   environments, symbols, legendItems, measurements, onRename, onDelete, onRelink,
   onDeleteSymbol, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
+  powerSupplies, onStartFontePlacement, onDeleteFonte,
 }: {
   environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]; measurements: Measurement[]
   onRename: (id: string, name: string) => void; onDelete: (id: string) => void; onRelink: () => void
   onDeleteSymbol: (id: string) => void
   onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void; onDeleteMeasurement: (id: string) => void
   onMergeMeasurement: (idA: string, idB: string) => void; pieceBadgeMap: Map<string, PieceBadge>
+  powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
@@ -1341,7 +1580,8 @@ function AmbientesTab({
                         onChangeBarNote={v => onUpdateMeasurement(m.id, { notes: v })}
                         onChangePotencia={v => onUpdateMeasurement(linkedFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onDelete={() => { onDeleteMeasurement(m.id); onDeleteMeasurement(linkedFita.id) }}
-                        pieceBadgePerfil={pieceBadgeMap.get(m.id)} pieceBadgeFita={pieceBadgeMap.get(linkedFita.id)} />
+                        pieceBadgePerfil={pieceBadgeMap.get(m.id)} pieceBadgeFita={pieceBadgeMap.get(linkedFita.id)}
+                        powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
                     )
                   }
                   return m.kind === 'fita'
@@ -1349,6 +1589,7 @@ function AmbientesTab({
                         onDelete={() => onDeleteMeasurement(m.id)} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
                         pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                        powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
                         mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
                     : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
                         onDelete={() => onDeleteMeasurement(m.id)} onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
@@ -1426,6 +1667,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
 
 function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, pieceBadgeMap,
   comercialPerfil, setComercialPerfil, comercialFita, setComercialFita, planoPerfil, planoFita,
+  powerSupplies, onStartFontePlacement, onDeleteFonte,
 }: {
   measurements: Measurement[]; environments: Environment[]
   onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
@@ -1434,6 +1676,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   comercialPerfil: string; setComercialPerfil: (v: string) => void
   comercialFita: string; setComercialFita: (v: string) => void
   planoPerfil: PlanoResult; planoFita: PlanoResult
+  powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
@@ -1499,7 +1742,8 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               onChangeBarNote={v => onUpdate(perfil.id, { notes: v })}
               onChangePotencia={v => changePotencia(fita.id, v)}
               onDelete={() => { onDelete(perfil.id); onDelete(fita.id) }}
-              pieceBadgePerfil={pieceBadgeMap.get(perfil.id)} pieceBadgeFita={pieceBadgeMap.get(fita.id)} />
+              pieceBadgePerfil={pieceBadgeMap.get(perfil.id)} pieceBadgeFita={pieceBadgeMap.get(fita.id)}
+              powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           ))}
           {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
@@ -1539,6 +1783,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
                 onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
                 pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
                 mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
           </div>
@@ -1641,10 +1886,11 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, onChang
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
   onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
+  powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const preenchido = !!m.power_w_per_m
   const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
@@ -1669,7 +1915,8 @@ function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, on
       {preenchido ? (
         <div>
           <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} />
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} powerSupplies={powerSupplies}
+            onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {m.length_m.toFixed(2)}m × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
           </p>
@@ -1683,12 +1930,46 @@ function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, on
 
 // Linha "Fonte sugerida: 60W (12V)" — catálogo real de estoque (18 a 400W),
 // sempre a próxima potência IGUAL OU ACIMA do mínimo calculado, nunca abaixo.
-function FonteSugeridaLine({ minimaW }: { minimaW: number }) {
+function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlacement, onDeleteFonte }: {
+  minimaW: number; measurementId: string; powerSupplies: PowerSupply[]
+  onStartPlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
+}) {
   const sugestao = sugerirFonte(minimaW)
+  const existente = powerSupplies.find(p => p.measurement_id === measurementId)
+  const [picking, setPicking] = useState(false)
+  const [escolha, setEscolha] = useState(sugestao ?? CATALOGO_FONTES_12V[0])
+
+  if (existente) {
+    return (
+      <div className="flex items-center gap-2 text-xs mt-0.5">
+        <span className="font-semibold text-amber-700">🔌 Fonte posicionada: {existente.watts}W</span>
+        <button onClick={() => onDeleteFonte(existente.id)} className="text-gray-400 hover:text-red-500 underline">remover</button>
+      </div>
+    )
+  }
   return (
-    <p className="text-xs font-semibold text-sky-600">
-      {sugestao ? `Fonte sugerida: ${sugestao}W (12V)` : 'Acima do catálogo — divida em mais de uma fonte'}
-    </p>
+    <div className="mt-0.5">
+      <p className="text-xs font-semibold text-sky-600">
+        {sugestao ? `Fonte sugerida: ${sugestao}W (12V)` : 'Acima do catálogo — divida em mais de uma fonte'}
+      </p>
+      {sugestao && !picking && (
+        <button onClick={() => setPicking(true)} className="text-[11px] font-medium text-brand-600 hover:underline mt-0.5">
+          📍 Posicionar fonte na planta
+        </button>
+      )}
+      {picking && (
+        <div className="flex items-center gap-1.5 bg-sky-50 rounded-md p-1.5 mt-1 flex-wrap">
+          <select value={escolha} onChange={e => setEscolha(Number(e.target.value))} className="text-xs border border-gray-200 rounded px-1 py-0.5">
+            {CATALOGO_FONTES_12V.filter(w => w >= minimaW).map(w => <option key={w} value={w}>{w}W</option>)}
+          </select>
+          <button onClick={() => { onStartPlacement(measurementId, escolha); setPicking(false) }}
+            className="text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded px-2 py-0.5">
+            Confirmar → clicar na planta
+          </button>
+          <button onClick={() => setPicking(false)} className="text-[11px] text-gray-400 hover:text-gray-600">Cancelar</button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1696,11 +1977,12 @@ function FonteSugeridaLine({ minimaW }: { minimaW: number }) {
 // sentido tratar os dois como UMA instalação só na interface (título "Perfil
 // + Fita X"), em vez de dois cards soltos em seções diferentes — inclusive a
 // fonte sugerida já sai calculada em cima dos dois juntos.
-function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLength, onChangeBarNote, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita }: {
+function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLength, onChangeBarNote, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita, powerSupplies, onStartFontePlacement, onDeleteFonte }: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
   onChangeEnv: (envId: string | null) => void; onChangeLength: (v: string) => void; onChangeBarNote: (v: string) => void
   onChangePotencia: (v: string) => void; onDelete: () => void
   pieceBadgePerfil?: PieceBadge; pieceBadgeFita?: PieceBadge
+  powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const idxMatch = perfil.label?.match(/\d+/)
   const preenchido = !!fita.power_w_per_m
@@ -1750,7 +2032,8 @@ function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLengt
       {preenchido ? (
         <div>
           <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} />
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} powerSupplies={powerSupplies}
+            onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {fita.length_m.toFixed(2)}m × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
           </p>

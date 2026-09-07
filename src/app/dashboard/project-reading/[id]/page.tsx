@@ -32,6 +32,7 @@ export default async function ProjectReadingDetailPage({ params }: { params: { i
           symbols={data.symbols as any[]}
           measurements={data.measurements as any[]}
           annotations={data.annotations as any[]}
+          powerSupplies={data.powerSupplies as any[]}
         />
       </div>
     </div>

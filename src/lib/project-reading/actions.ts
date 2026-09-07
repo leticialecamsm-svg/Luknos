@@ -28,7 +28,7 @@ async function logEdit(planId: string, entityType: string, entityId: string, fie
 }
 
 const RESTORABLE_TABLES = [
-  'plan_environments', 'plan_legend_items', 'plan_symbol_occurrences', 'plan_measurements', 'plan_annotations',
+  'plan_environments', 'plan_legend_items', 'plan_symbol_occurrences', 'plan_measurements', 'plan_annotations', 'plan_power_supplies',
 ] as const
 type RestorableTable = typeof RESTORABLE_TABLES[number]
 
@@ -85,13 +85,14 @@ export async function uploadPlan(formData: FormData) {
 
 export async function getPlan(planId: string) {
   const admin = createAdminClient()
-  const [plan, environments, legendItems, symbols, measurements, annotations] = await Promise.all([
+  const [plan, environments, legendItems, symbols, measurements, annotations, powerSupplies] = await Promise.all([
     admin.from('project_plans').select('*').eq('id', planId).single(),
     admin.from('plan_environments').select('*').eq('plan_id', planId).order('created_at'),
     admin.from('plan_legend_items').select('*').eq('plan_id', planId).order('code'),
     admin.from('plan_symbol_occurrences').select('*').eq('plan_id', planId).order('created_at'),
     admin.from('plan_measurements').select('*').eq('plan_id', planId).order('created_at'),
     admin.from('plan_annotations').select('*').eq('plan_id', planId).order('created_at'),
+    admin.from('plan_power_supplies').select('*').eq('plan_id', planId).order('created_at'),
   ])
   if (plan.error || !plan.data) return null
   const { data: pub } = admin.storage.from('project-plans').getPublicUrl(plan.data.storage_path)
@@ -102,6 +103,7 @@ export async function getPlan(planId: string) {
     symbols: symbols.data ?? [],
     measurements: measurements.data ?? [],
     annotations: annotations.data ?? [],
+    powerSupplies: powerSupplies.data ?? [],
   }
 }
 
@@ -265,9 +267,40 @@ export async function createMeasurement(planId: string, data: {
 
 export async function updateMeasurement(planId: string, id: string, updates: Partial<{
   label: string; power_w_per_m: number; environment_id: string | null; notes: string
+  points: [number, number][]; length_m: number; cota_offset: number
 }>) {
   const admin = createAdminClient()
   const { error } = await admin.from('plan_measurements').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true }
+}
+
+// ── Fontes (alimentação das fitas de LED) ────────────────────────────────
+
+export async function createPowerSupply(planId: string, data: { measurementId: string; page: number; x: number; y: number; watts: number }) {
+  const userId = await requireUserId()
+  if (!userId) return { error: 'Não autenticado' }
+  const admin = createAdminClient()
+  const { data: row, error } = await admin.from('plan_power_supplies').insert({
+    plan_id: planId, measurement_id: data.measurementId, page: data.page, x: data.x, y: data.y, watts: data.watts, created_by: userId,
+  }).select().single()
+  if (error) return { error: error.message }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true, data: row }
+}
+
+export async function updatePowerSupply(planId: string, id: string, updates: Partial<{ x: number; y: number; watts: number }>) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('plan_power_supplies').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true }
+}
+
+export async function deletePowerSupply(planId: string, id: string) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('plan_power_supplies').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath(`${BASE_PATH}/${planId}`)
   return { ok: true }
