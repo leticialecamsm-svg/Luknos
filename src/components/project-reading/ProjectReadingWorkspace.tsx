@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download, Zap,
+  RotateCw, X, Layers, Download, Zap, EyeOff,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -110,6 +110,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // converter coordenadas de tela ↔ PDF de forma correta em qualquer
   // rotação, em vez de só dividir/multiplicar pelo zoom.
   const viewportRef = useRef<any>(null)
+  // Incrementa toda vez que a página termina de renderizar de verdade no
+  // canvas — usado pra saber quando dá pra capturar em alta resolução na
+  // exportação (aguardar o zoom temporário terminar de desenhar).
+  const renderVersionRef = useRef(0)
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
   const [legendItems, setLegendItems] = useState<LegendItem[]>(initLegend)
@@ -128,6 +132,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // posicionadas + o cabo até a fita — escondido por padrão pra não poluir
   // a visão geral (as fontes só aparecem aqui, nunca na visão normal).
   const [fontesView, setFontesView] = useState(false)
+  // Ambientes "discretos": some o preenchimento colorido e o contorno
+  // tracejado, deixa só o nome em cinza como guia — continua clicável (área
+  // invisível), só não fica com aquela pintura toda por cima da planta.
+  const [ambientesDiscretos, setAmbientesDiscretos] = useState(false)
   const [draggingAnnotation, setDraggingAnnotation] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   // Arrastar a ponta de uma medição selecionada pra redimensionar.
   const [draggingPoint, setDraggingPoint] = useState<{ measurementId: string; pointIndex: number } | null>(null)
@@ -477,6 +485,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           viewportRef.current = viewport
           setPageSize({ width: viewport.width, height: viewport.height })
           setRendering(false)
+          renderVersionRef.current++
         }
       })
     })
@@ -505,11 +514,29 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // marcado por cima, incluindo a visão de reaproveitamento se estiver
   // ativa) como um novo PDF de uma página só, pra baixar.
   async function exportViewToPdf() {
-    const canvas = canvasRef.current
-    const svgEl = canvas?.parentElement?.querySelector('svg')
-    if (!canvas || !svgEl) return
+    if (!canvasRef.current) return
     setBusy(true)
+    // Exportar sempre na escala em que a tela está renderizada, na hora,
+    // significa que dar zoom out antes de exportar saía em baixa
+    // resolução. Sobe temporariamente pra uma escala mínima "de impressão"
+    // (ou mantém a atual, se já for maior), espera o re-render de verdade
+    // terminar, captura, e volta pro zoom que a Letícia estava usando.
+    const originalScale = renderScale
+    const targetScale = Math.min(4, Math.max(renderScale, 2.5))
+    const upscaling = targetScale !== originalScale
+    if (upscaling) {
+      const v0 = renderVersionRef.current
+      setRenderScale(targetScale)
+      await new Promise<void>(resolve => {
+        const iv = setInterval(() => {
+          if (renderVersionRef.current > v0) { clearInterval(iv); resolve() }
+        }, 30)
+      })
+    }
     try {
+      const canvas = canvasRef.current
+      const svgEl = canvas?.parentElement?.querySelector('svg')
+      if (!canvas || !svgEl) return
       const svgClone = svgEl.cloneNode(true) as SVGSVGElement
       svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
       const svgString = new XMLSerializer().serializeToString(svgClone)
@@ -556,6 +583,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       console.error(err)
       window.alert('Não foi possível exportar o PDF. Tente novamente.')
     } finally {
+      if (upscaling) setRenderScale(originalScale)
       setBusy(false)
     }
   }
@@ -951,6 +979,11 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 fontesView ? 'bg-amber-600 text-white' : 'text-gray-600 hover:bg-gray-200')}>
               <Zap className="w-3.5 h-3.5" /> Fontes
             </button>
+            <button onClick={() => setAmbientesDiscretos(v => !v)} title="Ambientes discretos — só o nome em cinza, sem cor nem contorno"
+              className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                ambientesDiscretos ? 'bg-gray-500 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+              <EyeOff className="w-3.5 h-3.5" /> Ambientes discretos
+            </button>
             <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 disabled:opacity-40">
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Exportar PDF
@@ -1029,21 +1062,24 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const selected = selection?.kind === 'environment' && selection.id === env.id
                 return (
                   <g key={env.id}>
-                    <polygon points={pts} fill={color + '18'} stroke="white" strokeWidth={selected ? 7 : 5.5} />
-                    <polygon points={pts} fill="transparent" stroke={color} strokeWidth={selected ? 3.5 : 2.5} strokeDasharray="7 4"
+                    {!ambientesDiscretos && <polygon points={pts} fill={color + '18'} stroke="white" strokeWidth={selected ? 7 : 5.5} />}
+                    <polygon points={pts} fill="transparent" stroke={ambientesDiscretos ? 'transparent' : color}
+                      strokeWidth={selected ? 3.5 : 2.5} strokeDasharray={ambientesDiscretos ? undefined : '7 4'}
                       style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
                       onClick={e => { e.stopPropagation(); selectShape('environment', env.id, e) }} />
                   </g>
                 )
               })}
-              {/* Rótulo do ambiente no centroide */}
+              {/* Rótulo do ambiente no centroide — em modo discreto vira só um
+                  texto cinza, sem cor nem contorno, só pra guiar. */}
               {!reaproveitamentoView && !fontesView && pagePoints.environments.map((env, i) => {
                 const cx = env.polygon.reduce((s, p) => s + p[0], 0) / env.polygon.length
                 const cy = env.polygon.reduce((s, p) => s + p[1], 0) / env.polygon.length
                 const [sx, sy] = toScreen([cx, cy])
                 return (
                   <text key={env.id + '-label'} x={sx} y={sy} textAnchor="middle" pointerEvents="none"
-                    fontSize={12} fontWeight={700} fill={ENV_COLORS[i % ENV_COLORS.length]} stroke="white" strokeWidth={3} paintOrder="stroke">
+                    fontSize={12} fontWeight={700} fill={ambientesDiscretos ? '#9ca3af' : ENV_COLORS[i % ENV_COLORS.length]}
+                    stroke="white" strokeWidth={3} paintOrder="stroke">
                     {env.name}
                   </text>
                 )
