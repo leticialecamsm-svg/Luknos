@@ -39,6 +39,8 @@ interface Measurement {
   id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
   power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null; notes?: string | null
   cota_offset?: number | null
+  product_model?: string | null; mount_type?: 'embutir' | 'sobrepor' | null; bar_size?: number | null
+  voltage?: '12V' | '24V' | null; packaging?: 'rolo_5m' | 'metro' | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 interface PowerSupply { id: string; measurement_id: string; page: number; x: number; y: number; watts: number }
@@ -86,6 +88,17 @@ function linkNoteFor(m: Measurement, list: Measurement[]): string | undefined {
 }
 const PIECE_COLORS = ['#0284c7', '#db2777', '#7c3aed', '#059669', '#d97706', '#0891b2', '#65a30d', '#e11d48']
 type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: ReturnType<typeof calcularPlanoDeCorte> } | null
+
+// Um grupo de trechos que compartilham modelo+tamanho/embalagem comercial —
+// não dá pra misturar barra de perfil de 2m com 3m (nem fita 12V com 24V)
+// num mesmo plano de corte, então cada combinação vira seu próprio grupo.
+interface GrupoPlano {
+  key: string
+  groupLabel: string
+  trechos: Measurement[]
+  comercialM: number | null // null = vendido no metro, sem plano de corte
+  plano: PlanoResult
+}
 type PieceBadge = { label: string; color: string; siblings: string[] }
 
 type Selection = { kind: EntityKind; id: string } | null
@@ -409,26 +422,55 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   }), [environments, symbols, measurements, annotations, pageNum])
 
   // ── Plano de corte (mora aqui, não na aba, pra poder rotular a peça de
-  // cada trecho tanto no card quanto direto na planta) ──────────────────────
-  const [comercialPerfil, setComercialPerfil] = useState('3')
-  const [comercialFita, setComercialFita] = useState('5')
-
+  // cada trecho tanto no card quanto direto na planta) — agrupado por
+  // modelo+tipo+tamanho de barra (perfil) ou modelo+tensão+embalagem (fita),
+  // já que barras/rolos diferentes não podem ser misturados numa mesma peça
+  // comercial. Mistura de tamanhos (ex: 2m + 3m numa mesma instalação longa)
+  // fica pra uma versão futura — por ora cada grupo usa um tamanho só.
   function envNameFor(id: string | null) { return environments.find(e => e.id === id)?.name ?? 'Sem ambiente' }
 
-  function computePlano(trechos: Measurement[], comercial: number): PlanoResult {
-    if (trechos.length === 0 || comercial <= 0) return null
-    const list: TrechoNecessario[] = trechos.map(t => ({ id: t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id) }))
-    const excedentes = list.filter(t => t.comprimentoM > comercial)
-    if (excedentes.length > 0) {
-      return { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que a peça comercial de ${comercial}m — ajuste o comercial ou divida o trecho.` }
+  function groupAndPlan(items: Measurement[], kind: 'perfil' | 'fita'): GrupoPlano[] {
+    const groups = new Map<string, Measurement[]>()
+    for (const m of items) {
+      const key = kind === 'perfil'
+        ? `${m.product_model || '—'}__${m.mount_type || '—'}__${m.bar_size ?? 3}`
+        : `${m.product_model || '—'}__${m.voltage || '12V'}__${m.packaging || 'rolo_5m'}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(m)
     }
-    return { kind: 'ok', plano: calcularPlanoDeCorte(list, comercial) }
+    return Array.from(groups.entries()).map(([key, trechos]) => {
+      const first = trechos[0]
+      let groupLabel: string
+      let comercialM: number | null
+      if (kind === 'perfil') {
+        const bar = first.bar_size ?? 3
+        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'} · barra ${bar}m`
+        comercialM = bar
+      } else {
+        const isMetro = first.packaging === 'metro'
+        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.voltage || '12V'} · ${isMetro ? 'vendida no metro' : 'rolo de 5m'}`
+        comercialM = isMetro ? null : 5
+      }
+      let plano: PlanoResult = null
+      if (comercialM != null) {
+        const list: TrechoNecessario[] = trechos.map(t => ({ id: t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id) }))
+        const excedentes = list.filter(t => t.comprimentoM > comercialM!)
+        plano = excedentes.length > 0
+          ? { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que ${comercialM}m nesse grupo — divida o trecho.` }
+          : { kind: 'ok', plano: calcularPlanoDeCorte(list, comercialM) }
+      }
+      return { key, groupLabel, trechos, comercialM, plano }
+    })
   }
 
   const perfisList = measurements.filter(m => m.kind === 'perfil')
   const fitasList = measurements.filter(m => m.kind === 'fita')
-  const planoPerfil = computePlano(perfisList, Number(comercialPerfil.replace(',', '.')) || 0)
-  const planoFita = computePlano(fitasList, Number(comercialFita.replace(',', '.')) || 0)
+  const perfilGroups = useMemo(() => groupAndPlan(perfisList, 'perfil'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [measurements, environments])
+  const fitaGroups = useMemo(() => groupAndPlan(fitasList, 'fita'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [measurements, environments])
 
   // Perfil compra em "peça" (barra), fita compra em "rolo" — nomes
   // diferentes mesmo sendo o mesmo mecanismo de plano de corte por baixo.
@@ -446,11 +488,12 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     return map
   }
   const pieceBadgeMap = useMemo(() => {
-    const merged = new Map(buildPieceMap(planoPerfil, 'Peça'))
-    for (const [k, v] of Array.from(buildPieceMap(planoFita, 'Rolo'))) merged.set(k, v)
+    const merged = new Map<string, { label: string; color: string; siblings: string[] }>()
+    for (const g of perfilGroups) for (const [k, v] of Array.from(buildPieceMap(g.plano, 'Peça'))) merged.set(k, v)
+    for (const g of fitaGroups) for (const [k, v] of Array.from(buildPieceMap(g.plano, 'Rolo'))) merged.set(k, v)
     return merged
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planoPerfil, planoFita])
+  }, [perfilGroups, fitaGroups])
 
   // ── Carrega e renderiza o PDF ─────────────────────────────────────────────
 
@@ -742,6 +785,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         page: pageNum, kind, label: `${MEASURE_LABEL[kind]} ${countSameKind + 1}`,
         points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
         power_w_per_m: kind === 'fita' ? 0 : undefined,
+        bar_size: kind === 'perfil' ? 3 : undefined,
+        packaging: kind === 'fita' ? 'rolo_5m' : undefined,
       })
       if (res?.data) {
         setMeasurements(prev => [...prev, res.data])
@@ -755,7 +800,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           const resFita = await createMeasurement(plan.id, {
             page: pageNum, kind: 'fita', label: `Fita ${countFitas + 1} (do ${res.data.label})`,
             points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
-            power_w_per_m: 0, linked_measurement_id: res.data.id,
+            power_w_per_m: 0, linked_measurement_id: res.data.id, packaging: 'rolo_5m',
           })
           if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
         }
@@ -904,9 +949,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
     selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: PieceBadge
-    cotaOffset?: number; onOffsetDragStart?: () => void
+    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number
   }) {
     const offsetPx = opts?.cotaOffset ?? 16
+    // Quando a medição já foi salva, o número mostrado na cota vem do
+    // comprimento SALVO (totalLengthM) — o mesmo que aparece no card —
+    // distribuído proporcionalmente entre os segmentos. Sem isso, corrigir
+    // manualmente o comprimento no card não mudava nada na planta (a cota
+    // recalculava sempre a partir do desenho, ignorando a correção).
+    const totalPx = opts?.totalLengthM != null ? polylineLength(points) : 0
     const segs: JSX.Element[] = []
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i], b = points[i + 1]
@@ -918,7 +969,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const ox = nx * offsetPx, oy = ny * offsetPx
       const a2x = sax + ox, a2y = say + oy
       const b2x = sbx + ox, b2y = sby + oy
-      const segLenM = mScale ? round2(distance(a, b) * mScale) : null
+      const segLenM = opts?.totalLengthM != null
+        ? (totalPx > 0 ? round2((distance(a, b) / totalPx) * opts.totalLengthM) : opts.totalLengthM)
+        : (mScale ? round2(distance(a, b) * mScale) : null)
       const midX = (a2x + b2x) / 2, midY = (a2y + b2y) / 2
       let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI
       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -1140,6 +1193,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         badge: fontesView ? undefined : pieceBadgeMap.get(m.id),
                         cotaOffset: m.cota_offset ?? 16,
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
+                        totalLengthM: m.length_m,
                       })}
                       {reaproveitamentoView && (() => {
                         const badge = pieceBadgeMap.get(m.id)
@@ -1338,14 +1392,12 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onDelete={id => deleteEntity('measurement', id)}
                 onMerge={mergeMeasurements}
                 pieceBadgeMap={pieceBadgeMap}
-                comercialPerfil={comercialPerfil} setComercialPerfil={setComercialPerfil}
-                comercialFita={comercialFita} setComercialFita={setComercialFita}
-                planoPerfil={planoPerfil} planoFita={planoFita}
+                perfilGroups={perfilGroups} fitaGroups={fitaGroups}
                 powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
               />
             )}
             {tab === 'resultado' && (
-              <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} />
+              <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies} />
             )}
           </div>
         )}
@@ -1495,23 +1547,35 @@ function SelectionPopover({
     const comboPerfil = m.kind === 'perfil' ? m : (m.linked_measurement_id ? measurements.find(x => x.id === m.linked_measurement_id) : undefined)
     const comboFita = m.kind === 'fita' ? m : measurements.find(x => x.linked_measurement_id === m.id)
 
+    const profileModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'perfil' && x.product_model).map(x => x.product_model as string)))
+    const fitaModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'fita' && x.product_model).map(x => x.product_model as string)))
+
     if (comboPerfil && comboFita && comboPerfil.kind === 'perfil' && comboFita.kind === 'fita') {
       content = (
         <div className="p-3">
           <PerfilFitaCard perfil={comboPerfil} fita={comboFita} environments={environments}
             onChangeEnv={envId => { onUpdateMeasurement(comboPerfil.id, { environment_id: envId }); onUpdateMeasurement(comboFita.id, { environment_id: envId }) }}
+            onChangeLabel={v => onUpdateMeasurement(comboPerfil.id, { label: v })}
             onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(comboPerfil.id, { length_m: val }); onUpdateMeasurement(comboFita.id, { length_m: val }) }}
-            onChangeBarNote={v => onUpdateMeasurement(comboPerfil.id, { notes: v })}
             onChangePotencia={v => onUpdateMeasurement(comboFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
             onDelete={() => { onDeleteMeasurement(comboPerfil.id); onDeleteMeasurement(comboFita.id); onClose() }}
             pieceBadgePerfil={pieceBadgeMap.get(comboPerfil.id)} pieceBadgeFita={pieceBadgeMap.get(comboFita.id)}
-            powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
+            powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+            onChangeProfileModel={v => onUpdateMeasurement(comboPerfil.id, { product_model: v })}
+            onChangeMountType={v => onUpdateMeasurement(comboPerfil.id, { mount_type: v })}
+            onChangeBarSize={v => onUpdateMeasurement(comboPerfil.id, { bar_size: v })}
+            profileModelSuggestions={profileModelSuggestions}
+            onChangeFitaModel={v => onUpdateMeasurement(comboFita.id, { product_model: v })}
+            onChangeVoltage={v => onUpdateMeasurement(comboFita.id, { voltage: v })}
+            onChangePackaging={v => onUpdateMeasurement(comboFita.id, { packaging: v })}
+            fitaModelSuggestions={fitaModelSuggestions} />
         </div>
       )
     } else {
       const shared = {
         m, environments,
         onChangeEnv: (envId: string | null) => onUpdateMeasurement(m.id, { environment_id: envId }),
+        onChangeLabel: (v: string) => onUpdateMeasurement(m.id, { label: v }),
         onDelete: onDeleteSelected,
         onChangeLength: (v: string) => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 }),
         mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
@@ -1523,7 +1587,11 @@ function SelectionPopover({
         <div className="p-3">
           {m.kind === 'fita'
             ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
-                powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
+                powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+                onChangeModel={v => onUpdateMeasurement(m.id, { product_model: v })}
+                onChangeVoltage={v => onUpdateMeasurement(m.id, { voltage: v })}
+                onChangePackaging={v => onUpdateMeasurement(m.id, { packaging: v })}
+                modelSuggestions={fitaModelSuggestions} />
             : <SimpleMeasurementCard {...shared} />}
         </div>
       )
@@ -1596,6 +1664,8 @@ function AmbientesTab({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
+  const profileModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'perfil' && m.product_model).map(m => m.product_model as string)))
+  const fitaModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'fita' && m.product_model).map(m => m.product_model as string)))
 
   if (environments.length === 0) {
     return <p className="text-xs text-gray-400">Nenhum ambiente ainda. Use a ferramenta "Ambiente" no viewer pra desenhar um polígono sobre a planta.</p>
@@ -1647,22 +1717,36 @@ function AmbientesTab({
                     return (
                       <PerfilFitaCard key={m.id} perfil={m} fita={linkedFita} environments={environments}
                         onChangeEnv={envId => { onUpdateMeasurement(m.id, { environment_id: envId }); onUpdateMeasurement(linkedFita.id, { environment_id: envId }) }}
+                        onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
                         onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(m.id, { length_m: val }); onUpdateMeasurement(linkedFita.id, { length_m: val }) }}
-                        onChangeBarNote={v => onUpdateMeasurement(m.id, { notes: v })}
                         onChangePotencia={v => onUpdateMeasurement(linkedFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onDelete={() => { onDeleteMeasurement(m.id); onDeleteMeasurement(linkedFita.id) }}
                         pieceBadgePerfil={pieceBadgeMap.get(m.id)} pieceBadgeFita={pieceBadgeMap.get(linkedFita.id)}
-                        powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
+                        powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+                        onChangeProfileModel={v => onUpdateMeasurement(m.id, { product_model: v })}
+                        onChangeMountType={v => onUpdateMeasurement(m.id, { mount_type: v })}
+                        onChangeBarSize={v => onUpdateMeasurement(m.id, { bar_size: v })}
+                        profileModelSuggestions={profileModelSuggestions}
+                        onChangeFitaModel={v => onUpdateMeasurement(linkedFita.id, { product_model: v })}
+                        onChangeVoltage={v => onUpdateMeasurement(linkedFita.id, { voltage: v })}
+                        onChangePackaging={v => onUpdateMeasurement(linkedFita.id, { packaging: v })}
+                        fitaModelSuggestions={fitaModelSuggestions} />
                     )
                   }
                   return m.kind === 'fita'
                     ? <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
+                        onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
                         onDelete={() => onDeleteMeasurement(m.id)} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
                         pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                         powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+                        onChangeModel={v => onUpdateMeasurement(m.id, { product_model: v })}
+                        onChangeVoltage={v => onUpdateMeasurement(m.id, { voltage: v })}
+                        onChangePackaging={v => onUpdateMeasurement(m.id, { packaging: v })}
+                        modelSuggestions={fitaModelSuggestions}
                         mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
                     : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
+                        onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
                         onDelete={() => onDeleteMeasurement(m.id)} onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
                         pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                         mergeCandidates={measurements.filter(x => x.kind === m.kind && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
@@ -1737,21 +1821,21 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
 // ── Aba: Medições (perfil / fita + plano de corte / medidas soltas) ─────────
 
 function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, pieceBadgeMap,
-  comercialPerfil, setComercialPerfil, comercialFita, setComercialFita, planoPerfil, planoFita,
+  perfilGroups, fitaGroups,
   powerSupplies, onStartFontePlacement, onDeleteFonte,
 }: {
   measurements: Measurement[]; environments: Environment[]
   onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
   onMerge: (idA: string, idB: string) => void
   pieceBadgeMap: Map<string, PieceBadge>
-  comercialPerfil: string; setComercialPerfil: (v: string) => void
-  comercialFita: string; setComercialFita: (v: string) => void
-  planoPerfil: PlanoResult; planoFita: PlanoResult
+  perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
   const medidas = measurements.filter(m => m.kind === 'medida')
+  const profileModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'perfil' && x.product_model).map(x => x.product_model as string)))
+  const fitaModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'fita' && x.product_model).map(x => x.product_model as string)))
 
   // Todo perfil já vem com uma fita automática (mesma metragem) — agrupa os
   // dois como uma instalação só, em vez de espalhar o perfil numa seção e a
@@ -1796,6 +1880,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2">
           {medidas.map(m => (
             <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+              onChangeLabel={v => onUpdate(m.id, { label: v })}
               onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={medidas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
@@ -1809,12 +1894,20 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
           {perfisComFita.map(({ perfil, fita }) => (
             <PerfilFitaCard key={perfil.id} perfil={perfil} fita={fita} environments={environments}
               onChangeEnv={envId => changeComboEnv(perfil.id, fita.id, envId)}
+              onChangeLabel={v => onUpdate(perfil.id, { label: v })}
               onChangeLength={v => changeComboLength(perfil.id, fita.id, v)}
-              onChangeBarNote={v => onUpdate(perfil.id, { notes: v })}
               onChangePotencia={v => changePotencia(fita.id, v)}
               onDelete={() => { onDelete(perfil.id); onDelete(fita.id) }}
               pieceBadgePerfil={pieceBadgeMap.get(perfil.id)} pieceBadgeFita={pieceBadgeMap.get(fita.id)}
-              powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
+              powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+              onChangeProfileModel={v => onUpdate(perfil.id, { product_model: v })}
+              onChangeMountType={v => onUpdate(perfil.id, { mount_type: v })}
+              onChangeBarSize={v => onUpdate(perfil.id, { bar_size: v })}
+              profileModelSuggestions={profileModelSuggestions}
+              onChangeFitaModel={v => onUpdate(fita.id, { product_model: v })}
+              onChangeVoltage={v => onUpdate(fita.id, { voltage: v })}
+              onChangePackaging={v => onUpdate(fita.id, { packaging: v })}
+              fitaModelSuggestions={fitaModelSuggestions} />
           ))}
           {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
@@ -1826,6 +1919,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
           <div className="space-y-2">
             {perfisSemFita.map(m => (
               <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+                onChangeLabel={v => onUpdate(m.id, { label: v })}
                 onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                 mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
@@ -1833,15 +1927,16 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         </section>
       )}
 
-      {perfis.length > 0 && (
-        <div className="bg-sky-50 rounded-lg p-3 space-y-2">
+      {perfilGroups.length > 0 && (
+        <div className="space-y-3">
           <p className="text-xs font-bold text-sky-600 uppercase">Plano de corte — perfis</p>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>Barra comercial:</span>
-            <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
-          </div>
-          {planoPerfil?.kind === 'erro' && <p className="text-xs text-red-600">{planoPerfil.mensagem}</p>}
-          {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} noun="Peça" />}
+          {perfilGroups.map(g => (
+            <div key={g.key} className="bg-sky-50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-sky-700">{g.groupLabel} <span className="text-gray-400 font-normal">({g.trechos.length} trecho{g.trechos.length !== 1 ? 's' : ''})</span></p>
+              {g.plano?.kind === 'erro' && <p className="text-xs text-red-600">{g.plano.mensagem}</p>}
+              {g.plano?.kind === 'ok' && <PlanoDeCorteView plano={g.plano.plano} noun="Peça" />}
+            </div>
+          ))}
         </div>
       )}
 
@@ -1852,24 +1947,33 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
           <div className="space-y-2">
             {fitasAvulsas.map(m => (
               <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+                onChangeLabel={v => onUpdate(m.id, { label: v })}
                 onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
                 pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                 powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
+                onChangeModel={v => onUpdate(m.id, { product_model: v })}
+                onChangeVoltage={v => onUpdate(m.id, { voltage: v })}
+                onChangePackaging={v => onUpdate(m.id, { packaging: v })}
+                modelSuggestions={fitaModelSuggestions}
                 mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
           </div>
         </section>
       )}
 
-      {fitas.length > 0 && (
-        <div className="bg-pink-50 rounded-lg p-3 space-y-2">
+      {fitaGroups.length > 0 && (
+        <div className="space-y-3">
           <p className="text-xs font-bold text-pink-600 uppercase">Plano de corte — fitas</p>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>Rolo comercial:</span>
-            <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
-          </div>
-          {planoFita?.kind === 'erro' && <p className="text-xs text-red-600">{planoFita.mensagem}</p>}
-          {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} noun="Rolo" />}
+          {fitaGroups.map(g => (
+            <div key={g.key} className="bg-pink-50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-pink-700">{g.groupLabel} <span className="text-gray-400 font-normal">({g.trechos.length} trecho{g.trechos.length !== 1 ? 's' : ''})</span></p>
+              {g.comercialM == null && (
+                <p className="text-xs text-gray-600">Vendida no metro — total: <b>{round2(g.trechos.reduce((s: number, t: Measurement) => s + t.length_m, 0))}m</b></p>
+              )}
+              {g.plano?.kind === 'erro' && <p className="text-xs text-red-600">{g.plano.mensagem}</p>}
+              {g.plano?.kind === 'ok' && <PlanoDeCorteView plano={g.plano.plano} noun="Rolo" />}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1879,8 +1983,9 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
 // Cabeçalho comum: label + ambiente (secundário) + ações (mesclar / excluir).
 // Usado tanto pelas medidas soltas quanto pelos perfis (não têm nenhum dado
 // extra pra preencher, então o card inteiro é "baixa hierarquia").
-function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
+  onChangeLabel: (v: string) => void
   onDelete: () => void; mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
   pieceBadge?: PieceBadge; linkNote?: string
 }) {
@@ -1889,7 +1994,8 @@ function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandid
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-semibold text-gray-800 truncate">{m.label}</p>
+          <SyncedInput value={m.label ?? ''} onCommit={onChangeLabel} placeholder="Título da instalação (ex: Teto, sanca...)"
+            className="text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300 min-w-0 flex-1" />
           {pieceBadge && (
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadge.color }}>
               {pieceBadge.label}
@@ -1935,17 +2041,66 @@ function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandid
 
 // Card enxuto pra medida solta e perfil — só tem comprimento pra mostrar,
 // então o comprimento é a única informação em destaque.
-function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote }: {
-  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onDelete: () => void
+// Input controlado que resincroniza com o valor de fora sempre que ele muda
+// (correção manual, sincronização perfil↔fita, undo/redo...). O padrão
+// `defaultValue` usado antes só define o valor inicial — depois de montado,
+// o input nunca mais refletia uma mudança vinda de fora, dando a impressão
+// de que a correção "não era mantida".
+function SyncedInput({ value, onCommit, className, title, placeholder, list }: {
+  value: string; onCommit: (v: string) => void; className?: string; title?: string; placeholder?: string; list?: string
+}) {
+  const [text, setText] = useState(value)
+  useEffect(() => { setText(value) }, [value])
+  return (
+    <input value={text} onChange={e => setText(e.target.value)} onBlur={e => onCommit(e.target.value)}
+      title={title} placeholder={placeholder} list={list} className={className} />
+  )
+}
+
+// Chips de escolha única (embutir/sobrepor, 2m/3m, 12V/24V, rolo/metro...).
+function ChoiceChips<T extends string | number>({ options, value, onChange }: {
+  options: { value: T; label: string }[]; value: T | null | undefined; onChange: (v: T) => void
+}) {
+  return (
+    <div className="flex gap-1">
+      {options.map(o => (
+        <button key={o.value} type="button" onClick={() => onChange(o.value)}
+          className={cn('text-[11px] font-semibold px-2 py-1 rounded-md border transition-colors',
+            value === o.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300')}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Campo de modelo (perfil/fita) com autocomplete nativo — reaproveita nomes
+// já usados em outras medições do mesmo plano (sem precisar de um catálogo
+// separado), mas deixa digitar um nome novo livremente.
+function ModelInput({ value, suggestions, onCommit, placeholder, listId }: {
+  value: string; suggestions: string[]; onCommit: (v: string) => void; placeholder: string; listId: string
+}) {
+  return (
+    <>
+      <SyncedInput value={value} onCommit={onCommit} placeholder={placeholder} list={listId}
+        className="w-full text-xs border border-gray-200 rounded-md px-2 py-1 outline-none focus:border-brand-400"
+      />
+      <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>
+    </>
+  )
+}
+
+function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onDelete: () => void
   onChangeLength: (v: string) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   return (
     <div className="border border-gray-200 rounded-lg p-2.5">
-      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
+      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <div className="flex items-baseline gap-1 mt-1">
-        <input defaultValue={m.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
+        <SyncedInput value={m.length_m.toFixed(2)} onCommit={onChangeLength}
           title="Medida errada? Corrija aqui direto — sem precisar remedir."
           className="w-20 text-base font-bold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
         <span className="text-sm text-gray-500">m</span>
@@ -1957,28 +2112,40 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, onChang
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte }: {
-  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
+function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions }: {
+  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void
   onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
+  onChangeModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void; onChangePackaging: (v: 'rolo_5m' | 'metro') => void
+  modelSuggestions: string[]
 }) {
   const preenchido = !!m.power_w_per_m
   const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
   return (
     <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
-      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
+      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <div className="flex items-baseline gap-1">
-        <input defaultValue={m.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
+        <SyncedInput value={m.length_m.toFixed(2)} onCommit={onChangeLength}
           title="Medida errada? Corrija aqui direto."
           className="w-16 text-xs text-gray-500 border-b border-transparent focus:border-brand-400 outline-none" />
         <span className="text-xs text-gray-400">m de fita</span>
       </div>
 
+      <div>
+        <label className="text-[10px] text-gray-500 block mb-0.5">Fita (modelo)</label>
+        <ModelInput value={m.product_model ?? ''} suggestions={modelSuggestions} onCommit={onChangeModel}
+          placeholder="ex: Fita COB 24V IP20" listId={`fita-models-${m.id}`} />
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={m.voltage} onChange={onChangeVoltage} />
+        <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo de 5m' }, { value: 'metro', label: 'No metro' }]} value={m.packaging} onChange={onChangePackaging} />
+      </div>
+
       <div className="flex items-center gap-2">
         <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
-        <input defaultValue={m.power_w_per_m ?? ''} placeholder="0" onBlur={e => onChangePotencia(e.target.value)}
+        <SyncedInput value={String(m.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
           className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
         <span className="text-xs text-gray-500">W/m</span>
       </div>
@@ -2048,14 +2215,22 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
 // sentido tratar os dois como UMA instalação só na interface (título "Perfil
 // + Fita X"), em vez de dois cards soltos em seções diferentes — inclusive a
 // fonte sugerida já sai calculada em cima dos dois juntos.
-function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLength, onChangeBarNote, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita, powerSupplies, onStartFontePlacement, onDeleteFonte }: {
+function PerfilFitaCard({
+  perfil, fita, environments, onChangeEnv, onChangeLabel, onChangeLength, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita,
+  powerSupplies, onStartFontePlacement, onDeleteFonte,
+  onChangeProfileModel, onChangeMountType, onChangeBarSize, profileModelSuggestions,
+  onChangeFitaModel, onChangeVoltage, onChangePackaging, fitaModelSuggestions,
+}: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
-  onChangeEnv: (envId: string | null) => void; onChangeLength: (v: string) => void; onChangeBarNote: (v: string) => void
+  onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onChangeLength: (v: string) => void
   onChangePotencia: (v: string) => void; onDelete: () => void
   pieceBadgePerfil?: PieceBadge; pieceBadgeFita?: PieceBadge
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
+  onChangeProfileModel: (v: string) => void; onChangeMountType: (v: 'embutir' | 'sobrepor') => void
+  onChangeBarSize: (v: 2 | 3) => void; profileModelSuggestions: string[]
+  onChangeFitaModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void
+  onChangePackaging: (v: 'rolo_5m' | 'metro') => void; fitaModelSuggestions: string[]
 }) {
-  const idxMatch = perfil.label?.match(/\d+/)
   const preenchido = !!fita.power_w_per_m
   const calc = calcularFita(fita.length_m, fita.power_w_per_m ?? 0)
   return (
@@ -2063,7 +2238,8 @@ function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLengt
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-sm font-semibold text-gray-800">Perfil + Fita {idxMatch?.[0] ?? ''}</p>
+            <SyncedInput value={perfil.label ?? ''} onCommit={onChangeLabel} placeholder="Título da instalação (ex: Teto, sanca...)"
+              className="text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300 min-w-0 flex-1" />
             {pieceBadgePerfil && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgePerfil.color }}>{pieceBadgePerfil.label}</span>}
             {pieceBadgeFita && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgeFita.color }}>{pieceBadgeFita.label}</span>}
           </div>
@@ -2076,26 +2252,40 @@ function PerfilFitaCard({ perfil, fita, environments, onChangeEnv, onChangeLengt
         <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="text-[10px] text-gray-500 block">Comprimento</label>
-          <div className="flex items-baseline gap-1">
-            <input defaultValue={perfil.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
-              title="Medida errada? Corrija aqui direto — perfil e fita andam juntos."
-              className="w-14 text-sm font-semibold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
-            <span className="text-xs text-gray-400">m</span>
-          </div>
+      <div className="flex items-baseline gap-1">
+        <SyncedInput value={perfil.length_m.toFixed(2)} onCommit={onChangeLength}
+          title="Medida errada? Corrija aqui direto — perfil e fita andam juntos."
+          className="w-16 text-base font-bold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
+        <span className="text-sm text-gray-500">m</span>
+      </div>
+
+      {/* Perfil: modelo + tipo de instalação + tamanho da barra comercial */}
+      <div className="bg-sky-50 rounded-lg p-2 space-y-1.5">
+        <p className="text-[10px] font-bold text-sky-600 uppercase">Perfil</p>
+        <ModelInput value={perfil.product_model ?? ''} suggestions={profileModelSuggestions} onCommit={onChangeProfileModel}
+          placeholder="ex: Perfil embutir 17x07mm" listId={`perfil-models-${perfil.id}`} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]}
+            value={perfil.mount_type} onChange={onChangeMountType} />
+          <ChoiceChips options={[{ value: 2, label: '2m' }, { value: 3, label: '3m' }]}
+            value={perfil.bar_size as 2 | 3 | null | undefined} onChange={onChangeBarSize} />
         </div>
-        <div>
-          <label className="text-[10px] text-gray-500 block">Barra desta instalação</label>
-          <input defaultValue={perfil.notes ?? ''} placeholder="ex: 2m + 1m" onBlur={e => onChangeBarNote(e.target.value)}
-            className="w-full text-xs text-gray-600 border-b border-gray-200 focus:border-brand-400 outline-none" />
+      </div>
+
+      {/* Fita: modelo + tensão + embalagem */}
+      <div className="bg-pink-50 rounded-lg p-2 space-y-1.5">
+        <p className="text-[10px] font-bold text-pink-600 uppercase">Fita</p>
+        <ModelInput value={fita.product_model ?? ''} suggestions={fitaModelSuggestions} onCommit={onChangeFitaModel}
+          placeholder="ex: Fita COB 24V IP20" listId={`fita-models-${fita.id}`} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={fita.voltage} onChange={onChangeVoltage} />
+          <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo de 5m' }, { value: 'metro', label: 'No metro' }]} value={fita.packaging} onChange={onChangePackaging} />
         </div>
       </div>
 
       <div className="flex items-center gap-2">
         <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
-        <input defaultValue={fita.power_w_per_m ?? ''} placeholder="0" onBlur={e => onChangePotencia(e.target.value)}
+        <SyncedInput value={String(fita.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
           className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
         <span className="text-xs text-gray-500">W/m</span>
       </div>
@@ -2146,8 +2336,50 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // ── Aba: Resultado ────────────────────────────────────────────────────────
 
-function ResultadoTab({ environments, legendItems, symbols, measurements }: {
+// Uma linha do quantitativo — um produto com sua unidade e quantidade,
+// pronto pra digitar no Master Lojista sem precisar recalcular nada.
+interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string }
+
+function bomForMeasurements(items: Measurement[], kind: 'perfil' | 'fita'): BomLine[] {
+  const groups = new Map<string, Measurement[]>()
+  for (const m of items) {
+    const key = kind === 'perfil'
+      ? `${m.product_model || 'Perfil sem modelo'}__${m.mount_type || '—'}__${m.bar_size ?? 3}`
+      : `${m.product_model || 'Fita sem modelo'}__${m.voltage || '12V'}__${m.packaging || 'rolo_5m'}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(m)
+  }
+  const lines: BomLine[] = []
+  for (const [, trechos] of Array.from(groups.entries())) {
+    const first = trechos[0]
+    const totalM = round2(trechos.reduce((s, t) => s + t.length_m, 0))
+    if (kind === 'perfil') {
+      const bar = first.bar_size ?? 3
+      const mount = first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'
+      const barras = Math.ceil(totalM / bar)
+      lines.push({
+        produto: `${first.product_model || 'Perfil sem modelo'} (${mount}, barra ${bar}m)`,
+        unidade: 'barra', quantidade: String(barras), detalhe: `${totalM}m necessários`,
+      })
+    } else {
+      const isMetro = first.packaging === 'metro'
+      if (isMetro) {
+        lines.push({ produto: `${first.product_model || 'Fita sem modelo'} (${first.voltage || '12V'}, no metro)`, unidade: 'm', quantidade: String(totalM) })
+      } else {
+        const rolos = Math.ceil(totalM / 5)
+        lines.push({
+          produto: `${first.product_model || 'Fita sem modelo'} (${first.voltage || '12V'}, rolo 5m)`,
+          unidade: 'rolo', quantidade: String(rolos), detalhe: `${totalM}m necessários`,
+        })
+      }
+    }
+  }
+  return lines
+}
+
+function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies }: {
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]; measurements: Measurement[]
+  powerSupplies: PowerSupply[]
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
@@ -2155,6 +2387,15 @@ function ResultadoTab({ environments, legendItems, symbols, measurements }: {
   const totalFitaM = round2(fitas.reduce((s, m) => s + m.length_m, 0))
   const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m, m.power_w_per_m ?? 0).fonteMinimaW, 0))
   const semAmbiente = symbols.filter(s => !s.environment_id).length
+
+  function fonteBomFor(envId: string | null): BomLine[] {
+    const envMeasurementIds = new Set(measurements.filter(m => m.environment_id === envId).map(m => m.id))
+    const envFontes = powerSupplies.filter(ps => envMeasurementIds.has(ps.measurement_id))
+    const byWatts = new Map<number, number>()
+    for (const f of envFontes) byWatts.set(f.watts, (byWatts.get(f.watts) ?? 0) + 1)
+    return Array.from(byWatts.entries()).sort((a, b) => a[0] - b[0])
+      .map(([w, n]) => ({ produto: `Fonte 12V ${w}W`, unidade: 'un', quantidade: String(n) }))
+  }
 
   return (
     <div className="space-y-4">
@@ -2167,6 +2408,11 @@ function ResultadoTab({ environments, legendItems, symbols, measurements }: {
         <StatBox label="Sem ambiente" value={semAmbiente} warn={semAmbiente > 0} />
       </div>
 
+      <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
+        💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Barras/rolos são arredondados
+        pra cima por ambiente (sem misturar sobras entre ambientes diferentes).
+      </p>
+
       <div className="space-y-3">
         {environments.map(env => {
           const envSymbols = symbols.filter(s => s.environment_id === env.id)
@@ -2175,17 +2421,42 @@ function ResultadoTab({ environments, legendItems, symbols, measurements }: {
             const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
             byCode.set(code, (byCode.get(code) ?? 0) + 1)
           }
-          const envMeasurements = measurements.filter(m => m.environment_id === env.id)
+          const envPerfis = perfis.filter(m => m.environment_id === env.id)
+          const envFitas = fitas.filter(m => m.environment_id === env.id)
+          const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
+          const bomLines: BomLine[] = [
+            ...Array.from(byCode.entries()).map(([code, n]) => ({ produto: code, unidade: 'un', quantidade: String(n) })),
+            ...bomForMeasurements(envPerfis, 'perfil'),
+            ...bomForMeasurements(envFitas, 'fita'),
+            ...fonteBomFor(env.id),
+          ]
           return (
-            <div key={env.id} className="border border-gray-200 rounded-xl p-3">
+            <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
               <p className="text-sm font-bold text-gray-800">{env.name}</p>
-              {Array.from(byCode.entries()).map(([code, n]) => (
-                <p key={code} className="text-xs text-gray-600">{code} — {n} un</p>
-              ))}
-              {envMeasurements.map(m => (
+              {bomLines.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-400 text-left">
+                      <th className="font-medium pb-1">Produto</th>
+                      <th className="font-medium pb-1 text-right">Qtd.</th>
+                      <th className="font-medium pb-1 text-right">Un.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bomLines.map((l, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="py-1 text-gray-700">{l.produto}{l.detalhe && <span className="text-gray-400"> · {l.detalhe}</span>}</td>
+                        <td className="py-1 text-right font-semibold text-gray-800">{l.quantidade}</td>
+                        <td className="py-1 text-right text-gray-500">{l.unidade}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {envMedidas.map(m => (
                 <p key={m.id} className="text-xs text-gray-500">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m</p>
               ))}
-              {byCode.size === 0 && envMeasurements.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
+              {bomLines.length === 0 && envMedidas.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
             </div>
           )
         })}
