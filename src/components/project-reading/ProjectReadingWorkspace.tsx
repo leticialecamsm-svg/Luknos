@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X,
+  RotateCw, X, Layers, Download,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -34,7 +34,10 @@ type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation'
 interface Environment { id: string; page: number; name: string; polygon: Point[]; origin: string; status: string }
 interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null }
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
-interface Measurement { id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number; power_w_per_m: number | null; environment_id: string | null }
+interface Measurement {
+  id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
+  power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null
+}
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 
 interface Plan {
@@ -58,8 +61,19 @@ const TOOLS: { id: Tool; label: string; icon: any }[] = [
 const ENV_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#84cc16']
 const MEASURE_COLOR: Record<MeasureKind, string> = { perfil: '#0ea5e9', fita: '#ec4899', medida: '#f97316' }
 const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fita', medida: 'Medida' }
+
+// Nota de vínculo perfil↔fita automático, mostrada no card de cada um.
+function linkNoteFor(m: Measurement, list: Measurement[]): string | undefined {
+  if (m.linked_measurement_id) {
+    const parent = list.find(x => x.id === m.linked_measurement_id)
+    return parent ? `🔗 metragem repetida do ${parent.label}` : undefined
+  }
+  const child = list.find(x => x.linked_measurement_id === m.id)
+  return child ? `🔗 gerou a ${child.label} automaticamente` : undefined
+}
 const PIECE_COLORS = ['#0284c7', '#db2777', '#7c3aed', '#059669', '#d97706', '#0891b2', '#65a30d', '#e11d48']
 type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: ReturnType<typeof calcularPlanoDeCorte> } | null
+type PieceBadge = { label: string; color: string; siblings: string[] }
 
 type Selection = { kind: EntityKind; id: string } | null
 type HistoryEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> }
@@ -92,6 +106,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [scaleMap, setScaleMap] = useState<Record<string, number>>(plan.scale_m_per_px ?? {})
   const [rotationMap, setRotationMap] = useState<Record<string, number>>(plan.page_rotation ?? {})
   const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null)
+  // "Visualizar reaproveitamento": visão limpa só com perfil/fita + peça/rolo
+  // + onde há corte reaproveitado da mesma peça, escondendo ambiente/símbolo/
+  // anotação — pensada pra exportar em PDF pro instalador.
+  const [reaproveitamentoView, setReaproveitamentoView] = useState(false)
 
   const [draftPoints, setDraftPoints] = useState<Point[]>([])
   const [draftFreehand, setDraftFreehand] = useState<Point[]>([])
@@ -99,6 +117,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [rectStart, setRectStart] = useState<Point | null>(null)
   const [rectCur, setRectCur] = useState<Point | null>(null)
   const [pendingSymbol, setPendingSymbol] = useState<Point | null>(null)
+  const [pendingSymbolAnchor, setPendingSymbolAnchor] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
 
@@ -312,19 +331,24 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const planoPerfil = computePlano(perfisList, Number(comercialPerfil.replace(',', '.')) || 0)
   const planoFita = computePlano(fitasList, Number(comercialFita.replace(',', '.')) || 0)
 
-  function buildPieceMap(plano: PlanoResult) {
-    const map = new Map<string, { label: string; color: string }>()
+  // Perfil compra em "peça" (barra), fita compra em "rolo" — nomes
+  // diferentes mesmo sendo o mesmo mecanismo de plano de corte por baixo.
+  function buildPieceMap(plano: PlanoResult, noun: string) {
+    const map = new Map<string, { label: string; color: string; siblings: string[] }>()
     if (plano?.kind === 'ok') {
       for (const peca of plano.plano.pecas) {
         const color = PIECE_COLORS[(peca.pecaIndex - 1) % PIECE_COLORS.length]
-        for (const corte of peca.cortes) map.set(corte.id, { label: `Peça ${peca.pecaIndex}`, color })
+        for (const corte of peca.cortes) {
+          const siblings = peca.cortes.filter(c => c.id !== corte.id).map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`)
+          map.set(corte.id, { label: `${noun} ${peca.pecaIndex}`, color, siblings })
+        }
       }
     }
     return map
   }
   const pieceBadgeMap = useMemo(() => {
-    const merged = new Map(buildPieceMap(planoPerfil))
-    for (const [k, v] of Array.from(buildPieceMap(planoFita))) merged.set(k, v)
+    const merged = new Map(buildPieceMap(planoPerfil, 'Peça'))
+    for (const [k, v] of Array.from(buildPieceMap(planoFita, 'Rolo'))) merged.set(k, v)
     return merged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planoPerfil, planoFita])
@@ -386,6 +410,65 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     await updatePlanRotation(plan.id, pageNum, next)
   }
 
+  // Exporta exatamente o que está na tela agora (PDF + tudo que está
+  // marcado por cima, incluindo a visão de reaproveitamento se estiver
+  // ativa) como um novo PDF de uma página só, pra baixar.
+  async function exportViewToPdf() {
+    const canvas = canvasRef.current
+    const svgEl = canvas?.parentElement?.querySelector('svg')
+    if (!canvas || !svgEl) return
+    setBusy(true)
+    try {
+      const svgClone = svgEl.cloneNode(true) as SVGSVGElement
+      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      const svgString = new XMLSerializer().serializeToString(svgClone)
+      const svgDataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)))
+
+      const svgImg = new Image()
+      await new Promise<void>((resolve, reject) => {
+        svgImg.onload = () => resolve()
+        svgImg.onerror = () => reject(new Error('Falha ao rasterizar as marcações.'))
+        svgImg.src = svgDataUrl
+      })
+
+      const composite = document.createElement('canvas')
+      composite.width = canvas.width
+      composite.height = canvas.height
+      const ctx = composite.getContext('2d')!
+      ctx.drawImage(canvas, 0, 0)
+      ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height)
+
+      const pngBytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+        composite.toBlob(blob => {
+          if (!blob) { reject(new Error('Falha ao gerar a imagem.')); return }
+          blob.arrayBuffer().then(resolve, reject)
+        }, 'image/png')
+      })
+
+      const { PDFDocument } = await import('pdf-lib')
+      const pdfDoc = await PDFDocument.create()
+      const pngImage = await pdfDoc.embedPng(pngBytes)
+      const page = pdfDoc.addPage([composite.width, composite.height])
+      page.drawImage(pngImage, { x: 0, y: 0, width: composite.width, height: composite.height })
+      const pdfBytes = await pdfDoc.save()
+
+      const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${plan.name}${reaproveitamentoView ? '-reaproveitamento' : ''}-pagina${pageNum}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error(err)
+      window.alert('Não foi possível exportar o PDF. Tente novamente.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Persiste a página aberta como "página de trabalho" — sem isso, reabrir
   // um PDF de várias páginas sempre voltava pra página 1.
   const firstPageRender = useRef(true)
@@ -412,7 +495,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   // ── Interações do canvas ──────────────────────────────────────────────────
 
-  function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null) }
+  function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null); setPendingSymbolAnchor(null) }
 
   useEffect(() => { resetDrafts(); setSelection(null) }, [tool])
 
@@ -427,6 +510,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
     if (tool === 'simbolo') {
       setPendingSymbol(p)
+      setPendingSymbolAnchor({ x: e.clientX, y: e.clientY })
       return
     }
     if (tool === 'anot-texto') {
@@ -491,7 +575,23 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
         power_w_per_m: kind === 'fita' ? 0 : undefined,
       })
-      if (res?.data) { setMeasurements(prev => [...prev, res.data]); pushCreateHistory('measurement', res.data) }
+      if (res?.data) {
+        setMeasurements(prev => [...prev, res.data])
+        pushCreateHistory('measurement', res.data)
+
+        // Todo perfil tem fita (nem toda fita tem perfil): ao marcar um
+        // perfil, já cria a fita correspondente com a mesma metragem,
+        // vinculada — o consultor só precisa preencher o W/m dela.
+        if (kind === 'perfil') {
+          const countFitas = measurements.filter(m => m.kind === 'fita').length
+          const resFita = await createMeasurement(plan.id, {
+            page: pageNum, kind: 'fita', label: `Fita ${countFitas + 1} (do ${res.data.label})`,
+            points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
+            power_w_per_m: 0, linked_measurement_id: res.data.id,
+          })
+          if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
+        }
+      }
       setBusy(false)
       resetDrafts()
       return
@@ -561,13 +661,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     if (res?.data) { setSymbols(prev => [...prev, res.data]); pushCreateHistory('symbol', res.data) }
     setBusy(false)
     setPendingSymbol(null)
+    setPendingSymbolAnchor(null)
   }
 
   // ── Cota (dimensão estilo AutoCAD) ─────────────────────────────────────────
   // Desenha linhas de extensão + linha de cota deslocada + o comprimento em
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
-    selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: { label: string; color: string }
+    selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: PieceBadge
   }) {
     const offsetPx = 16
     const segs: JSX.Element[] = []
@@ -616,9 +717,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const [lx, ly] = toScreen(points[points.length - 1])
       const w = opts.badge.label.length * 5.5 + 14
       segs.push(
-        <g key={`${key}-badge`} pointerEvents="none">
+        <g key={`${key}-badge`} style={{ cursor: opts.onClick ? 'pointer' : undefined }}
+          onClick={opts.onClick ? e => { e.stopPropagation(); opts.onClick!(e) } : undefined}>
           <rect x={lx + 8} y={ly - 21} width={w} height={16} rx={8} fill={opts.badge.color} stroke="white" strokeWidth={1.5} />
-          <text x={lx + 8 + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white">{opts.badge.label}</text>
+          <text x={lx + 8 + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{opts.badge.label}</text>
         </g>
       )
     }
@@ -659,6 +761,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <button onClick={fitToScreen} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
             <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomIn className="w-4 h-4" /></button>
             <button onClick={rotatePage} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
+            <div className="w-px h-4 bg-gray-200 mx-1" />
+            <button onClick={() => setReaproveitamentoView(v => !v)} title="Visualizar reaproveitamento"
+              className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+              <Layers className="w-3.5 h-3.5" /> Reaproveitamento
+            </button>
+            <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 disabled:opacity-40">
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Exportar PDF
+            </button>
             {plan.num_pages > 1 && (
               <>
                 <div className="w-px h-4 bg-gray-200 mx-1" />
@@ -688,20 +800,6 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           </div>
         )}
 
-        {pendingSymbol && (
-          <div className="px-3 py-2 bg-violet-50 border-b border-violet-100 flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-medium text-violet-700">Qual símbolo da legenda?</span>
-            {legendItems.length === 0 && <span className="text-xs text-gray-500">Cadastre pelo menos um item na aba Legenda primeiro.</span>}
-            {legendItems.map(li => (
-              <button key={li.id} onClick={() => confirmSymbol(li.id)}
-                className="text-xs font-semibold px-2 py-1 rounded-md bg-white border border-violet-200 text-violet-700 hover:bg-violet-100">
-                {li.code}
-              </button>
-            ))}
-            <button onClick={() => setPendingSymbol(null)} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">Cancelar</button>
-          </div>
-        )}
-
         {/* Canvas + overlay */}
         <div className="flex-1 overflow-auto bg-gray-100 p-4">
           <div className="relative inline-block" style={{ width: pageSize.width, height: pageSize.height }}>
@@ -722,8 +820,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             >
               {/* Ambientes confirmados — halo branco + traço tracejado grosso,
                   pra nunca se confundir com uma parede ou cota do próprio
-                  projeto (que geralmente são linhas finas contínuas). */}
-              {pagePoints.environments.map((env, i) => {
+                  projeto (que geralmente são linhas finas contínuas).
+                  Escondido na "Visualizar reaproveitamento" (visão limpa). */}
+              {!reaproveitamentoView && pagePoints.environments.map((env, i) => {
                 const pts = env.polygon.map(toScreen).map(p => p.join(',')).join(' ')
                 const color = ENV_COLORS[i % ENV_COLORS.length]
                 const selected = selection?.kind === 'environment' && selection.id === env.id
@@ -737,7 +836,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 )
               })}
               {/* Rótulo do ambiente no centroide */}
-              {pagePoints.environments.map((env, i) => {
+              {!reaproveitamentoView && pagePoints.environments.map((env, i) => {
                 const cx = env.polygon.reduce((s, p) => s + p[0], 0) / env.polygon.length
                 const cy = env.polygon.reduce((s, p) => s + p[1], 0) / env.polygon.length
                 const [sx, sy] = toScreen([cx, cy])
@@ -757,19 +856,33 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {draftPoints.length > 0 && isMeasuring && renderCota(draftPoints, '#f59400', 'draft-medida', scale, { dashed: true })}
               {draftPoints.map((p, i) => { const [sx, sy] = toScreen(p); return <circle key={i} cx={sx} cy={sy} r={3.5} fill="#f59400" /> })}
 
-              {/* Medições — sempre como cota (linha de extensão + medida em metros) */}
-              {pagePoints.measurements.map(m => (
+              {/* Medições — sempre como cota (linha de extensão + medida em metros).
+                  Na visão limpa, só perfil/fita (que têm peça/rolo) aparecem. */}
+              {pagePoints.measurements
+                .filter(m => !reaproveitamentoView || m.kind !== 'medida')
+                .map(m => (
                 <g key={m.id}>
                   {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
                     selected: selection?.kind === 'measurement' && selection.id === m.id,
                     onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
                     badge: pieceBadgeMap.get(m.id),
                   })}
+                  {reaproveitamentoView && (() => {
+                    const badge = pieceBadgeMap.get(m.id)
+                    if (!badge || badge.siblings.length === 0) return null
+                    const [lx, ly] = toScreen(m.points[m.points.length - 1])
+                    return (
+                      <text key={`${m.id}-emenda`} x={lx + 8} y={ly + 10} fontSize={9} fontWeight={700} fill="#b45309"
+                        stroke="white" strokeWidth={3} paintOrder="stroke">
+                        ↔ emenda com: {badge.siblings.join(', ')}
+                      </text>
+                    )
+                  })()}
                 </g>
               ))}
 
-              {/* Símbolos */}
-              {pagePoints.symbols.map(s => {
+              {/* Símbolos — escondidos na visão limpa */}
+              {!reaproveitamentoView && pagePoints.symbols.map(s => {
                 const [sx, sy] = toScreen([s.x, s.y])
                 const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
@@ -784,7 +897,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {/* Anotações — ciano forte (não a cor vermelha que a maioria
                   das plantas já usa pra cotas/observações do próprio CAD),
                   com halo branco por baixo pra sempre se destacar. */}
-              {pagePoints.annotations.map(a => {
+              {!reaproveitamentoView && pagePoints.annotations.map(a => {
                 const selected = selection?.kind === 'annotation' && selection.id === a.id
                 const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id, e) }
                 const ANOT_COLOR = '#0891b2'
@@ -899,6 +1012,35 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           onMergeMeasurement={mergeMeasurements}
         />
       )}
+
+      {/* Popover pra escolher o símbolo da legenda, ancorado no ponto que foi
+          clicado na planta — mostra código + descrição, não só o código. */}
+      {pendingSymbol && pendingSymbolAnchor && (
+        <div
+          style={{ position: 'fixed', left: Math.min(pendingSymbolAnchor.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 260), top: Math.min(pendingSymbolAnchor.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 220), zIndex: 50, width: 248 }}
+          className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-3 pt-2">
+            <p className="text-[10px] font-bold text-violet-500 uppercase">Qual símbolo?</p>
+            <button onClick={() => { setPendingSymbol(null); setPendingSymbolAnchor(null) }} className="p-1 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          <div className="p-2.5 pt-1 space-y-1 max-h-72 overflow-y-auto">
+            {legendItems.length === 0 && <p className="text-xs text-gray-400 px-1 py-2">Cadastre pelo menos um item na aba Legenda primeiro.</p>}
+            {legendItems.map(li => (
+              <button key={li.id} onClick={() => confirmSymbol(li.id)}
+                className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-violet-50 transition-colors">
+                <span className="shrink-0 text-xs font-bold text-white bg-violet-600 rounded-full w-6 h-6 flex items-center justify-center">{li.code}</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-gray-700 truncate">{li.description || 'sem descrição'}</span>
+                  {(li.power_w || li.color_temp_k) && (
+                    <span className="block text-[10px] text-gray-400">{li.power_w ? `${li.power_w}W` : ''}{li.power_w && li.color_temp_k ? ' · ' : ''}{li.color_temp_k ? `${li.color_temp_k}K` : ''}</span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -917,7 +1059,7 @@ function SelectionPopover({
   onClose: () => void
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]
   measurements: Measurement[]; annotations: Annotation[]
-  pieceBadgeMap: Map<string, { label: string; color: string }>
+  pieceBadgeMap: Map<string, PieceBadge>
   onDeleteSelected: () => void
   onRenameEnv: (id: string, name: string) => void
   onChangeSymbolLegend: (id: string, legendItemId: string | null) => void
@@ -952,12 +1094,14 @@ function SelectionPopover({
     content = (
       <div className="p-3 space-y-2">
         <p className="text-[10px] font-bold text-gray-400 uppercase">Símbolo</p>
-        <div className="flex flex-wrap gap-1">
+        <div className="space-y-1 max-h-48 overflow-y-auto">
           {legendItems.map(li => (
             <button key={li.id} onClick={() => onChangeSymbolLegend(s.id, li.id)}
-              className={cn('text-xs font-semibold px-2 py-1 rounded-md border transition-colors',
-                li.id === s.legend_item_id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white border-gray-200 text-gray-600 hover:border-violet-300')}>
-              {li.code}
+              className={cn('w-full flex items-center gap-2 text-left px-2 py-1 rounded-lg border transition-colors',
+                li.id === s.legend_item_id ? 'bg-violet-50 border-violet-300' : 'bg-white border-transparent hover:bg-gray-50')}>
+              <span className={cn('shrink-0 text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center',
+                li.id === s.legend_item_id ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600')}>{li.code}</span>
+              <span className="text-xs text-gray-600 truncate">{li.description || 'sem descrição'}</span>
             </button>
           ))}
           {legendItems.length === 0 && <p className="text-xs text-gray-400">Cadastre a legenda primeiro.</p>}
@@ -980,6 +1124,7 @@ function SelectionPopover({
       mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
       onMerge: (otherId: string) => onMergeMeasurement(m.id, otherId),
       pieceBadge: pieceBadgeMap.get(m.id),
+      linkNote: linkNoteFor(m, measurements),
     }
     content = (
       <div className="p-3">
@@ -1109,7 +1254,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   measurements: Measurement[]; environments: Environment[]
   onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
   onMerge: (idA: string, idB: string) => void
-  pieceBadgeMap: Map<string, { label: string; color: string }>
+  pieceBadgeMap: Map<string, PieceBadge>
   comercialPerfil: string; setComercialPerfil: (v: string) => void
   comercialFita: string; setComercialFita: (v: string) => void
   planoPerfil: PlanoResult; planoFita: PlanoResult
@@ -1139,7 +1284,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2">
           {medidas.map(m => (
             <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)}
+              onDelete={() => onDelete(m.id)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={medidas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {medidas.length === 0 && <p className="text-xs text-gray-400">Nenhuma medida solta ainda — use a ferramenta "Medir" pra medir qualquer coisa na planta.</p>}
@@ -1151,7 +1296,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2 mb-3">
           {perfis.map(m => (
             <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} pieceBadge={pieceBadgeMap.get(m.id)}
+              onDelete={() => onDelete(m.id)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {perfis.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda.</p>}
@@ -1163,7 +1308,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
             </div>
             {planoPerfil?.kind === 'erro' && <p className="text-xs text-red-600">{planoPerfil.mensagem}</p>}
-            {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} />}
+            {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} noun="Peça" />}
           </div>
         )}
       </section>
@@ -1174,7 +1319,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
           {fitas.map(m => (
             <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
               onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)}
-              pieceBadge={pieceBadgeMap.get(m.id)}
+              pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {fitas.length === 0 && <p className="text-xs text-gray-400">Nenhuma fita medida ainda.</p>}
@@ -1186,7 +1331,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
             </div>
             {planoFita?.kind === 'erro' && <p className="text-xs text-red-600">{planoFita.mensagem}</p>}
-            {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} />}
+            {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} noun="Rolo" />}
           </div>
         )}
       </section>
@@ -1197,10 +1342,10 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
 // Cabeçalho comum: label + ambiente (secundário) + ações (mesclar / excluir).
 // Usado tanto pelas medidas soltas quanto pelos perfis (não têm nenhum dado
 // extra pra preencher, então o card inteiro é "baixa hierarquia").
-function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge }: {
+function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
   onDelete: () => void; mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
-  pieceBadge?: { label: string; color: string }
+  pieceBadge?: PieceBadge; linkNote?: string
 }) {
   const [merging, setMerging] = useState(false)
   return (
@@ -1222,6 +1367,10 @@ function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandid
           <option value="">Sem ambiente</option>
           {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
         </select>
+        {linkNote && <p className="text-[10px] text-sky-500">{linkNote}</p>}
+        {pieceBadge && pieceBadge.siblings.length > 0 && (
+          <p className="text-[10px] text-gray-400">↔ mesma peça: {pieceBadge.siblings.join(', ')}</p>
+        )}
       </div>
       <div className="flex items-center gap-1 shrink-0 relative">
         {mergeCandidates.length > 0 && (
@@ -1249,14 +1398,14 @@ function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandid
 
 // Card enxuto pra medida solta e perfil — só tem comprimento pra mostrar,
 // então o comprimento é a única informação em destaque.
-function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge }: {
+function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onDelete: () => void
-  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: { label: string; color: string }
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   return (
     <div className="border border-gray-200 rounded-lg p-2.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
-        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} />
+        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <p className="text-base font-bold text-gray-800 mt-1">{m.length_m.toFixed(2)} m</p>
     </div>
   )
@@ -1265,17 +1414,17 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCa
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, mergeCandidates, onMerge, pieceBadge }: {
+function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
   onDelete: () => void; onChangePotencia: (v: string) => void
-  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: { label: string; color: string }
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   const preenchido = !!m.power_w_per_m
   const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
   return (
     <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
-        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} />
+        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m de fita</p>
 
       <div className="flex items-center gap-2">
@@ -1303,12 +1452,12 @@ function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, me
 // Sobra/desperdício é contexto, fica secundário. O detalhe de corte por peça
 // (o "como") é o que menos precisa saltar aos olhos — cor combina com o
 // badge que aparece no card da medição e direto na planta, pra fechar o elo.
-function PlanoDeCorteView({ plano }: { plano: ReturnType<typeof calcularPlanoDeCorte> }) {
+function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof calcularPlanoDeCorte>; noun?: string }) {
   return (
     <div className="space-y-2">
       <div className="flex items-baseline gap-2">
         <p className="text-2xl font-bold text-gray-900 leading-none">{plano.quantidadePecas}</p>
-        <p className="text-xs text-gray-500 leading-tight">peça(s) pra comprar</p>
+        <p className="text-xs text-gray-500 leading-tight">{noun.toLowerCase()}(s) pra comprar</p>
       </div>
       <p className="text-[11px] text-gray-400">sobra total {plano.sobraTotalM}m · {plano.desperdicioPct}% de desperdício</p>
       <div className="space-y-1">
@@ -1316,7 +1465,7 @@ function PlanoDeCorteView({ plano }: { plano: ReturnType<typeof calcularPlanoDeC
           <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-gray-100 flex items-start gap-1.5 text-[11px]">
             <span className="shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: PIECE_COLORS[(p.pecaIndex - 1) % PIECE_COLORS.length] }} />
             <span className="text-gray-600">
-              <span className="font-semibold text-gray-700">Peça {p.pecaIndex}</span>{' '}
+              <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}</span>{' '}
               {p.cortes.map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`).join(' + ')}
               <span className="text-gray-400"> → sobra {p.sobraM}m</span>
             </span>

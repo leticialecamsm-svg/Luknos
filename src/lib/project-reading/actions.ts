@@ -250,7 +250,7 @@ export async function deleteSymbolOccurrence(planId: string, id: string) {
 
 export async function createMeasurement(planId: string, data: {
   page: number; kind: 'perfil' | 'fita' | 'medida'; label?: string; points: [number, number][]
-  length_m: number; environment_id?: string | null; power_w_per_m?: number
+  length_m: number; environment_id?: string | null; power_w_per_m?: number; linked_measurement_id?: string | null
 }) {
   const userId = await requireUserId()
   if (!userId) return { error: 'Não autenticado' }
