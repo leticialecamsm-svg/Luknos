@@ -54,6 +54,8 @@ const TOOLS: { id: Tool; label: string; icon: any }[] = [
 const ENV_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#84cc16']
 const MEASURE_COLOR: Record<MeasureKind, string> = { perfil: '#0ea5e9', fita: '#ec4899', medida: '#f97316' }
 const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fita', medida: 'Medida' }
+const PIECE_COLORS = ['#0284c7', '#db2777', '#7c3aed', '#059669', '#d97706', '#0891b2', '#65a30d', '#e11d48']
+type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: ReturnType<typeof calcularPlanoDeCorte> } | null
 
 type Selection = { kind: EntityKind; id: string } | null
 type HistoryEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> }
@@ -268,6 +270,45 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     annotations: annotations.filter(a => a.page === pageNum),
   }), [environments, symbols, measurements, annotations, pageNum])
 
+  // ── Plano de corte (mora aqui, não na aba, pra poder rotular a peça de
+  // cada trecho tanto no card quanto direto na planta) ──────────────────────
+  const [comercialPerfil, setComercialPerfil] = useState('3')
+  const [comercialFita, setComercialFita] = useState('5')
+
+  function envNameFor(id: string | null) { return environments.find(e => e.id === id)?.name ?? 'Sem ambiente' }
+
+  function computePlano(trechos: Measurement[], comercial: number): PlanoResult {
+    if (trechos.length === 0 || comercial <= 0) return null
+    const list: TrechoNecessario[] = trechos.map(t => ({ id: t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id) }))
+    const excedentes = list.filter(t => t.comprimentoM > comercial)
+    if (excedentes.length > 0) {
+      return { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que a peça comercial de ${comercial}m — ajuste o comercial ou divida o trecho.` }
+    }
+    return { kind: 'ok', plano: calcularPlanoDeCorte(list, comercial) }
+  }
+
+  const perfisList = measurements.filter(m => m.kind === 'perfil')
+  const fitasList = measurements.filter(m => m.kind === 'fita')
+  const planoPerfil = computePlano(perfisList, Number(comercialPerfil.replace(',', '.')) || 0)
+  const planoFita = computePlano(fitasList, Number(comercialFita.replace(',', '.')) || 0)
+
+  function buildPieceMap(plano: PlanoResult) {
+    const map = new Map<string, { label: string; color: string }>()
+    if (plano?.kind === 'ok') {
+      for (const peca of plano.plano.pecas) {
+        const color = PIECE_COLORS[(peca.pecaIndex - 1) % PIECE_COLORS.length]
+        for (const corte of peca.cortes) map.set(corte.id, { label: `Peça ${peca.pecaIndex}`, color })
+      }
+    }
+    return map
+  }
+  const pieceBadgeMap = useMemo(() => {
+    const merged = new Map(buildPieceMap(planoPerfil))
+    for (const [k, v] of Array.from(buildPieceMap(planoFita))) merged.set(k, v)
+    return merged
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planoPerfil, planoFita])
+
   // ── Carrega e renderiza o PDF ─────────────────────────────────────────────
 
   useEffect(() => {
@@ -356,7 +397,25 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (name?.trim()) {
         setBusy(true)
         const res = await createEnvironment(plan.id, { page: pageNum, name: name.trim(), polygon: draftPoints })
-        if (res?.data) { setEnvironments(prev => [...prev, res.data]); pushCreateHistory('environment', res.data) }
+        if (res?.data) {
+          const env = res.data as Environment
+          setEnvironments(prev => [...prev, env])
+          pushCreateHistory('environment', env)
+          // Puxa pro ambiente recém-criado tudo que já estava marcado na
+          // página e ainda não tinha ambiente — sem isso, desenhar o
+          // ambiente DEPOIS de medir/marcar símbolos nunca associava nada
+          // (o vínculo só era calculado uma vez, no momento da criação).
+          for (const s of symbols) {
+            if (s.page === pageNum && !s.environment_id && pointInPolygon([s.x, s.y], env.polygon)) {
+              updateEntity('symbol', s.id, { environment_id: null }, { environment_id: env.id }, updateSymbolOccurrence)
+            }
+          }
+          for (const m of measurements) {
+            if (m.page === pageNum && !m.environment_id && pointInPolygon(m.points[0], env.polygon)) {
+              updateEntity('measurement', m.id, { environment_id: null }, { environment_id: env.id }, updateMeasurement)
+            }
+          }
+        }
         setBusy(false)
       }
       resetDrafts()
@@ -453,7 +512,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // ── Cota (dimensão estilo AutoCAD) ─────────────────────────────────────────
   // Desenha linhas de extensão + linha de cota deslocada + o comprimento em
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
-  function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: { selected?: boolean; onClick?: () => void; dashed?: boolean }) {
+  function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
+    selected?: boolean; onClick?: () => void; dashed?: boolean; badge?: { label: string; color: string }
+  }) {
     const offsetPx = 16
     const segs: JSX.Element[] = []
     for (let i = 0; i < points.length - 1; i++) {
@@ -470,11 +531,19 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const midX = (a2x + b2x) / 2, midY = (a2y + b2y) / 2
       let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI
       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+      const dimWidth = opts?.selected ? 3.5 : 2.5
       segs.push(
         <g key={`${key}-${i}`}>
-          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1} opacity={0.5} />
-          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1} opacity={0.5} />
-          <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke={color} strokeWidth={opts?.selected ? 3 : 2}
+          {/* Halo branco por baixo de tudo — sem isso a cota some no meio dos
+              traços que já existem no PDF original (linhas, cotas do CAD). */}
+          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
+          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
+          <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="white" strokeWidth={dimWidth + 3}
+            strokeDasharray={opts?.dashed ? '4 3' : undefined} />
+
+          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
+          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
+          <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke={color} strokeWidth={dimWidth}
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
           {opts?.onClick && (
             <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="transparent" strokeWidth={14}
@@ -482,10 +551,20 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           )}
           {segLenM != null && (
             <text x={midX} y={midY - 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={color}
-              stroke="white" strokeWidth={3} paintOrder="stroke" transform={`rotate(${angleDeg} ${midX} ${midY})`}>
+              stroke="white" strokeWidth={3.5} paintOrder="stroke" transform={`rotate(${angleDeg} ${midX} ${midY})`}>
               {segLenM.toFixed(2)}m
             </text>
           )}
+        </g>
+      )
+    }
+    if (opts?.badge && points.length > 0) {
+      const [lx, ly] = toScreen(points[points.length - 1])
+      const w = opts.badge.label.length * 5.5 + 14
+      segs.push(
+        <g key={`${key}-badge`} pointerEvents="none">
+          <rect x={lx + 8} y={ly - 21} width={w} height={16} rx={8} fill={opts.badge.color} stroke="white" strokeWidth={1.5} />
+          <text x={lx + 8 + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white">{opts.badge.label}</text>
         </g>
       )
     }
@@ -587,17 +666,22 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
             >
-              {/* Ambientes confirmados */}
-              {pagePoints.environments.map((env, i) => (
-                <polygon key={env.id}
-                  points={env.polygon.map(toScreen).map(p => p.join(',')).join(' ')}
-                  fill={ENV_COLORS[i % ENV_COLORS.length] + '22'}
-                  stroke={ENV_COLORS[i % ENV_COLORS.length]}
-                  strokeWidth={selection?.kind === 'environment' && selection.id === env.id ? 4 : 2}
-                  style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
-                  onClick={e => { e.stopPropagation(); selectShape('environment', env.id) }}
-                />
-              ))}
+              {/* Ambientes confirmados — halo branco + traço tracejado grosso,
+                  pra nunca se confundir com uma parede ou cota do próprio
+                  projeto (que geralmente são linhas finas contínuas). */}
+              {pagePoints.environments.map((env, i) => {
+                const pts = env.polygon.map(toScreen).map(p => p.join(',')).join(' ')
+                const color = ENV_COLORS[i % ENV_COLORS.length]
+                const selected = selection?.kind === 'environment' && selection.id === env.id
+                return (
+                  <g key={env.id}>
+                    <polygon points={pts} fill={color + '18'} stroke="white" strokeWidth={selected ? 7 : 5.5} />
+                    <polygon points={pts} fill="transparent" stroke={color} strokeWidth={selected ? 3.5 : 2.5} strokeDasharray="7 4"
+                      style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
+                      onClick={e => { e.stopPropagation(); selectShape('environment', env.id) }} />
+                  </g>
+                )
+              })}
               {/* Rótulo do ambiente no centroide */}
               {pagePoints.environments.map((env, i) => {
                 const cx = env.polygon.reduce((s, p) => s + p[0], 0) / env.polygon.length
@@ -625,6 +709,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
                     selected: selection?.kind === 'measurement' && selection.id === m.id,
                     onClick: () => selectShape('measurement', m.id),
+                    badge: pieceBadgeMap.get(m.id),
                   })}
                 </g>
               ))}
@@ -636,36 +721,45 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
                 return (
                   <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { e.stopPropagation(); selectShape('symbol', s.id) }}>
-                    <circle cx={sx} cy={sy} r={selected ? 11 : 9} fill="#7c3aed" stroke="white" strokeWidth={selected ? 2.5 : 1.5} />
+                    <circle cx={sx} cy={sy} r={selected ? 12.5 : 10.5} fill="#7c3aed" stroke="white" strokeWidth={selected ? 3 : 2.5} />
                     <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{code}</text>
                   </g>
                 )
               })}
 
-              {/* Anotações */}
+              {/* Anotações — ciano forte (não a cor vermelha que a maioria
+                  das plantas já usa pra cotas/observações do próprio CAD),
+                  com halo branco por baixo pra sempre se destacar. */}
               {pagePoints.annotations.map(a => {
                 const selected = selection?.kind === 'annotation' && selection.id === a.id
                 const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id) }
+                const ANOT_COLOR = '#0891b2'
                 if (a.kind === 'rect') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
-                  return <rect key={a.id} x={sx} y={sy} width={a.data.width * renderScale} height={a.data.height * renderScale}
-                    fill="transparent" stroke="#dc2626" strokeWidth={selected ? 3 : 2}
-                    style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
+                  const w = a.data.width * renderScale, h = a.data.height * renderScale
+                  return (
+                    <g key={a.id}>
+                      <rect x={sx} y={sy} width={w} height={h} fill="transparent" stroke="white" strokeWidth={(selected ? 3 : 2) + 3} />
+                      <rect x={sx} y={sy} width={w} height={h} fill="transparent" stroke={ANOT_COLOR} strokeWidth={selected ? 3 : 2}
+                        style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
+                    </g>
+                  )
                 }
                 if (a.kind === 'freehand') {
                   const pts = (a.data.points as Point[]).map(toScreen).map(p => p.join(',')).join(' ')
                   return (
                     <g key={a.id}>
-                      <polyline points={pts} fill="none" stroke="#dc2626" strokeWidth={selected ? 3.5 : 2} strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline points={pts} fill="none" stroke="white" strokeWidth={(selected ? 3.5 : 2) + 3} strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline points={pts} fill="none" stroke={ANOT_COLOR} strokeWidth={selected ? 3.5 : 2} strokeLinecap="round" strokeLinejoin="round" />
                       <polyline points={pts} fill="none" stroke="transparent" strokeWidth={14} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
                     </g>
                   )
                 }
                 if (a.kind === 'text') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
-                  return <text key={a.id} x={sx} y={sy} fontSize={13} fontWeight={600} fill="#dc2626"
+                  return <text key={a.id} x={sx} y={sy} fontSize={13} fontWeight={700} fill={ANOT_COLOR}
                     style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel}
-                    stroke={selected ? '#fecaca' : undefined} strokeWidth={selected ? 4 : undefined} paintOrder="stroke">
+                    stroke={selected ? '#a5f3fc' : 'white'} strokeWidth={selected ? 5 : 3.5} paintOrder="stroke">
                     {a.data.text}
                   </text>
                 }
@@ -716,14 +810,19 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               />
             )}
             {tab === 'medicoes' && (
-              <MedicoesTab planId={plan.id} measurements={measurements} environments={environments}
+              <MedicoesTab measurements={measurements} environments={environments}
                 onUpdate={(id, updates) => {
-                  const before = measurements.find(m => m.id === id)
-                  if (before) updateEntity('measurement', id, { power_w_per_m: before.power_w_per_m }, updates, updateMeasurement)
+                  const beforeRow = measurements.find(m => m.id === id)
+                  if (!beforeRow) return
+                  const before = Object.fromEntries(Object.keys(updates).map(k => [k, (beforeRow as any)[k]]))
+                  updateEntity('measurement', id, before, updates, updateMeasurement)
                 }}
                 onDelete={id => deleteEntity('measurement', id)}
                 onMerge={mergeMeasurements}
-                busy={busy}
+                pieceBadgeMap={pieceBadgeMap}
+                comercialPerfil={comercialPerfil} setComercialPerfil={setComercialPerfil}
+                comercialFita={comercialFita} setComercialFita={setComercialFita}
+                planoPerfil={planoPerfil} planoFita={planoFita}
               />
             )}
             {tab === 'resultado' && (
@@ -824,14 +923,17 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
 
 // ── Aba: Medições (perfil / fita + plano de corte / medidas soltas) ─────────
 
-function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, onMerge, busy }: {
-  planId: string; measurements: Measurement[]; environments: Environment[]
+function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, pieceBadgeMap,
+  comercialPerfil, setComercialPerfil, comercialFita, setComercialFita, planoPerfil, planoFita,
+}: {
+  measurements: Measurement[]; environments: Environment[]
   onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
-  onMerge: (idA: string, idB: string) => void; busy: boolean
+  onMerge: (idA: string, idB: string) => void
+  pieceBadgeMap: Map<string, { label: string; color: string }>
+  comercialPerfil: string; setComercialPerfil: (v: string) => void
+  comercialFita: string; setComercialFita: (v: string) => void
+  planoPerfil: PlanoResult; planoFita: PlanoResult
 }) {
-  const [comercialPerfil, setComercialPerfil] = useState('3')
-  const [comercialFita, setComercialFita] = useState('5')
-
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
   const medidas = measurements.filter(m => m.kind === 'medida')
@@ -840,36 +942,24 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, o
     const w = Number(value.replace(',', '.')) || 0
     onUpdate(id, { power_w_per_m: w })
   }
-
-  function envName(id: string | null) { return environments.find(e => e.id === id)?.name ?? 'Sem ambiente' }
-
-  type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: ReturnType<typeof calcularPlanoDeCorte> } | null
-
-  function planoDeCorte(trechos: Measurement[], comercial: number): PlanoResult {
-    if (trechos.length === 0 || comercial <= 0) return null
-    const list: TrechoNecessario[] = trechos.map(t => ({ id: t.id, comprimentoM: t.length_m, ambiente: envName(t.environment_id) }))
-    const excedentes = list.filter(t => t.comprimentoM > comercial)
-    if (excedentes.length > 0) {
-      return { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que a peça comercial de ${comercial}m — ajuste o comercial ou divida o trecho.` }
-    }
-    return { kind: 'ok', plano: calcularPlanoDeCorte(list, comercial) }
+  function changeEnv(id: string, envId: string | null) {
+    onUpdate(id, { environment_id: envId })
   }
-
-  const planoPerfil = planoDeCorte(perfis, Number(comercialPerfil.replace(',', '.')) || 0)
-  const planoFita = planoDeCorte(fitas, Number(comercialFita.replace(',', '.')) || 0)
 
   return (
     <div className="space-y-6">
       <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
         💡 Um trecho em L ou U pode ser medido como uma peça só — clique em cada canto sem apertar Enter,
         e só finalize no último ponto. Se já mediu em partes separadas, use <b>Mesclar</b> no card pra juntar.
+        O ambiente de cada medição pode ser trocado direto no card, a qualquer momento.
       </p>
 
       <section>
         <p className="text-xs font-bold text-orange-600 uppercase mb-2">Medidas soltas ({medidas.length})</p>
         <div className="space-y-2">
           {medidas.map(m => (
-            <SimpleMeasurementCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
+            <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+              onDelete={() => onDelete(m.id)}
               mergeCandidates={medidas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {medidas.length === 0 && <p className="text-xs text-gray-400">Nenhuma medida solta ainda — use a ferramenta "Medir" pra medir qualquer coisa na planta.</p>}
@@ -880,16 +970,17 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, o
         <p className="text-xs font-bold text-sky-600 uppercase mb-2">Perfis ({perfis.length})</p>
         <div className="space-y-2 mb-3">
           {perfis.map(m => (
-            <SimpleMeasurementCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
+            <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+              onDelete={() => onDelete(m.id)} pieceBadge={pieceBadgeMap.get(m.id)}
               mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {perfis.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda.</p>}
         </div>
         {perfis.length > 0 && (
-          <div className="bg-sky-50 rounded-lg p-2.5 space-y-2">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500">Barra comercial:</span>
-              <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5" /> m
+          <div className="bg-sky-50 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span>Barra comercial:</span>
+              <input value={comercialPerfil} onChange={e => setComercialPerfil(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
             </div>
             {planoPerfil?.kind === 'erro' && <p className="text-xs text-red-600">{planoPerfil.mensagem}</p>}
             {planoPerfil?.kind === 'ok' && <PlanoDeCorteView plano={planoPerfil.plano} />}
@@ -901,17 +992,18 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, o
         <p className="text-xs font-bold text-pink-600 uppercase mb-2">Fitas de LED ({fitas.length})</p>
         <div className="space-y-2 mb-3">
           {fitas.map(m => (
-            <FitaCard key={m.id} m={m} envName={envName(m.environment_id)} onDelete={() => onDelete(m.id)}
-              onChangePotencia={v => changePotencia(m.id, v)}
+            <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
+              onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)}
+              pieceBadge={pieceBadgeMap.get(m.id)}
               mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {fitas.length === 0 && <p className="text-xs text-gray-400">Nenhuma fita medida ainda.</p>}
         </div>
         {fitas.length > 0 && (
-          <div className="bg-pink-50 rounded-lg p-2.5 space-y-2">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500">Rolo comercial:</span>
-              <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5" /> m
+          <div className="bg-pink-50 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span>Rolo comercial:</span>
+              <input value={comercialFita} onChange={e => setComercialFita(e.target.value)} className="w-14 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white" /> m
             </div>
             {planoFita?.kind === 'erro' && <p className="text-xs text-red-600">{planoFita.mensagem}</p>}
             {planoFita?.kind === 'ok' && <PlanoDeCorteView plano={planoFita.plano} />}
@@ -925,16 +1017,31 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, o
 // Cabeçalho comum: label + ambiente (secundário) + ações (mesclar / excluir).
 // Usado tanto pelas medidas soltas quanto pelos perfis (não têm nenhum dado
 // extra pra preencher, então o card inteiro é "baixa hierarquia").
-function MeasurementHeader({ m, envName, onDelete, mergeCandidates, onMerge }: {
-  m: Measurement; envName: string; onDelete: () => void
-  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge }: {
+  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
+  onDelete: () => void; mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+  pieceBadge?: { label: string; color: string }
 }) {
   const [merging, setMerging] = useState(false)
   return (
     <div className="flex items-start justify-between gap-2">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-800 truncate">{m.label}</p>
-        <p className="text-[11px] text-gray-400">{envName}</p>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold text-gray-800 truncate">{m.label}</p>
+          {pieceBadge && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadge.color }}>
+              {pieceBadge.label}
+            </span>
+          )}
+        </div>
+        {/* Ambiente é editável direto aqui — cobre tanto o vínculo automático
+            (point-in-polygon) quanto o caso de medir antes de desenhar o
+            ambiente, ou simplesmente errar e querer trocar. */}
+        <select value={m.environment_id ?? ''} onChange={e => onChangeEnv(e.target.value || null)}
+          className="text-[11px] text-gray-500 bg-transparent border-none outline-none -ml-0.5 cursor-pointer hover:text-brand-600 max-w-full">
+          <option value="">Sem ambiente</option>
+          {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
+        </select>
       </div>
       <div className="flex items-center gap-1 shrink-0 relative">
         {mergeCandidates.length > 0 && (
@@ -962,13 +1069,14 @@ function MeasurementHeader({ m, envName, onDelete, mergeCandidates, onMerge }: {
 
 // Card enxuto pra medida solta e perfil — só tem comprimento pra mostrar,
 // então o comprimento é a única informação em destaque.
-function SimpleMeasurementCard({ m, envName, onDelete, mergeCandidates, onMerge }: {
-  m: Measurement; envName: string; onDelete: () => void
-  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge }: {
+  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onDelete: () => void
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: { label: string; color: string }
 }) {
   return (
     <div className="border border-gray-200 rounded-lg p-2.5">
-      <MeasurementHeader m={m} envName={envName} onDelete={onDelete} mergeCandidates={mergeCandidates} onMerge={onMerge} />
+      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
+        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} />
       <p className="text-base font-bold text-gray-800 mt-1">{m.length_m.toFixed(2)} m</p>
     </div>
   )
@@ -977,15 +1085,17 @@ function SimpleMeasurementCard({ m, envName, onDelete, mergeCandidates, onMerge 
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, envName, onDelete, onChangePotencia, mergeCandidates, onMerge }: {
-  m: Measurement; envName: string; onDelete: () => void; onChangePotencia: (v: string) => void
-  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
+function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, mergeCandidates, onMerge, pieceBadge }: {
+  m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
+  onDelete: () => void; onChangePotencia: (v: string) => void
+  mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: { label: string; color: string }
 }) {
   const preenchido = !!m.power_w_per_m
   const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
   return (
     <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
-      <MeasurementHeader m={m} envName={envName} onDelete={onDelete} mergeCandidates={mergeCandidates} onMerge={onMerge} />
+      <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
+        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} />
       <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m de fita</p>
 
       <div className="flex items-center gap-2">
@@ -1009,16 +1119,27 @@ function FitaCard({ m, envName, onDelete, onChangePotencia, mergeCandidates, onM
   )
 }
 
+// O número que importa pra decisão é "quantas peças comprar" — fica grande.
+// Sobra/desperdício é contexto, fica secundário. O detalhe de corte por peça
+// (o "como") é o que menos precisa saltar aos olhos — cor combina com o
+// badge que aparece no card da medição e direto na planta, pra fechar o elo.
 function PlanoDeCorteView({ plano }: { plano: ReturnType<typeof calcularPlanoDeCorte> }) {
   return (
-    <div className="text-xs space-y-1.5">
-      <p><b>{plano.quantidadePecas}</b> peça(s) · sobra total <b>{plano.sobraTotalM}m</b> ({plano.desperdicioPct}% de desperdício)</p>
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <p className="text-2xl font-bold text-gray-900 leading-none">{plano.quantidadePecas}</p>
+        <p className="text-xs text-gray-500 leading-tight">peça(s) pra comprar</p>
+      </div>
+      <p className="text-[11px] text-gray-400">sobra total {plano.sobraTotalM}m · {plano.desperdicioPct}% de desperdício</p>
       <div className="space-y-1">
         {plano.pecas.map(p => (
-          <div key={p.pecaIndex} className="bg-white rounded px-2 py-1 border border-gray-100">
-            <span className="font-semibold">Peça {p.pecaIndex}:</span>{' '}
-            {p.cortes.map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`).join(' + ')}
-            {' '}<span className="text-gray-400">→ sobra {p.sobraM}m</span>
+          <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-gray-100 flex items-start gap-1.5 text-[11px]">
+            <span className="shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: PIECE_COLORS[(p.pecaIndex - 1) % PIECE_COLORS.length] }} />
+            <span className="text-gray-600">
+              <span className="font-semibold text-gray-700">Peça {p.pecaIndex}</span>{' '}
+              {p.cortes.map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`).join(' + ')}
+              <span className="text-gray-400"> → sobra {p.sobraM}m</span>
+            </span>
           </div>
         ))}
       </div>
