@@ -1684,16 +1684,17 @@ function AmbientesTab({
         const open = expanded === env.id
         return (
           <div key={env.id} className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="p-3">
+            <div className="p-3 cursor-pointer hover:bg-gray-50 transition-colors" title="Ver este ambiente na planta"
+              onClick={() => onFocusEnvironment(env)}>
               <div className="flex items-center gap-2">
-                <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
+                <input defaultValue={env.name} onClick={e => e.stopPropagation()}
+                  onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
                   className="flex-1 text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{env.status}</span>
-                <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
-                  className="text-gray-300 hover:text-brand-600"><Locate className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onDelete(env.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                <Locate className="w-3.5 h-3.5 text-gray-300" />
+                <button onClick={e => { e.stopPropagation(); onDelete(env.id) }} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
-              <button onClick={() => setExpanded(open ? null : env.id)}
+              <button onClick={e => { e.stopPropagation(); setExpanded(open ? null : env.id) }}
                 className="text-xs text-gray-400 hover:text-brand-600 mt-1 flex items-center gap-1">
                 {envSymbols.length} símbolo(s) · {envMeasurements.length} medição(ões)
                 <ChevronRight className={cn('w-3 h-3 transition-transform', open && 'rotate-90')} />
