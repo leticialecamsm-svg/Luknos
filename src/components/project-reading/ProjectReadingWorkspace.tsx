@@ -908,7 +908,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           {opts?.onClick && (
             <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="transparent" strokeWidth={14}
               style={{ cursor: opts.onOffsetDragStart ? 'move' : 'pointer' }}
-              onClick={e => { e.stopPropagation(); opts.onClick!(e) }}
+              onClick={e => { if (tool !== 'select') return; e.stopPropagation(); opts.onClick!(e) }}
               onMouseDown={opts.onOffsetDragStart ? e => { e.stopPropagation(); opts.onOffsetDragStart!() } : undefined} />
           )}
           {segLenM != null && (
@@ -925,7 +925,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const w = opts.badge.label.length * 5.5 + 14
       segs.push(
         <g key={`${key}-badge`} style={{ cursor: opts.onClick ? 'pointer' : undefined }}
-          onClick={opts.onClick ? e => { e.stopPropagation(); opts.onClick!(e) } : undefined}>
+          onClick={opts.onClick ? e => { if (tool !== 'select') return; e.stopPropagation(); opts.onClick!(e) } : undefined}>
           <rect x={lx + 8} y={ly - 21} width={w} height={16} rx={8} fill={opts.badge.color} stroke="white" strokeWidth={1.5} />
           <text x={lx + 8 + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{opts.badge.label}</text>
         </g>
@@ -1066,7 +1066,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     <polygon points={pts} fill="transparent" stroke={ambientesDiscretos ? 'transparent' : color}
                       strokeWidth={selected ? 3.5 : 2.5} strokeDasharray={ambientesDiscretos ? undefined : '7 4'}
                       style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
-                      onClick={e => { e.stopPropagation(); selectShape('environment', env.id, e) }} />
+                      onClick={e => { if (tool !== 'select') return; e.stopPropagation(); selectShape('environment', env.id, e) }} />
                   </g>
                 )
               })}
@@ -1162,7 +1162,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     {cable}
                     <g
                       style={{ cursor: tool === 'select' ? (draggingFonte?.id === ps.id ? 'grabbing' : 'grab') : undefined }}
-                      onClick={e => { e.stopPropagation(); selectShape('powerSupply', ps.id, e) }}
+                      onClick={e => { if (tool !== 'select') return; e.stopPropagation(); selectShape('powerSupply', ps.id, e) }}
                       onMouseDown={e => {
                         if (tool !== 'select') return
                         e.stopPropagation()
@@ -1184,7 +1184,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
                 return (
-                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { e.stopPropagation(); selectShape('symbol', s.id, e) }}>
+                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { if (tool !== 'select') return; e.stopPropagation(); selectShape('symbol', s.id, e) }}>
                     <circle cx={sx} cy={sy} r={selected ? 12.5 : 10.5} fill="#7c3aed" stroke="white" strokeWidth={selected ? 3 : 2.5} />
                     <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{code}</text>
                   </g>
@@ -1196,7 +1196,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   com halo branco por baixo pra sempre se destacar. */}
               {!reaproveitamentoView && !fontesView && pagePoints.annotations.map(a => {
                 const selected = selection?.kind === 'annotation' && selection.id === a.id
-                const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id, e) }
+                const onSel = (e: React.MouseEvent) => { if (tool !== 'select') return; e.stopPropagation(); selectShape('annotation', a.id, e) }
                 const ANOT_COLOR = '#0891b2'
                 if (a.kind === 'rect') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
