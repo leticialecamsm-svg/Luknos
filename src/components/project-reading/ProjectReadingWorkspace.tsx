@@ -7,14 +7,14 @@ import {
   createLegendItem, updateLegendItem, deleteLegendItem,
   createSymbolOccurrence, updateSymbolOccurrence, deleteSymbolOccurrence,
   createMeasurement, updateMeasurement, deleteMeasurement,
-  createAnnotation, deleteAnnotation, updatePlanScale,
+  createAnnotation, deleteAnnotation, updatePlanScale, restoreRow,
 } from '@/lib/project-reading/actions'
-import { pointInPolygon, polylineLength, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
+import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
 import { calcularFita, calcularPlanoDeCorte, round2, type TrechoNecessario } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
-  Lightbulb, Ruler as RulerCalib, Square, Pencil, Type, Trash2, Loader2, Undo2,
+  Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -26,12 +26,14 @@ if (typeof window !== 'undefined') {
 
 // ── Tipos ─────────────────────────────────────────────────────────────────
 
-type Tool = 'select' | 'ambiente' | 'medir-perfil' | 'medir-fita' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
+type Tool = 'select' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
+type MeasureKind = 'perfil' | 'fita' | 'medida'
+type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation'
 
 interface Environment { id: string; page: number; name: string; polygon: Point[]; origin: string; status: string }
 interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null }
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
-interface Measurement { id: string; page: number; kind: 'perfil' | 'fita'; label: string | null; points: Point[]; length_m: number; power_w_per_m: number | null; environment_id: string | null }
+interface Measurement { id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number; power_w_per_m: number | null; environment_id: string | null }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 
 interface Plan { id: string; name: string; num_pages: number; pdfUrl: string; scale_m_per_px: Record<string, number> }
@@ -40,21 +42,28 @@ const TOOLS: { id: Tool; label: string; icon: any }[] = [
   { id: 'select', label: 'Selecionar', icon: MousePointer2 },
   { id: 'ambiente', label: 'Ambiente', icon: Shapes },
   { id: 'simbolo', label: 'Símbolo', icon: Lightbulb },
+  { id: 'medir', label: 'Medir', icon: Ruler },
   { id: 'medir-perfil', label: 'Medir perfil', icon: Ruler },
   { id: 'medir-fita', label: 'Medir fita', icon: Ruler },
-  { id: 'calibrar', label: 'Calibrar escala', icon: RulerCalib },
+  { id: 'calibrar', label: 'Calibrar escala', icon: Ruler },
   { id: 'anot-retangulo', label: 'Retângulo', icon: Square },
   { id: 'anot-livre', label: 'Desenho livre', icon: Pencil },
   { id: 'anot-texto', label: 'Texto', icon: Type },
 ]
 
 const ENV_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#84cc16']
+const MEASURE_COLOR: Record<MeasureKind, string> = { perfil: '#0ea5e9', fita: '#ec4899', medida: '#f97316' }
+const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fita', medida: 'Medida' }
+
+type Selection = { kind: EntityKind; id: string } | null
+type HistoryEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> }
 
 export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendItems: initLegend, symbols: initSymbols, measurements: initMeasurements, annotations: initAnnotations }: {
   plan: Plan; environments: Environment[]; legendItems: LegendItem[]
   symbols: SymbolOccurrence[]; measurements: Measurement[]; annotations: Annotation[]
 }) {
   const [tab, setTab] = useState<'ambientes' | 'legenda' | 'medicoes' | 'resultado'>('ambientes')
+  const [panelOpen, setPanelOpen] = useState(true)
   const [tool, setTool] = useState<Tool>('select')
   const [pageNum, setPageNum] = useState(1)
   const [renderScale, setRenderScale] = useState(1.4)
@@ -77,6 +86,109 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [rectCur, setRectCur] = useState<Point | null>(null)
   const [pendingSymbol, setPendingSymbol] = useState<Point | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selection, setSelection] = useState<Selection>(null)
+
+  // ── Undo/redo genérico ──────────────────────────────────────────────────
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([])
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([])
+
+  function pushHistory(entry: HistoryEntry) {
+    setUndoStack(prev => [...prev, entry])
+    setRedoStack([])
+  }
+  // Não usa a forma funcional do setState pra disparar o efeito colateral
+  // (entry.undo()/redo() chamam server actions) — isso rodaria em fase de
+  // render e poderia duplicar em StrictMode. Lê o array normalmente: como
+  // undo/redo só são chamados por evento discreto do usuário (clique,
+  // atalho), a closure recriada a cada render já reflete o estado atual.
+  async function undo() {
+    if (undoStack.length === 0) return
+    const entry = undoStack[undoStack.length - 1]
+    setUndoStack(prev => prev.slice(0, -1))
+    setRedoStack(prev => [...prev, entry])
+    await entry.undo()
+  }
+  async function redo() {
+    if (redoStack.length === 0) return
+    const entry = redoStack[redoStack.length - 1]
+    setRedoStack(prev => prev.slice(0, -1))
+    setUndoStack(prev => [...prev, entry])
+    await entry.redo()
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement
+      const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      if (!typing && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo(); else undo()
+      }
+      if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selection) {
+        e.preventDefault()
+        deleteSelected()
+      }
+      if (!typing && e.key === 'Escape') setSelection(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, undo, redo])
+
+  // ── Entidades desenhadas no PDF: acesso genérico (delete/restore/undo) ────
+
+  function entityState(kind: EntityKind) {
+    switch (kind) {
+      case 'environment': return { list: environments as any[], set: setEnvironments as any, table: 'plan_environments' as const, del: deleteEnvironment }
+      case 'symbol': return { list: symbols as any[], set: setSymbols as any, table: 'plan_symbol_occurrences' as const, del: deleteSymbolOccurrence }
+      case 'measurement': return { list: measurements as any[], set: setMeasurements as any, table: 'plan_measurements' as const, del: deleteMeasurement }
+      case 'annotation': return { list: annotations as any[], set: setAnnotations as any, table: 'plan_annotations' as const, del: deleteAnnotation }
+    }
+  }
+
+  function pushCreateHistory(kind: EntityKind, row: any) {
+    const { set, table, del } = entityState(kind)
+    pushHistory({
+      label: `criar ${kind}`,
+      undo: async () => { set((prev: any[]) => prev.filter(x => x.id !== row.id)); await del(plan.id, row.id) },
+      redo: async () => { set((prev: any[]) => [...prev, row]); await restoreRow(table, row) },
+    })
+  }
+
+  async function deleteEntity(kind: EntityKind, id: string) {
+    const { list, set, table, del } = entityState(kind)
+    const row = list.find(x => x.id === id)
+    if (!row) return
+    set((prev: any[]) => prev.filter(x => x.id !== id))
+    await del(plan.id, id)
+    pushHistory({
+      label: `excluir ${kind}`,
+      undo: async () => { set((prev: any[]) => [...prev, row]); await restoreRow(table, row) },
+      redo: async () => { set((prev: any[]) => prev.filter(x => x.id !== id)); await del(plan.id, id) },
+    })
+  }
+
+  function updateEntity(kind: EntityKind, id: string, before: Record<string, unknown>, after: Record<string, unknown>, updateFn: (planId: string, id: string, updates: any) => Promise<any>) {
+    const { set } = entityState(kind)
+    set((prev: any[]) => prev.map(x => x.id === id ? { ...x, ...after } : x))
+    updateFn(plan.id, id, after)
+    pushHistory({
+      label: `editar ${kind}`,
+      undo: async () => { set((prev: any[]) => prev.map(x => x.id === id ? { ...x, ...before } : x)); await updateFn(plan.id, id, before) },
+      redo: async () => { set((prev: any[]) => prev.map(x => x.id === id ? { ...x, ...after } : x)); await updateFn(plan.id, id, after) },
+    })
+  }
+
+  async function deleteSelected() {
+    if (!selection) return
+    await deleteEntity(selection.kind, selection.id)
+    setSelection(null)
+  }
+
+  function selectShape(kind: EntityKind, id: string) {
+    if (tool !== 'select') return
+    setSelection({ kind, id })
+  }
 
   const scale = scaleMap[String(pageNum)] ?? null
   const pagePoints = useMemo(() => ({
@@ -137,11 +249,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null) }
 
-  useEffect(() => { resetDrafts() }, [tool])
+  useEffect(() => { resetDrafts(); setSelection(null) }, [tool])
+
+  const MEASURE_TOOLS: Tool[] = ['medir', 'medir-perfil', 'medir-fita']
 
   async function handleCanvasClick(e: React.MouseEvent) {
+    if (tool === 'select') { setSelection(null); return }
     const p = toBase(e)
-    if (tool === 'ambiente' || tool === 'medir-perfil' || tool === 'medir-fita' || tool === 'calibrar') {
+    if (tool === 'ambiente' || MEASURE_TOOLS.includes(tool) || tool === 'calibrar') {
       setDraftPoints(prev => [...prev, p])
       return
     }
@@ -154,7 +269,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (text) {
         setBusy(true)
         const res = await createAnnotation(plan.id, { page: pageNum, kind: 'text', data: { x: p[0], y: p[1], text } })
-        if (res?.data) setAnnotations(prev => [...prev, res.data])
+        if (res?.data) { setAnnotations(prev => [...prev, res.data]); pushCreateHistory('annotation', res.data) }
         setBusy(false)
       }
       return
@@ -167,29 +282,29 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (name?.trim()) {
         setBusy(true)
         const res = await createEnvironment(plan.id, { page: pageNum, name: name.trim(), polygon: draftPoints })
-        if (res?.data) setEnvironments(prev => [...prev, res.data])
+        if (res?.data) { setEnvironments(prev => [...prev, res.data]); pushCreateHistory('environment', res.data) }
         setBusy(false)
       }
       resetDrafts()
       return
     }
-    if ((tool === 'medir-perfil' || tool === 'medir-fita') && draftPoints.length >= 2) {
+    if (MEASURE_TOOLS.includes(tool) && draftPoints.length >= 2) {
       if (!scale) {
         window.alert('Calibre a escala desta página primeiro (ferramenta "Calibrar escala").')
         resetDrafts()
         return
       }
+      const kind: MeasureKind = tool === 'medir-perfil' ? 'perfil' : tool === 'medir-fita' ? 'fita' : 'medida'
       const lengthM = round2(polylineLength(draftPoints) * scale)
-      const kind = tool === 'medir-perfil' ? 'perfil' : 'fita'
       const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(draftPoints[0], env.polygon))
       const countSameKind = measurements.filter(m => m.kind === kind).length
       setBusy(true)
       const res = await createMeasurement(plan.id, {
-        page: pageNum, kind, label: `${kind === 'perfil' ? 'Perfil' : 'Fita'} ${countSameKind + 1}`,
+        page: pageNum, kind, label: `${MEASURE_LABEL[kind]} ${countSameKind + 1}`,
         points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
         power_w_per_m: kind === 'fita' ? 0 : undefined,
       })
-      if (res?.data) setMeasurements(prev => [...prev, res.data])
+      if (res?.data) { setMeasurements(prev => [...prev, res.data]); pushCreateHistory('measurement', res.data) }
       setBusy(false)
       resetDrafts()
       return
@@ -214,6 +329,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   }
 
   function handleMouseDown(e: React.MouseEvent) {
+    if (tool === 'select') return
     const p = toBase(e)
     if (tool === 'anot-retangulo') { setRectStart(p); setRectCur(p) }
     if (tool === 'anot-livre') { setDrawingFreehand(true); setDraftFreehand([p]) }
@@ -230,7 +346,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (width > 2 && height > 2) {
         setBusy(true)
         const res = await createAnnotation(plan.id, { page: pageNum, kind: 'rect', data: { x, y, width, height } })
-        if (res?.data) setAnnotations(prev => [...prev, res.data])
+        if (res?.data) { setAnnotations(prev => [...prev, res.data]); pushCreateHistory('annotation', res.data) }
         setBusy(false)
       }
       setRectStart(null); setRectCur(null)
@@ -240,7 +356,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       if (draftFreehand.length > 2) {
         setBusy(true)
         const res = await createAnnotation(plan.id, { page: pageNum, kind: 'freehand', data: { points: draftFreehand } })
-        if (res?.data) setAnnotations(prev => [...prev, res.data])
+        if (res?.data) { setAnnotations(prev => [...prev, res.data]); pushCreateHistory('annotation', res.data) }
         setBusy(false)
       }
       setDraftFreehand([])
@@ -255,27 +371,61 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       page: pageNum, x: pendingSymbol[0], y: pendingSymbol[1],
       legend_item_id: legendItemId, environment_id: envMatch?.id ?? null,
     })
-    if (res?.data) setSymbols(prev => [...prev, res.data])
+    if (res?.data) { setSymbols(prev => [...prev, res.data]); pushCreateHistory('symbol', res.data) }
     setBusy(false)
     setPendingSymbol(null)
   }
 
-  async function removeAnnotation(id: string) {
-    setAnnotations(prev => prev.filter(a => a.id !== id))
-    await deleteAnnotation(plan.id, id)
-  }
-  async function undoLastAnnotation() {
-    const last = pagePoints.annotations[pagePoints.annotations.length - 1]
-    if (last) await removeAnnotation(last.id)
+  // ── Cota (dimensão estilo AutoCAD) ─────────────────────────────────────────
+  // Desenha linhas de extensão + linha de cota deslocada + o comprimento em
+  // metros escrito ao lado, por segmento — igual uma cota de projeto.
+  function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: { selected?: boolean; onClick?: () => void; dashed?: boolean }) {
+    const offsetPx = 16
+    const segs: JSX.Element[] = []
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1]
+      const [sax, say] = toScreen(a)
+      const [sbx, sby] = toScreen(b)
+      const dx = sbx - sax, dy = sby - say
+      const segScreenLen = Math.hypot(dx, dy) || 1
+      const nx = -dy / segScreenLen, ny = dx / segScreenLen
+      const ox = nx * offsetPx, oy = ny * offsetPx
+      const a2x = sax + ox, a2y = say + oy
+      const b2x = sbx + ox, b2y = sby + oy
+      const segLenM = mScale ? round2(distance(a, b) * mScale) : null
+      const midX = (a2x + b2x) / 2, midY = (a2y + b2y) / 2
+      let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI
+      if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+      segs.push(
+        <g key={`${key}-${i}`}>
+          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1} opacity={0.5} />
+          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1} opacity={0.5} />
+          <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke={color} strokeWidth={opts?.selected ? 3 : 2}
+            strokeDasharray={opts?.dashed ? '4 3' : undefined} />
+          {opts?.onClick && (
+            <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="transparent" strokeWidth={14}
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); opts.onClick!() }} />
+          )}
+          {segLenM != null && (
+            <text x={midX} y={midY - 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={color}
+              stroke="white" strokeWidth={3} paintOrder="stroke" transform={`rotate(${angleDeg} ${midX} ${midY})`}>
+              {segLenM.toFixed(2)}m
+            </text>
+          )}
+        </g>
+      )
+    }
+    return <g>{segs}</g>
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   const draftPolygonScreen = draftPoints.map(toScreen)
   const draftFreehandScreen = draftFreehand.map(toScreen)
+  const isMeasuring = MEASURE_TOOLS.includes(tool)
 
   return (
-    <div className="flex h-full gap-4">
+    <div className="flex h-full gap-4 min-h-0">
       {/* Viewer */}
       <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-gray-200 overflow-hidden">
         {/* Toolbar */}
@@ -288,11 +438,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1">
-            {pagePoints.annotations.length > 0 && (
-              <button onClick={undoLastAnnotation} title="Desfazer última anotação" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200">
-                <Undo2 className="w-4 h-4" />
-              </button>
-            )}
+            <button onClick={undo} disabled={undoStack.length === 0} title="Desfazer (Cmd+Z)"
+              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button onClick={redo} disabled={redoStack.length === 0} title="Refazer (Cmd+Shift+Z)"
+              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+              <Redo2 className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-gray-200 mx-1" />
             <button onClick={() => setRenderScale(s => Math.max(0.3, s - 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomOut className="w-4 h-4" /></button>
             <button onClick={fitToScreen} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
             <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomIn className="w-4 h-4" /></button>
@@ -309,12 +463,21 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente, dê dois cliques (ou clique duas vezes no último ponto) pra fechar o polígono.'}
-            {(tool === 'medir-perfil' || tool === 'medir-fita') && `Clique nos pontos do trecho a medir e dê dois cliques pra concluir.${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
+            {isMeasuring && `Clique nos pontos do trecho a medir e dê dois cliques pra concluir.${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e finalize com um duplo clique.'}
             {tool === 'simbolo' && 'Clique no ponto onde tem uma luminária pra marcar a ocorrência.'}
             {tool === 'anot-retangulo' && 'Clique e arraste pra desenhar um retângulo.'}
             {tool === 'anot-livre' && 'Clique e arraste pra desenhar livremente.'}
             {tool === 'anot-texto' && 'Clique onde quer inserir o texto.'}
+          </div>
+        )}
+        {tool === 'select' && selection && (
+          <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-medium border-b border-red-100 flex items-center gap-2">
+            <span>Selecionado: {selection.kind}.</span>
+            <button onClick={deleteSelected} className="flex items-center gap-1 font-semibold hover:underline">
+              <Trash2 className="w-3 h-3" /> Excluir (ou tecla Delete)
+            </button>
+            <button onClick={() => setSelection(null)} className="text-red-400 hover:text-red-600 ml-auto">Cancelar (Esc)</button>
           </div>
         )}
 
@@ -356,7 +519,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 <polygon key={env.id}
                   points={env.polygon.map(toScreen).map(p => p.join(',')).join(' ')}
                   fill={ENV_COLORS[i % ENV_COLORS.length] + '22'}
-                  stroke={ENV_COLORS[i % ENV_COLORS.length]} strokeWidth={2}
+                  stroke={ENV_COLORS[i % ENV_COLORS.length]}
+                  strokeWidth={selection?.kind === 'environment' && selection.id === env.id ? 4 : 2}
+                  style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
+                  onClick={e => { e.stopPropagation(); selectShape('environment', env.id) }}
                 />
               ))}
               {/* Rótulo do ambiente no centroide */}
@@ -365,42 +531,71 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const cy = env.polygon.reduce((s, p) => s + p[1], 0) / env.polygon.length
                 const [sx, sy] = toScreen([cx, cy])
                 return (
-                  <text key={env.id + '-label'} x={sx} y={sy} textAnchor="middle"
+                  <text key={env.id + '-label'} x={sx} y={sy} textAnchor="middle" pointerEvents="none"
                     fontSize={12} fontWeight={700} fill={ENV_COLORS[i % ENV_COLORS.length]} stroke="white" strokeWidth={3} paintOrder="stroke">
                     {env.name}
                   </text>
                 )
               })}
-              {/* Polígono/polilinha em desenho */}
-              {draftPoints.length > 0 && (tool === 'ambiente'
+              {/* Polígono/polilinha em desenho (ambiente ou calibração) */}
+              {draftPoints.length > 0 && !isMeasuring && (tool === 'ambiente'
                 ? <polygon points={draftPolygonScreen.map(p => p.join(',')).join(' ')} fill="#f5940022" stroke="#f59400" strokeWidth={2} strokeDasharray="4 3" />
                 : <polyline points={draftPolygonScreen.map(p => p.join(',')).join(' ')} fill="none" stroke="#f59400" strokeWidth={2} strokeDasharray="4 3" />
               )}
+              {/* Cota da medição em desenho (preview ao vivo) */}
+              {draftPoints.length > 0 && isMeasuring && renderCota(draftPoints, '#f59400', 'draft-medida', scale, { dashed: true })}
               {draftPoints.map((p, i) => { const [sx, sy] = toScreen(p); return <circle key={i} cx={sx} cy={sy} r={3.5} fill="#f59400" /> })}
 
-              {/* Medições */}
+              {/* Medições — sempre como cota (linha de extensão + medida em metros) */}
               {pagePoints.measurements.map(m => (
-                <polyline key={m.id} points={m.points.map(toScreen).map(p => p.join(',')).join(' ')}
-                  fill="none" stroke={m.kind === 'fita' ? '#ec4899' : '#0ea5e9'} strokeWidth={3} strokeLinecap="round" />
+                <g key={m.id}>
+                  {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
+                    selected: selection?.kind === 'measurement' && selection.id === m.id,
+                    onClick: () => selectShape('measurement', m.id),
+                  })}
+                </g>
               ))}
 
               {/* Símbolos */}
               {pagePoints.symbols.map(s => {
                 const [sx, sy] = toScreen([s.x, s.y])
                 const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
+                const selected = selection?.kind === 'symbol' && selection.id === s.id
                 return (
-                  <g key={s.id}>
-                    <circle cx={sx} cy={sy} r={9} fill="#7c3aed" stroke="white" strokeWidth={1.5} />
-                    <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white">{code}</text>
+                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { e.stopPropagation(); selectShape('symbol', s.id) }}>
+                    <circle cx={sx} cy={sy} r={selected ? 11 : 9} fill="#7c3aed" stroke="white" strokeWidth={selected ? 2.5 : 1.5} />
+                    <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{code}</text>
                   </g>
                 )
               })}
 
               {/* Anotações */}
               {pagePoints.annotations.map(a => {
-                if (a.kind === 'rect') { const [sx, sy] = toScreen([a.data.x, a.data.y]); return <rect key={a.id} x={sx} y={sy} width={a.data.width * renderScale} height={a.data.height * renderScale} fill="none" stroke="#dc2626" strokeWidth={2} />}
-                if (a.kind === 'freehand') return <polyline key={a.id} points={(a.data.points as Point[]).map(toScreen).map(p => p.join(',')).join(' ')} fill="none" stroke="#dc2626" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                if (a.kind === 'text') { const [sx, sy] = toScreen([a.data.x, a.data.y]); return <text key={a.id} x={sx} y={sy} fontSize={13} fontWeight={600} fill="#dc2626">{a.data.text}</text> }
+                const selected = selection?.kind === 'annotation' && selection.id === a.id
+                const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id) }
+                if (a.kind === 'rect') {
+                  const [sx, sy] = toScreen([a.data.x, a.data.y])
+                  return <rect key={a.id} x={sx} y={sy} width={a.data.width * renderScale} height={a.data.height * renderScale}
+                    fill="transparent" stroke="#dc2626" strokeWidth={selected ? 3 : 2}
+                    style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
+                }
+                if (a.kind === 'freehand') {
+                  const pts = (a.data.points as Point[]).map(toScreen).map(p => p.join(',')).join(' ')
+                  return (
+                    <g key={a.id}>
+                      <polyline points={pts} fill="none" stroke="#dc2626" strokeWidth={selected ? 3.5 : 2} strokeLinecap="round" strokeLinejoin="round" />
+                      <polyline points={pts} fill="none" stroke="transparent" strokeWidth={14} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
+                    </g>
+                  )
+                }
+                if (a.kind === 'text') {
+                  const [sx, sy] = toScreen([a.data.x, a.data.y])
+                  return <text key={a.id} x={sx} y={sy} fontSize={13} fontWeight={600} fill="#dc2626"
+                    style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel}
+                    stroke={selected ? '#fecaca' : undefined} strokeWidth={selected ? 4 : undefined} paintOrder="stroke">
+                    {a.data.text}
+                  </text>
+                }
                 return null
               })}
               {rectStart && rectCur && (() => {
@@ -414,42 +609,54 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         </div>
       </div>
 
-      {/* Painel lateral */}
-      <div className="w-96 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="flex border-b border-gray-100">
-          {(['ambientes', 'legenda', 'medicoes', 'resultado'] as const).map(t => (
+      {/* Painel lateral — recolhível pra dar mais espaço ao PDF */}
+      <div className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden transition-[width] duration-150', panelOpen ? 'w-96' : 'w-11')}>
+        <div className="flex items-center border-b border-gray-100">
+          {panelOpen && (['ambientes', 'legenda', 'medicoes', 'resultado'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={cn('flex-1 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors',
                 tab === t ? 'text-brand-600 border-b-2 border-brand-600' : 'text-gray-400 hover:text-gray-600')}>
               {t}
             </button>
           ))}
+          <button onClick={() => setPanelOpen(o => !o)} title={panelOpen ? 'Recolher painel' : 'Expandir painel'}
+            className={cn('p-2.5 text-gray-400 hover:text-gray-700 shrink-0', !panelOpen && 'w-full flex justify-center')}>
+            {panelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
-          {tab === 'ambientes' && (
-            <AmbientesTab environments={environments} symbols={symbols} legendItems={legendItems}
-              onRename={async (id, name) => { setEnvironments(prev => prev.map(e => e.id === id ? { ...e, name } : e)); await updateEnvironment(plan.id, id, { name }) }}
-              onDelete={async id => { setEnvironments(prev => prev.filter(e => e.id !== id)); await deleteEnvironment(plan.id, id) }}
-            />
-          )}
-          {tab === 'legenda' && (
-            <LegendaTab planId={plan.id} items={legendItems}
-              onCreate={row => setLegendItems(prev => [...prev, row])}
-              onUpdate={(id, updates) => setLegendItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))}
-              onDelete={async id => { setLegendItems(prev => prev.filter(i => i.id !== id)); await deleteLegendItem(plan.id, id) }}
-            />
-          )}
-          {tab === 'medicoes' && (
-            <MedicoesTab planId={plan.id} measurements={measurements} environments={environments}
-              onUpdate={(id, updates) => setMeasurements(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m))}
-              onDelete={async id => { setMeasurements(prev => prev.filter(m => m.id !== id)); await deleteMeasurement(plan.id, id) }}
-              busy={busy}
-            />
-          )}
-          {tab === 'resultado' && (
-            <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} />
-          )}
-        </div>
+        {panelOpen && (
+          <div className="flex-1 overflow-y-auto p-4">
+            {tab === 'ambientes' && (
+              <AmbientesTab environments={environments} symbols={symbols} legendItems={legendItems}
+                onRename={(id, name) => {
+                  const before = environments.find(e => e.id === id)
+                  if (before) updateEntity('environment', id, { name: before.name }, { name, status: 'editado' }, updateEnvironment)
+                }}
+                onDelete={id => deleteEntity('environment', id)}
+              />
+            )}
+            {tab === 'legenda' && (
+              <LegendaTab planId={plan.id} items={legendItems}
+                onCreate={row => setLegendItems(prev => [...prev, row])}
+                onUpdate={(id, updates) => setLegendItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))}
+                onDelete={async id => { setLegendItems(prev => prev.filter(i => i.id !== id)); await deleteLegendItem(plan.id, id) }}
+              />
+            )}
+            {tab === 'medicoes' && (
+              <MedicoesTab planId={plan.id} measurements={measurements} environments={environments}
+                onUpdate={(id, updates) => {
+                  const before = measurements.find(m => m.id === id)
+                  if (before) updateEntity('measurement', id, { power_w_per_m: before.power_w_per_m }, updates, updateMeasurement)
+                }}
+                onDelete={id => deleteEntity('measurement', id)}
+                busy={busy}
+              />
+            )}
+            {tab === 'resultado' && (
+              <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -541,7 +748,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
   )
 }
 
-// ── Aba: Medições (perfil / fita + plano de corte) ───────────────────────────
+// ── Aba: Medições (perfil / fita + plano de corte / medidas soltas) ─────────
 
 function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, busy }: {
   planId: string; measurements: Measurement[]; environments: Environment[]
@@ -552,11 +759,11 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
 
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
+  const medidas = measurements.filter(m => m.kind === 'medida')
 
-  async function changePotencia(id: string, value: string) {
+  function changePotencia(id: string, value: string) {
     const w = Number(value.replace(',', '.')) || 0
     onUpdate(id, { power_w_per_m: w })
-    await updateMeasurement(planId, id, { power_w_per_m: w })
   }
 
   function envName(id: string | null) { return environments.find(e => e.id === id)?.name ?? 'Sem ambiente' }
@@ -578,6 +785,22 @@ function MedicoesTab({ planId, measurements, environments, onUpdate, onDelete, b
 
   return (
     <div className="space-y-6">
+      <section>
+        <p className="text-xs font-bold text-orange-600 uppercase mb-2">Medidas soltas ({medidas.length})</p>
+        <div className="space-y-2">
+          {medidas.map(m => (
+            <div key={m.id} className="border border-gray-200 rounded-lg p-2 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-gray-700">{m.label} · {envName(m.environment_id)}</p>
+                <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m</p>
+              </div>
+              <button onClick={() => onDelete(m.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+          ))}
+          {medidas.length === 0 && <p className="text-xs text-gray-400">Nenhuma medida solta ainda — use a ferramenta "Medir" pra medir qualquer coisa na planta.</p>}
+        </div>
+      </section>
+
       <section>
         <p className="text-xs font-bold text-sky-600 uppercase mb-2">Perfis ({perfis.length})</p>
         <div className="space-y-2 mb-3">
@@ -701,7 +924,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements }: {
                 <p key={code} className="text-xs text-gray-600">{code} — {n} un</p>
               ))}
               {envMeasurements.map(m => (
-                <p key={m.id} className="text-xs text-gray-500">{m.kind === 'perfil' ? 'Perfil' : 'Fita'} {m.label} — {m.length_m.toFixed(2)}m</p>
+                <p key={m.id} className="text-xs text-gray-500">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m</p>
               ))}
               {byCode.size === 0 && envMeasurements.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
             </div>

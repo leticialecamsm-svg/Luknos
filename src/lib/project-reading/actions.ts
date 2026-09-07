@@ -27,6 +27,22 @@ async function logEdit(planId: string, entityType: string, entityId: string, fie
   })
 }
 
+const RESTORABLE_TABLES = [
+  'plan_environments', 'plan_legend_items', 'plan_symbol_occurrences', 'plan_measurements', 'plan_annotations',
+] as const
+type RestorableTable = typeof RESTORABLE_TABLES[number]
+
+// Reinsere uma linha exatamente como ela era (mesmo id) — usado pelo undo/redo
+// do editor: desfazer uma exclusão, ou refazer uma criação que foi desfeita.
+export async function restoreRow(table: RestorableTable, row: Record<string, unknown>) {
+  if (!RESTORABLE_TABLES.includes(table)) return { error: 'Tabela inválida' }
+  const admin = createAdminClient()
+  const { error } = await admin.from(table).upsert(row)
+  if (error) return { error: error.message }
+  revalidatePath(BASE_PATH)
+  return { ok: true }
+}
+
 // ── Plantas ───────────────────────────────────────────────────────────────
 
 export async function listPlans() {
@@ -212,7 +228,7 @@ export async function deleteSymbolOccurrence(planId: string, id: string) {
 // ── Medições (perfil / fita) ─────────────────────────────────────────────
 
 export async function createMeasurement(planId: string, data: {
-  page: number; kind: 'perfil' | 'fita'; label?: string; points: [number, number][]
+  page: number; kind: 'perfil' | 'fita' | 'medida'; label?: string; points: [number, number][]
   length_m: number; environment_id?: string | null; power_w_per_m?: number
 }) {
   const userId = await requireUserId()
