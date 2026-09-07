@@ -7,7 +7,7 @@ import {
   createLegendItem, updateLegendItem, deleteLegendItem,
   createSymbolOccurrence, updateSymbolOccurrence, deleteSymbolOccurrence,
   createMeasurement, updateMeasurement, deleteMeasurement,
-  createAnnotation, deleteAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
+  createAnnotation, deleteAnnotation, updateAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
 import { calcularFita, calcularPlanoDeCorte, round2, type TrechoNecessario } from '@/lib/project-reading/calculations'
@@ -62,6 +62,16 @@ const ENV_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b
 const MEASURE_COLOR: Record<MeasureKind, string> = { perfil: '#0ea5e9', fita: '#ec4899', medida: '#f97316' }
 const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fita', medida: 'Medida' }
 
+// Um ponto marcado (símbolo) usa point-in-polygon direto. Já uma medição é
+// uma LINHA — testar só o primeiro ponto clicado é frágil, porque é
+// justamente o ponto mais comum de cair em cima de uma parede/canto (onde a
+// gente sempre começa a medir um perfil), ficando por pouquíssimo fora do
+// polígono do ambiente. Considera vinculado se QUALQUER ponto da linha cair
+// dentro.
+function pointsMatchEnv(points: Point[], polygon: Point[]): boolean {
+  return points.some(p => pointInPolygon(p, polygon))
+}
+
 // Nota de vínculo perfil↔fita automático, mostrada no card de cada um.
 function linkNoteFor(m: Measurement, list: Measurement[]): string | undefined {
   if (m.linked_measurement_id) {
@@ -110,6 +120,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // + onde há corte reaproveitado da mesma peça, escondendo ambiente/símbolo/
   // anotação — pensada pra exportar em PDF pro instalador.
   const [reaproveitamentoView, setReaproveitamentoView] = useState(false)
+  const [draggingAnnotation, setDraggingAnnotation] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
 
   const [draftPoints, setDraftPoints] = useState<Point[]>([])
   const [draftFreehand, setDraftFreehand] = useState<Point[]>([])
@@ -229,6 +240,28 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // medidos separados por engano) numa única — pra casos como esse não
   // precisar remedir. Orienta os pontos pra minimizar o "salto" entre as
   // duas pontas (assumindo que elas se encontram, ex: no canto do L).
+  // Reprocessa símbolos/medições "sem ambiente" da página contra os ambientes
+  // já desenhados — corrige casos que ficaram presos antes do vínculo
+  // automático existir, ou que escaparam por qualquer motivo.
+  async function relinkUnassigned() {
+    const pageEnvs = environments.filter(e => e.page === pageNum)
+    if (pageEnvs.length === 0) { window.alert('Nenhum ambiente desenhado nesta página ainda.'); return }
+    let count = 0
+    for (const s of symbols) {
+      if (s.page === pageNum && !s.environment_id) {
+        const env = pageEnvs.find(e => pointInPolygon([s.x, s.y], e.polygon))
+        if (env) { updateEntity('symbol', s.id, { environment_id: null }, { environment_id: env.id }, updateSymbolOccurrence); count++ }
+      }
+    }
+    for (const m of measurements) {
+      if (m.page === pageNum && !m.environment_id) {
+        const env = pageEnvs.find(e => pointsMatchEnv(m.points, e.polygon))
+        if (env) { updateEntity('measurement', m.id, { environment_id: null }, { environment_id: env.id }, updateMeasurement); count++ }
+      }
+    }
+    window.alert(count > 0 ? `${count} marcação(ões) vinculada(s).` : 'Nada pra vincular — o que ficou "sem ambiente" está mesmo fora de qualquer polígono desenhado.')
+  }
+
   async function mergeMeasurements(idA: string, idB: string) {
     const a = measurements.find(m => m.id === idA)
     const b = measurements.find(m => m.id === idB)
@@ -293,6 +326,17 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     if (!beforeRow) return
     const before = Object.fromEntries(Object.keys(updates).map(k => [k, (beforeRow as any)[k]]))
     updateEntity('measurement', id, before, updates, updateMeasurement)
+  }
+
+  // Anotações guardam tudo dentro de `data` (jsonb) — o merge com o valor
+  // anterior evita perder campos que não estão sendo alterados agora (ex:
+  // mudar só a fonte sem apagar o texto).
+  function updateAnnotationData(id: string, patch: Record<string, unknown>) {
+    const row = annotations.find(a => a.id === id)
+    if (!row) return
+    const before = { data: row.data }
+    const after = { data: { ...row.data, ...patch } }
+    updateEntity('annotation', id, before, after, (planId, annId, updates) => updateAnnotation(planId, annId, (updates as any).data))
   }
 
   function selectShape(kind: EntityKind, id: string, e: React.MouseEvent) {
@@ -549,7 +593,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             }
           }
           for (const m of measurements) {
-            if (m.page === pageNum && !m.environment_id && pointInPolygon(m.points[0], env.polygon)) {
+            if (m.page === pageNum && !m.environment_id && pointsMatchEnv(m.points, env.polygon)) {
               updateEntity('measurement', m.id, { environment_id: null }, { environment_id: env.id }, updateMeasurement)
             }
           }
@@ -567,7 +611,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       }
       const kind: MeasureKind = tool === 'medir-perfil' ? 'perfil' : tool === 'medir-fita' ? 'fita' : 'medida'
       const lengthM = round2(polylineLength(draftPoints) * scale)
-      const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(draftPoints[0], env.polygon))
+      const envMatch = environments.find(env => env.page === pageNum && pointsMatchEnv(draftPoints, env.polygon))
       const countSameKind = measurements.filter(m => m.kind === kind).length
       setBusy(true)
       const res = await createMeasurement(plan.id, {
@@ -625,8 +669,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     const p = toBase(e)
     if (tool === 'anot-retangulo' && rectStart) setRectCur(p)
     if (tool === 'anot-livre' && drawingFreehand) setDraftFreehand(prev => [...prev, p])
+    if (draggingAnnotation) {
+      const nx = p[0] - draggingAnnotation.offsetX, ny = p[1] - draggingAnnotation.offsetY
+      setAnnotations(prev => prev.map(a => a.id === draggingAnnotation.id ? { ...a, data: { ...a.data, x: nx, y: ny } } : a))
+    }
   }
   async function handleMouseUp() {
+    if (draggingAnnotation) {
+      const a = annotations.find(x => x.id === draggingAnnotation.id)
+      setDraggingAnnotation(null)
+      if (a) await updateAnnotation(plan.id, a.id, a.data)
+      return
+    }
     if (tool === 'anot-retangulo' && rectStart && rectCur) {
       const x = Math.min(rectStart[0], rectCur[0]), y = Math.min(rectStart[1], rectCur[1])
       const width = Math.abs(rectCur[0] - rectStart[0]), height = Math.abs(rectCur[1] - rectStart[1])
@@ -924,8 +978,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 }
                 if (a.kind === 'text') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
-                  return <text key={a.id} x={sx} y={sy} fontSize={13} fontWeight={700} fill={ANOT_COLOR}
-                    style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel}
+                  return <text key={a.id} x={sx} y={sy} fontSize={a.data.fontSize ?? 13} fontWeight={700} fill={ANOT_COLOR}
+                    style={{ cursor: tool === 'select' ? (draggingAnnotation?.id === a.id ? 'grabbing' : 'grab') : undefined }}
+                    onClick={onSel}
+                    onMouseDown={e => {
+                      if (tool !== 'select') return
+                      e.stopPropagation()
+                      const base = toBase(e)
+                      setDraggingAnnotation({ id: a.id, offsetX: base[0] - a.data.x, offsetY: base[1] - a.data.y })
+                    }}
                     stroke={selected ? '#a5f3fc' : 'white'} strokeWidth={selected ? 5 : 3.5} paintOrder="stroke">
                     {a.data.text}
                   </text>
@@ -961,12 +1022,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         {panelOpen && (
           <div className="flex-1 overflow-y-auto p-4">
             {tab === 'ambientes' && (
-              <AmbientesTab environments={environments} symbols={symbols} legendItems={legendItems}
+              <AmbientesTab environments={environments} symbols={symbols} legendItems={legendItems} measurements={measurements}
                 onRename={(id, name) => {
                   const before = environments.find(e => e.id === id)
                   if (before) updateEntity('environment', id, { name: before.name }, { name, status: 'editado' }, updateEnvironment)
                 }}
                 onDelete={id => deleteEntity('environment', id)}
+                onRelink={relinkUnassigned}
+                onDeleteSymbol={id => deleteEntity('symbol', id)}
+                onUpdateMeasurement={updateMeasurementField}
+                onDeleteMeasurement={id => deleteEntity('measurement', id)}
+                onMergeMeasurement={mergeMeasurements}
+                pieceBadgeMap={pieceBadgeMap}
               />
             )}
             {tab === 'legenda' && (
@@ -1010,6 +1077,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           onChangeSymbolEnv={(id, envId) => updateEntity('symbol', id, { environment_id: symbols.find(s => s.id === id)?.environment_id }, { environment_id: envId }, updateSymbolOccurrence)}
           onUpdateMeasurement={updateMeasurementField}
           onMergeMeasurement={mergeMeasurements}
+          onViewContents={() => { setTab('ambientes'); setPanelOpen(true); setSelection(null) }}
+          onUpdateAnnotation={updateAnnotationData}
         />
       )}
 
@@ -1052,7 +1121,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
 function SelectionPopover({
   selection, anchor, onClose, environments, legendItems, symbols, measurements, annotations, pieceBadgeMap,
-  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement,
+  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation,
 }: {
   selection: { kind: EntityKind; id: string }
   anchor: { x: number; y: number }
@@ -1066,6 +1135,8 @@ function SelectionPopover({
   onChangeSymbolEnv: (id: string, envId: string | null) => void
   onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void
   onMergeMeasurement: (idA: string, idB: string) => void
+  onViewContents: () => void
+  onUpdateAnnotation: (id: string, patch: Record<string, unknown>) => void
 }) {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
@@ -1079,13 +1150,15 @@ function SelectionPopover({
   if (selection.kind === 'environment') {
     const env = environments.find(e => e.id === selection.id)
     if (!env) return null
-    const count = symbols.filter(s => s.environment_id === env.id).length
+    const countSymbols = symbols.filter(s => s.environment_id === env.id).length
+    const countMeasurements = measurements.filter(m => m.environment_id === env.id).length
     content = (
       <div className="p-3 space-y-1.5">
         <p className="text-[10px] font-bold text-gray-400 uppercase">Ambiente</p>
         <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRenameEnv(env.id, e.target.value.trim())}
           className="w-full text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
-        <p className="text-xs text-gray-400">{count} símbolo(s) marcado(s) · {env.status}</p>
+        <p className="text-xs text-gray-400">{countSymbols} símbolo(s) · {countMeasurements} medição(ões) · {env.status}</p>
+        <button onClick={onViewContents} className="text-xs font-medium text-brand-600 hover:underline">Ver e editar conteúdo →</button>
       </div>
     )
   } else if (selection.kind === 'symbol') {
@@ -1121,6 +1194,7 @@ function SelectionPopover({
       m, environments,
       onChangeEnv: (envId: string | null) => onUpdateMeasurement(m.id, { environment_id: envId }),
       onDelete: onDeleteSelected,
+      onChangeLength: (v: string) => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 }),
       mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
       onMerge: (otherId: string) => onMergeMeasurement(m.id, otherId),
       pieceBadge: pieceBadgeMap.get(m.id),
@@ -1137,10 +1211,28 @@ function SelectionPopover({
     const a = annotations.find(x => x.id === selection.id)
     if (!a) return null
     const KIND_LABEL: Record<string, string> = { rect: 'Retângulo', freehand: 'Desenho livre', text: 'Texto', highlight: 'Marca-texto' }
+    const fontSize = a.data.fontSize ?? 13
     content = (
       <div className="p-3 space-y-1.5">
         <p className="text-[10px] font-bold text-gray-400 uppercase">Anotação · {KIND_LABEL[a.kind] ?? a.kind}</p>
-        {a.kind === 'text' && <p className="text-sm text-gray-700">{a.data.text}</p>}
+        {a.kind === 'text' && (
+          <>
+            <textarea defaultValue={a.data.text} rows={2} onBlur={e => onUpdateAnnotation(a.id, { text: e.target.value })}
+              className="w-full text-sm text-gray-700 border border-gray-200 rounded-md p-1.5 outline-none focus:border-brand-400 resize-none" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-gray-500">Tamanho</span>
+              <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.max(9, fontSize - 2) })}
+                className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">−</button>
+              <span className="text-[11px] text-gray-600 w-6 text-center">{fontSize}</span>
+              <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.min(40, fontSize + 2) })}
+                className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">+</button>
+            </div>
+            <textarea defaultValue={a.data.note ?? ''} rows={2} placeholder="Observação (opcional, não aparece na planta)..."
+              onBlur={e => onUpdateAnnotation(a.id, { note: e.target.value })}
+              className="w-full text-xs text-gray-500 border border-gray-100 bg-gray-50 rounded-md p-1.5 outline-none focus:border-brand-300 resize-none" />
+            <p className="text-[10px] text-gray-300">Arraste o texto na planta pra reposicionar.</p>
+          </>
+        )}
       </div>
     )
   }
@@ -1162,26 +1254,76 @@ function SelectionPopover({
 
 // ── Aba: Ambientes ──────────────────────────────────────────────────────────
 
-function AmbientesTab({ environments, symbols, legendItems, onRename, onDelete }: {
-  environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]
-  onRename: (id: string, name: string) => void; onDelete: (id: string) => void
+function AmbientesTab({
+  environments, symbols, legendItems, measurements, onRename, onDelete, onRelink,
+  onDeleteSymbol, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
+}: {
+  environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]; measurements: Measurement[]
+  onRename: (id: string, name: string) => void; onDelete: (id: string) => void; onRelink: () => void
+  onDeleteSymbol: (id: string) => void
+  onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void; onDeleteMeasurement: (id: string) => void
+  onMergeMeasurement: (idA: string, idB: string) => void; pieceBadgeMap: Map<string, PieceBadge>
 }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
+
   if (environments.length === 0) {
     return <p className="text-xs text-gray-400">Nenhum ambiente ainda. Use a ferramenta "Ambiente" no viewer pra desenhar um polígono sobre a planta.</p>
   }
   return (
     <div className="space-y-3">
+      {semAmbiente > 0 && (
+        <button onClick={onRelink}
+          className="w-full text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg px-3 py-2 transition-colors">
+          🔄 Revincular {semAmbiente} marcação(ões) sem ambiente aos polígonos já desenhados
+        </button>
+      )}
       {environments.map(env => {
-        const count = symbols.filter(s => s.environment_id === env.id).length
+        const envSymbols = symbols.filter(s => s.environment_id === env.id)
+        const envMeasurements = measurements.filter(m => m.environment_id === env.id)
+        const open = expanded === env.id
         return (
-          <div key={env.id} className="border border-gray-200 rounded-xl p-3">
-            <div className="flex items-center gap-2">
-              <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
-                className="flex-1 text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{env.status}</span>
-              <button onClick={() => onDelete(env.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+          <div key={env.id} className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="p-3">
+              <div className="flex items-center gap-2">
+                <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
+                  className="flex-1 text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{env.status}</span>
+                <button onClick={() => onDelete(env.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              <button onClick={() => setExpanded(open ? null : env.id)}
+                className="text-xs text-gray-400 hover:text-brand-600 mt-1 flex items-center gap-1">
+                {envSymbols.length} símbolo(s) · {envMeasurements.length} medição(ões)
+                <ChevronRight className={cn('w-3 h-3 transition-transform', open && 'rotate-90')} />
+              </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1">{count} símbolo(s) marcado(s)</p>
+            {open && (
+              <div className="bg-gray-50 border-t border-gray-100 p-3 space-y-2">
+                {envSymbols.map(s => {
+                  const li = legendItems.find(x => x.id === s.legend_item_id)
+                  return (
+                    <div key={s.id} className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-2.5 py-1.5">
+                      <span className="shrink-0 text-[10px] font-bold text-white bg-violet-600 rounded-full w-5 h-5 flex items-center justify-center">{li?.code ?? '?'}</span>
+                      <span className="text-xs text-gray-600 flex-1 truncate">{li?.description || 'sem descrição'}</span>
+                      <button onClick={() => onDeleteSymbol(s.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )
+                })}
+                {envMeasurements.map(m => (
+                  m.kind === 'fita'
+                    ? <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
+                        onDelete={() => onDeleteMeasurement(m.id)} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+                        onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
+                        pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                        mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
+                    : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
+                        onDelete={() => onDeleteMeasurement(m.id)} onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
+                        pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+                        mergeCandidates={measurements.filter(x => x.kind === m.kind && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
+                ))}
+                {envSymbols.length === 0 && envMeasurements.length === 0 && <p className="text-xs text-gray-400">Nada marcado aqui ainda.</p>}
+              </div>
+            )}
           </div>
         )
       })}
@@ -1270,6 +1412,9 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   function changeEnv(id: string, envId: string | null) {
     onUpdate(id, { environment_id: envId })
   }
+  function changeLength(id: string, value: string) {
+    onUpdate(id, { length_m: Number(value.replace(',', '.')) || 0 })
+  }
 
   return (
     <div className="space-y-6">
@@ -1284,7 +1429,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2">
           {medidas.map(m => (
             <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} linkNote={linkNoteFor(m, measurements)}
+              onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={medidas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {medidas.length === 0 && <p className="text-xs text-gray-400">Nenhuma medida solta ainda — use a ferramenta "Medir" pra medir qualquer coisa na planta.</p>}
@@ -1296,7 +1441,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2 mb-3">
           {perfis.map(m => (
             <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
+              onDelete={() => onDelete(m.id)} onChangeLength={v => changeLength(m.id, v)} pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={perfis.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
           {perfis.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda.</p>}
@@ -1318,7 +1463,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
         <div className="space-y-2 mb-3">
           {fitas.map(m => (
             <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
-              onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)}
+              onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
               pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
               mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
           ))}
@@ -1398,15 +1543,21 @@ function MeasurementHeader({ m, environments, onChangeEnv, onDelete, mergeCandid
 
 // Card enxuto pra medida solta e perfil — só tem comprimento pra mostrar,
 // então o comprimento é a única informação em destaque.
-function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onDelete: () => void
+  onChangeLength: (v: string) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   return (
     <div className="border border-gray-200 rounded-lg p-2.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
-      <p className="text-base font-bold text-gray-800 mt-1">{m.length_m.toFixed(2)} m</p>
+      <div className="flex items-baseline gap-1 mt-1">
+        <input defaultValue={m.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
+          title="Medida errada? Corrija aqui direto — sem precisar remedir."
+          className="w-20 text-base font-bold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
+        <span className="text-sm text-gray-500">m</span>
+      </div>
     </div>
   )
 }
@@ -1414,9 +1565,9 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onDelete, mergeCa
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
-  onDelete: () => void; onChangePotencia: (v: string) => void
+  onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   const preenchido = !!m.power_w_per_m
@@ -1425,7 +1576,12 @@ function FitaCard({ m, environments, onChangeEnv, onDelete, onChangePotencia, me
     <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
-      <p className="text-xs text-gray-400">{m.length_m.toFixed(2)} m de fita</p>
+      <div className="flex items-baseline gap-1">
+        <input defaultValue={m.length_m.toFixed(2)} onBlur={e => onChangeLength(e.target.value)}
+          title="Medida errada? Corrija aqui direto."
+          className="w-16 text-xs text-gray-500 border-b border-transparent focus:border-brand-400 outline-none" />
+        <span className="text-xs text-gray-400">m de fita</span>
+      </div>
 
       <div className="flex items-center gap-2">
         <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>

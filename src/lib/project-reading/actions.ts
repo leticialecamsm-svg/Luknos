@@ -295,6 +295,14 @@ export async function createAnnotation(planId: string, data: { page: number; kin
   return { ok: true, data: row }
 }
 
+export async function updateAnnotation(planId: string, id: string, data: Record<string, unknown>) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('plan_annotations').update({ data, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true }
+}
+
 export async function deleteAnnotation(planId: string, id: string) {
   const admin = createAdminClient()
   const { error } = await admin.from('plan_annotations').delete().eq('id', id)
