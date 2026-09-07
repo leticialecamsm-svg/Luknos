@@ -7,7 +7,7 @@ import {
   createLegendItem, updateLegendItem, deleteLegendItem,
   createSymbolOccurrence, updateSymbolOccurrence, deleteSymbolOccurrence,
   createMeasurement, updateMeasurement, deleteMeasurement,
-  createAnnotation, deleteAnnotation, updatePlanScale, restoreRow,
+  createAnnotation, deleteAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, type Point } from '@/lib/project-reading/geometry'
 import { calcularFita, calcularPlanoDeCorte, round2, type TrechoNecessario } from '@/lib/project-reading/calculations'
@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
+  RotateCw, X,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -36,7 +37,10 @@ interface SymbolOccurrence { id: string; page: number; x: number; y: number; leg
 interface Measurement { id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number; power_w_per_m: number | null; environment_id: string | null }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 
-interface Plan { id: string; name: string; num_pages: number; pdfUrl: string; scale_m_per_px: Record<string, number> }
+interface Plan {
+  id: string; name: string; num_pages: number; pdfUrl: string
+  scale_m_per_px: Record<string, number>; page_rotation?: Record<string, number>; working_page?: number
+}
 
 const TOOLS: { id: Tool; label: string; icon: any }[] = [
   { id: 'select', label: 'Selecionar', icon: MousePointer2 },
@@ -67,12 +71,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [tab, setTab] = useState<'ambientes' | 'legenda' | 'medicoes' | 'resultado'>('ambientes')
   const [panelOpen, setPanelOpen] = useState(true)
   const [tool, setTool] = useState<Tool>('select')
-  const [pageNum, setPageNum] = useState(1)
+  // Abre direto na última página que o consultor deixou selecionada — útil
+  // pra PDF de várias páginas onde só uma é a planta luminotécnica.
+  const [pageNum, setPageNum] = useState(plan.working_page ?? 1)
   const [renderScale, setRenderScale] = useState(1.4)
   const [pdfDoc, setPdfDoc] = useState<any>(null)
   const [rendering, setRendering] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 })
+  // Viewport atual do pdf.js (zoom + rotação já aplicados) — usado pra
+  // converter coordenadas de tela ↔ PDF de forma correta em qualquer
+  // rotação, em vez de só dividir/multiplicar pelo zoom.
+  const viewportRef = useRef<any>(null)
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
   const [legendItems, setLegendItems] = useState<LegendItem[]>(initLegend)
@@ -80,6 +90,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [measurements, setMeasurements] = useState<Measurement[]>(initMeasurements)
   const [annotations, setAnnotations] = useState<Annotation[]>(initAnnotations)
   const [scaleMap, setScaleMap] = useState<Record<string, number>>(plan.scale_m_per_px ?? {})
+  const [rotationMap, setRotationMap] = useState<Record<string, number>>(plan.page_rotation ?? {})
+  const [popoverAnchor, setPopoverAnchor] = useState<{ x: number; y: number } | null>(null)
 
   const [draftPoints, setDraftPoints] = useState<Point[]>([])
   const [draftFreehand, setDraftFreehand] = useState<Point[]>([])
@@ -257,9 +269,17 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     setSelection(null)
   }
 
-  function selectShape(kind: EntityKind, id: string) {
+  function updateMeasurementField(id: string, updates: Partial<Measurement>) {
+    const beforeRow = measurements.find(m => m.id === id)
+    if (!beforeRow) return
+    const before = Object.fromEntries(Object.keys(updates).map(k => [k, (beforeRow as any)[k]]))
+    updateEntity('measurement', id, before, updates, updateMeasurement)
+  }
+
+  function selectShape(kind: EntityKind, id: string, e: React.MouseEvent) {
     if (tool !== 'select') return
     setSelection({ kind, id })
+    setPopoverAnchor({ x: e.clientX, y: e.clientY })
   }
 
   const scale = scaleMap[String(pageNum)] ?? null
@@ -318,43 +338,77 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     return () => { cancelled = true }
   }, [plan.pdfUrl])
 
+  // Rotação total = a que já vem embutida no PDF + a que o consultor pediu
+  // pra corrigir (0/90/180/270). Sempre passada explícita pro getViewport,
+  // senão o pdf.js ignora a nossa e usa só a do próprio arquivo.
+  function totalRotation(page: any) {
+    const extra = rotationMap[String(pageNum)] ?? 0
+    return ((page.rotate ?? 0) + extra) % 360
+  }
+
   useEffect(() => {
     if (!pdfDoc) return
     let cancelled = false
     setRendering(true)
     pdfDoc.getPage(pageNum).then((page: any) => {
-      const viewport = page.getViewport({ scale: renderScale })
+      const viewport = page.getViewport({ scale: renderScale, rotation: totalRotation(page) })
       const canvas = canvasRef.current
       if (!canvas || cancelled) return
       canvas.width = viewport.width
       canvas.height = viewport.height
       const ctx = canvas.getContext('2d')!
       page.render({ canvasContext: ctx, viewport }).promise.then(() => {
-        if (!cancelled) { setPageSize({ width: viewport.width, height: viewport.height }); setRendering(false) }
+        if (!cancelled) {
+          viewportRef.current = viewport
+          setPageSize({ width: viewport.width, height: viewport.height })
+          setRendering(false)
+        }
       })
     })
     return () => { cancelled = true }
-  }, [pdfDoc, pageNum, renderScale])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfDoc, pageNum, renderScale, rotationMap])
 
   function fitToScreen() {
     const container = canvasRef.current?.parentElement?.parentElement
     if (!container || !pdfDoc) return
     pdfDoc.getPage(pageNum).then((page: any) => {
-      const base = page.getViewport({ scale: 1 })
+      const base = page.getViewport({ scale: 1, rotation: totalRotation(page) })
       const targetWidth = container.clientWidth - 32
       setRenderScale(Math.max(0.3, targetWidth / base.width))
     })
   }
 
-  // ── Coordenadas: tela → espaço base do PDF (scale 1), independente de zoom ─
+  async function rotatePage() {
+    const current = rotationMap[String(pageNum)] ?? 0
+    const next = (current + 90) % 360
+    setRotationMap(prev => ({ ...prev, [String(pageNum)]: next }))
+    await updatePlanRotation(plan.id, pageNum, next)
+  }
+
+  // Persiste a página aberta como "página de trabalho" — sem isso, reabrir
+  // um PDF de várias páginas sempre voltava pra página 1.
+  const firstPageRender = useRef(true)
+  useEffect(() => {
+    if (firstPageRender.current) { firstPageRender.current = false; return }
+    updateWorkingPage(plan.id, pageNum)
+  }, [pageNum, plan.id])
+
+  // ── Coordenadas: tela → espaço PDF, usando o viewport atual (zoom +
+  // rotação já resolvidos pelo próprio pdf.js — funciona certo em qualquer
+  // orientação, ao contrário de só dividir pelo zoom). ───────────────────────
 
   function toBase(e: React.MouseEvent): Point {
     const rect = canvasRef.current!.getBoundingClientRect()
     const px = (e.clientX - rect.left) * (canvasRef.current!.width / rect.width)
     const py = (e.clientY - rect.top) * (canvasRef.current!.height / rect.height)
+    if (viewportRef.current) return viewportRef.current.convertToPdfPoint(px, py) as Point
     return [px / renderScale, py / renderScale]
   }
-  function toScreen([x, y]: Point): Point { return [x * renderScale, y * renderScale] }
+  function toScreen([x, y]: Point): Point {
+    if (viewportRef.current) return viewportRef.current.convertToViewportPoint(x, y) as Point
+    return [x * renderScale, y * renderScale]
+  }
 
   // ── Interações do canvas ──────────────────────────────────────────────────
 
@@ -513,7 +567,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // Desenha linhas de extensão + linha de cota deslocada + o comprimento em
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
-    selected?: boolean; onClick?: () => void; dashed?: boolean; badge?: { label: string; color: string }
+    selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: { label: string; color: string }
   }) {
     const offsetPx = 16
     const segs: JSX.Element[] = []
@@ -547,7 +601,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
           {opts?.onClick && (
             <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="transparent" strokeWidth={14}
-              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); opts.onClick!() }} />
+              style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); opts.onClick!(e) }} />
           )}
           {segLenM != null && (
             <text x={midX} y={midY - 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={color}
@@ -578,6 +632,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const isMeasuring = MEASURE_TOOLS.includes(tool)
 
   return (
+    <>
     <div className="flex h-full gap-4 min-h-0">
       {/* Viewer */}
       <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -603,10 +658,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <button onClick={() => setRenderScale(s => Math.max(0.3, s - 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomOut className="w-4 h-4" /></button>
             <button onClick={fitToScreen} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
             <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomIn className="w-4 h-4" /></button>
+            <button onClick={rotatePage} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
             {plan.num_pages > 1 && (
               <>
+                <div className="w-px h-4 bg-gray-200 mx-1" />
                 <button disabled={pageNum <= 1} onClick={() => setPageNum(p => p - 1)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
-                <span className="text-xs text-gray-500 w-16 text-center">{pageNum} / {plan.num_pages}</span>
+                <input type="number" min={1} max={plan.num_pages} value={pageNum}
+                  onChange={e => {
+                    const n = Number(e.target.value)
+                    if (n >= 1 && n <= plan.num_pages) setPageNum(n)
+                  }}
+                  className="w-10 text-xs text-center border border-gray-200 rounded px-1 py-1" />
+                <span className="text-xs text-gray-400">/ {plan.num_pages}</span>
                 <button disabled={pageNum >= plan.num_pages} onClick={() => setPageNum(p => p + 1)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
               </>
             )}
@@ -622,15 +685,6 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             {tool === 'anot-retangulo' && 'Clique e arraste pra desenhar um retângulo.'}
             {tool === 'anot-livre' && 'Clique e arraste pra desenhar livremente.'}
             {tool === 'anot-texto' && 'Clique onde quer inserir o texto.'}
-          </div>
-        )}
-        {tool === 'select' && selection && (
-          <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-medium border-b border-red-100 flex items-center gap-2">
-            <span>Selecionado: {selection.kind}.</span>
-            <button onClick={deleteSelected} className="flex items-center gap-1 font-semibold hover:underline">
-              <Trash2 className="w-3 h-3" /> Excluir (ou tecla Delete)
-            </button>
-            <button onClick={() => setSelection(null)} className="text-red-400 hover:text-red-600 ml-auto">Cancelar (Esc)</button>
           </div>
         )}
 
@@ -678,7 +732,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     <polygon points={pts} fill={color + '18'} stroke="white" strokeWidth={selected ? 7 : 5.5} />
                     <polygon points={pts} fill="transparent" stroke={color} strokeWidth={selected ? 3.5 : 2.5} strokeDasharray="7 4"
                       style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
-                      onClick={e => { e.stopPropagation(); selectShape('environment', env.id) }} />
+                      onClick={e => { e.stopPropagation(); selectShape('environment', env.id, e) }} />
                   </g>
                 )
               })}
@@ -708,7 +762,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 <g key={m.id}>
                   {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
                     selected: selection?.kind === 'measurement' && selection.id === m.id,
-                    onClick: () => selectShape('measurement', m.id),
+                    onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
                     badge: pieceBadgeMap.get(m.id),
                   })}
                 </g>
@@ -720,7 +774,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
                 return (
-                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { e.stopPropagation(); selectShape('symbol', s.id) }}>
+                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { e.stopPropagation(); selectShape('symbol', s.id, e) }}>
                     <circle cx={sx} cy={sy} r={selected ? 12.5 : 10.5} fill="#7c3aed" stroke="white" strokeWidth={selected ? 3 : 2.5} />
                     <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{code}</text>
                   </g>
@@ -732,7 +786,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   com halo branco por baixo pra sempre se destacar. */}
               {pagePoints.annotations.map(a => {
                 const selected = selection?.kind === 'annotation' && selection.id === a.id
-                const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id) }
+                const onSel = (e: React.MouseEvent) => { e.stopPropagation(); selectShape('annotation', a.id, e) }
                 const ANOT_COLOR = '#0891b2'
                 if (a.kind === 'rect') {
                   const [sx, sy] = toScreen([a.data.x, a.data.y])
@@ -811,12 +865,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             )}
             {tab === 'medicoes' && (
               <MedicoesTab measurements={measurements} environments={environments}
-                onUpdate={(id, updates) => {
-                  const beforeRow = measurements.find(m => m.id === id)
-                  if (!beforeRow) return
-                  const before = Object.fromEntries(Object.keys(updates).map(k => [k, (beforeRow as any)[k]]))
-                  updateEntity('measurement', id, before, updates, updateMeasurement)
-                }}
+                onUpdate={updateMeasurementField}
                 onDelete={id => deleteEntity('measurement', id)}
                 onMerge={mergeMeasurements}
                 pieceBadgeMap={pieceBadgeMap}
@@ -831,6 +880,137 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           </div>
         )}
       </div>
+      </div>
+
+      {/* Popover flutuante — clicar em qualquer marcação (ambiente, símbolo,
+          medição, anotação) mostra os detalhes ali mesmo, sem precisar
+          procurar na aba lateral. */}
+      {selection && popoverAnchor && (
+        <SelectionPopover
+          selection={selection} anchor={popoverAnchor} onClose={() => setSelection(null)}
+          environments={environments} legendItems={legendItems}
+          symbols={symbols} measurements={measurements} annotations={annotations}
+          pieceBadgeMap={pieceBadgeMap}
+          onDeleteSelected={deleteSelected}
+          onRenameEnv={(id, name) => updateEntity('environment', id, { name: environments.find(e => e.id === id)?.name }, { name, status: 'editado' }, updateEnvironment)}
+          onChangeSymbolLegend={(id, legendItemId) => updateEntity('symbol', id, { legend_item_id: symbols.find(s => s.id === id)?.legend_item_id }, { legend_item_id: legendItemId }, updateSymbolOccurrence)}
+          onChangeSymbolEnv={(id, envId) => updateEntity('symbol', id, { environment_id: symbols.find(s => s.id === id)?.environment_id }, { environment_id: envId }, updateSymbolOccurrence)}
+          onUpdateMeasurement={updateMeasurementField}
+          onMergeMeasurement={mergeMeasurements}
+        />
+      )}
+    </>
+  )
+}
+
+// ── Popover flutuante de seleção ─────────────────────────────────────────────
+// Mostra os detalhes de qualquer coisa clicada na planta (ambiente, símbolo,
+// medição, anotação) ali mesmo, ancorado no ponto do clique — evita ter que
+// procurar o item na lista da aba lateral pra editar ou excluir.
+
+function SelectionPopover({
+  selection, anchor, onClose, environments, legendItems, symbols, measurements, annotations, pieceBadgeMap,
+  onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement,
+}: {
+  selection: { kind: EntityKind; id: string }
+  anchor: { x: number; y: number }
+  onClose: () => void
+  environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]
+  measurements: Measurement[]; annotations: Annotation[]
+  pieceBadgeMap: Map<string, { label: string; color: string }>
+  onDeleteSelected: () => void
+  onRenameEnv: (id: string, name: string) => void
+  onChangeSymbolLegend: (id: string, legendItemId: string | null) => void
+  onChangeSymbolEnv: (id: string, envId: string | null) => void
+  onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void
+  onMergeMeasurement: (idA: string, idB: string) => void
+}) {
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800
+  const style: React.CSSProperties = {
+    position: 'fixed', left: Math.min(anchor.x + 12, winW - 300), top: Math.min(anchor.y + 12, winH - 280), zIndex: 50, width: 280,
+  }
+
+  let content: React.ReactNode = null
+  let showHeaderDelete = true
+
+  if (selection.kind === 'environment') {
+    const env = environments.find(e => e.id === selection.id)
+    if (!env) return null
+    const count = symbols.filter(s => s.environment_id === env.id).length
+    content = (
+      <div className="p-3 space-y-1.5">
+        <p className="text-[10px] font-bold text-gray-400 uppercase">Ambiente</p>
+        <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRenameEnv(env.id, e.target.value.trim())}
+          className="w-full text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
+        <p className="text-xs text-gray-400">{count} símbolo(s) marcado(s) · {env.status}</p>
+      </div>
+    )
+  } else if (selection.kind === 'symbol') {
+    const s = symbols.find(x => x.id === selection.id)
+    if (!s) return null
+    content = (
+      <div className="p-3 space-y-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase">Símbolo</p>
+        <div className="flex flex-wrap gap-1">
+          {legendItems.map(li => (
+            <button key={li.id} onClick={() => onChangeSymbolLegend(s.id, li.id)}
+              className={cn('text-xs font-semibold px-2 py-1 rounded-md border transition-colors',
+                li.id === s.legend_item_id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white border-gray-200 text-gray-600 hover:border-violet-300')}>
+              {li.code}
+            </button>
+          ))}
+          {legendItems.length === 0 && <p className="text-xs text-gray-400">Cadastre a legenda primeiro.</p>}
+        </div>
+        <select value={s.environment_id ?? ''} onChange={e => onChangeSymbolEnv(s.id, e.target.value || null)}
+          className="w-full text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1">
+          <option value="">Sem ambiente</option>
+          {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
+        </select>
+      </div>
+    )
+  } else if (selection.kind === 'measurement') {
+    const m = measurements.find(x => x.id === selection.id)
+    if (!m) return null
+    showHeaderDelete = false // o card já tem seu próprio botão de excluir
+    const shared = {
+      m, environments,
+      onChangeEnv: (envId: string | null) => onUpdateMeasurement(m.id, { environment_id: envId }),
+      onDelete: onDeleteSelected,
+      mergeCandidates: measurements.filter(x => x.kind === m.kind && x.id !== m.id),
+      onMerge: (otherId: string) => onMergeMeasurement(m.id, otherId),
+      pieceBadge: pieceBadgeMap.get(m.id),
+    }
+    content = (
+      <div className="p-3">
+        {m.kind === 'fita'
+          ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })} />
+          : <SimpleMeasurementCard {...shared} />}
+      </div>
+    )
+  } else if (selection.kind === 'annotation') {
+    const a = annotations.find(x => x.id === selection.id)
+    if (!a) return null
+    const KIND_LABEL: Record<string, string> = { rect: 'Retângulo', freehand: 'Desenho livre', text: 'Texto', highlight: 'Marca-texto' }
+    content = (
+      <div className="p-3 space-y-1.5">
+        <p className="text-[10px] font-bold text-gray-400 uppercase">Anotação · {KIND_LABEL[a.kind] ?? a.kind}</p>
+        {a.kind === 'text' && <p className="text-sm text-gray-700">{a.data.text}</p>}
+      </div>
+    )
+  }
+
+  if (!content) return null
+
+  return (
+    <div style={style} className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+      <div className="flex items-center justify-between px-1 pt-1">
+        {showHeaderDelete
+          ? <button onClick={onDeleteSelected} title="Excluir" className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+          : <span />}
+        <button onClick={onClose} title="Fechar (Esc)" className="p-1.5 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+      </div>
+      {content}
     </div>
   )
 }

@@ -125,6 +125,27 @@ export async function updatePlanScale(planId: string, page: number, metersPerPix
   return { ok: true }
 }
 
+// Rotação extra que o consultor aplicou (soma à rotação já embutida no PDF)
+// — pra plantas que vieram digitalizadas em pé quando deveriam ser deitadas.
+export async function updatePlanRotation(planId: string, page: number, rotationDeg: number) {
+  const admin = createAdminClient()
+  const { data: plan } = await admin.from('project_plans').select('page_rotation').eq('id', planId).single()
+  const rotation = { ...(plan?.page_rotation ?? {}), [String(page)]: ((rotationDeg % 360) + 360) % 360 }
+  const { error } = await admin.from('project_plans').update({ page_rotation: rotation, updated_at: new Date().toISOString() }).eq('id', planId)
+  if (error) return { error: error.message }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true }
+}
+
+// Qual página o consultor deixou aberta por último — pra PDFs de várias
+// páginas onde só uma é a planta luminotécnica, o sistema volta direto nela.
+export async function updateWorkingPage(planId: string, page: number) {
+  const admin = createAdminClient()
+  const { error } = await admin.from('project_plans').update({ working_page: page, updated_at: new Date().toISOString() }).eq('id', planId)
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
 // ── Ambientes ─────────────────────────────────────────────────────────────
 
 export async function createEnvironment(planId: string, data: { page: number; name: string; polygon: [number, number][] }) {
