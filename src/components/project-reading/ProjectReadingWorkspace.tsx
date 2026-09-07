@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download, Zap, EyeOff,
+  RotateCw, X, Layers, Download, Zap, EyeOff, Locate,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -501,6 +501,37 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const targetWidth = container.clientWidth - 32
       setRenderScale(Math.max(0.3, targetWidth / base.width))
     })
+  }
+
+  // Clicar num ambiente na aba lateral centraliza e dá zoom nele na planta,
+  // pra conferir aquele cômodo específico sem precisar procurar na mão.
+  async function focusOnEnvironment(env: Environment) {
+    const container = canvasRef.current?.parentElement?.parentElement
+    if (!container || env.polygon.length === 0) return
+    const xs = env.polygon.map(p => p[0]), ys = env.polygon.map(p => p[1])
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    const bboxW = Math.max(1, maxX - minX), bboxH = Math.max(1, maxY - minY)
+    const availW = container.clientWidth - 80, availH = container.clientHeight - 80
+    const targetScale = Math.min(4, Math.max(0.4, Math.min(availW / bboxW, availH / bboxH)))
+
+    setSelection({ kind: 'environment', id: env.id })
+    setPopoverAnchor(null)
+    setTool('select')
+
+    const v0 = renderVersionRef.current
+    const pageChanged = env.page !== pageNum
+    if (pageChanged) setPageNum(env.page)
+    setRenderScale(targetScale)
+    await new Promise<void>(resolve => {
+      const iv = setInterval(() => {
+        if (renderVersionRef.current > v0) { clearInterval(iv); resolve() }
+      }, 30)
+    })
+
+    const cx = (minX + maxX) / 2 * targetScale
+    const cy = (minY + maxY) / 2 * targetScale
+    container.scrollTo({ left: cx - container.clientWidth / 2, top: cy - container.clientHeight / 2, behavior: 'smooth' })
   }
 
   async function rotatePage() {
@@ -1291,6 +1322,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onMergeMeasurement={mergeMeasurements}
                 pieceBadgeMap={pieceBadgeMap}
                 powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
+                onFocusEnvironment={focusOnEnvironment}
               />
             )}
             {tab === 'legenda' && (
@@ -1552,7 +1584,7 @@ function SelectionPopover({
 function AmbientesTab({
   environments, symbols, legendItems, measurements, onRename, onDelete, onRelink,
   onDeleteSymbol, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
-  powerSupplies, onStartFontePlacement, onDeleteFonte,
+  powerSupplies, onStartFontePlacement, onDeleteFonte, onFocusEnvironment,
 }: {
   environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]; measurements: Measurement[]
   onRename: (id: string, name: string) => void; onDelete: (id: string) => void; onRelink: () => void
@@ -1560,6 +1592,7 @@ function AmbientesTab({
   onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void; onDeleteMeasurement: (id: string) => void
   onMergeMeasurement: (idA: string, idB: string) => void; pieceBadgeMap: Map<string, PieceBadge>
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
+  onFocusEnvironment: (env: Environment) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
@@ -1586,6 +1619,8 @@ function AmbientesTab({
                 <input defaultValue={env.name} onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
                   className="flex-1 text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{env.status}</span>
+                <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
+                  className="text-gray-300 hover:text-brand-600"><Locate className="w-3.5 h-3.5" /></button>
                 <button onClick={() => onDelete(env.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
               <button onClick={() => setExpanded(open ? null : env.id)}
