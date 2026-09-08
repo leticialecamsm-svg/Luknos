@@ -2808,7 +2808,7 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // Uma linha do quantitativo — um produto com sua unidade e quantidade,
 // pronto pra digitar no Master Lojista sem precisar recalcular nada.
-interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean; subgrupo?: string | null }
+interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean; subgrupo?: string | null; copyText?: string }
 
 // Ids sintéticos ganham sufixo (tira #N, emenda ~emendaN) — pra achar de
 // volta a medição original (e seu ponto de instalação) a partir do id de
@@ -2817,16 +2817,19 @@ function baseMeasurementId(id: string): string { return id.split('#')[0].split('
 
 // Botão de copiar texto — usado na nota de reaproveitamento, pra colar
 // direto na observação do orçamento no Master Lojista sem digitar de novo.
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, compact }: { text: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
       onClick={async () => {
         try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
       }}
-      className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-2 py-1 shrink-0"
+      title={text}
+      className={compact
+        ? 'text-[10px] font-semibold text-amber-700 hover:text-amber-900 underline shrink-0'
+        : 'text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-2 py-1 shrink-0'}
     >
-      {copied ? '✓ Copiado' : '📋 Copiar'}
+      {copied ? '✓ copiado' : (compact ? 'copiar' : '📋 Copiar')}
     </button>
   )
 }
@@ -2835,9 +2838,8 @@ function CopyButton({ text }: { text: string }) {
 // monta as linhas de compra por ambiente e detecta peças compartilhadas —
 // quando uma barra/rolo atende mais de um ambiente, só o "dono" (primeiro
 // corte da peça) deve comprar; o outro ambiente reaproveita a sobra.
-function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: string, envName: string): { lines: BomLine[]; sharedNotes: { text: string; copyText: string }[] } {
+function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: string, envName: string): { lines: BomLine[] } {
   const lines: BomLine[] = []
-  const sharedNotes: { text: string; copyText: string }[] = []
   for (const g of groups) {
     if (g.comercialM == null) {
       // Vendida no metro — cortada exata, não há sobra pra reaproveitar.
@@ -2864,11 +2866,11 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
       if (ambientesDaPeca.length === 1) {
         lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', subgrupo })
       } else if (envName === dono) {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true, subgrupo,
-          detalhe: `compartilhada com ${ambientesDaPeca.filter(a => a !== envName).join(', ')}` })
+        const outros = ambientesDaPeca.filter(a => a !== envName)
         const detalheCortes = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
-        sharedNotes.push({
-          text: `${g.groupLabel} — 1 ${noun} atende ${ambientesDaPeca.join(' + ')}: ${detalheCortes}. Comprar só 1 no total.`,
+        lines.push({
+          produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true, subgrupo,
+          detalhe: `compartilhada com ${outros.join(', ')}`,
           copyText: `Reaproveitamento: 1 ${noun} de ${g.groupLabel} atende ${ambientesDaPeca.join(' e ')} (${detalheCortes}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
         })
       } else {
@@ -2886,7 +2888,7 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
     if (existing) existing.quantidade = String(Number(existing.quantidade) + Number(l.quantidade))
     else merged.set(key, { ...l })
   }
-  return { lines: Array.from(merged.values()), sharedNotes }
+  return { lines: Array.from(merged.values()) }
 }
 
 function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment }: {
@@ -2979,7 +2981,6 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
             ...fitaBom.lines,
             ...fonteBomFor(env.id),
           ]
-          const sharedNotes = [...perfilBom.sharedNotes, ...fitaBom.sharedNotes]
           const bySubgrupo = new Map<string, BomLine[]>()
           for (const l of allLines) {
             const key = l.subgrupo || 'Geral'
@@ -2991,21 +2992,28 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
             <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
               <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
                 className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
-              {sharedNotes.length > 0 && sharedNotes.map((n, i) => (
-                <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                  <p className="text-[11px] text-amber-800 flex-1">⚠️ {n.text}</p>
-                  <CopyButton text={n.copyText} />
-                </div>
-              ))}
               {subgrupos.map(sub => (
                 <div key={sub}>
                   {sub !== 'Geral' && <p className="text-[11px] font-bold text-gray-500 mt-1">{sub}</p>}
                   <table className="w-full text-xs">
                     <tbody>
                       {bySubgrupo.get(sub)!.map((l, i) => (
-                        <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/60')}>
-                          <td className="py-0.5 text-gray-700">{l.produto}{l.detalhe && <span className="text-amber-600 text-[10px]"> · {l.detalhe}</span>}</td>
-                          <td className={cn('py-0.5 text-right font-semibold whitespace-nowrap', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade} {l.unidade}</td>
+                        // A nota de reaproveitamento fica colada embaixo do
+                        // próprio produto (não num aviso solto lá em cima,
+                        // longe do item a que se refere) — curta, só o
+                        // essencial, com o texto completo a um clique via
+                        // "Copiar" pra colar no Master Lojista.
+                        <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/40')}>
+                          <td className="py-1 text-gray-700 align-top">
+                            <div>{l.produto}</div>
+                            {l.detalhe && (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[10px] text-amber-700">↔ {l.detalhe}</span>
+                                {l.copyText && <CopyButton text={l.copyText} compact />}
+                              </div>
+                            )}
+                          </td>
+                          <td className={cn('py-1 text-right font-semibold whitespace-nowrap align-top', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade} {l.unidade}</td>
                         </tr>
                       ))}
                     </tbody>
