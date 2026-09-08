@@ -190,7 +190,7 @@ export async function deleteEnvironment(planId: string, id: string) {
 export async function createLegendItem(planId: string, data: {
   code: string; description?: string; power_w?: number; color_temp_k?: number
   lumen_flux?: number; finish?: string; notes?: string; mount_type?: string
-  has_lamp?: boolean; lamp_name?: string; lamp_color_temp_k?: number; lamp_angle_deg?: number
+  has_lamp?: boolean; lamp_name?: string; lamp_color_temp_k?: number; lamp_angle_deg?: number; lamp_qty?: number
 }) {
   const admin = createAdminClient()
   const { data: row, error } = await admin.from('plan_legend_items').insert({ plan_id: planId, ...data }).select().single()

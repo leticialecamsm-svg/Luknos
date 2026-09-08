@@ -36,7 +36,7 @@ interface Environment { id: string; page: number; name: string; polygon: Point[]
 interface LegendItem {
   id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null
   lumen_flux?: number | null; finish?: string | null; notes?: string | null; mount_type?: 'embutir' | 'sobrepor' | null
-  has_lamp?: boolean; lamp_name?: string | null; lamp_color_temp_k?: number | null; lamp_angle_deg?: number | null
+  has_lamp?: boolean; lamp_name?: string | null; lamp_color_temp_k?: number | null; lamp_angle_deg?: number | null; lamp_qty?: number
 }
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
 interface Measurement {
@@ -490,6 +490,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       color_temp_k: item.color_temp_k ?? undefined, mount_type: item.mount_type ?? undefined,
       has_lamp: item.has_lamp, lamp_name: item.lamp_name ?? undefined,
       lamp_color_temp_k: item.lamp_color_temp_k ?? undefined, lamp_angle_deg: item.lamp_angle_deg ?? undefined,
+      lamp_qty: item.lamp_qty ?? undefined,
     })
     if (res?.data) setLegendItems(prev => [...prev, res.data])
   }
@@ -2118,7 +2119,13 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
   const [lampName, setLampName] = useState('')
   const [lampColorTemp, setLampColorTemp] = useState<number | null>(null)
   const [lampAngle, setLampAngle] = useState('')
+  const [lampQty, setLampQty] = useState(1)
   const [saving, setSaving] = useState(false)
+
+  // Autocomplete pelos nomes (de produto e de lâmpada) já usados nesse
+  // plano — evita redigitar o mesmo nome item após item.
+  const nameSuggestions = Array.from(new Set(items.filter(i => i.description).map(i => i.description as string)))
+  const lampNameSuggestions = Array.from(new Set(items.filter(i => i.lamp_name).map(i => i.lamp_name as string)))
 
   // Código sequencial automático dentro do projeto — nunca precisa digitar,
   // só reaproveita o próximo número livre (maior código existente + 1).
@@ -2137,10 +2144,11 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
       lamp_name: hasLamp ? lampName.trim() || undefined : undefined,
       lamp_color_temp_k: hasLamp ? lampColorTemp ?? undefined : undefined,
       lamp_angle_deg: hasLamp && lampAngle ? Number(lampAngle.replace(',', '.')) : undefined,
+      lamp_qty: hasLamp ? lampQty : undefined,
     })
     if (res?.data) onCreate(res.data)
     setName(''); setPowerW(''); setColorTemp(null); setMountType(null)
-    setHasLamp(false); setLampName(''); setLampColorTemp(null); setLampAngle('')
+    setHasLamp(false); setLampName(''); setLampColorTemp(null); setLampAngle(''); setLampQty(1)
     setSaving(false)
   }
 
@@ -2148,7 +2156,8 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
     <div className="space-y-4">
       <div className="border border-dashed border-gray-300 rounded-xl p-3 space-y-2">
         <p className="text-xs font-semibold text-gray-500 uppercase">Novo item · código {nextCode}</p>
-        <input placeholder="Nome do produto (spot embutido, fita COB...)" value={name} onChange={e => setName(e.target.value)} className="input text-xs !py-1.5 w-full" />
+        <ModelInput value={name} onCommit={setName} suggestions={nameSuggestions} listId="legend-name-new"
+          placeholder="Nome do produto (spot embutido, fita COB...)" />
         {!hasLamp && (
           <div>
             <p className="text-[10px] text-gray-500 mb-1">Temperatura de cor</p>
@@ -2167,14 +2176,18 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
         </button>
         {hasLamp && (
           <div className="bg-amber-50 rounded-lg p-2 space-y-1.5">
-            <input placeholder="Nome da lâmpada (ex: Dicroica GU10)" value={lampName} onChange={e => setLampName(e.target.value)}
-              className="input text-xs !py-1.5 w-full" />
+            <ModelInput value={lampName} onCommit={setLampName} suggestions={lampNameSuggestions} listId="lamp-name-new"
+              placeholder="Nome da lâmpada (ex: Dicroica GU10)" />
             <div>
               <p className="text-[10px] text-gray-500 mb-1">Temperatura da lâmpada</p>
               <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={lampColorTemp} onChange={setLampColorTemp} />
             </div>
             <input placeholder="Ângulo de abertura (graus)" value={lampAngle} onChange={e => setLampAngle(e.target.value)}
               className="input text-xs !py-1.5 w-full" />
+            <div>
+              <p className="text-[10px] text-gray-500 mb-1">Quantidade de lâmpadas (spot duplo, triplo...)</p>
+              <ChoiceChips options={[1, 2, 3, 4].map(n => ({ value: n, label: String(n) }))} value={lampQty} onChange={setLampQty} />
+            </div>
           </div>
         )}
         <button onClick={add} disabled={saving || !name.trim()} className="btn-primary text-xs w-full justify-center !py-1.5">
@@ -2187,8 +2200,9 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
             <div className="flex items-start gap-2">
               <span className="w-8 shrink-0 text-sm font-bold text-violet-700 pt-0.5">{item.code}</span>
               <SyncedInput value={item.description ?? ''} onCommit={v => onUpdate(item.id, { description: v || null })}
-                placeholder="Nome do produto"
+                placeholder="Nome do produto" list={`legend-name-${item.id}`}
                 className="flex-1 min-w-0 text-sm text-gray-700 outline-none border-b border-transparent focus:border-brand-300" />
+              <datalist id={`legend-name-${item.id}`}>{nameSuggestions.map(s => <option key={s} value={s} />)}</datalist>
               <button onClick={() => onDuplicate(item)} title="Duplicar" className="text-gray-300 hover:text-brand-600 shrink-0"><Copy className="w-3.5 h-3.5" /></button>
               <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -2213,8 +2227,9 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
               {item.has_lamp && (
                 <div className="bg-amber-50 rounded-lg p-2 mt-1 space-y-1.5">
                   <SyncedInput value={item.lamp_name ?? ''} onCommit={v => onUpdate(item.id, { lamp_name: v || null })}
-                    placeholder="Nome da lâmpada (ex: Dicroica GU10)"
+                    placeholder="Nome da lâmpada (ex: Dicroica GU10)" list={`lamp-name-${item.id}`}
                     className="w-full text-xs text-gray-700 outline-none border-b border-transparent focus:border-brand-300 bg-white rounded px-2 py-1" />
+                  <datalist id={`lamp-name-${item.id}`}>{lampNameSuggestions.map(s => <option key={s} value={s} />)}</datalist>
                   <div className="flex items-center gap-2 flex-wrap">
                     <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))}
                       value={item.lamp_color_temp_k ?? null} onChange={v => onUpdate(item.id, { lamp_color_temp_k: v })} />
@@ -2223,6 +2238,11 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
                         placeholder="—" className="w-10 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
                       <span className="text-[11px] text-gray-400">° abertura</span>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-500">Qtd. lâmpadas:</span>
+                    <ChoiceChips options={[1, 2, 3, 4].map(n => ({ value: n, label: String(n) }))}
+                      value={item.lamp_qty ?? 1} onChange={v => onUpdate(item.id, { lamp_qty: v })} />
                   </div>
                 </div>
               )}
@@ -2917,14 +2937,19 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
         {environments.map(env => {
           const envSymbols = symbols.filter(s => s.environment_id === env.id)
           const byName = new Map<string, number>()
+          // Lâmpadas contam separado do corpo da luminária — um spot duplo
+          // é 1 peça de corpo, mas 2 lâmpadas, e no Master Lojista isso é
+          // comprado como itens distintos.
+          const byLamp = new Map<string, number>()
           for (const s of envSymbols) {
             const li = legendItems.find(x => x.id === s.legend_item_id)
             const base = li?.description || li?.code || 'Item sem legenda'
-            const lampInfo = li?.has_lamp
-              ? ` (${[li.lamp_name, li.lamp_color_temp_k ? `${li.lamp_color_temp_k}K` : null, li.lamp_angle_deg ? `${li.lamp_angle_deg}°` : null].filter(Boolean).join(' · ')})`
-              : ''
-            const name = base + lampInfo
-            byName.set(name, (byName.get(name) ?? 0) + 1)
+            byName.set(base, (byName.get(base) ?? 0) + 1)
+            if (li?.has_lamp) {
+              const lampDesc = [li.lamp_name || 'Lâmpada', li.lamp_color_temp_k ? `${li.lamp_color_temp_k}K` : null, li.lamp_angle_deg ? `${li.lamp_angle_deg}°` : null]
+                .filter(Boolean).join(' · ')
+              byLamp.set(lampDesc, (byLamp.get(lampDesc) ?? 0) + (li.lamp_qty ?? 1))
+            }
           }
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
           const perfilBom = bomFromGroups(perfilGroups, 'barra', env.id, env.name)
@@ -2936,6 +2961,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
           // sem repetir o nome do ambiente (que já é o título do card).
           const allLines: BomLine[] = [
             ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n) })),
+            ...Array.from(byLamp.entries()).map(([nome, n]) => ({ produto: `💡 ${nome}`, unidade: 'un', quantidade: String(n) })),
             ...perfilBom.lines,
             ...fitaBom.lines,
             ...fonteBomFor(env.id),
