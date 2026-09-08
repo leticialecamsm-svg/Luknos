@@ -67,6 +67,16 @@ const ENV_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b
 const MEASURE_COLOR: Record<MeasureKind, string> = { perfil: '#0ea5e9', fita: '#ec4899', medida: '#f97316' }
 const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fita', medida: 'Medida' }
 
+// Cor determinística a partir de uma chave de produto (ex: modelo do perfil
+// + modelo da fita) — a mesma composição sempre cai na mesma cor, e trocar
+// qualquer um dos dois já muda pra outra cor, sem precisar de cadastro.
+function productColor(key: string): string {
+  let hash = 0
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
+  const hue = Math.abs(hash) % 360
+  return `hsl(${hue}, 70%, 42%)`
+}
+
 // Um ponto marcado (símbolo) usa point-in-polygon direto. Já uma medição é
 // uma LINHA — testar só o primeiro ponto clicado é frágil, porque é
 // justamente o ponto mais comum de cair em cima de uma parede/canto (onde a
@@ -960,7 +970,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // Desenha linhas de extensão + linha de cota deslocada + o comprimento em
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
-    selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badge?: PieceBadge
+    selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badges?: PieceBadge[]
     cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number
   }) {
     const offsetPx = opts?.cotaOffset ?? 16
@@ -1016,18 +1026,55 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         </g>
       )
     }
-    if (opts?.badge && points.length > 0) {
+    if (opts?.badges && opts.badges.length > 0 && points.length > 0) {
       const [lx, ly] = toScreen(points[points.length - 1])
-      const w = opts.badge.label.length * 5.5 + 14
-      segs.push(
-        <g key={`${key}-badge`} style={{ cursor: opts.onClick ? 'pointer' : undefined }}
-          onClick={opts.onClick ? e => { if (!canSelectShape()) return; e.stopPropagation(); opts.onClick!(e) } : undefined}>
-          <rect x={lx + 8} y={ly - 21} width={w} height={16} rx={8} fill={opts.badge.color} stroke="white" strokeWidth={1.5} />
-          <text x={lx + 8 + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{opts.badge.label}</text>
-        </g>
-      )
+      let cursorX = lx + 8
+      opts.badges.forEach((badge, bi) => {
+        const w = badge.label.length * 5.5 + 14
+        segs.push(
+          <g key={`${key}-badge-${bi}`} style={{ cursor: opts.onClick ? 'pointer' : undefined }}
+            onClick={opts.onClick ? e => { if (!canSelectShape()) return; e.stopPropagation(); opts.onClick!(e) } : undefined}>
+            <rect x={cursorX} y={ly - 21} width={w} height={16} rx={8} fill={badge.color} stroke="white" strokeWidth={1.5} />
+            <text x={cursorX + w / 2} y={ly - 9} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{badge.label}</text>
+          </g>
+        )
+        cursorX += w + 4
+      })
     }
     return <g>{segs}</g>
+  }
+
+  // ── Fita colorida por composição ────────────────────────────────────────
+  // Substitui a antiga dupla linha de cota (uma pro perfil, outra pra fita)
+  // por um retângulo de borda colorida e sem preenchimento, seguindo o
+  // trecho medido — a cor é sempre a mesma pra composição idêntica
+  // (mesmo perfil + mesma fita, ou mesma fita sozinha) e muda assim que
+  // qualquer um dos dois produtos muda.
+  function renderComposicaoRibbon(points: Point[], color: string, key: string, halfWidthPx = 6) {
+    const screenPts = points.map(toScreen)
+    if (screenPts.length < 2) return null
+    const left: [number, number][] = []
+    const right: [number, number][] = []
+    for (let i = 0; i < screenPts.length - 1; i++) {
+      const [ax, ay] = screenPts[i]
+      const [bx, by] = screenPts[i + 1]
+      const dx = bx - ax, dy = by - ay
+      const len = Math.hypot(dx, dy) || 1
+      const nx = (-dy / len) * halfWidthPx, ny = (dx / len) * halfWidthPx
+      left.push([ax + nx, ay + ny])
+      right.push([ax - nx, ay - ny])
+      if (i === screenPts.length - 2) {
+        left.push([bx + nx, by + ny])
+        right.push([bx - nx, by - ny])
+      }
+    }
+    const outline = [...left, ...right.reverse()].map(p => p.join(',')).join(' ')
+    return (
+      <g key={key}>
+        <polygon points={outline} fill="white" fillOpacity={0.5} stroke="white" strokeWidth={5} strokeLinejoin="round" />
+        <polygon points={outline} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      </g>
+    )
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1195,14 +1242,26 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {pagePoints.measurements
                 .filter(m => !reaproveitamentoView || m.kind !== 'medida')
                 .filter(m => !fontesView || m.kind === 'fita')
+                // A fita de uma composição perfil+fita é desenhada junto com o
+                // perfil (mesmo retângulo colorido) — exceto na visão de
+                // fontes, onde o perfil nem aparece.
+                .filter(m => fontesView || !(m.kind === 'fita' && m.linked_measurement_id))
                 .map(m => {
-                  const selected = selection?.kind === 'measurement' && selection.id === m.id
+                  const linkedFita = m.kind === 'perfil' && !fontesView ? measurements.find(f => f.linked_measurement_id === m.id) : undefined
+                  const selected = selection?.kind === 'measurement' && (selection.id === m.id || selection.id === linkedFita?.id)
+                  const isComposicao = m.kind === 'perfil' || m.kind === 'fita'
+                  const color = m.kind === 'perfil'
+                    ? productColor(`${m.product_model || ''}__${linkedFita?.product_model || ''}`)
+                    : m.kind === 'fita' ? productColor(m.product_model || '') : MEASURE_COLOR.medida
+                  const badges = fontesView ? undefined : [pieceBadgeMap.get(m.id), linkedFita ? pieceBadgeMap.get(linkedFita.id) : undefined]
+                    .filter((b): b is PieceBadge => !!b)
                   return (
                     <g key={m.id}>
-                      {renderCota(m.points, MEASURE_COLOR[m.kind], m.id, scale, {
+                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`)}
+                      {renderCota(m.points, color, m.id, scale, {
                         selected,
                         onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
-                        badge: fontesView ? undefined : pieceBadgeMap.get(m.id),
+                        badges,
                         cotaOffset: m.cota_offset ?? 16,
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
@@ -1231,7 +1290,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                       {selected && tool === 'select' && m.points.map((pt, i) => {
                         const [sx, sy] = toScreen(pt)
                         return (
-                          <circle key={i} cx={sx} cy={sy} r={6} fill="white" stroke={MEASURE_COLOR[m.kind]} strokeWidth={2.5}
+                          <circle key={i} cx={sx} cy={sy} r={6} fill="white" stroke={color} strokeWidth={2.5}
                             style={{ cursor: draggingPoint?.measurementId === m.id && draggingPoint.pointIndex === i ? 'grabbing' : 'grab' }}
                             onMouseDown={e => { e.stopPropagation(); setDraggingPoint({ measurementId: m.id, pointIndex: i }) }} />
                         )
@@ -1392,6 +1451,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onDelete={id => deleteEntity('environment', id)}
                 onRelink={relinkUnassigned}
                 onDeleteSymbol={id => deleteEntity('symbol', id)}
+                onChangeSymbolLegend={(id, legendItemId) => updateEntity('symbol', id, { legend_item_id: symbols.find(s => s.id === id)?.legend_item_id }, { legend_item_id: legendItemId }, updateSymbolOccurrence)}
                 onUpdateMeasurement={updateMeasurementField}
                 onDeleteMeasurement={id => deleteEntity('measurement', id)}
                 onMergeMeasurement={mergeMeasurements}
@@ -1403,7 +1463,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             {tab === 'legenda' && (
               <LegendaTab planId={plan.id} items={legendItems}
                 onCreate={row => setLegendItems(prev => [...prev, row])}
-                onUpdate={(id, updates) => setLegendItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))}
+                onUpdate={(id, updates) => { setLegendItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i)); updateLegendItem(plan.id, id, updates as Record<string, unknown>) }}
                 onDelete={async id => { setLegendItems(prev => prev.filter(i => i.id !== id)); await deleteLegendItem(plan.id, id) }}
               />
             )}
@@ -1677,18 +1737,19 @@ function SelectionPopover({
 
 function AmbientesTab({
   environments, symbols, legendItems, measurements, onRename, onDelete, onRelink,
-  onDeleteSymbol, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
+  onDeleteSymbol, onChangeSymbolLegend, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
   powerSupplies, onStartFontePlacement, onDeleteFonte, onFocusEnvironment,
 }: {
   environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]; measurements: Measurement[]
   onRename: (id: string, name: string) => void; onDelete: (id: string) => void; onRelink: () => void
-  onDeleteSymbol: (id: string) => void
+  onDeleteSymbol: (id: string) => void; onChangeSymbolLegend: (id: string, legendItemId: string | null) => void
   onUpdateMeasurement: (id: string, updates: Partial<Measurement>) => void; onDeleteMeasurement: (id: string) => void
   onMergeMeasurement: (idA: string, idB: string) => void; pieceBadgeMap: Map<string, PieceBadge>
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onFocusEnvironment: (env: Environment) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
   const profileModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'perfil' && m.product_model).map(m => m.product_model as string)))
   const fitaModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'fita' && m.product_model).map(m => m.product_model as string)))
@@ -1728,13 +1789,40 @@ function AmbientesTab({
             </div>
             {open && (
               <div className="bg-gray-50 border-t border-gray-100 p-3 space-y-2">
-                {envSymbols.map(s => {
-                  const li = legendItems.find(x => x.id === s.legend_item_id)
+                {Array.from(
+                  envSymbols.reduce((map, s) => {
+                    const key = s.legend_item_id ?? '__sem_legenda__'
+                    if (!map.has(key)) map.set(key, [])
+                    map.get(key)!.push(s)
+                    return map
+                  }, new Map<string, SymbolOccurrence[]>())
+                ).map(([legendItemId, group]) => {
+                  const li = legendItems.find(x => x.id === legendItemId)
+                  const groupKey = `${env.id}__${legendItemId}`
+                  const groupOpen = expandedGroup === groupKey
                   return (
-                    <div key={s.id} className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-2.5 py-1.5">
-                      <span className="shrink-0 text-[10px] font-bold text-white bg-violet-600 rounded-full w-5 h-5 flex items-center justify-center">{li?.code ?? '?'}</span>
-                      <span className="text-xs text-gray-600 flex-1 truncate">{li?.description || 'sem descrição'}</span>
-                      <button onClick={() => onDeleteSymbol(s.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <div key={legendItemId} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                      <button onClick={() => setExpandedGroup(groupOpen ? null : groupKey)}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-50">
+                        <span className="shrink-0 text-[10px] font-bold text-white bg-violet-600 rounded-full w-5 h-5 flex items-center justify-center">{li?.code ?? '?'}</span>
+                        <span className="text-xs text-gray-600 flex-1 truncate text-left">{li?.description || 'sem descrição'}</span>
+                        <span className="text-[11px] font-semibold text-gray-400">{group.length} und</span>
+                        <ChevronRight className={cn('w-3 h-3 text-gray-400 transition-transform', groupOpen && 'rotate-90')} />
+                      </button>
+                      {groupOpen && (
+                        <div className="border-t border-gray-100 divide-y divide-gray-100">
+                          {group.map(s => (
+                            <div key={s.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                              <select value={s.legend_item_id ?? ''} onChange={e => onChangeSymbolLegend(s.id, e.target.value || null)}
+                                className="flex-1 text-xs text-gray-600 bg-transparent border border-gray-200 rounded px-1.5 py-1 outline-none">
+                                <option value="">Sem legenda</option>
+                                {legendItems.map(x => <option key={x.id} value={x.id}>{x.code} — {x.description || 'sem descrição'}</option>)}
+                              </select>
+                              <button onClick={() => onDeleteSymbol(s.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -1830,15 +1918,27 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
       </div>
       <div className="space-y-2">
         {items.map(item => (
-          <div key={item.id} className="border border-gray-200 rounded-lg p-2.5 flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-violet-700">{item.code} <span className="font-normal text-gray-600">{item.description}</span></p>
-              <p className="text-[11px] text-gray-400">
-                {item.power_w ? `${item.power_w}W` : ''}{item.color_temp_k ? ` · ${item.color_temp_k}K` : ''}
-                {!item.power_w && !item.color_temp_k && 'sem especificação'}
-              </p>
+          <div key={item.id} className="border border-gray-200 rounded-lg p-2.5 space-y-1.5">
+            <div className="flex items-start gap-2">
+              <SyncedInput value={item.code} onCommit={v => v.trim() && onUpdate(item.id, { code: v.trim() })}
+                className="w-14 shrink-0 text-sm font-bold text-violet-700 outline-none border-b border-transparent focus:border-brand-300" />
+              <SyncedInput value={item.description ?? ''} onCommit={v => onUpdate(item.id, { description: v || null })}
+                placeholder="Descrição (spot embutido...)"
+                className="flex-1 min-w-0 text-sm text-gray-700 outline-none border-b border-transparent focus:border-brand-300" />
+              <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
-            <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div className="flex items-center gap-3 pl-6">
+              <div className="flex items-center gap-1">
+                <SyncedInput value={item.power_w != null ? String(item.power_w) : ''} onCommit={v => onUpdate(item.id, { power_w: v ? Number(v.replace(',', '.')) : null })}
+                  placeholder="—" className="w-10 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
+                <span className="text-[11px] text-gray-400">W</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <SyncedInput value={item.color_temp_k != null ? String(item.color_temp_k) : ''} onCommit={v => onUpdate(item.id, { color_temp_k: v ? Number(v.replace(',', '.')) : null })}
+                  placeholder="—" className="w-12 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
+                <span className="text-[11px] text-gray-400">K</span>
+              </div>
+            </div>
           </div>
         ))}
         {items.length === 0 && <p className="text-xs text-gray-400">Nenhum item na legenda ainda.</p>}
