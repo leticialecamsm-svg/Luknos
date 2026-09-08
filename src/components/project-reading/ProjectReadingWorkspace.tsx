@@ -109,6 +109,7 @@ interface GrupoPlano {
   trechos: Measurement[]
   comercialM: number | null // null = vendido no metro, sem plano de corte
   plano: PlanoResult
+  emendaWarnings: string[] // trechos maiores que a peça comercial, quebrados em partes
 }
 type PieceBadge = { label: string; color: string; siblings: string[] }
 
@@ -472,21 +473,39 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         comercialM = isMetro ? null : 5
       }
       let plano: PlanoResult = null
+      const emendaWarnings: string[] = []
       if (comercialM != null) {
         // Perfil largo pode levar mais de uma tira de fita lado a lado
         // (strand_count) — cada tira consome seu próprio pedaço de rolo.
+        // Um trecho medido MAIOR que a peça comercial (ex: 4.52m medidos de
+        // uma vez, mas só tem barra de 3m) antes travava o plano de corte
+        // inteiro do grupo com erro — e como o erro não aparecia em lugar
+        // nenhum fora da aba Medições, o produto simplesmente sumia do
+        // quantitativo sem explicação. Agora esse trecho é quebrado
+        // automaticamente em pedaços do tamanho comercial (indicando que
+        // precisa de emenda), e o plano sempre é gerado.
         const list: TrechoNecessario[] = trechos.flatMap(t => {
           const strands = kind === 'fita' ? (t.strand_count ?? 1) : 1
-          return Array.from({ length: strands }, (_, i) => ({
-            id: strands > 1 ? `${t.id}#${i + 1}` : t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id),
-          }))
+          const parts: TrechoNecessario[] = []
+          for (let i = 0; i < strands; i++) {
+            const baseId = strands > 1 ? `${t.id}#${i + 1}` : t.id
+            const ambiente = envNameFor(t.environment_id)
+            if (t.length_m > comercialM!) {
+              const n = Math.ceil(t.length_m / comercialM!)
+              emendaWarnings.push(`${t.label || MEASURE_LABEL[t.kind]} (${round2(t.length_m)}m, ${ambiente}) precisa de emenda: ${n} ${kind === 'perfil' ? 'barras' : 'rolos'} de ${comercialM}m.`)
+              for (let p = 0; p < n; p++) {
+                const restante = round2(t.length_m - comercialM! * p)
+                parts.push({ id: p === 0 ? baseId : `${baseId}~emenda${p}`, comprimentoM: Math.min(comercialM!, restante), ambiente })
+              }
+            } else {
+              parts.push({ id: baseId, comprimentoM: t.length_m, ambiente })
+            }
+          }
+          return parts
         })
-        const excedentes = list.filter(t => t.comprimentoM > comercialM!)
-        plano = excedentes.length > 0
-          ? { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que ${comercialM}m nesse grupo — divida o trecho.` }
-          : { kind: 'ok', plano: calcularPlanoDeCorte(list, comercialM) }
+        plano = { kind: 'ok', plano: calcularPlanoDeCorte(list, comercialM) }
       }
-      return { key, groupLabel, trechos, comercialM, plano }
+      return { key, groupLabel, trechos, comercialM, plano, emendaWarnings }
     })
   }
 
@@ -2135,7 +2154,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
           {perfilGroups.map(g => (
             <div key={g.key} className="bg-sky-50 rounded-lg p-3 space-y-2">
               <p className="text-xs font-semibold text-sky-700">{g.groupLabel} <span className="text-gray-400 font-normal">({g.trechos.length} trecho{g.trechos.length !== 1 ? 's' : ''})</span></p>
-              {g.plano?.kind === 'erro' && <p className="text-xs text-red-600">{g.plano.mensagem}</p>}
+              {g.emendaWarnings.map((w, i) => <p key={i} className="text-xs font-medium text-amber-700 bg-amber-50 rounded px-2 py-1">⚠️ {w}</p>)}
               {g.plano?.kind === 'ok' && <PlanoDeCorteView plano={g.plano.plano} noun="Peça" />}
             </div>
           ))}
@@ -2175,7 +2194,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               {g.comercialM == null && (
                 <p className="text-xs text-gray-600">Vendida no metro — total: <b>{round2(g.trechos.reduce((s: number, t: Measurement) => s + t.length_m, 0))}m</b></p>
               )}
-              {g.plano?.kind === 'erro' && <p className="text-xs text-red-600">{g.plano.mensagem}</p>}
+              {g.emendaWarnings.map((w, i) => <p key={i} className="text-xs font-medium text-amber-700 bg-amber-50 rounded px-2 py-1">⚠️ {w}</p>)}
               {g.plano?.kind === 'ok' && <PlanoDeCorteView plano={g.plano.plano} noun="Rolo" />}
             </div>
           ))}
@@ -2656,6 +2675,14 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
         💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Quando uma barra/rolo é
         compartilhado entre ambientes (sobra reaproveitada), aparece um aviso com botão de copiar.
       </p>
+
+      {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).length > 0 && (
+        <div className="space-y-1">
+          {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).map((w, i) => (
+            <p key={i} className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">⚠️ {w}</p>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-3">
         {environments.map(env => {
