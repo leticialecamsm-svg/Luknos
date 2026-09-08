@@ -41,7 +41,7 @@ interface Measurement {
   cota_offset?: number | null
   product_model?: string | null; mount_type?: 'embutir' | 'sobrepor' | null; bar_size?: number | null
   voltage?: '12V' | '24V' | null; packaging?: 'rolo_5m' | 'metro' | null; strand_count?: number | null
-  installation_location?: string | null
+  installation_location?: string | null; color_temp_k?: number | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 interface PowerSupply { id: string; measurement_id: string; page: number; x: number; y: number; watts: number }
@@ -71,11 +71,18 @@ const MEASURE_LABEL: Record<MeasureKind, string> = { perfil: 'Perfil', fita: 'Fi
 // Cor determinística a partir de uma chave de produto (ex: modelo do perfil
 // + modelo da fita) — a mesma composição sempre cai na mesma cor, e trocar
 // qualquer um dos dois já muda pra outra cor, sem precisar de cadastro.
+// Paleta curada (não hue contínuo) — com hue aleatório dois produtos podiam
+// cair a poucos graus um do outro e ficarem visualmente quase idênticos.
+// Uma paleta fixa de cores bem distintas entre si garante contraste mesmo
+// com poucos produtos cadastrados.
+const DISTINCT_PALETTE = [
+  '#e11d48', '#0ea5e9', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777', '#65a30d',
+  '#c026d3', '#0284c7', '#ea580c', '#059669', '#9333ea', '#0d9488', '#d97706', '#4f46e5',
+]
 function productColor(key: string): string {
   let hash = 0
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
-  const hue = Math.abs(hash) % 360
-  return `hsl(${hue}, 70%, 42%)`
+  return DISTINCT_PALETTE[Math.abs(hash) % DISTINCT_PALETTE.length]
 }
 
 // Um ponto marcado (símbolo) usa point-in-polygon direto. Já uma medição é
@@ -168,6 +175,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // comprimento medido — só o deslocamento visual da linha de cota.
   const [draggingCotaOffset, setDraggingCotaOffset] = useState<{ measurementId: string } | null>(null)
   const [draggingFonte, setDraggingFonte] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  const [draggingSymbol, setDraggingSymbol] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   // Depois de confirmar a potência, aguarda o próximo clique na planta pra
   // saber onde a fonte fica fisicamente (o buraco do forro mais próximo).
   const [pendingFontePlacement, setPendingFontePlacement] = useState<{ measurementId: string; watts: number } | null>(null)
@@ -455,7 +463,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     for (const m of items) {
       const key = kind === 'perfil'
         ? `${m.product_model || '—'}__${m.mount_type || '—'}__${m.bar_size ?? 3}`
-        : `${m.product_model || '—'}__${m.voltage || '12V'}__${m.packaging || 'rolo_5m'}`
+        : `${m.product_model || '—'}__${m.voltage || '12V'}__${m.packaging || 'rolo_5m'}__${m.color_temp_k ?? '—'}`
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(m)
     }
@@ -469,7 +477,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         comercialM = bar
       } else {
         const isMetro = first.packaging === 'metro'
-        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.voltage || '12V'} · ${isMetro ? 'vendida no metro' : 'rolo de 5m'}`
+        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.voltage || '12V'}${first.color_temp_k ? ` · ${first.color_temp_k}K` : ''} · ${isMetro ? 'vendida no metro' : 'rolo de 5m'}`
         comercialM = isMetro ? null : 5
       }
       let plano: PlanoResult = null
@@ -520,11 +528,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   // Perfil compra em "peça" (barra), fita compra em "rolo" — nomes
   // diferentes mesmo sendo o mesmo mecanismo de plano de corte por baixo.
-  function buildPieceMap(plano: PlanoResult, noun: string) {
+  // A cor do badge é a cor do GRUPO (produto+config) inteiro, não da peça —
+  // senão "Peça 1" de um perfil e "Peça 1" de outro perfil bem diferente
+  // saíam com a mesma cor só por coincidência do índice, dando a entender
+  // (errado) que eram a mesma coisa.
+  function buildPieceMap(group: GrupoPlano, noun: string) {
     const map = new Map<string, { label: string; color: string; siblings: string[] }>()
-    if (plano?.kind === 'ok') {
-      for (const peca of plano.plano.pecas) {
-        const color = PIECE_COLORS[(peca.pecaIndex - 1) % PIECE_COLORS.length]
+    const color = productColor(group.key)
+    if (group.plano?.kind === 'ok') {
+      for (const peca of group.plano.plano.pecas) {
         for (const corte of peca.cortes) {
           const siblings = peca.cortes.filter(c => c.id !== corte.id).map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`)
           map.set(corte.id, { label: `${noun} ${peca.pecaIndex}`, color, siblings })
@@ -535,8 +547,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   }
   const pieceBadgeMap = useMemo(() => {
     const merged = new Map<string, { label: string; color: string; siblings: string[] }>()
-    for (const g of perfilGroups) for (const [k, v] of Array.from(buildPieceMap(g.plano, 'Peça'))) merged.set(k, v)
-    for (const g of fitaGroups) for (const [k, v] of Array.from(buildPieceMap(g.plano, 'Rolo'))) merged.set(k, v)
+    for (const g of perfilGroups) for (const [k, v] of Array.from(buildPieceMap(g, 'Peça'))) merged.set(k, v)
+    for (const g of fitaGroups) for (const [k, v] of Array.from(buildPieceMap(g, 'Rolo'))) merged.set(k, v)
     return merged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfilGroups, fitaGroups])
@@ -893,6 +905,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const nx = p[0] - draggingFonte.offsetX, ny = p[1] - draggingFonte.offsetY
       setPowerSupplies(prev => prev.map(ps => ps.id === draggingFonte.id ? { ...ps, x: nx, y: ny } : ps))
     }
+    if (draggingSymbol) {
+      const nx = p[0] - draggingSymbol.offsetX, ny = p[1] - draggingSymbol.offsetY
+      setSymbols(prev => prev.map(s => s.id === draggingSymbol.id ? { ...s, x: nx, y: ny } : s))
+    }
     if (draggingPoint) {
       setMeasurements(prev => prev.map(m => {
         if (m.id !== draggingPoint.measurementId) return m
@@ -919,6 +935,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const a = annotations.find(x => x.id === draggingAnnotation.id)
       setDraggingAnnotation(null)
       if (a) await updateAnnotation(plan.id, a.id, a.data)
+      return
+    }
+    if (draggingSymbol) {
+      const s = symbols.find(x => x.id === draggingSymbol.id)
+      setDraggingSymbol(null)
+      if (s) {
+        const envMatch = environments.find(env => env.page === s.page && pointInPolygon([s.x, s.y], env.polygon))
+        setSymbols(prev => prev.map(x => x.id === s.id ? { ...x, environment_id: envMatch?.id ?? null } : x))
+        await updateSymbolOccurrence(plan.id, s.id, { x: s.x, y: s.y, environment_id: envMatch?.id ?? null })
+      }
       return
     }
     if (draggingFonte) {
@@ -1295,7 +1321,12 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   const color = m.kind === 'perfil'
                     ? productColor(`${m.product_model || ''}__${linkedFita?.product_model || ''}`)
                     : m.kind === 'fita' ? productColor(m.product_model || '') : MEASURE_COLOR.medida
-                  const badges = fontesView ? undefined : [pieceBadgeMap.get(m.id), linkedFita ? pieceBadgeMap.get(linkedFita.id) : undefined]
+                  // Peça/Rolo só aparece na visão de reaproveitamento — na
+                  // visão normal virava poluição visual, e cores repetidas
+                  // entre tipos diferentes de perfil/fita passavam a
+                  // impressão errada de que "Peça 1" de um produto era a
+                  // mesma coisa que "Peça 1" de outro.
+                  const badges = !reaproveitamentoView ? undefined : [pieceBadgeMap.get(m.id), linkedFita ? pieceBadgeMap.get(linkedFita.id) : undefined]
                     .filter((b): b is PieceBadge => !!b)
                   return (
                     <g key={m.id}>
@@ -1401,7 +1432,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const ah1 = arrowAngle + Math.PI * 0.85, ah2 = arrowAngle - Math.PI * 0.85
                 const arrowHead = `${tipX},${tipY} ${tipX + 5 * Math.cos(ah1)},${tipY + 5 * Math.sin(ah1)} ${tipX + 5 * Math.cos(ah2)},${tipY + 5 * Math.sin(ah2)}`
                 return (
-                  <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('symbol', s.id, e) }}>
+                  <g key={s.id} style={{ cursor: tool === 'select' ? (draggingSymbol?.id === s.id ? 'grabbing' : 'grab') : undefined }}
+                    onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('symbol', s.id, e) }}
+                    onMouseDown={e => {
+                      if (!canSelectShape()) return
+                      e.stopPropagation()
+                      const base = toBase(e)
+                      setDraggingSymbol({ id: s.id, offsetX: base[0] - s.x, offsetY: base[1] - s.y })
+                    }}>
                     <line x1={sx} y1={sy} x2={tipX} y2={tipY} stroke="white" strokeWidth={3.5} />
                     <line x1={sx} y1={sy} x2={tipX} y2={tipY} stroke={color} strokeWidth={1.5} />
                     <polygon points={arrowHead} fill={color} />
@@ -1727,7 +1765,8 @@ function SelectionPopover({
             onChangePackaging={v => onUpdateMeasurement(comboFita.id, { packaging: v })}
             fitaModelSuggestions={fitaModelSuggestions}
             onChangeInstallLocation={v => onUpdateMeasurement(comboPerfil.id, { installation_location: v })}
-            installLocationSuggestions={installLocationSuggestions} />
+            installLocationSuggestions={installLocationSuggestions}
+            onChangeColorTemp={v => onUpdateMeasurement(comboFita.id, { color_temp_k: v })} />
         </div>
       )
     } else {
@@ -1753,7 +1792,8 @@ function SelectionPopover({
                 onChangePackaging={v => onUpdateMeasurement(m.id, { packaging: v })}
                 modelSuggestions={fitaModelSuggestions}
                 onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
-                installLocationSuggestions={installLocationSuggestions} />
+                installLocationSuggestions={installLocationSuggestions}
+                onChangeColorTemp={v => onUpdateMeasurement(m.id, { color_temp_k: v })} />
             : <SimpleMeasurementCard {...shared} />}
         </div>
       )
@@ -1925,7 +1965,8 @@ function AmbientesTab({
                         onChangePackaging={v => onUpdateMeasurement(linkedFita.id, { packaging: v })}
                         fitaModelSuggestions={fitaModelSuggestions}
                         onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
-                        installLocationSuggestions={installLocationSuggestions} />
+                        installLocationSuggestions={installLocationSuggestions}
+                        onChangeColorTemp={v => onUpdateMeasurement(linkedFita.id, { color_temp_k: v })} />
                     )
                   }
                   return m.kind === 'fita'
@@ -1942,6 +1983,7 @@ function AmbientesTab({
                         modelSuggestions={fitaModelSuggestions}
                         onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
                         installLocationSuggestions={installLocationSuggestions}
+                        onChangeColorTemp={v => onUpdateMeasurement(m.id, { color_temp_k: v })}
                         mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
                     : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
                         onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
@@ -2128,7 +2170,8 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               onChangePackaging={v => onUpdate(fita.id, { packaging: v })}
               fitaModelSuggestions={fitaModelSuggestions}
               onChangeInstallLocation={v => onUpdate(perfil.id, { installation_location: v })}
-              installLocationSuggestions={installLocationSuggestions} />
+              installLocationSuggestions={installLocationSuggestions}
+              onChangeColorTemp={v => onUpdate(fita.id, { color_temp_k: v })} />
           ))}
           {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
@@ -2179,6 +2222,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
                 modelSuggestions={fitaModelSuggestions}
                 onChangeInstallLocation={v => onUpdate(m.id, { installation_location: v })}
                 installLocationSuggestions={installLocationSuggestions}
+                onChangeColorTemp={v => onUpdate(m.id, { color_temp_k: v })}
                 mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
           </div>
@@ -2220,11 +2264,6 @@ function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDele
         <div className="flex items-center gap-1.5">
           <SyncedInput value={m.label ?? ''} onCommit={onChangeLabel} placeholder="Título da instalação (ex: Teto, sanca...)"
             className="text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300 min-w-0 flex-1" />
-          {pieceBadge && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadge.color }}>
-              {pieceBadge.label}
-            </span>
-          )}
         </div>
         {/* Ambiente é editável direto aqui — cobre tanto o vínculo automático
             (point-in-polygon) quanto o caso de medir antes de desenhar o
@@ -2336,13 +2375,14 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, on
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions, onChangeInstallLocation, installLocationSuggestions }: {
+function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions, onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void
   onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void; onChangeStrandCount: (v: number) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onChangeModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void; onChangePackaging: (v: 'rolo_5m' | 'metro') => void
   modelSuggestions: string[]; onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
+  onChangeColorTemp: (v: number) => void
 }) {
   const preenchido = !!m.power_w_per_m
   const strands = m.strand_count ?? 1
@@ -2366,6 +2406,10 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
         <div className="flex items-center gap-2 flex-wrap">
           <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={m.voltage} onChange={onChangeVoltage} />
           <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo 5m' }, { value: 'metro', label: 'No metro' }]} value={m.packaging} onChange={onChangePackaging} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-500">Tonalidade:</span>
+          <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={m.color_temp_k ?? null} onChange={onChangeColorTemp} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
@@ -2448,7 +2492,7 @@ function PerfilFitaCard({
   powerSupplies, onStartFontePlacement, onDeleteFonte,
   onChangeProfileModel, onChangeMountType, onChangeBarSize, profileModelSuggestions,
   onChangeFitaModel, onChangeVoltage, onChangePackaging, fitaModelSuggestions,
-  onChangeInstallLocation, installLocationSuggestions,
+  onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp,
 }: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
   onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onChangeLength: (v: string) => void
@@ -2460,6 +2504,7 @@ function PerfilFitaCard({
   onChangeFitaModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void
   onChangePackaging: (v: 'rolo_5m' | 'metro') => void; fitaModelSuggestions: string[]
   onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
+  onChangeColorTemp: (v: number) => void
 }) {
   const preenchido = !!fita.power_w_per_m
   const strands = fita.strand_count ?? 1
@@ -2471,8 +2516,6 @@ function PerfilFitaCard({
           <div className="flex items-center gap-1.5 flex-wrap">
             <SyncedInput value={perfil.label ?? ''} onCommit={onChangeLabel} placeholder="Título (ex: Teto, sanca...)"
               className="text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300 min-w-0 flex-1" />
-            {pieceBadgePerfil && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgePerfil.color }}>{pieceBadgePerfil.label}</span>}
-            {pieceBadgeFita && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgeFita.color }}>{pieceBadgeFita.label}</span>}
           </div>
           <div className="flex items-center gap-1.5">
             <select value={perfil.environment_id ?? ''} onChange={e => onChangeEnv(e.target.value || null)}
@@ -2512,6 +2555,10 @@ function PerfilFitaCard({
         <div className="flex items-center gap-2 flex-wrap">
           <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={fita.voltage} onChange={onChangeVoltage} />
           <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo 5m' }, { value: 'metro', label: 'No metro' }]} value={fita.packaging} onChange={onChangePackaging} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-500">Tonalidade:</span>
+          <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={fita.color_temp_k ?? null} onChange={onChangeColorTemp} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
@@ -2572,7 +2619,12 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // Uma linha do quantitativo — um produto com sua unidade e quantidade,
 // pronto pra digitar no Master Lojista sem precisar recalcular nada.
-interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean }
+interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean; subgrupo?: string | null }
+
+// Ids sintéticos ganham sufixo (tira #N, emenda ~emendaN) — pra achar de
+// volta a medição original (e seu ponto de instalação) a partir do id de
+// um corte do plano.
+function baseMeasurementId(id: string): string { return id.split('#')[0].split('~')[0] }
 
 // Botão de copiar texto — usado na nota de reaproveitamento, pra colar
 // direto na observação do orçamento no Master Lojista sem digitar de novo.
@@ -2602,8 +2654,14 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
       // Vendida no metro — cortada exata, não há sobra pra reaproveitar.
       const trechos = g.trechos.filter(t => t.environment_id === envId)
       if (trechos.length === 0) continue
-      const totalM = round2(trechos.reduce((s, t) => s + t.length_m * (t.strand_count ?? 1), 0))
-      lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM) })
+      const bySub = new Map<string, number>()
+      for (const t of trechos) {
+        const sub = t.installation_location || ''
+        bySub.set(sub, round2((bySub.get(sub) ?? 0) + t.length_m * (t.strand_count ?? 1)))
+      }
+      for (const [sub, totalM] of Array.from(bySub.entries())) {
+        lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM), subgrupo: sub || null })
+      }
       continue
     }
     if (g.plano?.kind !== 'ok') continue
@@ -2611,10 +2669,13 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
       const ambientesDaPeca = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
       const dono = peca.cortes[0]?.ambiente ?? 'Sem ambiente'
       if (!ambientesDaPeca.includes(envName)) continue
+      const corteDesteAmbiente = peca.cortes.find(c => c.ambiente === envName)
+      const origem = corteDesteAmbiente ? g.trechos.find(t => t.id === baseMeasurementId(corteDesteAmbiente.id)) : undefined
+      const subgrupo = origem?.installation_location || null
       if (ambientesDaPeca.length === 1) {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1' })
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', subgrupo })
       } else if (envName === dono) {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true,
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true, subgrupo,
           detalhe: `compartilhada com ${ambientesDaPeca.filter(a => a !== envName).join(', ')}` })
         const detalheCortes = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
         sharedNotes.push({
@@ -2622,15 +2683,15 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
           copyText: `Reaproveitamento: 1 ${noun} de ${g.groupLabel} atende ${ambientesDaPeca.join(' e ')} (${detalheCortes}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
         })
       } else {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '0', compartilhada: true,
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '0', compartilhada: true, subgrupo,
           detalhe: `reaproveita sobra de ${dono} — não comprar` })
       }
     }
   }
-  // Agrupa linhas iguais (mesmo produto, não-compartilhadas) somando quantidade.
+  // Agrupa linhas iguais (mesmo produto, mesmo subgrupo, não-compartilhadas) somando quantidade.
   const merged = new Map<string, BomLine>()
   for (const l of lines) {
-    const key = `${l.produto}__${l.compartilhada ? 'shared' : 'plain'}__${l.detalhe ?? ''}`
+    const key = `${l.produto}__${l.subgrupo ?? ''}__${l.compartilhada ? 'shared' : 'plain'}__${l.detalhe ?? ''}`
     if (l.compartilhada) { merged.set(key + Math.random(), l); continue } // compartilhadas ficam cada uma na sua linha
     const existing = merged.get(key)
     if (existing) existing.quantidade = String(Number(existing.quantidade) + Number(l.quantidade))
@@ -2696,62 +2757,54 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
           const perfilBom = bomFromGroups(perfilGroups, 'barra', env.id, env.name)
           const fitaBom = bomFromGroups(fitaGroups, 'rolo', env.id, env.name)
-          const bomLines: BomLine[] = [
+          // Símbolos e fontes não têm ponto de instalação — ficam no
+          // subgrupo "Geral" junto com qualquer perfil/fita sem local
+          // definido. Os demais viram sub-blocos tipo "Sanca", "Marcenaria"
+          // — igual à convenção "Ambiente - Subgrupo" do Master Lojista,
+          // sem repetir o nome do ambiente (que já é o título do card).
+          const allLines: BomLine[] = [
             ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n) })),
             ...perfilBom.lines,
             ...fitaBom.lines,
             ...fonteBomFor(env.id),
           ]
           const sharedNotes = [...perfilBom.sharedNotes, ...fitaBom.sharedNotes]
-          // Pontos de instalação — subdivisão dentro do ambiente (sanca,
-          // marcenaria, cortineiro...), pra saber onde cada trecho vai sem
-          // precisar abrir cada card individualmente.
-          const byLocation = new Map<string, number>()
-          for (const m of measurements.filter(x => x.environment_id === env.id && (x.kind === 'perfil' || x.kind === 'fita') && x.installation_location)) {
-            const loc = m.installation_location as string
-            byLocation.set(loc, round2((byLocation.get(loc) ?? 0) + m.length_m))
+          const bySubgrupo = new Map<string, BomLine[]>()
+          for (const l of allLines) {
+            const key = l.subgrupo || 'Geral'
+            if (!bySubgrupo.has(key)) bySubgrupo.set(key, [])
+            bySubgrupo.get(key)!.push(l)
           }
+          const subgrupos = Array.from(bySubgrupo.keys()).sort((a, b) => a === 'Geral' ? 1 : b === 'Geral' ? -1 : a.localeCompare(b))
           return (
             <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
               <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
                 className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
-              {byLocation.size > 0 && (
-                <p className="text-[11px] text-gray-500">
-                  {Array.from(byLocation.entries()).map(([loc, m], i) => (
-                    <span key={loc}>{i > 0 && ' · '}<span className="font-medium text-gray-600">{loc}</span> ({m}m)</span>
-                  ))}
-                </p>
-              )}
               {sharedNotes.length > 0 && sharedNotes.map((n, i) => (
                 <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
                   <p className="text-[11px] text-amber-800 flex-1">⚠️ {n.text}</p>
                   <CopyButton text={n.copyText} />
                 </div>
               ))}
-              {bomLines.length > 0 && (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-gray-400 text-left">
-                      <th className="font-medium pb-1">Produto</th>
-                      <th className="font-medium pb-1 text-right">Qtd.</th>
-                      <th className="font-medium pb-1 text-right">Un.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bomLines.map((l, i) => (
-                      <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/60')}>
-                        <td className="py-1 text-gray-700">{l.produto}{l.detalhe && <span className="text-amber-600"> · {l.detalhe}</span>}</td>
-                        <td className={cn('py-1 text-right font-semibold', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade}</td>
-                        <td className="py-1 text-right text-gray-500">{l.unidade}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+              {subgrupos.map(sub => (
+                <div key={sub}>
+                  {sub !== 'Geral' && <p className="text-[11px] font-bold text-gray-500 mt-1">{sub}</p>}
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {bySubgrupo.get(sub)!.map((l, i) => (
+                        <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/60')}>
+                          <td className="py-0.5 text-gray-700">{l.produto}{l.detalhe && <span className="text-amber-600 text-[10px]"> · {l.detalhe}</span>}</td>
+                          <td className={cn('py-0.5 text-right font-semibold whitespace-nowrap', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade} {l.unidade}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
               {envMedidas.map(m => (
                 <p key={m.id} className="text-xs text-gray-500">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m</p>
               ))}
-              {bomLines.length === 0 && envMedidas.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
+              {allLines.length === 0 && envMedidas.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
             </div>
           )
         })}
