@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download, Zap, EyeOff, Locate,
+  RotateCw, X, Layers, Download, Zap, EyeOff, Locate, Copy,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -437,6 +437,61 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   }
   function deleteFonte(id: string) {
     deleteEntity('powerSupply', id)
+  }
+
+  // Duplicar — pra quando existem trechos idênticos no orçamento (mesma
+  // metragem, mesmo produto) e não vale a pena medir/preencher tudo de
+  // novo. A cópia nasce com os pontos levemente deslocados (pra não ficar
+  // exatamente em cima do original e dar pra clicar nela) — o consultor
+  // arrasta pro lugar certo ou só troca o ambiente/comprimento no card.
+  function offsetPoints(points: Point[]): Point[] { return points.map(([x, y]) => [x + 24, y + 24] as Point) }
+
+  async function duplicatePerfilFita(perfil: Measurement, fita: Measurement) {
+    setBusy(true)
+    const newPoints = offsetPoints(perfil.points)
+    const resPerfil = await createMeasurement(plan.id, {
+      page: perfil.page, kind: 'perfil', label: `${perfil.label ?? 'Perfil'} (cópia)`,
+      points: newPoints, length_m: perfil.length_m, environment_id: perfil.environment_id,
+      bar_size: perfil.bar_size ?? undefined, product_model: perfil.product_model ?? undefined,
+      mount_type: perfil.mount_type ?? undefined, installation_location: perfil.installation_location ?? undefined,
+    })
+    if (resPerfil?.data) {
+      setMeasurements(prev => [...prev, resPerfil.data]); pushCreateHistory('measurement', resPerfil.data)
+      const resFita = await createMeasurement(plan.id, {
+        page: fita.page, kind: 'fita', label: `${fita.label ?? 'Fita'} (cópia)`,
+        points: newPoints, length_m: fita.length_m, environment_id: fita.environment_id,
+        power_w_per_m: fita.power_w_per_m ?? 0, linked_measurement_id: resPerfil.data.id,
+        packaging: fita.packaging ?? undefined, product_model: fita.product_model ?? undefined,
+        voltage: fita.voltage ?? undefined, color_temp_k: fita.color_temp_k ?? undefined, strand_count: fita.strand_count ?? undefined,
+      })
+      if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
+    }
+    setBusy(false)
+  }
+
+  async function duplicateFita(fita: Measurement) {
+    setBusy(true)
+    const res = await createMeasurement(plan.id, {
+      page: fita.page, kind: 'fita', label: `${fita.label ?? 'Fita'} (cópia)`,
+      points: offsetPoints(fita.points), length_m: fita.length_m, environment_id: fita.environment_id,
+      power_w_per_m: fita.power_w_per_m ?? 0, packaging: fita.packaging ?? undefined,
+      product_model: fita.product_model ?? undefined, voltage: fita.voltage ?? undefined,
+      color_temp_k: fita.color_temp_k ?? undefined, strand_count: fita.strand_count ?? undefined,
+      installation_location: fita.installation_location ?? undefined,
+    })
+    if (res?.data) { setMeasurements(prev => [...prev, res.data]); pushCreateHistory('measurement', res.data) }
+    setBusy(false)
+  }
+
+  async function duplicateLegendItem(item: LegendItem) {
+    const nextCode = String(legendItems.reduce((max, i) => Math.max(max, parseInt(i.code, 10) || 0), 0) + 1).padStart(2, '0')
+    const res = await createLegendItem(plan.id, {
+      code: nextCode, description: item.description ?? undefined, power_w: item.power_w ?? undefined,
+      color_temp_k: item.color_temp_k ?? undefined, mount_type: item.mount_type ?? undefined,
+      has_lamp: item.has_lamp, lamp_name: item.lamp_name ?? undefined,
+      lamp_color_temp_k: item.lamp_color_temp_k ?? undefined, lamp_angle_deg: item.lamp_angle_deg ?? undefined,
+    })
+    if (res?.data) setLegendItems(prev => [...prev, res.data])
   }
   // Enquanto o usuário está posicionando uma fonte (ou qualquer outra
   // ferramenta ativa), cliques em cima de ambiente/símbolo/medição/anotação
@@ -1588,6 +1643,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 pieceBadgeMap={pieceBadgeMap}
                 powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
                 onFocusEnvironment={focusOnEnvironment}
+                onDuplicatePerfilFita={duplicatePerfilFita} onDuplicateFita={duplicateFita}
               />
             )}
             {tab === 'legenda' && (
@@ -1595,6 +1651,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onCreate={row => setLegendItems(prev => [...prev, row])}
                 onUpdate={(id, updates) => { setLegendItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i)); updateLegendItem(plan.id, id, updates as Record<string, unknown>) }}
                 onDelete={async id => { setLegendItems(prev => prev.filter(i => i.id !== id)); await deleteLegendItem(plan.id, id) }}
+                onDuplicate={duplicateLegendItem}
               />
             )}
             {tab === 'medicoes' && (
@@ -1605,6 +1662,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 pieceBadgeMap={pieceBadgeMap}
                 perfilGroups={perfilGroups} fitaGroups={fitaGroups}
                 powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
+                onDuplicatePerfilFita={duplicatePerfilFita} onDuplicateFita={duplicateFita}
               />
             )}
             {tab === 'resultado' && (
@@ -1636,6 +1694,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           onDeleteMeasurement={id => deleteEntity('measurement', id)}
           onStartArrow={id => { setPendingArrowFor(id); setSelection(null) }}
           powerSupplies={powerSupplies} onStartFontePlacement={startFontePlacement} onDeleteFonte={deleteFonte}
+          onDuplicatePerfilFita={duplicatePerfilFita} onDuplicateFita={duplicateFita}
         />
       )}
 
@@ -1687,7 +1746,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 function SelectionPopover({
   selection, anchor, onClose, environments, legendItems, symbols, measurements, annotations, pieceBadgeMap,
   onDeleteSelected, onRenameEnv, onChangeSymbolLegend, onChangeSymbolEnv, onUpdateMeasurement, onMergeMeasurement, onViewContents, onUpdateAnnotation, onDeleteMeasurement, onStartArrow,
-  powerSupplies, onStartFontePlacement, onDeleteFonte,
+  powerSupplies, onStartFontePlacement, onDeleteFonte, onDuplicatePerfilFita, onDuplicateFita,
 }: {
   selection: { kind: EntityKind; id: string }
   anchor: { x: number; y: number }
@@ -1708,6 +1767,8 @@ function SelectionPopover({
   powerSupplies: PowerSupply[]
   onStartFontePlacement: (measurementId: string, watts: number) => void
   onDeleteFonte: (id: string) => void
+  onDuplicatePerfilFita: (perfil: Measurement, fita: Measurement) => void
+  onDuplicateFita: (fita: Measurement) => void
 }) {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
@@ -1801,7 +1862,8 @@ function SelectionPopover({
             fitaModelSuggestions={fitaModelSuggestions}
             onChangeInstallLocation={v => onUpdateMeasurement(comboPerfil.id, { installation_location: v })}
             installLocationSuggestions={installLocationSuggestions}
-            onChangeColorTemp={v => onUpdateMeasurement(comboFita.id, { color_temp_k: v })} />
+            onChangeColorTemp={v => onUpdateMeasurement(comboFita.id, { color_temp_k: v })}
+            onDuplicate={() => onDuplicatePerfilFita(comboPerfil, comboFita)} />
         </div>
       )
     } else {
@@ -1828,7 +1890,8 @@ function SelectionPopover({
                 modelSuggestions={fitaModelSuggestions}
                 onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
                 installLocationSuggestions={installLocationSuggestions}
-                onChangeColorTemp={v => onUpdateMeasurement(m.id, { color_temp_k: v })} />
+                onChangeColorTemp={v => onUpdateMeasurement(m.id, { color_temp_k: v })}
+                onDuplicate={() => onDuplicateFita(m)} />
             : <SimpleMeasurementCard {...shared} />}
         </div>
       )
@@ -1889,7 +1952,7 @@ function SelectionPopover({
 function AmbientesTab({
   environments, symbols, legendItems, measurements, onRename, onDelete, onRelink,
   onDeleteSymbol, onChangeSymbolLegend, onUpdateMeasurement, onDeleteMeasurement, onMergeMeasurement, pieceBadgeMap,
-  powerSupplies, onStartFontePlacement, onDeleteFonte, onFocusEnvironment,
+  powerSupplies, onStartFontePlacement, onDeleteFonte, onFocusEnvironment, onDuplicatePerfilFita, onDuplicateFita,
 }: {
   environments: Environment[]; symbols: SymbolOccurrence[]; legendItems: LegendItem[]; measurements: Measurement[]
   onRename: (id: string, name: string) => void; onDelete: (id: string) => void; onRelink: () => void
@@ -1898,6 +1961,8 @@ function AmbientesTab({
   onMergeMeasurement: (idA: string, idB: string) => void; pieceBadgeMap: Map<string, PieceBadge>
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onFocusEnvironment: (env: Environment) => void
+  onDuplicatePerfilFita: (perfil: Measurement, fita: Measurement) => void
+  onDuplicateFita: (fita: Measurement) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
@@ -2001,7 +2066,8 @@ function AmbientesTab({
                         fitaModelSuggestions={fitaModelSuggestions}
                         onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
                         installLocationSuggestions={installLocationSuggestions}
-                        onChangeColorTemp={v => onUpdateMeasurement(linkedFita.id, { color_temp_k: v })} />
+                        onChangeColorTemp={v => onUpdateMeasurement(linkedFita.id, { color_temp_k: v })}
+                        onDuplicate={() => onDuplicatePerfilFita(m, linkedFita)} />
                     )
                   }
                   return m.kind === 'fita'
@@ -2019,6 +2085,7 @@ function AmbientesTab({
                         onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
                         installLocationSuggestions={installLocationSuggestions}
                         onChangeColorTemp={v => onUpdateMeasurement(m.id, { color_temp_k: v })}
+                        onDuplicate={() => onDuplicateFita(m)}
                         mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
                     : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
                         onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
@@ -2038,9 +2105,10 @@ function AmbientesTab({
 
 // ── Aba: Legenda ─────────────────────────────────────────────────────────────
 
-function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
+function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }: {
   planId: string; items: LegendItem[]
   onCreate: (row: LegendItem) => void; onUpdate: (id: string, updates: Partial<LegendItem>) => void; onDelete: (id: string) => void
+  onDuplicate: (item: LegendItem) => void
 }) {
   const [name, setName] = useState('')
   const [powerW, setPowerW] = useState('')
@@ -2121,6 +2189,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
               <SyncedInput value={item.description ?? ''} onCommit={v => onUpdate(item.id, { description: v || null })}
                 placeholder="Nome do produto"
                 className="flex-1 min-w-0 text-sm text-gray-700 outline-none border-b border-transparent focus:border-brand-300" />
+              <button onClick={() => onDuplicate(item)} title="Duplicar" className="text-gray-300 hover:text-brand-600 shrink-0"><Copy className="w-3.5 h-3.5" /></button>
               <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
             <div className="flex items-center gap-2 flex-wrap pl-8">
@@ -2170,7 +2239,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
 
 function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, pieceBadgeMap,
   perfilGroups, fitaGroups,
-  powerSupplies, onStartFontePlacement, onDeleteFonte,
+  powerSupplies, onStartFontePlacement, onDeleteFonte, onDuplicatePerfilFita, onDuplicateFita,
 }: {
   measurements: Measurement[]; environments: Environment[]
   onUpdate: (id: string, updates: Partial<Measurement>) => void; onDelete: (id: string) => void
@@ -2178,6 +2247,8 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   pieceBadgeMap: Map<string, PieceBadge>
   perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
+  onDuplicatePerfilFita: (perfil: Measurement, fita: Measurement) => void
+  onDuplicateFita: (fita: Measurement) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
@@ -2260,7 +2331,8 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               fitaModelSuggestions={fitaModelSuggestions}
               onChangeInstallLocation={v => onUpdate(perfil.id, { installation_location: v })}
               installLocationSuggestions={installLocationSuggestions}
-              onChangeColorTemp={v => onUpdate(fita.id, { color_temp_k: v })} />
+              onChangeColorTemp={v => onUpdate(fita.id, { color_temp_k: v })}
+              onDuplicate={() => onDuplicatePerfilFita(perfil, fita)} />
           ))}
           {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
@@ -2312,6 +2384,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
                 onChangeInstallLocation={v => onUpdate(m.id, { installation_location: v })}
                 installLocationSuggestions={installLocationSuggestions}
                 onChangeColorTemp={v => onUpdate(m.id, { color_temp_k: v })}
+                onDuplicate={() => onDuplicateFita(m)}
                 mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
           </div>
@@ -2340,11 +2413,11 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
 // Cabeçalho comum: label + ambiente (secundário) + ações (mesclar / excluir).
 // Usado tanto pelas medidas soltas quanto pelos perfis (não têm nenhum dado
 // extra pra preencher, então o card inteiro é "baixa hierarquia").
-function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote }: {
+function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDelete, mergeCandidates, onMerge, pieceBadge, linkNote, onDuplicate }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void
   onChangeLabel: (v: string) => void
   onDelete: () => void; mergeCandidates: Measurement[]; onMerge: (otherId: string) => void
-  pieceBadge?: PieceBadge; linkNote?: string
+  pieceBadge?: PieceBadge; linkNote?: string; onDuplicate?: () => void
 }) {
   const [merging, setMerging] = useState(false)
   return (
@@ -2373,6 +2446,9 @@ function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDele
             className="text-[10px] font-semibold text-gray-400 hover:text-brand-600 border border-gray-200 hover:border-brand-300 rounded px-1.5 py-0.5">
             Mesclar
           </button>
+        )}
+        {onDuplicate && (
+          <button onClick={onDuplicate} title="Duplicar" className="text-gray-300 hover:text-brand-600"><Copy className="w-3.5 h-3.5" /></button>
         )}
         <button onClick={onDelete} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
         {merging && (
@@ -2464,14 +2540,14 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, on
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions, onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp }: {
+function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions, onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp, onDuplicate }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void
   onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void; onChangeStrandCount: (v: number) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onChangeModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void; onChangePackaging: (v: 'rolo_5m' | 'metro') => void
   modelSuggestions: string[]; onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
-  onChangeColorTemp: (v: number) => void
+  onChangeColorTemp: (v: number) => void; onDuplicate?: () => void
 }) {
   const preenchido = !!m.power_w_per_m
   const strands = m.strand_count ?? 1
@@ -2479,7 +2555,7 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
   return (
     <div className="border border-gray-200 rounded-lg p-2 space-y-1.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
-        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
+        mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} onDuplicate={onDuplicate} />
       <div className="flex items-baseline gap-1">
         <SyncedInput value={m.length_m.toFixed(2)} onCommit={onChangeLength}
           title="Medida errada? Corrija aqui direto."
@@ -2581,7 +2657,7 @@ function PerfilFitaCard({
   powerSupplies, onStartFontePlacement, onDeleteFonte,
   onChangeProfileModel, onChangeMountType, onChangeBarSize, profileModelSuggestions,
   onChangeFitaModel, onChangeVoltage, onChangePackaging, fitaModelSuggestions,
-  onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp,
+  onChangeInstallLocation, installLocationSuggestions, onChangeColorTemp, onDuplicate,
 }: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
   onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onChangeLength: (v: string) => void
@@ -2593,7 +2669,7 @@ function PerfilFitaCard({
   onChangeFitaModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void
   onChangePackaging: (v: 'rolo_5m' | 'metro') => void; fitaModelSuggestions: string[]
   onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
-  onChangeColorTemp: (v: number) => void
+  onChangeColorTemp: (v: number) => void; onDuplicate?: () => void
 }) {
   const preenchido = !!fita.power_w_per_m
   const strands = fita.strand_count ?? 1
@@ -2619,7 +2695,10 @@ function PerfilFitaCard({
             <span className="text-[11px] text-gray-400">m</span>
           </div>
         </div>
-        <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+        <div className="flex items-center gap-1 shrink-0">
+          {onDuplicate && <button onClick={onDuplicate} title="Duplicar perfil + fita" className="text-gray-300 hover:text-brand-600"><Copy className="w-3.5 h-3.5" /></button>}
+          <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+        </div>
       </div>
 
       <ModelInput value={perfil.installation_location ?? ''} suggestions={installLocationSuggestions} onCommit={onChangeInstallLocation}
