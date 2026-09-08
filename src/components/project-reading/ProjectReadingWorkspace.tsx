@@ -1068,11 +1068,17 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         right.push([bx - nx, by - ny])
       }
     }
-    const outline = [...left, ...right.reverse()].map(p => p.join(',')).join(' ')
+    // Duas polilinhas abertas (uma de cada lado) em vez de um polígono
+    // fechado — um trecho em L ou que "volta" sobre si mesmo fazia o
+    // polígono se auto-cruzar, desenhando um X feio na virada.
+    const leftPts = left.map(p => p.join(',')).join(' ')
+    const rightPts = right.map(p => p.join(',')).join(' ')
     return (
       <g key={key}>
-        <polygon points={outline} fill="white" fillOpacity={0.5} stroke="white" strokeWidth={5} strokeLinejoin="round" />
-        <polygon points={outline} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+        <polyline points={leftPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={rightPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={leftPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={rightPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       </g>
     )
   }
@@ -2282,12 +2288,11 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
           <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
           <ChoiceChips options={[1, 2, 3].map(n => ({ value: n, label: String(n) }))} value={strands} onChange={onChangeStrandCount} />
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-gray-600 shrink-0">W/m</label>
-        <SyncedInput value={String(m.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
-          className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 focus:border-brand-400 outline-none" />
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] text-gray-500 shrink-0">Consumo (W/m):</label>
+          <SyncedInput value={String(m.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
+            className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 bg-white focus:border-brand-400 outline-none" />
+        </div>
       </div>
 
       {preenchido ? (
@@ -2424,12 +2429,11 @@ function PerfilFitaCard({
           <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
           <ChoiceChips options={[1, 2, 3].map(n => ({ value: n, label: String(n) }))} value={strands} onChange={onChangeStrandCount} />
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-gray-600 shrink-0">W/m</label>
-        <SyncedInput value={String(fita.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
-          className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 focus:border-brand-400 outline-none" />
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] text-gray-500 shrink-0">Consumo (W/m):</label>
+          <SyncedInput value={String(fita.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
+            className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 bg-white focus:border-brand-400 outline-none" />
+        </div>
       </div>
 
       {preenchido ? (
