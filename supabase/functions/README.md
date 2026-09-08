@@ -23,7 +23,13 @@ orçamento passa **exclusivamente** por `POST /api/external/quotes` do Next.js
 
 > **Status atual (Fase 2 em andamento):**
 > - `whatsapp-webhook` — ✅ implementada
-> - demais funções — scaffold (`501 not_implemented`), entram nas Fases 2 e 3.
+> - `bot-conversation-engine` — ✅ implementada (máquina de estados do cadastro guiado)
+> - `send-whatsapp-message` — ✅ implementada
+> - `resolve-contact` — ✅ implementada (chama `GET /api/external/contacts` do Luknos)
+> - `submit-quote`, `notification-worker` — scaffold (`501`), próximas
+> - `retry-failed-submissions`, `generate-attachment-signed-url` — scaffold, Fase 3
+>
+> Endpoint no Next.js: `src/app/api/external/contacts/route.ts` (auth por `EXTERNAL_API_KEY`).
 
 ## Variáveis de ambiente
 

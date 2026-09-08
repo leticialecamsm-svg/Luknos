@@ -33,7 +33,11 @@ type MeasureKind = 'perfil' | 'fita' | 'medida'
 type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation' | 'powerSupply'
 
 interface Environment { id: string; page: number; name: string; polygon: Point[]; origin: string; status: string }
-interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null; mount_type?: 'embutir' | 'sobrepor' | null }
+interface LegendItem {
+  id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null
+  lumen_flux?: number | null; finish?: string | null; notes?: string | null; mount_type?: 'embutir' | 'sobrepor' | null
+  has_lamp?: boolean; lamp_name?: string | null; lamp_color_temp_k?: number | null; lamp_angle_deg?: number | null
+}
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
 interface Measurement {
   id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
@@ -176,6 +180,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [draggingCotaOffset, setDraggingCotaOffset] = useState<{ measurementId: string } | null>(null)
   const [draggingFonte, setDraggingFonte] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   const [draggingSymbol, setDraggingSymbol] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  // Empilha badges (Peça/Rolo) que caem perto do mesmo pontinho na planta —
+  // sem isso, duas medições que terminam próximas uma da outra (comum em
+  // ambientes pequenos) desenhavam os badges um em cima do outro.
+  const badgeStackByPoint = useRef(new Map<string, number>()).current
   // Depois de confirmar a potência, aguarda o próximo clique na planta pra
   // saber onde a fonte fica fisicamente (o buraco do forro mais próximo).
   const [pendingFontePlacement, setPendingFontePlacement] = useState<{ measurementId: string; watts: number } | null>(null)
@@ -839,13 +847,22 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const lengthM = round2(polylineLength(draftPoints) * scale)
       const envMatch = environments.find(env => env.page === pageNum && pointsMatchEnv(draftPoints, env.polygon))
       const countSameKind = measurements.filter(m => m.kind === kind).length
+      // Puxa modelo/config do último perfil (ou fita) medido — um ambiente
+      // inteiro costuma usar o mesmo produto, então repetir isso a cada
+      // medição era o maior peso de preenchimento manual.
+      const lastSameKind = [...measurements].reverse().find(m => m.kind === kind)
       setBusy(true)
       const res = await createMeasurement(plan.id, {
         page: pageNum, kind, label: `${MEASURE_LABEL[kind]} ${countSameKind + 1}`,
         points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
-        power_w_per_m: kind === 'fita' ? 0 : undefined,
-        bar_size: kind === 'perfil' ? 3 : undefined,
-        packaging: kind === 'fita' ? 'rolo_5m' : undefined,
+        power_w_per_m: kind === 'fita' ? (lastSameKind?.power_w_per_m ?? 0) : undefined,
+        bar_size: kind === 'perfil' ? (lastSameKind?.bar_size ?? 3) : undefined,
+        packaging: kind === 'fita' ? (lastSameKind?.packaging ?? 'rolo_5m') : undefined,
+        product_model: lastSameKind?.product_model ?? undefined,
+        mount_type: kind === 'perfil' ? (lastSameKind?.mount_type ?? undefined) : undefined,
+        voltage: kind === 'fita' ? (lastSameKind?.voltage ?? undefined) : undefined,
+        color_temp_k: kind === 'fita' ? (lastSameKind?.color_temp_k ?? undefined) : undefined,
+        strand_count: kind === 'fita' ? (lastSameKind?.strand_count ?? undefined) : undefined,
       })
       if (res?.data) {
         setMeasurements(prev => [...prev, res.data])
@@ -856,10 +873,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         // vinculada — o consultor só precisa preencher o W/m dela.
         if (kind === 'perfil') {
           const countFitas = measurements.filter(m => m.kind === 'fita').length
+          const lastFita = [...measurements].reverse().find(m => m.kind === 'fita')
           const resFita = await createMeasurement(plan.id, {
             page: pageNum, kind: 'fita', label: `Fita ${countFitas + 1} (do ${res.data.label})`,
             points: draftPoints, length_m: lengthM, environment_id: envMatch?.id ?? null,
-            power_w_per_m: 0, linked_measurement_id: res.data.id, packaging: 'rolo_5m',
+            power_w_per_m: lastFita?.power_w_per_m ?? 0, linked_measurement_id: res.data.id,
+            packaging: lastFita?.packaging ?? 'rolo_5m',
+            product_model: lastFita?.product_model ?? undefined, voltage: lastFita?.voltage ?? undefined,
+            color_temp_k: lastFita?.color_temp_k ?? undefined, strand_count: lastFita?.strand_count ?? undefined,
           })
           if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
         }
@@ -1027,7 +1048,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
     selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badges?: PieceBadge[]
-    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number
+    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number; badgeYOffset?: number
   }) {
     const offsetPx = opts?.cotaOffset ?? 16
     // Quando a medição já foi salva, o número mostrado na cota vem do
@@ -1083,7 +1104,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       )
     }
     if (opts?.badges && opts.badges.length > 0 && points.length > 0) {
-      const [lx, ly] = toScreen(points[points.length - 1])
+      const [lx, lyBase] = toScreen(points[points.length - 1])
+      const ly = lyBase - (opts.badgeYOffset ?? 0)
       let cursorX = lx + 8
       opts.badges.forEach((badge, bi) => {
         const w = badge.label.length * 5.5 + 14
@@ -1307,6 +1329,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {/* Medições — sempre como cota (linha de extensão + medida em metros).
                   Na visão limpa (reaproveitamento), só perfil/fita aparecem.
                   Na visão de fontes, só fita (é o que a fonte alimenta). */}
+              {(() => { badgeStackByPoint.clear(); return null })()}
               {pagePoints.measurements
                 .filter(m => !reaproveitamentoView || m.kind !== 'medida')
                 .filter(m => !fontesView || m.kind === 'fita')
@@ -1328,6 +1351,17 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   // mesma coisa que "Peça 1" de outro.
                   const badges = !reaproveitamentoView ? undefined : [pieceBadgeMap.get(m.id), linkedFita ? pieceBadgeMap.get(linkedFita.id) : undefined]
                     .filter((b): b is PieceBadge => !!b)
+                  // Chave por posição arredondada (não pelo id) — assim
+                  // medições diferentes que terminam perto uma da outra
+                  // também entram na mesma pilha, e cada uma empilha mais
+                  // pra baixo em vez de desenhar em cima da anterior.
+                  let badgeStackIndex = 0
+                  if (badges && badges.length > 0 && m.points.length > 0) {
+                    const [lx, ly] = toScreen(m.points[m.points.length - 1])
+                    const key = `${Math.round(lx / 24)}_${Math.round(ly / 24)}`
+                    badgeStackIndex = badgeStackByPoint.get(key) ?? 0
+                    badgeStackByPoint.set(key, badgeStackIndex + 1)
+                  }
                   return (
                     <g key={m.id}>
                       {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`)}
@@ -1335,6 +1369,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         selected,
                         onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
                         badges,
+                        badgeYOffset: badgeStackIndex * 20,
                         cotaOffset: m.cota_offset ?? 16,
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
@@ -2011,6 +2046,10 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
   const [powerW, setPowerW] = useState('')
   const [colorTemp, setColorTemp] = useState<number | null>(null)
   const [mountType, setMountType] = useState<'embutir' | 'sobrepor' | null>(null)
+  const [hasLamp, setHasLamp] = useState(false)
+  const [lampName, setLampName] = useState('')
+  const [lampColorTemp, setLampColorTemp] = useState<number | null>(null)
+  const [lampAngle, setLampAngle] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Código sequencial automático dentro do projeto — nunca precisa digitar,
@@ -2023,10 +2062,17 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
     const res = await createLegendItem(planId, {
       code: nextCode, description: name.trim(),
       power_w: powerW ? Number(powerW.replace(',', '.')) : undefined,
-      color_temp_k: colorTemp ?? undefined, mount_type: mountType ?? undefined,
+      // Com lâmpada, a temperatura de cor é da lâmpada, não do corpo — pra
+      // não duplicar/confundir a informação.
+      color_temp_k: hasLamp ? undefined : colorTemp ?? undefined, mount_type: mountType ?? undefined,
+      has_lamp: hasLamp,
+      lamp_name: hasLamp ? lampName.trim() || undefined : undefined,
+      lamp_color_temp_k: hasLamp ? lampColorTemp ?? undefined : undefined,
+      lamp_angle_deg: hasLamp && lampAngle ? Number(lampAngle.replace(',', '.')) : undefined,
     })
     if (res?.data) onCreate(res.data)
     setName(''); setPowerW(''); setColorTemp(null); setMountType(null)
+    setHasLamp(false); setLampName(''); setLampColorTemp(null); setLampAngle('')
     setSaving(false)
   }
 
@@ -2035,15 +2081,34 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
       <div className="border border-dashed border-gray-300 rounded-xl p-3 space-y-2">
         <p className="text-xs font-semibold text-gray-500 uppercase">Novo item · código {nextCode}</p>
         <input placeholder="Nome do produto (spot embutido, fita COB...)" value={name} onChange={e => setName(e.target.value)} className="input text-xs !py-1.5 w-full" />
-        <div>
-          <p className="text-[10px] text-gray-500 mb-1">Temperatura de cor</p>
-          <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={colorTemp} onChange={setColorTemp} />
-        </div>
+        {!hasLamp && (
+          <div>
+            <p className="text-[10px] text-gray-500 mb-1">Temperatura de cor</p>
+            <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={colorTemp} onChange={setColorTemp} />
+          </div>
+        )}
         <div>
           <p className="text-[10px] text-gray-500 mb-1">Instalação</p>
           <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]} value={mountType} onChange={setMountType} />
         </div>
         <input placeholder="Potência (W)" value={powerW} onChange={e => setPowerW(e.target.value)} className="input text-xs !py-1.5 w-full" />
+        <button type="button" onClick={() => setHasLamp(v => !v)}
+          className={cn('text-xs font-medium rounded-lg px-2.5 py-1.5 w-full text-left transition-colors',
+            hasLamp ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+          💡 {hasLamp ? '✓ Inclui lâmpada' : '+ Incluir lâmpada (spot que já vem com a lâmpada especificada)'}
+        </button>
+        {hasLamp && (
+          <div className="bg-amber-50 rounded-lg p-2 space-y-1.5">
+            <input placeholder="Nome da lâmpada (ex: Dicroica GU10)" value={lampName} onChange={e => setLampName(e.target.value)}
+              className="input text-xs !py-1.5 w-full" />
+            <div>
+              <p className="text-[10px] text-gray-500 mb-1">Temperatura da lâmpada</p>
+              <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={lampColorTemp} onChange={setLampColorTemp} />
+            </div>
+            <input placeholder="Ângulo de abertura (graus)" value={lampAngle} onChange={e => setLampAngle(e.target.value)}
+              className="input text-xs !py-1.5 w-full" />
+          </div>
+        )}
         <button onClick={add} disabled={saving || !name.trim()} className="btn-primary text-xs w-full justify-center !py-1.5">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Adicionar à legenda'}
         </button>
@@ -2059,8 +2124,10 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
               <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
             <div className="flex items-center gap-2 flex-wrap pl-8">
-              <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))}
-                value={item.color_temp_k ?? null} onChange={v => onUpdate(item.id, { color_temp_k: v })} />
+              {!item.has_lamp && (
+                <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))}
+                  value={item.color_temp_k ?? null} onChange={v => onUpdate(item.id, { color_temp_k: v })} />
+              )}
               <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]}
                 value={item.mount_type ?? null} onChange={v => onUpdate(item.id, { mount_type: v })} />
               <div className="flex items-center gap-1">
@@ -2068,6 +2135,28 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
                   placeholder="—" className="w-10 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
                 <span className="text-[11px] text-gray-400">W</span>
               </div>
+            </div>
+            <div className="pl-8">
+              <button onClick={() => onUpdate(item.id, { has_lamp: !item.has_lamp, ...(!item.has_lamp ? { color_temp_k: null } : {}) })}
+                className={cn('text-[11px] font-medium rounded px-2 py-1', item.has_lamp ? 'bg-amber-100 text-amber-700' : 'text-gray-400 hover:bg-gray-100')}>
+                💡 {item.has_lamp ? '✓ Inclui lâmpada' : '+ Incluir lâmpada'}
+              </button>
+              {item.has_lamp && (
+                <div className="bg-amber-50 rounded-lg p-2 mt-1 space-y-1.5">
+                  <SyncedInput value={item.lamp_name ?? ''} onCommit={v => onUpdate(item.id, { lamp_name: v || null })}
+                    placeholder="Nome da lâmpada (ex: Dicroica GU10)"
+                    className="w-full text-xs text-gray-700 outline-none border-b border-transparent focus:border-brand-300 bg-white rounded px-2 py-1" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))}
+                      value={item.lamp_color_temp_k ?? null} onChange={v => onUpdate(item.id, { lamp_color_temp_k: v })} />
+                    <div className="flex items-center gap-1">
+                      <SyncedInput value={item.lamp_angle_deg != null ? String(item.lamp_angle_deg) : ''} onCommit={v => onUpdate(item.id, { lamp_angle_deg: v ? Number(v.replace(',', '.')) : null })}
+                        placeholder="—" className="w-10 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
+                      <span className="text-[11px] text-gray-400">° abertura</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -2751,7 +2840,11 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
           const byName = new Map<string, number>()
           for (const s of envSymbols) {
             const li = legendItems.find(x => x.id === s.legend_item_id)
-            const name = li?.description || li?.code || 'Item sem legenda'
+            const base = li?.description || li?.code || 'Item sem legenda'
+            const lampInfo = li?.has_lamp
+              ? ` (${[li.lamp_name, li.lamp_color_temp_k ? `${li.lamp_color_temp_k}K` : null, li.lamp_angle_deg ? `${li.lamp_angle_deg}°` : null].filter(Boolean).join(' · ')})`
+              : ''
+            const name = base + lampInfo
             byName.set(name, (byName.get(name) ?? 0) + 1)
           }
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
