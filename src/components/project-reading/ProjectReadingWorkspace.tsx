@@ -1574,9 +1574,15 @@ function SelectionPopover({
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
   const popoverWidth = 340
+  const margin = 16
+  // O popover precisa caber inteiro na tela mesmo quando abre perto da borda
+  // — top é limitado pra sempre sobrar espaço suficiente embaixo pro
+  // maxHeight (senão o conteúdo vaza pra fora da viewport sem como rolar
+  // até o fim, que era o bug relatado).
+  const top = Math.min(anchor.y + 12, winH - margin - 200)
   const style: React.CSSProperties = {
-    position: 'fixed', left: Math.min(anchor.x + 12, winW - popoverWidth - 20), top: Math.min(anchor.y + 12, winH - 60),
-    zIndex: 50, width: popoverWidth, maxHeight: winH - 40, display: 'flex', flexDirection: 'column',
+    position: 'fixed', left: Math.min(anchor.x + 12, winW - popoverWidth - margin), top: Math.max(margin, top),
+    zIndex: 50, width: popoverWidth, maxHeight: winH - Math.max(margin, top) - margin, display: 'flex', flexDirection: 'column',
   }
 
   let content: React.ReactNode = null
