@@ -176,12 +176,15 @@ export async function POST() {
       .eq('id', 'default')
       .single()
 
-    if (syncState?.last_cstat === '137' && syncState.last_query_at) {
+    if ((syncState?.last_cstat === '137' || syncState?.last_cstat === '656') && syncState.last_query_at) {
       const elapsed = Date.now() - new Date(syncState.last_query_at).getTime()
       if (elapsed < COOLDOWN_MS) {
         const minutesLeft = Math.ceil((COOLDOWN_MS - elapsed) / 60000)
+        const motivo = syncState.last_cstat === '656'
+          ? 'a última consulta foi rejeitada pela SEFAZ (Consumo Indevido)'
+          : 'a última consulta não trouxe notas novas'
         return NextResponse.json({
-          error: `A última consulta não trouxe notas novas — a SEFAZ exige esperar 1h entre consultas nessa situação, senão bloqueia o CNPJ. Faltam ${minutesLeft} min.`,
+          error: `${motivo} — a SEFAZ exige esperar 1h entre consultas nessa situação, senão bloqueia o CNPJ. Faltam ${minutesLeft} min.`,
         }, { status: 429 })
       }
     }
@@ -328,7 +331,7 @@ export async function GET() {
       .eq('id', 'default')
       .single()
     let cooldownMinutesLeft = 0
-    if (syncState?.last_cstat === '137' && syncState.last_query_at) {
+    if ((syncState?.last_cstat === '137' || syncState?.last_cstat === '656') && syncState.last_query_at) {
       const elapsed = Date.now() - new Date(syncState.last_query_at).getTime()
       if (elapsed < COOLDOWN_MS) cooldownMinutesLeft = Math.ceil((COOLDOWN_MS - elapsed) / 60000)
     }

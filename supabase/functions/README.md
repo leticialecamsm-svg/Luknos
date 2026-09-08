@@ -25,11 +25,24 @@ orçamento passa **exclusivamente** por `POST /api/external/quotes` do Next.js
 > - `whatsapp-webhook` — ✅ implementada
 > - `bot-conversation-engine` — ✅ implementada (máquina de estados do cadastro guiado)
 > - `send-whatsapp-message` — ✅ implementada
-> - `resolve-contact` — ✅ implementada (chama `GET /api/external/contacts` do Luknos)
-> - `submit-quote`, `notification-worker` — scaffold (`501`), próximas
-> - `retry-failed-submissions`, `generate-attachment-signed-url` — scaffold, Fase 3
+> - `resolve-contact` — ✅ implementada (chama `GET /api/external/contacts`)
+> - `submit-quote` — ✅ implementada (POST `/api/external/quotes`, log, notificação)
+> - `notification-worker` — ✅ implementada (fila wa_notifications; cron 1 min + pós-submit)
+> - `retry-failed-submissions` — ✅ implementada (cron 15 min; teto 5 tentativas)
+> - `generate-attachment-signed-url` — ✅ implementada (verify_jwt=true; signed URL 5 min)
 >
-> Endpoint no Next.js: `src/app/api/external/contacts/route.ts` (auth por `EXTERNAL_API_KEY`).
+> RPCs (migração `20260908_wa_robot_crons.sql`, aplicada): `fn_expire_stale_conversations()`,
+> `fn_get_bot_stats(range)`, `wa_invoke_edge()`. Crons pg_cron: `wa-notification-worker` (1min),
+> `wa-retry-failed-submissions` (15min), `wa-expire-stale-conversations` (30min).
+> Os 2 crons de Edge Function ficam **inertes** até existir o Vault secret `service_role_key`.
+>
+> Endpoints no Next.js (auth por `EXTERNAL_API_KEY`):
+> - `src/app/api/external/contacts/route.ts` — busca de contatos
+> - `src/app/api/external/quotes/route.ts` — gravação de orçamento (mapeia labels
+>   PT -> enums, cria contato se preciso, Proposta 1, atividade, status 'queue')
+>
+> Painel (`src/app/(bot)/`, guard `requireBotAccess`): `/bot-config`, `/bot-collaborators`,
+> `/bot-conversations`, `/bot-conversations/[id]`, `/bot-dashboard`, `/bot-notifications`.
 
 ## Variáveis de ambiente
 

@@ -200,6 +200,24 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                           )}>
                           Colaboradores
                         </Link>
+                        <Link href="/bot-conversations"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/bot-conversations') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Conversas
+                        </Link>
+                        <Link href="/bot-dashboard"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/bot-dashboard') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Painel
+                        </Link>
+                        <Link href="/bot-notifications"
+                          className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-white/10',
+                            pathname.startsWith('/bot-notifications') ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'
+                          )}>
+                          Notificações
+                        </Link>
                       </>
                     )}
                     {isFinance && !collapsed && financeOpen && (

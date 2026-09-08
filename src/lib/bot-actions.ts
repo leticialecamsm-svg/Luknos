@@ -26,7 +26,146 @@ async function ensureBotAdmin() {
   return { userId: user.id }
 }
 
+// Leitura do monitor: qualquer usuário interno ativo (equipe) — igual ao RLS
+// wa_is_staff(). Ações de escrita continuam em ensureBotAdmin().
+async function ensureBotStaff() {
+  const supabase = createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' as const }
+  const { data: profile } = await supabase
+    .from('users')
+    .select('role, active')
+    .eq('id', user.id)
+    .single()
+  if (!profile || profile.active === false) return { error: 'Sem permissão' as const }
+  return { userId: user.id, isAdmin: profile.role === 'admin' }
+}
+
 const E164 = /^\+[1-9]\d{6,14}$/
+
+// ─── monitor de conversas ────────────────────────────────────────────────
+
+export async function getBotConversations(status?: string) {
+  const auth = await ensureBotStaff()
+  if ('error' in auth) return { rows: [], counts: {} as Record<string, number> }
+  const db = createAdminClient()
+
+  let q = db
+    .from('wa_conversations')
+    .select('id, status, current_field, system_quote_id, last_message_at, created_at, collaborator_id')
+    .order('last_message_at', { ascending: false })
+    .limit(200)
+  if (status && status !== 'all') q = q.eq('status', status)
+
+  const [{ data: rows }, { data: collabs }, { data: allForCounts }] = await Promise.all([
+    q,
+    db.from('wa_collaborators').select('id, display_name, phone_e164'),
+    db.from('wa_conversations').select('status'),
+  ])
+
+  const nameById = new Map((collabs ?? []).map((c) => [c.id, c]))
+  const counts: Record<string, number> = {}
+  for (const r of allForCounts ?? []) counts[r.status] = (counts[r.status] ?? 0) + 1
+
+  return {
+    rows: (rows ?? []).map((r) => ({
+      ...r,
+      collaborator: nameById.get(r.collaborator_id) ?? null,
+    })),
+    counts,
+  }
+}
+
+export async function getBotConversationDetail(id: string) {
+  const auth = await ensureBotStaff()
+  if ('error' in auth) return null
+  const db = createAdminClient()
+
+  const { data: conversation } = await db
+    .from('wa_conversations')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (!conversation) return null
+
+  const [{ data: messages }, { data: attachments }, { data: collaborator }, { data: submissionLog }] =
+    await Promise.all([
+      db
+        .from('wa_messages')
+        .select('id, direction, message_type, body, created_at, provider_message_id')
+        .eq('conversation_id', id)
+        .order('created_at', { ascending: true }),
+      db
+        .from('wa_attachments')
+        .select('id, file_name, mime_type, detected_kind, size_bytes, system_quote_id, created_at')
+        .eq('conversation_id', id)
+        .order('created_at', { ascending: true }),
+      db.from('wa_collaborators').select('*').eq('id', conversation.collaborator_id).maybeSingle(),
+      auth.isAdmin
+        ? db
+            .from('wa_submission_log')
+            .select('id, response_status, success, error_message, attempt_number, created_at')
+            .eq('conversation_id', id)
+            .order('attempt_number', { ascending: true })
+        : Promise.resolve({ data: [] }),
+    ])
+
+  return {
+    conversation,
+    messages: messages ?? [],
+    attachments: attachments ?? [],
+    collaborator: collaborator ?? null,
+    submissionLog: submissionLog ?? [],
+    isAdmin: auth.isAdmin,
+  }
+}
+
+export async function retryBotSubmission(conversationId: string) {
+  const auth = await ensureBotAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceKey) return { error: 'Supabase não configurado' }
+
+  try {
+    const res = await fetch(`${url}/functions/v1/retry-failed-submissions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceKey}`,
+        'x-internal-call': '1',
+      },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok) return { error: `Falha ao reprocessar (${res.status})` }
+    revalidatePath(`/bot-conversations/${conversationId}`)
+    revalidatePath('/bot-conversations')
+    return { ok: true, ...(body ?? {}) }
+  } catch (e) {
+    return { error: String((e as Error)?.message ?? e) }
+  }
+}
+
+export async function getBotAttachmentSignedUrl(attachmentId: string) {
+  const auth = await ensureBotStaff()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const { data: att } = await db
+    .from('wa_attachments')
+    .select('storage_path, file_name')
+    .eq('id', attachmentId)
+    .maybeSingle()
+  if (!att) return { error: 'Anexo não encontrado' }
+  const { data, error } = await db.storage
+    .from('wa-attachments')
+    .createSignedUrl(att.storage_path, 300, { download: att.file_name })
+  if (error || !data?.signedUrl) return { error: 'Não foi possível gerar o link' }
+  return { url: data.signedUrl, file_name: att.file_name }
+}
 
 // ─── wa_bot_config ────────────────────────────────────────────────────────
 
@@ -204,6 +343,73 @@ export async function deleteBotCollaborator(id: string) {
     return { error: error.message }
   }
   revalidatePath('/bot-collaborators')
+  return { ok: true }
+}
+
+// ─── dashboard ───────────────────────────────────────────────────────────
+
+export async function getBotStats(range: string) {
+  const auth = await ensureBotStaff()
+  if ('error' in auth) return null
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('fn_get_bot_stats', { p_range: range })
+  if (error || !data) return null
+  return { ...(data as Record<string, unknown>), isAdmin: auth.isAdmin }
+}
+
+// ─── notificações ────────────────────────────────────────────────────────
+
+export async function getBotNotifications(status?: string) {
+  const auth = await ensureBotStaff()
+  if ('error' in auth) return { rows: [], counts: {} as Record<string, number>, isAdmin: false }
+  const db = createAdminClient()
+
+  let q = db
+    .from('wa_notifications')
+    .select('id, conversation_id, target_phone_e164, system_quote_id, channel, status, sent_at, created_at')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (status && status !== 'all') q = q.eq('status', status)
+
+  const [{ data: rows }, { data: all }] = await Promise.all([
+    q,
+    db.from('wa_notifications').select('status'),
+  ])
+  const counts: Record<string, number> = {}
+  for (const r of all ?? []) counts[r.status] = (counts[r.status] ?? 0) + 1
+
+  return { rows: rows ?? [], counts, isAdmin: auth.isAdmin }
+}
+
+export async function resendBotNotification(id: string) {
+  const auth = await ensureBotAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+
+  const { error: upErr } = await db
+    .from('wa_notifications')
+    .update({ status: 'pending', sent_at: null })
+    .eq('id', id)
+  if (upErr) return { error: upErr.message }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (url && key) {
+    try {
+      await fetch(`${url}/functions/v1/notification-worker`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+          'x-internal-call': '1',
+        },
+        body: JSON.stringify({ notification_id: id }),
+      })
+    } catch {
+      // o cron de 1 min pega na próxima passada
+    }
+  }
+  revalidatePath('/bot-notifications')
   return { ok: true }
 }
 

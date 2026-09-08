@@ -100,7 +100,7 @@ export function BotCollaboratorsPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Colaboradores do Robô</h1>
           <p className="text-gray-500 mt-1">
@@ -114,19 +114,19 @@ export function BotCollaboratorsPage({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative">
+        <div className="relative flex-1 min-w-[180px] sm:flex-none">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="input pl-9 w-64"
+            className="input pl-9 w-full sm:w-64"
             placeholder="Buscar por nome ou telefone"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="input w-40"
+          className="input w-36"
         >
           <option value="all">Todos</option>
           <option value="active">Ativos</option>
@@ -135,8 +135,8 @@ export function BotCollaboratorsPage({
         <span className="text-sm text-gray-400">{activeCount} ativo(s)</span>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full">
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[620px]">
           <thead>
             <tr className="border-b border-surface-border bg-surface text-left">
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Nome</th>

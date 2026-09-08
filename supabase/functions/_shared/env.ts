@@ -25,7 +25,8 @@ export const env = {
     return optionalEnv('SUPABASE_ANON_KEY')
   },
 
-  // Evolution API
+  // Evolution API — opcionais no getter para degradar limpo (401/no_instance)
+  // enquanto os secrets não estão setados, em vez de estourar 500.
   get evolutionUrl() {
     return requireEnv('EVOLUTION_API_URL')
   },
@@ -33,7 +34,7 @@ export const env = {
     return requireEnv('EVOLUTION_API_KEY')
   },
   get evolutionWebhookSecret() {
-    return requireEnv('EVOLUTION_WEBHOOK_SECRET')
+    return optionalEnv('EVOLUTION_WEBHOOK_SECRET')
   },
 
   // Sistema Luknos (Next.js) — POST /api/external/quotes

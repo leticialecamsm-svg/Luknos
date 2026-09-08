@@ -4,7 +4,7 @@
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-evolution-webhook-secret',
+    'authorization, x-client-info, apikey, content-type, x-evolution-webhook-secret, x-internal-call',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
