@@ -189,7 +189,7 @@ export async function deleteEnvironment(planId: string, id: string) {
 
 export async function createLegendItem(planId: string, data: {
   code: string; description?: string; power_w?: number; color_temp_k?: number
-  lumen_flux?: number; finish?: string; notes?: string
+  lumen_flux?: number; finish?: string; notes?: string; mount_type?: string
 }) {
   const admin = createAdminClient()
   const { data: row, error } = await admin.from('plan_legend_items').insert({ plan_id: planId, ...data }).select().single()
@@ -253,7 +253,7 @@ export async function deleteSymbolOccurrence(planId: string, id: string) {
 export async function createMeasurement(planId: string, data: {
   page: number; kind: 'perfil' | 'fita' | 'medida'; label?: string; points: [number, number][]
   length_m: number; environment_id?: string | null; power_w_per_m?: number; linked_measurement_id?: string | null
-  bar_size?: number; packaging?: string; strand_count?: number
+  bar_size?: number; packaging?: string; strand_count?: number; installation_location?: string
 }) {
   const userId = await requireUserId()
   if (!userId) return { error: 'Não autenticado' }
@@ -270,7 +270,7 @@ export async function updateMeasurement(planId: string, id: string, updates: Par
   label: string; power_w_per_m: number; environment_id: string | null; notes: string
   points: [number, number][]; length_m: number; cota_offset: number
   product_model: string | null; mount_type: string | null; bar_size: number | null
-  voltage: string | null; packaging: string | null; strand_count: number
+  voltage: string | null; packaging: string | null; strand_count: number; installation_location: string | null
 }>) {
   const admin = createAdminClient()
   const { error } = await admin.from('plan_measurements').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id)

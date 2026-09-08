@@ -33,7 +33,7 @@ type MeasureKind = 'perfil' | 'fita' | 'medida'
 type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation' | 'powerSupply'
 
 interface Environment { id: string; page: number; name: string; polygon: Point[]; origin: string; status: string }
-interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null }
+interface LegendItem { id: string; code: string; description?: string | null; power_w?: number | null; color_temp_k?: number | null; lumen_flux?: number | null; finish?: string | null; notes?: string | null; mount_type?: 'embutir' | 'sobrepor' | null }
 interface SymbolOccurrence { id: string; page: number; x: number; y: number; legend_item_id: string | null; environment_id: string | null; status: string }
 interface Measurement {
   id: string; page: number; kind: MeasureKind; label: string | null; points: Point[]; length_m: number
@@ -41,6 +41,7 @@ interface Measurement {
   cota_offset?: number | null
   product_model?: string | null; mount_type?: 'embutir' | 'sobrepor' | null; bar_size?: number | null
   voltage?: '12V' | '24V' | null; packaging?: 'rolo_5m' | 'metro' | null; strand_count?: number | null
+  installation_location?: string | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 interface PowerSupply { id: string; measurement_id: string; page: number; x: number; y: number; watts: number }
@@ -179,6 +180,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [rectCur, setRectCur] = useState<Point | null>(null)
   const [pendingSymbol, setPendingSymbol] = useState<Point | null>(null)
   const [pendingSymbolAnchor, setPendingSymbolAnchor] = useState<{ x: number; y: number } | null>(null)
+  // "Carimbo" — depois de escolher um produto uma vez, continua marcando
+  // esse mesmo produto em cada clique, sem abrir o seletor de novo.
+  const [stampLegendItemId, setStampLegendItemId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
 
@@ -238,6 +242,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         resetDrafts()
         setPendingFontePlacement(null)
         setPendingArrowFor(null)
+        setStampLegendItemId(null)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -712,7 +717,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null); setPendingSymbolAnchor(null) }
 
-  useEffect(() => { resetDrafts(); setSelection(null) }, [tool])
+  useEffect(() => { resetDrafts(); setSelection(null); setStampLegendItemId(null) }, [tool])
 
   const MEASURE_TOOLS: Tool[] = ['medir', 'medir-perfil', 'medir-fita']
 
@@ -742,6 +747,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       return
     }
     if (tool === 'simbolo') {
+      if (stampLegendItemId) { placeSymbolAt(p, stampLegendItemId); return }
       setPendingSymbol(p)
       setPendingSymbolAnchor({ x: e.clientX, y: e.clientY })
       return
@@ -952,18 +958,23 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
 
-  async function confirmSymbol(legendItemId: string) {
-    if (!pendingSymbol) return
-    const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(pendingSymbol, env.polygon))
+  async function placeSymbolAt(point: Point, legendItemId: string) {
+    const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(point, env.polygon))
     setBusy(true)
     const res = await createSymbolOccurrence(plan.id, {
-      page: pageNum, x: pendingSymbol[0], y: pendingSymbol[1],
+      page: pageNum, x: point[0], y: point[1],
       legend_item_id: legendItemId, environment_id: envMatch?.id ?? null,
     })
     if (res?.data) { setSymbols(prev => [...prev, res.data]); pushCreateHistory('symbol', res.data) }
     setBusy(false)
+  }
+
+  async function confirmSymbol(legendItemId: string, keepStamping?: boolean) {
+    if (!pendingSymbol) return
+    await placeSymbolAt(pendingSymbol, legendItemId)
     setPendingSymbol(null)
     setPendingSymbolAnchor(null)
+    if (keepStamping) setStampLegendItemId(legendItemId)
   }
 
   // ── Cota (dimensão estilo AutoCAD) ─────────────────────────────────────────
@@ -1159,10 +1170,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
             {isMeasuring && `Clique em cada ponto do trecho — inclusive nos cantos de um L ou U, sem parar — e aperte Enter só no final pra salvar tudo como uma peça só (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
-            {tool === 'simbolo' && 'Clique no ponto onde tem uma luminária pra marcar a ocorrência.'}
+            {tool === 'simbolo' && !stampLegendItemId && 'Clique no ponto onde tem uma luminária pra marcar a ocorrência.'}
             {tool === 'anot-retangulo' && 'Clique e arraste pra desenhar um retângulo.'}
             {tool === 'anot-livre' && 'Clique e arraste pra desenhar livremente.'}
             {tool === 'anot-texto' && 'Clique onde quer inserir o texto.'}
+          </div>
+        )}
+        {tool === 'simbolo' && stampLegendItemId && (
+          <div className="px-3 py-1.5 bg-violet-50 text-violet-700 text-xs font-medium border-b border-violet-100 flex items-center justify-between">
+            <span>📌 Carimbando "{legendItems.find(li => li.id === stampLegendItemId)?.description || legendItems.find(li => li.id === stampLegendItemId)?.code}" — clique em quantos pontos quiser.</span>
+            <button onClick={() => setStampLegendItemId(null)} className="text-violet-500 hover:text-violet-700 font-semibold">Parar de carimbar (Esc)</button>
           </div>
         )}
         {pendingFontePlacement && (
@@ -1349,15 +1366,30 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 )
               })}
 
-              {/* Símbolos — escondidos na visão limpa */}
+              {/* Símbolos — escondidos na visão limpa. Um círculo colorido (a
+                  cor identifica o produto) em volta do ponto exato, com uma
+                  seta apontando pro nome — em vez de uma bolinha com o
+                  código, que não dizia nada de cara. */}
               {!reaproveitamentoView && !fontesView && pagePoints.symbols.map(s => {
                 const [sx, sy] = toScreen([s.x, s.y])
-                const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
+                const li = legendItems.find(x => x.id === s.legend_item_id)
+                const name = li?.description || li?.code || '?'
+                const color = productColor(s.legend_item_id || 'sem-produto')
                 const selected = selection?.kind === 'symbol' && selection.id === s.id
+                const r = selected ? 13 : 10
+                const tipX = sx + 24, tipY = sy - 24
+                const arrowAngle = Math.atan2(tipY - sy, tipX - sx)
+                const ah1 = arrowAngle + Math.PI * 0.85, ah2 = arrowAngle - Math.PI * 0.85
+                const arrowHead = `${tipX},${tipY} ${tipX + 5 * Math.cos(ah1)},${tipY + 5 * Math.sin(ah1)} ${tipX + 5 * Math.cos(ah2)},${tipY + 5 * Math.sin(ah2)}`
                 return (
                   <g key={s.id} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('symbol', s.id, e) }}>
-                    <circle cx={sx} cy={sy} r={selected ? 12.5 : 10.5} fill="#7c3aed" stroke="white" strokeWidth={selected ? 3 : 2.5} />
-                    <text x={sx} y={sy + 3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="white" pointerEvents="none">{code}</text>
+                    <line x1={sx} y1={sy} x2={tipX} y2={tipY} stroke="white" strokeWidth={3.5} />
+                    <line x1={sx} y1={sy} x2={tipX} y2={tipY} stroke={color} strokeWidth={1.5} />
+                    <polygon points={arrowHead} fill={color} />
+                    <circle cx={sx} cy={sy} r={r} fill={color} fillOpacity={0.3} stroke={color} strokeWidth={selected ? 3 : 2} />
+                    <circle cx={sx} cy={sy} r={2} fill={color} />
+                    <text x={tipX + 4} y={tipY + 3} fontSize={10} fontWeight={700} fill={color}
+                      stroke="white" strokeWidth={3} paintOrder="stroke">{name}</text>
                   </g>
                 )
               })}
@@ -1526,20 +1558,28 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <p className="text-[10px] font-bold text-violet-500 uppercase">Qual símbolo?</p>
             <button onClick={() => { setPendingSymbol(null); setPendingSymbolAnchor(null) }} className="p-1 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
           </div>
+          <p className="text-[10px] text-gray-400 px-3 pb-1">📌 marca esse produto e continua marcando nos próximos cliques, sem abrir essa lista de novo.</p>
           <div className="p-2.5 pt-1 space-y-1 max-h-72 overflow-y-auto">
             {legendItems.length === 0 && <p className="text-xs text-gray-400 px-1 py-2">Cadastre pelo menos um item na aba Legenda primeiro.</p>}
-            {legendItems.map(li => (
-              <button key={li.id} onClick={() => confirmSymbol(li.id)}
-                className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-violet-50 transition-colors">
-                <span className="shrink-0 text-xs font-bold text-white bg-violet-600 rounded-full w-6 h-6 flex items-center justify-center">{li.code}</span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-gray-700 truncate">{li.description || 'sem descrição'}</span>
-                  {(li.power_w || li.color_temp_k) && (
-                    <span className="block text-[10px] text-gray-400">{li.power_w ? `${li.power_w}W` : ''}{li.power_w && li.color_temp_k ? ' · ' : ''}{li.color_temp_k ? `${li.color_temp_k}K` : ''}</span>
-                  )}
-                </span>
-              </button>
-            ))}
+            {legendItems.map(li => {
+              const color = productColor(li.id)
+              return (
+                <div key={li.id} className="flex items-center gap-1">
+                  <button onClick={() => confirmSymbol(li.id)}
+                    className="flex-1 min-w-0 flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-violet-50 transition-colors">
+                    <span className="shrink-0 text-xs font-bold text-white rounded-full w-6 h-6 flex items-center justify-center" style={{ backgroundColor: color }}>{li.code}</span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-gray-700 truncate">{li.description || 'sem descrição'}</span>
+                      {(li.power_w || li.color_temp_k) && (
+                        <span className="block text-[10px] text-gray-400">{li.power_w ? `${li.power_w}W` : ''}{li.power_w && li.color_temp_k ? ' · ' : ''}{li.color_temp_k ? `${li.color_temp_k}K` : ''}</span>
+                      )}
+                    </span>
+                  </button>
+                  <button onClick={() => confirmSymbol(li.id, true)} title="Marcar e continuar carimbando esse produto"
+                    className="shrink-0 text-sm px-1.5 py-1 rounded hover:bg-violet-100">📌</button>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -1645,6 +1685,7 @@ function SelectionPopover({
 
     const profileModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'perfil' && x.product_model).map(x => x.product_model as string)))
     const fitaModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'fita' && x.product_model).map(x => x.product_model as string)))
+    const installLocationSuggestions = Array.from(new Set(measurements.filter(x => x.installation_location).map(x => x.installation_location as string)))
 
     if (comboPerfil && comboFita && comboPerfil.kind === 'perfil' && comboFita.kind === 'fita') {
       content = (
@@ -1665,7 +1706,9 @@ function SelectionPopover({
             onChangeFitaModel={v => onUpdateMeasurement(comboFita.id, { product_model: v })}
             onChangeVoltage={v => onUpdateMeasurement(comboFita.id, { voltage: v })}
             onChangePackaging={v => onUpdateMeasurement(comboFita.id, { packaging: v })}
-            fitaModelSuggestions={fitaModelSuggestions} />
+            fitaModelSuggestions={fitaModelSuggestions}
+            onChangeInstallLocation={v => onUpdateMeasurement(comboPerfil.id, { installation_location: v })}
+            installLocationSuggestions={installLocationSuggestions} />
         </div>
       )
     } else {
@@ -1689,7 +1732,9 @@ function SelectionPopover({
                 onChangeModel={v => onUpdateMeasurement(m.id, { product_model: v })}
                 onChangeVoltage={v => onUpdateMeasurement(m.id, { voltage: v })}
                 onChangePackaging={v => onUpdateMeasurement(m.id, { packaging: v })}
-                modelSuggestions={fitaModelSuggestions} />
+                modelSuggestions={fitaModelSuggestions}
+                onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
+                installLocationSuggestions={installLocationSuggestions} />
             : <SimpleMeasurementCard {...shared} />}
         </div>
       )
@@ -1765,6 +1810,7 @@ function AmbientesTab({
   const semAmbiente = symbols.filter(s => !s.environment_id).length + measurements.filter(m => !m.environment_id).length
   const profileModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'perfil' && m.product_model).map(m => m.product_model as string)))
   const fitaModelSuggestions = Array.from(new Set(measurements.filter(m => m.kind === 'fita' && m.product_model).map(m => m.product_model as string)))
+  const installLocationSuggestions = Array.from(new Set(measurements.filter(m => m.installation_location).map(m => m.installation_location as string)))
 
   if (environments.length === 0) {
     return <p className="text-xs text-gray-400">Nenhum ambiente ainda. Use a ferramenta "Ambiente" no viewer pra desenhar um polígono sobre a planta.</p>
@@ -1858,7 +1904,9 @@ function AmbientesTab({
                         onChangeFitaModel={v => onUpdateMeasurement(linkedFita.id, { product_model: v })}
                         onChangeVoltage={v => onUpdateMeasurement(linkedFita.id, { voltage: v })}
                         onChangePackaging={v => onUpdateMeasurement(linkedFita.id, { packaging: v })}
-                        fitaModelSuggestions={fitaModelSuggestions} />
+                        fitaModelSuggestions={fitaModelSuggestions}
+                        onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
+                        installLocationSuggestions={installLocationSuggestions} />
                     )
                   }
                   return m.kind === 'fita'
@@ -1873,6 +1921,8 @@ function AmbientesTab({
                         onChangeVoltage={v => onUpdateMeasurement(m.id, { voltage: v })}
                         onChangePackaging={v => onUpdateMeasurement(m.id, { packaging: v })}
                         modelSuggestions={fitaModelSuggestions}
+                        onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
+                        installLocationSuggestions={installLocationSuggestions}
                         mergeCandidates={measurements.filter(x => x.kind === 'fita' && x.id !== m.id)} onMerge={otherId => onMergeMeasurement(m.id, otherId)} />
                     : <SimpleMeasurementCard key={m.id} m={m} environments={environments} onChangeEnv={envId => onUpdateMeasurement(m.id, { environment_id: envId })}
                         onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
@@ -1896,35 +1946,44 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
   planId: string; items: LegendItem[]
   onCreate: (row: LegendItem) => void; onUpdate: (id: string, updates: Partial<LegendItem>) => void; onDelete: (id: string) => void
 }) {
-  const [code, setCode] = useState('')
-  const [description, setDescription] = useState('')
+  const [name, setName] = useState('')
   const [powerW, setPowerW] = useState('')
-  const [colorTemp, setColorTemp] = useState('')
+  const [colorTemp, setColorTemp] = useState<number | null>(null)
+  const [mountType, setMountType] = useState<'embutir' | 'sobrepor' | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Código sequencial automático dentro do projeto — nunca precisa digitar,
+  // só reaproveita o próximo número livre (maior código existente + 1).
+  const nextCode = String(items.reduce((max, i) => Math.max(max, parseInt(i.code, 10) || 0), 0) + 1).padStart(2, '0')
+
   async function add() {
-    if (!code.trim()) return
+    if (!name.trim()) return
     setSaving(true)
     const res = await createLegendItem(planId, {
-      code: code.trim(), description: description.trim() || undefined,
-      power_w: powerW ? Number(powerW) : undefined, color_temp_k: colorTemp ? Number(colorTemp) : undefined,
+      code: nextCode, description: name.trim(),
+      power_w: powerW ? Number(powerW.replace(',', '.')) : undefined,
+      color_temp_k: colorTemp ?? undefined, mount_type: mountType ?? undefined,
     })
     if (res?.data) onCreate(res.data)
-    setCode(''); setDescription(''); setPowerW(''); setColorTemp('')
+    setName(''); setPowerW(''); setColorTemp(null); setMountType(null)
     setSaving(false)
   }
 
   return (
     <div className="space-y-4">
       <div className="border border-dashed border-gray-300 rounded-xl p-3 space-y-2">
-        <p className="text-xs font-semibold text-gray-500 uppercase">Novo item</p>
-        <div className="grid grid-cols-2 gap-2">
-          <input placeholder="Código (L1...)" value={code} onChange={e => setCode(e.target.value)} className="input text-xs !py-1.5" />
-          <input placeholder="Potência (W)" value={powerW} onChange={e => setPowerW(e.target.value)} className="input text-xs !py-1.5" />
+        <p className="text-xs font-semibold text-gray-500 uppercase">Novo item · código {nextCode}</p>
+        <input placeholder="Nome do produto (spot embutido, fita COB...)" value={name} onChange={e => setName(e.target.value)} className="input text-xs !py-1.5 w-full" />
+        <div>
+          <p className="text-[10px] text-gray-500 mb-1">Temperatura de cor</p>
+          <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))} value={colorTemp} onChange={setColorTemp} />
         </div>
-        <input placeholder="Descrição (spot embutido...)" value={description} onChange={e => setDescription(e.target.value)} className="input text-xs !py-1.5 w-full" />
-        <input placeholder="Temp. de cor (K)" value={colorTemp} onChange={e => setColorTemp(e.target.value)} className="input text-xs !py-1.5 w-full" />
-        <button onClick={add} disabled={saving || !code.trim()} className="btn-primary text-xs w-full justify-center !py-1.5">
+        <div>
+          <p className="text-[10px] text-gray-500 mb-1">Instalação</p>
+          <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]} value={mountType} onChange={setMountType} />
+        </div>
+        <input placeholder="Potência (W)" value={powerW} onChange={e => setPowerW(e.target.value)} className="input text-xs !py-1.5 w-full" />
+        <button onClick={add} disabled={saving || !name.trim()} className="btn-primary text-xs w-full justify-center !py-1.5">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Adicionar à legenda'}
         </button>
       </div>
@@ -1932,23 +1991,21 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete }: {
         {items.map(item => (
           <div key={item.id} className="border border-gray-200 rounded-lg p-2.5 space-y-1.5">
             <div className="flex items-start gap-2">
-              <SyncedInput value={item.code} onCommit={v => v.trim() && onUpdate(item.id, { code: v.trim() })}
-                className="w-14 shrink-0 text-sm font-bold text-violet-700 outline-none border-b border-transparent focus:border-brand-300" />
+              <span className="w-8 shrink-0 text-sm font-bold text-violet-700 pt-0.5">{item.code}</span>
               <SyncedInput value={item.description ?? ''} onCommit={v => onUpdate(item.id, { description: v || null })}
-                placeholder="Descrição (spot embutido...)"
+                placeholder="Nome do produto"
                 className="flex-1 min-w-0 text-sm text-gray-700 outline-none border-b border-transparent focus:border-brand-300" />
               <button onClick={() => onDelete(item.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
-            <div className="flex items-center gap-3 pl-6">
+            <div className="flex items-center gap-2 flex-wrap pl-8">
+              <ChoiceChips options={[2700, 3000, 4000, 6500].map(k => ({ value: k, label: `${k}K` }))}
+                value={item.color_temp_k ?? null} onChange={v => onUpdate(item.id, { color_temp_k: v })} />
+              <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]}
+                value={item.mount_type ?? null} onChange={v => onUpdate(item.id, { mount_type: v })} />
               <div className="flex items-center gap-1">
                 <SyncedInput value={item.power_w != null ? String(item.power_w) : ''} onCommit={v => onUpdate(item.id, { power_w: v ? Number(v.replace(',', '.')) : null })}
                   placeholder="—" className="w-10 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
                 <span className="text-[11px] text-gray-400">W</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <SyncedInput value={item.color_temp_k != null ? String(item.color_temp_k) : ''} onCommit={v => onUpdate(item.id, { color_temp_k: v ? Number(v.replace(',', '.')) : null })}
-                  placeholder="—" className="w-12 text-[11px] text-gray-500 text-right outline-none border-b border-transparent focus:border-brand-300" />
-                <span className="text-[11px] text-gray-400">K</span>
               </div>
             </div>
           </div>
@@ -1977,6 +2034,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
   const medidas = measurements.filter(m => m.kind === 'medida')
   const profileModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'perfil' && x.product_model).map(x => x.product_model as string)))
   const fitaModelSuggestions = Array.from(new Set(measurements.filter(x => x.kind === 'fita' && x.product_model).map(x => x.product_model as string)))
+  const installLocationSuggestions = Array.from(new Set(measurements.filter(x => x.installation_location).map(x => x.installation_location as string)))
 
   // Todo perfil já vem com uma fita automática (mesma metragem) — agrupa os
   // dois como uma instalação só, em vez de espalhar o perfil numa seção e a
@@ -2049,7 +2107,9 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               onChangeFitaModel={v => onUpdate(fita.id, { product_model: v })}
               onChangeVoltage={v => onUpdate(fita.id, { voltage: v })}
               onChangePackaging={v => onUpdate(fita.id, { packaging: v })}
-              fitaModelSuggestions={fitaModelSuggestions} />
+              fitaModelSuggestions={fitaModelSuggestions}
+              onChangeInstallLocation={v => onUpdate(perfil.id, { installation_location: v })}
+              installLocationSuggestions={installLocationSuggestions} />
           ))}
           {perfisComFita.length === 0 && <p className="text-xs text-gray-400">Nenhum perfil medido ainda — a fita é criada automaticamente junto.</p>}
         </div>
@@ -2098,6 +2158,8 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
                 onChangeVoltage={v => onUpdate(m.id, { voltage: v })}
                 onChangePackaging={v => onUpdate(m.id, { packaging: v })}
                 modelSuggestions={fitaModelSuggestions}
+                onChangeInstallLocation={v => onUpdate(m.id, { installation_location: v })}
+                installLocationSuggestions={installLocationSuggestions}
                 mergeCandidates={fitas.filter(x => x.id !== m.id)} onMerge={otherId => onMerge(m.id, otherId)} />
             ))}
           </div>
@@ -2255,13 +2317,13 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, on
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions }: {
+function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions, onChangeInstallLocation, installLocationSuggestions }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void
   onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void; onChangeStrandCount: (v: number) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onChangeModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void; onChangePackaging: (v: 'rolo_5m' | 'metro') => void
-  modelSuggestions: string[]
+  modelSuggestions: string[]; onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
 }) {
   const preenchido = !!m.power_w_per_m
   const strands = m.strand_count ?? 1
@@ -2276,6 +2338,8 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
           className="w-14 text-xs text-gray-500 border-b border-transparent focus:border-brand-400 outline-none" />
         <span className="text-xs text-gray-400">m de fita</span>
       </div>
+      <ModelInput value={m.installation_location ?? ''} suggestions={installLocationSuggestions} onCommit={onChangeInstallLocation}
+        placeholder="Ponto de instalação (sanca, marcenaria, cortineiro...)" listId={`install-loc-${m.id}`} />
 
       <div className="bg-pink-50 rounded-lg p-1.5 space-y-1">
         <ModelInput value={m.product_model ?? ''} suggestions={modelSuggestions} onCommit={onChangeModel}
@@ -2365,6 +2429,7 @@ function PerfilFitaCard({
   powerSupplies, onStartFontePlacement, onDeleteFonte,
   onChangeProfileModel, onChangeMountType, onChangeBarSize, profileModelSuggestions,
   onChangeFitaModel, onChangeVoltage, onChangePackaging, fitaModelSuggestions,
+  onChangeInstallLocation, installLocationSuggestions,
 }: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
   onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onChangeLength: (v: string) => void
@@ -2375,6 +2440,7 @@ function PerfilFitaCard({
   onChangeBarSize: (v: 2 | 3) => void; profileModelSuggestions: string[]
   onChangeFitaModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void
   onChangePackaging: (v: 'rolo_5m' | 'metro') => void; fitaModelSuggestions: string[]
+  onChangeInstallLocation: (v: string) => void; installLocationSuggestions: string[]
 }) {
   const preenchido = !!fita.power_w_per_m
   const strands = fita.strand_count ?? 1
@@ -2404,6 +2470,9 @@ function PerfilFitaCard({
         </div>
         <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
+
+      <ModelInput value={perfil.installation_location ?? ''} suggestions={installLocationSuggestions} onCommit={onChangeInstallLocation}
+        placeholder="Ponto de instalação (sanca, marcenaria, cortineiro...)" listId={`install-loc-${perfil.id}`} />
 
       {/* Perfil: modelo + tipo de instalação + tamanho da barra comercial */}
       <div className="bg-sky-50 rounded-lg p-1.5 space-y-1">
@@ -2607,10 +2676,25 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
             ...fonteBomFor(env.id),
           ]
           const sharedNotes = [...perfilBom.sharedNotes, ...fitaBom.sharedNotes]
+          // Pontos de instalação — subdivisão dentro do ambiente (sanca,
+          // marcenaria, cortineiro...), pra saber onde cada trecho vai sem
+          // precisar abrir cada card individualmente.
+          const byLocation = new Map<string, number>()
+          for (const m of measurements.filter(x => x.environment_id === env.id && (x.kind === 'perfil' || x.kind === 'fita') && x.installation_location)) {
+            const loc = m.installation_location as string
+            byLocation.set(loc, round2((byLocation.get(loc) ?? 0) + m.length_m))
+          }
           return (
             <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
               <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
                 className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
+              {byLocation.size > 0 && (
+                <p className="text-[11px] text-gray-500">
+                  {Array.from(byLocation.entries()).map(([loc, m], i) => (
+                    <span key={loc}>{i > 0 && ' · '}<span className="font-medium text-gray-600">{loc}</span> ({m}m)</span>
+                  ))}
+                </p>
+              )}
               {sharedNotes.length > 0 && sharedNotes.map((n, i) => (
                 <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
                   <p className="text-[11px] text-amber-800 flex-1">⚠️ {n.text}</p>
