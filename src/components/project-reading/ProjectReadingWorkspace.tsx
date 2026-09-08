@@ -463,6 +463,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         power_w_per_m: fita.power_w_per_m ?? 0, linked_measurement_id: resPerfil.data.id,
         packaging: fita.packaging ?? undefined, product_model: fita.product_model ?? undefined,
         voltage: fita.voltage ?? undefined, color_temp_k: fita.color_temp_k ?? undefined, strand_count: fita.strand_count ?? undefined,
+        installation_location: fita.installation_location ?? undefined,
       })
       if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
     }
@@ -1861,7 +1862,7 @@ function SelectionPopover({
             onChangeVoltage={v => onUpdateMeasurement(comboFita.id, { voltage: v })}
             onChangePackaging={v => onUpdateMeasurement(comboFita.id, { packaging: v })}
             fitaModelSuggestions={fitaModelSuggestions}
-            onChangeInstallLocation={v => onUpdateMeasurement(comboPerfil.id, { installation_location: v })}
+            onChangeInstallLocation={v => { onUpdateMeasurement(comboPerfil.id, { installation_location: v }); onUpdateMeasurement(comboFita.id, { installation_location: v }) }}
             installLocationSuggestions={installLocationSuggestions}
             onChangeColorTemp={v => onUpdateMeasurement(comboFita.id, { color_temp_k: v })}
             onDuplicate={() => onDuplicatePerfilFita(comboPerfil, comboFita)} />
@@ -2065,7 +2066,7 @@ function AmbientesTab({
                         onChangeVoltage={v => onUpdateMeasurement(linkedFita.id, { voltage: v })}
                         onChangePackaging={v => onUpdateMeasurement(linkedFita.id, { packaging: v })}
                         fitaModelSuggestions={fitaModelSuggestions}
-                        onChangeInstallLocation={v => onUpdateMeasurement(m.id, { installation_location: v })}
+                        onChangeInstallLocation={v => { onUpdateMeasurement(m.id, { installation_location: v }); onUpdateMeasurement(linkedFita.id, { installation_location: v }) }}
                         installLocationSuggestions={installLocationSuggestions}
                         onChangeColorTemp={v => onUpdateMeasurement(linkedFita.id, { color_temp_k: v })}
                         onDuplicate={() => onDuplicatePerfilFita(m, linkedFita)} />
@@ -2349,7 +2350,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               onChangeVoltage={v => onUpdate(fita.id, { voltage: v })}
               onChangePackaging={v => onUpdate(fita.id, { packaging: v })}
               fitaModelSuggestions={fitaModelSuggestions}
-              onChangeInstallLocation={v => onUpdate(perfil.id, { installation_location: v })}
+              onChangeInstallLocation={v => { onUpdate(perfil.id, { installation_location: v }); onUpdate(fita.id, { installation_location: v }) }}
               installLocationSuggestions={installLocationSuggestions}
               onChangeColorTemp={v => onUpdate(fita.id, { color_temp_k: v })}
               onDuplicate={() => onDuplicatePerfilFita(perfil, fita)} />
@@ -2900,13 +2901,25 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
   const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m * (m.strand_count ?? 1), m.power_w_per_m ?? 0).fonteMinimaW, 0))
   const semAmbiente = symbols.filter(s => !s.environment_id).length
 
+  // Fonte entra no mesmo ponto de instalação da fita que ela alimenta (é
+  // uma composição perfil+fita+fonte) — e quando duas fontes iguais caem
+  // no mesmo ponto (duas fitas separadas que precisam de fonte própria),
+  // sinaliza pra qual fita cada uma liga, pra não ter dúvida na instalação.
   function fonteBomFor(envId: string | null): BomLine[] {
-    const envMeasurementIds = new Set(measurements.filter(m => m.environment_id === envId).map(m => m.id))
-    const envFontes = powerSupplies.filter(ps => envMeasurementIds.has(ps.measurement_id))
-    const byWatts = new Map<number, number>()
-    for (const f of envFontes) byWatts.set(f.watts, (byWatts.get(f.watts) ?? 0) + 1)
-    return Array.from(byWatts.entries()).sort((a, b) => a[0] - b[0])
-      .map(([w, n]) => ({ produto: `Fonte 12V ${w}W`, unidade: 'un', quantidade: String(n) }))
+    const envFitaIds = new Set(measurements.filter(m => m.environment_id === envId && m.kind === 'fita').map(m => m.id))
+    const envFontes = powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))
+    const byGroup = new Map<string, { watts: number; subgrupo: string | null; fitas: string[] }>()
+    for (const f of envFontes) {
+      const fita = measurements.find(m => m.id === f.measurement_id)
+      const subgrupo = fita?.installation_location || null
+      const key = `${f.watts}__${subgrupo ?? ''}`
+      if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, subgrupo, fitas: [] })
+      byGroup.get(key)!.fitas.push(fita?.label || 'fita')
+    }
+    return Array.from(byGroup.values()).sort((a, b) => a.watts - b.watts).map(g => ({
+      produto: `Fonte 12V ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo,
+      detalhe: g.fitas.length > 1 ? `liga: ${g.fitas.join(', ')}` : undefined,
+    }))
   }
 
   return (
