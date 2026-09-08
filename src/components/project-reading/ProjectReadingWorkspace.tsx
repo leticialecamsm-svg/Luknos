@@ -40,7 +40,7 @@ interface Measurement {
   power_w_per_m: number | null; environment_id: string | null; linked_measurement_id?: string | null; notes?: string | null
   cota_offset?: number | null
   product_model?: string | null; mount_type?: 'embutir' | 'sobrepor' | null; bar_size?: number | null
-  voltage?: '12V' | '24V' | null; packaging?: 'rolo_5m' | 'metro' | null
+  voltage?: '12V' | '24V' | null; packaging?: 'rolo_5m' | 'metro' | null; strand_count?: number | null
 }
 interface Annotation { id: string; page: number; kind: 'freehand' | 'rect' | 'highlight' | 'text'; data: any }
 interface PowerSupply { id: string; measurement_id: string; page: number; x: number; y: number; watts: number }
@@ -453,7 +453,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       }
       let plano: PlanoResult = null
       if (comercialM != null) {
-        const list: TrechoNecessario[] = trechos.map(t => ({ id: t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id) }))
+        // Perfil largo pode levar mais de uma tira de fita lado a lado
+        // (strand_count) — cada tira consome seu próprio pedaço de rolo.
+        const list: TrechoNecessario[] = trechos.flatMap(t => {
+          const strands = kind === 'fita' ? (t.strand_count ?? 1) : 1
+          return Array.from({ length: strands }, (_, i) => ({
+            id: strands > 1 ? `${t.id}#${i + 1}` : t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id),
+          }))
+        })
         const excedentes = list.filter(t => t.comprimentoM > comercialM!)
         plano = excedentes.length > 0
           ? { kind: 'erro', mensagem: `${excedentes.length} trecho(s) mais longos que ${comercialM}m nesse grupo — divida o trecho.` }
@@ -1195,6 +1202,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
                       })}
+                      {!reaproveitamentoView && !fontesView && m.label && (m.kind === 'perfil' || (m.kind === 'fita' && !m.linked_measurement_id)) && (() => {
+                        const [fx, fy] = toScreen(m.points[0])
+                        return (
+                          <text x={fx} y={fy - 8} fontSize={10} fontWeight={700} fill="#374151"
+                            stroke="white" strokeWidth={3} paintOrder="stroke">
+                            {m.label}
+                          </text>
+                        )
+                      })()}
                       {reaproveitamentoView && (() => {
                         const badge = pieceBadgeMap.get(m.id)
                         if (!badge || badge.siblings.length === 0) return null
@@ -1397,7 +1413,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               />
             )}
             {tab === 'resultado' && (
-              <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies} />
+              <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies}
+                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} />
             )}
           </div>
         )}
@@ -1491,8 +1508,10 @@ function SelectionPopover({
 }) {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
+  const popoverWidth = 340
   const style: React.CSSProperties = {
-    position: 'fixed', left: Math.min(anchor.x + 12, winW - 300), top: Math.min(anchor.y + 12, winH - 280), zIndex: 50, width: 280,
+    position: 'fixed', left: Math.min(anchor.x + 12, winW - popoverWidth - 20), top: Math.min(anchor.y + 12, winH - 60),
+    zIndex: 50, width: popoverWidth, maxHeight: winH - 40, display: 'flex', flexDirection: 'column',
   }
 
   let content: React.ReactNode = null
@@ -1558,6 +1577,7 @@ function SelectionPopover({
             onChangeLabel={v => onUpdateMeasurement(comboPerfil.id, { label: v })}
             onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(comboPerfil.id, { length_m: val }); onUpdateMeasurement(comboFita.id, { length_m: val }) }}
             onChangePotencia={v => onUpdateMeasurement(comboFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+            onChangeStrandCount={v => onUpdateMeasurement(comboFita.id, { strand_count: v })}
             onDelete={() => { onDeleteMeasurement(comboPerfil.id); onDeleteMeasurement(comboFita.id); onClose() }}
             pieceBadgePerfil={pieceBadgeMap.get(comboPerfil.id)} pieceBadgeFita={pieceBadgeMap.get(comboFita.id)}
             powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
@@ -1587,6 +1607,7 @@ function SelectionPopover({
         <div className="p-3">
           {m.kind === 'fita'
             ? <FitaCard {...shared} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+                onChangeStrandCount={v => onUpdateMeasurement(m.id, { strand_count: v })}
                 powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
                 onChangeModel={v => onUpdateMeasurement(m.id, { product_model: v })}
                 onChangeVoltage={v => onUpdateMeasurement(m.id, { voltage: v })}
@@ -1636,13 +1657,13 @@ function SelectionPopover({
 
   return (
     <div style={style} className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
-      <div className="flex items-center justify-between px-1 pt-1">
+      <div className="flex items-center justify-between px-1 pt-1 shrink-0">
         {showHeaderDelete
           ? <button onClick={onDeleteSelected} title="Excluir" className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
           : <span />}
         <button onClick={onClose} title="Fechar (Esc)" className="p-1.5 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
       </div>
-      {content}
+      <div className="overflow-y-auto">{content}</div>
     </div>
   )
 }
@@ -1721,6 +1742,7 @@ function AmbientesTab({
                         onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
                         onChangeLength={v => { const val = Number(v.replace(',', '.')) || 0; onUpdateMeasurement(m.id, { length_m: val }); onUpdateMeasurement(linkedFita.id, { length_m: val }) }}
                         onChangePotencia={v => onUpdateMeasurement(linkedFita.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
+                        onChangeStrandCount={v => onUpdateMeasurement(linkedFita.id, { strand_count: v })}
                         onDelete={() => { onDeleteMeasurement(m.id); onDeleteMeasurement(linkedFita.id) }}
                         pieceBadgePerfil={pieceBadgeMap.get(m.id)} pieceBadgeFita={pieceBadgeMap.get(linkedFita.id)}
                         powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
@@ -1739,6 +1761,7 @@ function AmbientesTab({
                         onChangeLabel={v => onUpdateMeasurement(m.id, { label: v })}
                         onDelete={() => onDeleteMeasurement(m.id)} onChangePotencia={v => onUpdateMeasurement(m.id, { power_w_per_m: Number(v.replace(',', '.')) || 0 })}
                         onChangeLength={v => onUpdateMeasurement(m.id, { length_m: Number(v.replace(',', '.')) || 0 })}
+                        onChangeStrandCount={v => onUpdateMeasurement(m.id, { strand_count: v })}
                         pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                         powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
                         onChangeModel={v => onUpdateMeasurement(m.id, { product_model: v })}
@@ -1898,6 +1921,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               onChangeLabel={v => onUpdate(perfil.id, { label: v })}
               onChangeLength={v => changeComboLength(perfil.id, fita.id, v)}
               onChangePotencia={v => changePotencia(fita.id, v)}
+              onChangeStrandCount={v => onUpdate(fita.id, { strand_count: v })}
               onDelete={() => { onDelete(perfil.id); onDelete(fita.id) }}
               pieceBadgePerfil={pieceBadgeMap.get(perfil.id)} pieceBadgeFita={pieceBadgeMap.get(fita.id)}
               powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
@@ -1950,6 +1974,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
               <FitaCard key={m.id} m={m} environments={environments} onChangeEnv={envId => changeEnv(m.id, envId)}
                 onChangeLabel={v => onUpdate(m.id, { label: v })}
                 onDelete={() => onDelete(m.id)} onChangePotencia={v => changePotencia(m.id, v)} onChangeLength={v => changeLength(m.id, v)}
+                onChangeStrandCount={v => onUpdate(m.id, { strand_count: v })}
                 pieceBadge={pieceBadgeMap.get(m.id)} linkNote={linkNoteFor(m, measurements)}
                 powerSupplies={powerSupplies} onStartFontePlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte}
                 onChangeModel={v => onUpdate(m.id, { product_model: v })}
@@ -2113,55 +2138,58 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, on
 // Card da fita: o que importa pra decisão é o W/m (a preencher) e a fonte
 // mínima resultante — isso fica grande e em destaque. O resto (label,
 // ambiente, a conta em si) fica pequeno e discreto.
-function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions }: {
+function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onChangePotencia, onChangeLength, onChangeStrandCount, mergeCandidates, onMerge, pieceBadge, linkNote, powerSupplies, onStartFontePlacement, onDeleteFonte, onChangeModel, onChangeVoltage, onChangePackaging, modelSuggestions }: {
   m: Measurement; environments: Environment[]; onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void
-  onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void
+  onDelete: () => void; onChangePotencia: (v: string) => void; onChangeLength: (v: string) => void; onChangeStrandCount: (v: number) => void
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onChangeModel: (v: string) => void; onChangeVoltage: (v: '12V' | '24V') => void; onChangePackaging: (v: 'rolo_5m' | 'metro') => void
   modelSuggestions: string[]
 }) {
   const preenchido = !!m.power_w_per_m
-  const calc = calcularFita(m.length_m, m.power_w_per_m ?? 0)
+  const strands = m.strand_count ?? 1
+  const calc = calcularFita(m.length_m * strands, m.power_w_per_m ?? 0)
   return (
-    <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+    <div className="border border-gray-200 rounded-lg p-2 space-y-1.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <div className="flex items-baseline gap-1">
         <SyncedInput value={m.length_m.toFixed(2)} onCommit={onChangeLength}
           title="Medida errada? Corrija aqui direto."
-          className="w-16 text-xs text-gray-500 border-b border-transparent focus:border-brand-400 outline-none" />
+          className="w-14 text-xs text-gray-500 border-b border-transparent focus:border-brand-400 outline-none" />
         <span className="text-xs text-gray-400">m de fita</span>
       </div>
 
-      <div>
-        <label className="text-[10px] text-gray-500 block mb-0.5">Fita (modelo)</label>
+      <div className="bg-pink-50 rounded-lg p-1.5 space-y-1">
         <ModelInput value={m.product_model ?? ''} suggestions={modelSuggestions} onCommit={onChangeModel}
-          placeholder="ex: Fita COB 24V IP20" listId={`fita-models-${m.id}`} />
-      </div>
-      <div className="flex items-center gap-3 flex-wrap">
-        <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={m.voltage} onChange={onChangeVoltage} />
-        <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo de 5m' }, { value: 'metro', label: 'No metro' }]} value={m.packaging} onChange={onChangePackaging} />
+          placeholder="Modelo da fita" listId={`fita-models-${m.id}`} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={m.voltage} onChange={onChangeVoltage} />
+          <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo 5m' }, { value: 'metro', label: 'No metro' }]} value={m.packaging} onChange={onChangePackaging} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
+          <ChoiceChips options={[1, 2, 3].map(n => ({ value: n, label: String(n) }))} value={strands} onChange={onChangeStrandCount} />
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
+        <label className="text-xs font-medium text-gray-600 shrink-0">W/m</label>
         <SyncedInput value={String(m.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
-          className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
-        <span className="text-xs text-gray-500">W/m</span>
+          className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 focus:border-brand-400 outline-none" />
       </div>
 
       {preenchido ? (
         <div>
-          <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
+          <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
           <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
-            {m.length_m.toFixed(2)}m × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
+            {m.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
           </p>
         </div>
       ) : (
-        <p className="text-xs font-medium text-amber-600 bg-amber-50 rounded px-2 py-1.5">⚠ Falta informar o W/m dessa fita pra calcular a fonte</p>
+        <p className="text-[11px] font-medium text-amber-600 bg-amber-50 rounded px-2 py-1">⚠ Falta o W/m pra calcular a fonte</p>
       )}
     </div>
   )
@@ -2217,14 +2245,14 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
 // + Fita X"), em vez de dois cards soltos em seções diferentes — inclusive a
 // fonte sugerida já sai calculada em cima dos dois juntos.
 function PerfilFitaCard({
-  perfil, fita, environments, onChangeEnv, onChangeLabel, onChangeLength, onChangePotencia, onDelete, pieceBadgePerfil, pieceBadgeFita,
+  perfil, fita, environments, onChangeEnv, onChangeLabel, onChangeLength, onChangePotencia, onChangeStrandCount, onDelete, pieceBadgePerfil, pieceBadgeFita,
   powerSupplies, onStartFontePlacement, onDeleteFonte,
   onChangeProfileModel, onChangeMountType, onChangeBarSize, profileModelSuggestions,
   onChangeFitaModel, onChangeVoltage, onChangePackaging, fitaModelSuggestions,
 }: {
   perfil: Measurement; fita: Measurement; environments: Environment[]
   onChangeEnv: (envId: string | null) => void; onChangeLabel: (v: string) => void; onChangeLength: (v: string) => void
-  onChangePotencia: (v: string) => void; onDelete: () => void
+  onChangePotencia: (v: string) => void; onChangeStrandCount: (v: number) => void; onDelete: () => void
   pieceBadgePerfil?: PieceBadge; pieceBadgeFita?: PieceBadge
   powerSupplies: PowerSupply[]; onStartFontePlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
   onChangeProfileModel: (v: string) => void; onChangeMountType: (v: 'embutir' | 'sobrepor') => void
@@ -2233,39 +2261,39 @@ function PerfilFitaCard({
   onChangePackaging: (v: 'rolo_5m' | 'metro') => void; fitaModelSuggestions: string[]
 }) {
   const preenchido = !!fita.power_w_per_m
-  const calc = calcularFita(fita.length_m, fita.power_w_per_m ?? 0)
+  const strands = fita.strand_count ?? 1
+  const calc = calcularFita(fita.length_m * strands, fita.power_w_per_m ?? 0)
   return (
-    <div className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+    <div className="border border-gray-200 rounded-lg p-2 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <SyncedInput value={perfil.label ?? ''} onCommit={onChangeLabel} placeholder="Título da instalação (ex: Teto, sanca...)"
+            <SyncedInput value={perfil.label ?? ''} onCommit={onChangeLabel} placeholder="Título (ex: Teto, sanca...)"
               className="text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300 min-w-0 flex-1" />
             {pieceBadgePerfil && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgePerfil.color }}>{pieceBadgePerfil.label}</span>}
             {pieceBadgeFita && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: pieceBadgeFita.color }}>{pieceBadgeFita.label}</span>}
           </div>
-          <select value={perfil.environment_id ?? ''} onChange={e => onChangeEnv(e.target.value || null)}
-            className="text-[11px] text-gray-500 bg-transparent border-none outline-none -ml-0.5 cursor-pointer hover:text-brand-600 max-w-full">
-            <option value="">Sem ambiente</option>
-            {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select value={perfil.environment_id ?? ''} onChange={e => onChangeEnv(e.target.value || null)}
+              className="text-[11px] text-gray-500 bg-transparent border-none outline-none -ml-0.5 cursor-pointer hover:text-brand-600 max-w-full">
+              <option value="">Sem ambiente</option>
+              {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
+            </select>
+            <span className="text-gray-300">·</span>
+            <SyncedInput value={perfil.length_m.toFixed(2)} onCommit={onChangeLength}
+              title="Medida errada? Corrija aqui direto — perfil e fita andam juntos."
+              className="w-14 text-xs font-semibold text-gray-700 border-b border-transparent focus:border-brand-400 outline-none" />
+            <span className="text-[11px] text-gray-400">m</span>
+          </div>
         </div>
         <button onClick={onDelete} title="Excluir perfil e fita" className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
 
-      <div className="flex items-baseline gap-1">
-        <SyncedInput value={perfil.length_m.toFixed(2)} onCommit={onChangeLength}
-          title="Medida errada? Corrija aqui direto — perfil e fita andam juntos."
-          className="w-16 text-base font-bold text-gray-800 border-b border-transparent focus:border-brand-400 outline-none" />
-        <span className="text-sm text-gray-500">m</span>
-      </div>
-
       {/* Perfil: modelo + tipo de instalação + tamanho da barra comercial */}
-      <div className="bg-sky-50 rounded-lg p-2 space-y-1.5">
-        <p className="text-[10px] font-bold text-sky-600 uppercase">Perfil</p>
+      <div className="bg-sky-50 rounded-lg p-1.5 space-y-1">
         <ModelInput value={perfil.product_model ?? ''} suggestions={profileModelSuggestions} onCommit={onChangeProfileModel}
-          placeholder="ex: Perfil embutir 17x07mm" listId={`perfil-models-${perfil.id}`} />
-        <div className="flex items-center gap-3 flex-wrap">
+          placeholder="Modelo do perfil" listId={`perfil-models-${perfil.id}`} />
+        <div className="flex items-center gap-2 flex-wrap">
           <ChoiceChips options={[{ value: 'embutir', label: 'Embutir' }, { value: 'sobrepor', label: 'Sobrepor' }]}
             value={perfil.mount_type} onChange={onChangeMountType} />
           <ChoiceChips options={[{ value: 2, label: '2m' }, { value: 3, label: '3m' }]}
@@ -2273,35 +2301,37 @@ function PerfilFitaCard({
         </div>
       </div>
 
-      {/* Fita: modelo + tensão + embalagem */}
-      <div className="bg-pink-50 rounded-lg p-2 space-y-1.5">
-        <p className="text-[10px] font-bold text-pink-600 uppercase">Fita</p>
+      {/* Fita: modelo + tensão + embalagem + tiras */}
+      <div className="bg-pink-50 rounded-lg p-1.5 space-y-1">
         <ModelInput value={fita.product_model ?? ''} suggestions={fitaModelSuggestions} onCommit={onChangeFitaModel}
-          placeholder="ex: Fita COB 24V IP20" listId={`fita-models-${fita.id}`} />
-        <div className="flex items-center gap-3 flex-wrap">
+          placeholder="Modelo da fita" listId={`fita-models-${fita.id}`} />
+        <div className="flex items-center gap-2 flex-wrap">
           <ChoiceChips options={[{ value: '12V', label: '12V' }, { value: '24V', label: '24V' }]} value={fita.voltage} onChange={onChangeVoltage} />
-          <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo de 5m' }, { value: 'metro', label: 'No metro' }]} value={fita.packaging} onChange={onChangePackaging} />
+          <ChoiceChips options={[{ value: 'rolo_5m', label: 'Rolo 5m' }, { value: 'metro', label: 'No metro' }]} value={fita.packaging} onChange={onChangePackaging} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-500">Tiras (perfil largo):</span>
+          <ChoiceChips options={[1, 2, 3].map(n => ({ value: n, label: String(n) }))} value={strands} onChange={onChangeStrandCount} />
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-gray-600 shrink-0">Consumo da fita</label>
+        <label className="text-xs font-medium text-gray-600 shrink-0">W/m</label>
         <SyncedInput value={String(fita.power_w_per_m ?? '')} onCommit={onChangePotencia} placeholder="0"
-          className="w-16 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-1 focus:border-brand-400 outline-none" />
-        <span className="text-xs text-gray-500">W/m</span>
+          className="w-14 text-sm font-semibold text-center border border-gray-300 rounded-md px-1.5 py-0.5 focus:border-brand-400 outline-none" />
       </div>
 
       {preenchido ? (
         <div>
-          <p className="text-lg font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
+          <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
           <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
-            {fita.length_m.toFixed(2)}m × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% margem = {calc.fonteMinimaW}W
+            {fita.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
           </p>
         </div>
       ) : (
-        <p className="text-xs font-medium text-amber-600 bg-amber-50 rounded px-2 py-1.5">⚠ Falta informar o W/m da fita pra calcular a fonte</p>
+        <p className="text-[11px] font-medium text-amber-600 bg-amber-50 rounded px-2 py-1">⚠ Falta o W/m pra calcular a fonte</p>
       )}
     </div>
   )
@@ -2339,54 +2369,83 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // Uma linha do quantitativo — um produto com sua unidade e quantidade,
 // pronto pra digitar no Master Lojista sem precisar recalcular nada.
-interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string }
+interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean }
 
-function bomForMeasurements(items: Measurement[], kind: 'perfil' | 'fita'): BomLine[] {
-  const groups = new Map<string, Measurement[]>()
-  for (const m of items) {
-    const key = kind === 'perfil'
-      ? `${m.product_model || 'Perfil sem modelo'}__${m.mount_type || '—'}__${m.bar_size ?? 3}`
-      : `${m.product_model || 'Fita sem modelo'}__${m.voltage || '12V'}__${m.packaging || 'rolo_5m'}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(m)
-  }
+// Botão de copiar texto — usado na nota de reaproveitamento, pra colar
+// direto na observação do orçamento no Master Lojista sem digitar de novo.
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+      }}
+      className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-2 py-1 shrink-0"
+    >
+      {copied ? '✓ Copiado' : '📋 Copiar'}
+    </button>
+  )
+}
+
+// A partir do plano de corte GLOBAL (que já faz bin-packing entre ambientes),
+// monta as linhas de compra por ambiente e detecta peças compartilhadas —
+// quando uma barra/rolo atende mais de um ambiente, só o "dono" (primeiro
+// corte da peça) deve comprar; o outro ambiente reaproveita a sobra.
+function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: string, envName: string): { lines: BomLine[]; sharedNotes: { text: string; copyText: string }[] } {
   const lines: BomLine[] = []
-  for (const [, trechos] of Array.from(groups.entries())) {
-    const first = trechos[0]
-    const totalM = round2(trechos.reduce((s, t) => s + t.length_m, 0))
-    if (kind === 'perfil') {
-      const bar = first.bar_size ?? 3
-      const mount = first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'
-      const barras = Math.ceil(totalM / bar)
-      lines.push({
-        produto: `${first.product_model || 'Perfil sem modelo'} (${mount}, barra ${bar}m)`,
-        unidade: 'barra', quantidade: String(barras), detalhe: `${totalM}m necessários`,
-      })
-    } else {
-      const isMetro = first.packaging === 'metro'
-      if (isMetro) {
-        lines.push({ produto: `${first.product_model || 'Fita sem modelo'} (${first.voltage || '12V'}, no metro)`, unidade: 'm', quantidade: String(totalM) })
-      } else {
-        const rolos = Math.ceil(totalM / 5)
-        lines.push({
-          produto: `${first.product_model || 'Fita sem modelo'} (${first.voltage || '12V'}, rolo 5m)`,
-          unidade: 'rolo', quantidade: String(rolos), detalhe: `${totalM}m necessários`,
+  const sharedNotes: { text: string; copyText: string }[] = []
+  for (const g of groups) {
+    if (g.comercialM == null) {
+      // Vendida no metro — cortada exata, não há sobra pra reaproveitar.
+      const trechos = g.trechos.filter(t => t.environment_id === envId)
+      if (trechos.length === 0) continue
+      const totalM = round2(trechos.reduce((s, t) => s + t.length_m * (t.strand_count ?? 1), 0))
+      lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM) })
+      continue
+    }
+    if (g.plano?.kind !== 'ok') continue
+    for (const peca of g.plano.plano.pecas) {
+      const ambientesDaPeca = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
+      const dono = peca.cortes[0]?.ambiente ?? 'Sem ambiente'
+      if (!ambientesDaPeca.includes(envName)) continue
+      if (ambientesDaPeca.length === 1) {
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1' })
+      } else if (envName === dono) {
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true,
+          detalhe: `compartilhada com ${ambientesDaPeca.filter(a => a !== envName).join(', ')}` })
+        const detalheCortes = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
+        sharedNotes.push({
+          text: `${g.groupLabel} — 1 ${noun} atende ${ambientesDaPeca.join(' + ')}: ${detalheCortes}. Comprar só 1 no total.`,
+          copyText: `Reaproveitamento: 1 ${noun} de ${g.groupLabel} atende ${ambientesDaPeca.join(' e ')} (${detalheCortes}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
         })
+      } else {
+        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '0', compartilhada: true,
+          detalhe: `reaproveita sobra de ${dono} — não comprar` })
       }
     }
   }
-  return lines
+  // Agrupa linhas iguais (mesmo produto, não-compartilhadas) somando quantidade.
+  const merged = new Map<string, BomLine>()
+  for (const l of lines) {
+    const key = `${l.produto}__${l.compartilhada ? 'shared' : 'plain'}__${l.detalhe ?? ''}`
+    if (l.compartilhada) { merged.set(key + Math.random(), l); continue } // compartilhadas ficam cada uma na sua linha
+    const existing = merged.get(key)
+    if (existing) existing.quantidade = String(Number(existing.quantidade) + Number(l.quantidade))
+    else merged.set(key, { ...l })
+  }
+  return { lines: Array.from(merged.values()), sharedNotes }
 }
 
-function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies }: {
+function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment }: {
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]; measurements: Measurement[]
-  powerSupplies: PowerSupply[]
+  powerSupplies: PowerSupply[]; perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
+  onFocusEnvironment: (env: Environment) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
   const totalPerfilM = round2(perfis.reduce((s, m) => s + m.length_m, 0))
-  const totalFitaM = round2(fitas.reduce((s, m) => s + m.length_m, 0))
-  const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m, m.power_w_per_m ?? 0).fonteMinimaW, 0))
+  const totalFitaM = round2(fitas.reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0))
+  const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m * (m.strand_count ?? 1), m.power_w_per_m ?? 0).fonteMinimaW, 0))
   const semAmbiente = symbols.filter(s => !s.environment_id).length
 
   function fonteBomFor(envId: string | null): BomLine[] {
@@ -2410,30 +2469,39 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
       </div>
 
       <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
-        💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Barras/rolos são arredondados
-        pra cima por ambiente (sem misturar sobras entre ambientes diferentes).
+        💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Quando uma barra/rolo é
+        compartilhado entre ambientes (sobra reaproveitada), aparece um aviso com botão de copiar.
       </p>
 
       <div className="space-y-3">
         {environments.map(env => {
           const envSymbols = symbols.filter(s => s.environment_id === env.id)
-          const byCode = new Map<string, number>()
+          const byName = new Map<string, number>()
           for (const s of envSymbols) {
-            const code = legendItems.find(li => li.id === s.legend_item_id)?.code ?? '?'
-            byCode.set(code, (byCode.get(code) ?? 0) + 1)
+            const li = legendItems.find(x => x.id === s.legend_item_id)
+            const name = li?.description || li?.code || 'Item sem legenda'
+            byName.set(name, (byName.get(name) ?? 0) + 1)
           }
-          const envPerfis = perfis.filter(m => m.environment_id === env.id)
-          const envFitas = fitas.filter(m => m.environment_id === env.id)
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
+          const perfilBom = bomFromGroups(perfilGroups, 'barra', env.id, env.name)
+          const fitaBom = bomFromGroups(fitaGroups, 'rolo', env.id, env.name)
           const bomLines: BomLine[] = [
-            ...Array.from(byCode.entries()).map(([code, n]) => ({ produto: code, unidade: 'un', quantidade: String(n) })),
-            ...bomForMeasurements(envPerfis, 'perfil'),
-            ...bomForMeasurements(envFitas, 'fita'),
+            ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n) })),
+            ...perfilBom.lines,
+            ...fitaBom.lines,
             ...fonteBomFor(env.id),
           ]
+          const sharedNotes = [...perfilBom.sharedNotes, ...fitaBom.sharedNotes]
           return (
             <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
-              <p className="text-sm font-bold text-gray-800">{env.name}</p>
+              <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
+                className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
+              {sharedNotes.length > 0 && sharedNotes.map((n, i) => (
+                <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  <p className="text-[11px] text-amber-800 flex-1">⚠️ {n.text}</p>
+                  <CopyButton text={n.copyText} />
+                </div>
+              ))}
               {bomLines.length > 0 && (
                 <table className="w-full text-xs">
                   <thead>
@@ -2445,9 +2513,9 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
                   </thead>
                   <tbody>
                     {bomLines.map((l, i) => (
-                      <tr key={i} className="border-t border-gray-100">
-                        <td className="py-1 text-gray-700">{l.produto}{l.detalhe && <span className="text-gray-400"> · {l.detalhe}</span>}</td>
-                        <td className="py-1 text-right font-semibold text-gray-800">{l.quantidade}</td>
+                      <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/60')}>
+                        <td className="py-1 text-gray-700">{l.produto}{l.detalhe && <span className="text-amber-600"> · {l.detalhe}</span>}</td>
+                        <td className={cn('py-1 text-right font-semibold', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade}</td>
                         <td className="py-1 text-right text-gray-500">{l.unidade}</td>
                       </tr>
                     ))}
