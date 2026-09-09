@@ -42,6 +42,22 @@ function mapEnum(table: Record<string, string>, v: unknown): string | null {
   return table[norm(v)] ?? null
 }
 
+// Aceita ISO (YYYY-MM-DD) ou dd/mm/aaaa (formato BR do robô). Qualquer coisa
+// que não dê pra interpretar como data vira null — nunca deixa quebrar o insert.
+function parseDateFlexible(v: unknown): string | null {
+  if (!v || typeof v !== 'string') return null
+  const s = v.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/)
+  if (m) {
+    const d = m[1].padStart(2, '0')
+    const mo = m[2].padStart(2, '0')
+    const y = m[3].length === 2 ? '20' + m[3] : m[3]
+    if (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) return `${y}-${mo}-${d}`
+  }
+  return null
+}
+
 function authorized(req: NextRequest): boolean {
   const key =
     req.headers.get('x-api-key') ??
@@ -141,8 +157,8 @@ export async function POST(req: NextRequest) {
     priority,
     size: mapEnum(SIZE, body.size),
     work_stage: mapEnum(STAGE, body.work_stage),
-    deadline: body.deadline || null,
-    quote_date: body.quote_date || new Date().toISOString().split('T')[0],
+    deadline: parseDateFlexible(body.deadline),
+    quote_date: parseDateFlexible(body.quote_date) ?? new Date().toISOString().split('T')[0],
     quoted_value: typeof body.quoted_value === 'number' ? body.quoted_value : null,
     notes: body.notes?.trim() || null,
     drive_link: body.drive_link?.trim() || null,
