@@ -87,6 +87,17 @@ function todayISO(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
 }
 
+// escolha por número numa lista de opções ("2" -> segunda opção)
+function pickByNumber(n: string, list: string[]): string | null {
+  const m = n.match(/^(\d{1,2})$/)
+  if (!m) return null
+  const i = parseInt(m[1], 10) - 1
+  return i >= 0 && i < list.length ? list[i] : null
+}
+function numberedList(list: string[]): string {
+  return list.map((o, i) => `${i + 1} ${o}`).join('  ·  ')
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 
 async function runEngine(conversationId: string) {
@@ -235,6 +246,7 @@ async function runEngine(conversationId: string) {
     for (const k of [
       '_last_prompt',
       '_bridge_sent',
+      '_optionals_gate',
       '_client_candidates',
       '_client_name',
       '_partner_candidates',
@@ -254,15 +266,6 @@ async function runEngine(conversationId: string) {
     await say(
       'Oi! Recebi seu projeto 📎 Vou te ajudar a cadastrar esse orçamento — ' +
         'vou perguntar um dado por vez.',
-    )
-  }
-
-  // ponte antes do primeiro opcional
-  if (isOptionalStep(next) && !data._bridge_sent && !anyOptionalAnswered(data)) {
-    data._bridge_sent = true
-    await say(
-      'Prontinho, o essencial já tá aqui. Agora uns opcionais — responda *pular* em qualquer ' +
-        'um, ou *pronto* pra ir direto pro resumo.',
     )
   }
 
@@ -304,12 +307,12 @@ function isPresent(data: Data, field: string): boolean {
 function hasAnyAnswer(data: Data): boolean {
   return REQUIRED.some((f) => isPresent(data, f)) || OPTIONAL.some((f) => f in data)
 }
-function anyOptionalAnswered(data: Data): boolean {
-  return OPTIONAL.some((f) => f in data)
-}
 
 function nextField(data: Data): string | null {
   for (const f of REQUIRED) if (!isPresent(data, f)) return f
+  const gate = data._optionals_gate
+  if (gate !== 'yes' && gate !== 'skip') return '_gate' // pergunta se quer os opcionais
+  if (gate === 'skip') return null
   for (const f of OPTIONAL) if (!(f in data)) return f
   return null
 }
@@ -329,6 +332,13 @@ async function applyAnswer(
   ctx: { db: SupabaseClient; collab: Record<string, unknown> | null },
 ): Promise<Outcome> {
   switch (field) {
+    case '_gate': {
+      if (YES.has(n)) return { patch: { _optionals_gate: 'yes' } }
+      const patch: Record<string, unknown> = { _optionals_gate: 'skip' }
+      for (const f of OPTIONAL) patch[f] = SKIP_SENTINEL
+      return { patch }
+    }
+
     case 'client':
       return await resolveContactStep('client', text, ctx.db)
 
@@ -352,23 +362,24 @@ async function applyAnswer(
     }
 
     case 'origin': {
-      const match = cfg.allowedOrigins.find((o) => norm(o) === n)
-      if (!match) return { reask: `Origem inválida. Escolha uma: ${cfg.allowedOrigins.join(', ')}.` }
+      const match = pickByNumber(n, cfg.allowedOrigins) ?? cfg.allowedOrigins.find((o) => norm(o) === n)
+      if (!match) return { reask: `Não entendi. Responde o número ou o nome:\n${numberedList(cfg.allowedOrigins)}` }
       return { patch: { origin: match } }
     }
 
     case 'category': {
-      const match = cfg.allowedCategories.find((c) => norm(c) === n)
+      const match =
+        pickByNumber(n, cfg.allowedCategories) ?? cfg.allowedCategories.find((c) => norm(c) === n)
       if (!match) {
-        return { reask: `Categoria inválida. Escolha uma: ${cfg.allowedCategories.join(', ')}.` }
+        return { reask: `Não entendi. Responde o número ou o nome:\n${numberedList(cfg.allowedCategories)}` }
       }
       return { patch: { category: match } }
     }
 
     case 'priority': {
       if (!text || SKIP.has(n)) return { patch: { priority: cfg.defaultPriority } }
-      const match = PRIORITIES.find((p) => norm(p) === n)
-      if (!match) return { reask: 'Prioridade inválida. Use: Baixa, Média, Alta ou Urgente.' }
+      const match = pickByNumber(n, PRIORITIES) ?? PRIORITIES.find((p) => norm(p) === n)
+      if (!match) return { reask: `Não entendi. Responde o número ou o nome:\n${numberedList(PRIORITIES)}` }
       return { patch: { priority: match } }
     }
 
@@ -388,9 +399,14 @@ async function applyAnswer(
 
     case 'size':
     case 'stage':
-    case 'deadline':
     case 'notes':
       return { patch: { [field]: SKIP.has(n) ? SKIP_SENTINEL : text.trim() } }
+
+    case 'deadline': {
+      if (SKIP.has(n)) return { patch: { deadline: SKIP_SENTINEL } }
+      const parsed = parseDate(n)
+      return { patch: { deadline: parsed ?? text.trim() } } // o endpoint normaliza/anula
+    }
 
     case 'drive_link': {
       if (SKIP.has(n)) return { patch: { drive_link: SKIP_SENTINEL } }
@@ -494,12 +510,18 @@ function promptFor(field: string, cfg: CfgOpts, data: Data): string {
     }
     case 'client_phone':
       return 'Não achei esse cliente nos contatos. Qual o *telefone* dele? (ou *pular* pra cadastrar sem telefone)'
+    case '_gate':
+      return (
+        'Só o essencial já dá pra cadastrar. Quer adicionar mais detalhes? ' +
+        '(parceiro, porte, prazo, valor, observações, link, vendedor)\n' +
+        'Responde *não* pra cadastrar já, ou *sim* pra completar.'
+      )
     case 'origin':
-      return `Qual a *origem*? (${cfg.allowedOrigins.join(', ')})`
+      return `*Origem?*\n${numberedList(cfg.allowedOrigins)}`
     case 'category':
-      return `Qual a *categoria*? (${cfg.allowedCategories.join(', ')})`
+      return `*Categoria?*\n${numberedList(cfg.allowedCategories)}`
     case 'priority':
-      return `Qual a *prioridade*? (Baixa, Média, Alta, Urgente) — se não souber, respondo *${cfg.defaultPriority}*.`
+      return `*Prioridade?*\n${numberedList(PRIORITIES)}\n(ou *pular* pra ${cfg.defaultPriority})`
     case 'partner':
       return 'Tem *parceiro/especificador*? (nome do arquiteto/engenheiro/designer — ou *pular*)'
     case 'size':
@@ -507,7 +529,7 @@ function promptFor(field: string, cfg: CfgOpts, data: Data): string {
     case 'stage':
       return '*Etapa* da obra? (ex: projeto, execução, acabamento — ou *pular*)'
     case 'deadline':
-      return '*Prazo*? (ou *pular*)'
+      return '*Prazo*? (dd/mm/aaaa — ou *pular*)'
     case 'quote_date':
       return '*Data do orçamento*? (dd/mm/aaaa — ou *pular* pra usar hoje)'
     case 'quote_value':
