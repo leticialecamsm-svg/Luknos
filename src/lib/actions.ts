@@ -855,6 +855,14 @@ export async function closeSale(quoteId: string, data: {
     }, { onConflict: 'quote_id,contact_id' })
   }
 
+  // Aviso de venda fechada (expedição + grupo da loja) via robô WhatsApp.
+  // Best-effort: nunca deixa quebrar o fechamento da venda.
+  try {
+    await notifySaleClosed(quoteId, finalValueRounded, closedQuoteInfo?.client_name ?? null)
+  } catch (e) {
+    console.error('notifySaleClosed falhou', e)
+  }
+
   revalidatePath('/dashboard')
   revalidatePath(`/quotes/${quoteId}`, 'page')
   revalidatePath('/quotes', 'layout')
@@ -862,6 +870,61 @@ export async function closeSale(quoteId: string, data: {
   revalidatePath('/partners')
   revalidatePath('/finance')
   return { ok: true }
+}
+
+// Dispara o aviso de "venda fechada" pros telefones em wa_bot_config
+// (sale_alert_phones) e, se configurado, pro grupo da loja (store_group_jid).
+// Usa a Edge Function send-whatsapp-message (interna, service role).
+async function notifySaleClosed(quoteId: string, value: number, clientName: string | null) {
+  const admin = createAdminClient()
+
+  const { data: cfg } = await admin
+    .from('wa_bot_config')
+    .select('sale_alert_phones, store_group_jid')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  const phones: string[] = cfg?.sale_alert_phones ?? []
+  const groupJid: string | null = cfg?.store_group_jid ?? null
+  const targets = [...phones, ...(groupJid ? [groupJid] : [])]
+  if (targets.length === 0) return
+
+  const { data: q } = await admin
+    .from('quotes_full')
+    .select('number, client_name, owners')
+    .eq('id', quoteId)
+    .maybeSingle()
+
+  const num = q?.number ? `#${q.number}` : ''
+  const cli = clientName || q?.client_name || 'cliente'
+  const primary = (q?.owners as any[] | null)?.find((o) => o.role === 'primary')
+  const sellerLine = primary?.name ? `\n🧑‍💼 Vendedor: ${primary.name}` : ''
+  const valueLine = value > 0
+    ? `\n💰 R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+    : ''
+
+  const text =
+    `🎉 *Venda fechada!* 🎉\n` +
+    `Orçamento *${num}* — ${cli}${valueLine}${sellerLine}\n\n` +
+    `📦 Já entrou no sistema de expedição. Bora entregar! 🚀`
+
+  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/send-whatsapp-message`
+  for (const to of targets) {
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'x-internal-call': '1',
+        },
+        body: JSON.stringify({ to_phone_e164: to, text }),
+      })
+    } catch (e) {
+      console.error('envio venda fechada falhou', to, e)
+    }
+  }
 }
 
 export async function markAsLost(quoteId: string, loss_reason: string) {
