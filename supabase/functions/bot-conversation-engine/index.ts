@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
   if (!isInternalCall(req)) return json({ ok: false, error: 'unauthorized' }, 401)
 
-  let payload: { conversation_id?: string }
+  let payload: { conversation_id?: string; last_inbound_message_id?: string }
   try {
     payload = await req.json()
   } catch {
@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
   if (!payload.conversation_id) return json({ ok: false, error: 'missing_conversation_id' }, 400)
 
   try {
-    const result = await runEngine(payload.conversation_id)
+    const result = await runEngine(payload.conversation_id, payload.last_inbound_message_id ?? null)
     return json({ ok: true, ...result })
   } catch (err) {
     console.error('bot-conversation-engine erro:', err)
@@ -103,7 +103,50 @@ function firstNameOf(name: string | null | undefined): string {
 
 // ── engine ────────────────────────────────────────────────────────────────
 
-async function runEngine(conversationId: string) {
+// Wrapper com lock: serializa o processamento de mensagens da mesma conversa.
+// Sem isso, uma rajada (vários arquivos no 1º contato) dispara N execuções
+// concorrentes que mandam as mesmas perguntas repetidas.
+async function runEngine(conversationId: string, lastInboundMessageId: string | null) {
+  const db = createServiceClient()
+  const nowISO = new Date().toISOString()
+  const { data: gotLock } = await db
+    .from('wa_conversations')
+    .update({ engine_lock_until: new Date(Date.now() + 25_000).toISOString() })
+    .eq('id', conversationId)
+    .or(`engine_lock_until.is.null,engine_lock_until.lt.${nowISO}`)
+    .select('id')
+    .maybeSingle()
+  if (!gotLock) return { skipped: 'locked' }
+
+  try {
+    return await runEngineInner(conversationId)
+  } finally {
+    await db.from('wa_conversations').update({ engine_lock_until: null }).eq('id', conversationId)
+    // chegou mensagem nova enquanto processávamos? re-dispara pra ela
+    if (lastInboundMessageId) {
+      try {
+        const { data: latest } = await db
+          .from('wa_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .eq('direction', 'inbound')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (latest?.id && latest.id !== lastInboundMessageId) {
+          await invokeFunction('bot-conversation-engine', {
+            conversation_id: conversationId,
+            last_inbound_message_id: latest.id,
+          })
+        }
+      } catch (e) {
+        console.error('re-chain do engine falhou', e)
+      }
+    }
+  }
+}
+
+async function runEngineInner(conversationId: string) {
   const db = createServiceClient()
 
   const { data: conv } = await db
@@ -144,8 +187,26 @@ async function runEngine(conversationId: string) {
   const defaultPriority: string = cfg?.default_priority ?? 'Média'
   const cfgOpts: CfgOpts = { allowedOrigins, allowedCategories, defaultPriority }
 
-  const say = (t: string) =>
-    sendWhatsappMessage({ conversationId, toPhoneE164: toPhone, text: t, instanceName: cfg?.evolution_instance_name ?? null })
+  const say = async (t: string) => {
+    // guarda anti-duplicata: não reenvia a mesma mensagem em sequência (~90s)
+    const { data: lastOut } = await db
+      .from('wa_messages')
+      .select('body, created_at')
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'outbound')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (
+      lastOut?.body === t && lastOut.created_at &&
+      Date.now() - new Date(lastOut.created_at).getTime() < 90_000
+    ) {
+      return { sent: false as const, error: 'duplicate' }
+    }
+    return sendWhatsappMessage({
+      conversationId, toPhoneE164: toPhone, text: t, instanceName: cfg?.evolution_instance_name ?? null,
+    })
+  }
   const save = (patch: Record<string, unknown>) =>
     db.from('wa_conversations').update(patch).eq('id', conversationId)
 
@@ -191,12 +252,15 @@ async function runEngine(conversationId: string) {
   // ── primeira interação ──────────────────────────────────────────────────
   if (!currentField && !hasAnyAnswer(data)) {
     if (isFileMsg) {
-      // já mandou arquivo -> entra direto no cadastro
+      // 1º contato já com arquivo -> modo "coletar arquivos" (aceita vários)
       data._flow = 'quote'
-      await save({ collected_data: data, current_field: 'client' })
-      await say('Recebi o(s) arquivo(s) 📎 Vou cadastrar esse orçamento — respondo o resto rapidinho.')
-      await say(promptFor('client', cfgOpts, data))
-      return { status: 'collecting', next_field: 'client' }
+      data._files_seen = 1
+      await save({ collected_data: data, current_field: '_await_files' })
+      await say(
+        '📎 Recebi seu arquivo! Pode mandar os outros (planta, 3D, DWG, SketchUp).\n' +
+        'Quando terminar, responde *pronto* que eu começo o cadastro.',
+      )
+      return { status: 'collecting', next_field: '_await_files' }
     }
     await save({ current_field: '_menu' })
     await say(menuPrompt(firstName))
@@ -206,12 +270,15 @@ async function runEngine(conversationId: string) {
   // ── MENU ────────────────────────────────────────────────────────────────
   if (currentField === '_menu') {
     if (isFileMsg) {
-      // mandou um projeto enquanto estava no menu -> entra no cadastro
+      // mandou um projeto enquanto estava no menu -> modo coletar arquivos
       data._flow = 'quote'
-      await save({ collected_data: data, current_field: 'client' })
-      await say('Recebi o(s) arquivo(s) 📎 Vou cadastrar esse orçamento.')
-      await say(promptFor('client', cfgOpts, data))
-      return { status: 'collecting', next_field: 'client' }
+      data._files_seen = 1
+      await save({ collected_data: data, current_field: '_await_files' })
+      await say(
+        '📎 Recebi seu arquivo! Pode mandar os outros. ' +
+        'Quando terminar, responde *pronto* que eu começo o cadastro.',
+      )
+      return { status: 'collecting', next_field: '_await_files' }
     }
     if (!text) return { status: 'collecting', next_field: '_menu', silent: true }
     const pick = pickNumber(n, 3)
@@ -240,17 +307,31 @@ async function runEngine(conversationId: string) {
   // ── AGUARDANDO ARQUIVOS ─────────────────────────────────────────────────
   if (currentField === '_await_files') {
     if (isFileMsg) {
-      await say('Recebi ✅ Mais algum arquivo? Quando terminar, responde *pronto*.')
-      return { status: 'collecting', next_field: '_await_files', silent: false }
+      // arquivo já foi salvo pela webhook; só contabiliza, sem responder (evita spam em rajada)
+      data._files_seen = ((data._files_seen as number) ?? 0) + 1
+      await save({ collected_data: data })
+      return { status: 'collecting', next_field: '_await_files', silent: true }
     }
     if (!text) return { status: 'collecting', next_field: '_await_files', silent: true }
-    if (['pronto', 'ok', 'sim', 'segue', 'seguir', 'continuar', 'proximo', 'pode'].includes(n) || SKIP.has(n)) {
-      await save({ current_field: 'client' })
-      await say(promptFor('client', cfgOpts, data))
-      return { status: 'collecting', next_field: 'client' }
-    }
-    await say('Manda os arquivos, ou responde *pronto* pra seguir (ou *pular* se não tiver).')
-    return { status: 'collecting', next_field: '_await_files' }
+    // qualquer texto encerra a coleta e vai pro cadastro
+    const { count } = await db
+      .from('wa_attachments')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId)
+    const nFiles = count ?? (data._files_seen as number) ?? 0
+    await save({ current_field: 'client' })
+    await say(
+      nFiles > 0
+        ? `📎 Recebi *${nFiles}* arquivo(s). Se faltou algum, manda agora que eu pego junto.\nAgora o cadastro:`
+        : 'Sem problema, seguimos sem arquivos. Agora o cadastro:',
+    )
+    await say(promptFor('client', cfgOpts, data))
+    return { status: 'collecting', next_field: 'client' }
+  }
+
+  // arquivo solto no meio do cadastro: reconhece em silêncio, não mexe no passo
+  if (isFileMsg && !text && currentField && currentField !== '_menu') {
+    return { status: 'collecting', next_field: currentField, silent: true }
   }
 
   // ── CADASTRO GUIADO ─────────────────────────────────────────────────────
@@ -329,7 +410,7 @@ async function runEngine(conversationId: string) {
   if (!isPresent(data, 'priority')) data.priority = defaultPriority
   if (!isRealValue(data.quote_date)) data.quote_date = todayISO()
   for (const k of [
-    '_last_prompt', '_flow', '_optgroup', '_optgroups_done', '_optmenu_final',
+    '_last_prompt', '_flow', '_optgroup', '_optgroups_done', '_optmenu_final', '_files_seen',
     '_client_candidates', '_client_name', '_partner_candidates', '_partner_name',
   ]) delete data[k]
 
