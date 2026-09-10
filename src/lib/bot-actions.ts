@@ -270,6 +270,7 @@ export interface CollaboratorInput {
   display_name: string
   system_user_id: string | null
   is_active: boolean
+  receives_agenda?: boolean
 }
 
 function validateCollaborator(input: CollaboratorInput) {
@@ -284,8 +285,21 @@ function validateCollaborator(input: CollaboratorInput) {
       display_name,
       system_user_id: input.system_user_id || null,
       is_active: !!input.is_active,
+      receives_agenda: input.receives_agenda ?? true,
     },
   }
+}
+
+export async function setBotCollaboratorAgenda(id: string, receives_agenda: boolean) {
+  const auth = await ensureBotAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient()
+    .from('wa_collaborators')
+    .update({ receives_agenda })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/bot-collaborators')
+  return { ok: true }
 }
 
 export async function createBotCollaborator(input: CollaboratorInput) {

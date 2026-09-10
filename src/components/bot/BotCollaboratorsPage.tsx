@@ -8,6 +8,7 @@ import {
   createBotCollaborator,
   updateBotCollaborator,
   setBotCollaboratorActive,
+  setBotCollaboratorAgenda,
   deleteBotCollaborator,
   getBotCollaborators,
   type CollaboratorInput,
@@ -19,6 +20,7 @@ type Collaborator = {
   display_name: string
   system_user_id: string | null
   is_active: boolean
+  receives_agenda: boolean
   created_at: string
 }
 type SystemUser = { id: string; name: string; role: string; active: boolean }
@@ -83,6 +85,19 @@ export function BotCollaboratorsPage({
     await reload()
   }
 
+  async function handleToggleAgenda(row: Collaborator) {
+    const res = await setBotCollaboratorAgenda(row.id, !row.receives_agenda)
+    if (res?.error) {
+      toast.error('Erro', res.error)
+      return
+    }
+    toast.success(
+      !row.receives_agenda ? 'Recebe a agenda' : 'Não recebe mais a agenda',
+      row.display_name,
+    )
+    await reload()
+  }
+
   async function handleDelete(row: Collaborator) {
     const ok = await confirm(
       `Remover "${row.display_name}" da whitelist?`,
@@ -143,13 +158,14 @@ export function BotCollaboratorsPage({
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Telefone (E.164)</th>
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Vendedor vinculado</th>
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Status</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-600">Agenda 8h30</th>
               <th className="px-4 py-3 w-24" />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center">
+                <td colSpan={6} className="px-4 py-10 text-center">
                   <p className="text-sm text-gray-500">Nenhum colaborador cadastrado ainda.</p>
                   <button
                     onClick={() => setModal('new')}
@@ -162,7 +178,7 @@ export function BotCollaboratorsPage({
             )}
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
                   Nenhum resultado para os filtros atuais.
                 </td>
               </tr>
@@ -189,6 +205,19 @@ export function BotCollaboratorsPage({
                     }
                   >
                     {r.is_active ? 'Ativo' : 'Inativo'}
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => handleToggleAgenda(r)}
+                    className={
+                      'text-xs font-medium px-2 py-1 rounded-full ' +
+                      (r.receives_agenda
+                        ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200')
+                    }
+                  >
+                    {r.receives_agenda ? 'Recebe' : 'Não'}
                   </button>
                 </td>
                 <td className="px-4 py-3">
@@ -243,6 +272,7 @@ function CollaboratorModal({
   const [name, setName] = useState(collaborator?.display_name ?? '')
   const [systemUserId, setSystemUserId] = useState(collaborator?.system_user_id ?? '')
   const [isActive, setIsActive] = useState(collaborator?.is_active ?? true)
+  const [recvAgenda, setRecvAgenda] = useState(collaborator?.receives_agenda ?? true)
   const [saving, setSaving] = useState(false)
 
   const phoneValid = /^\+[1-9]\d{6,14}$/.test(phone.trim())
@@ -257,6 +287,7 @@ function CollaboratorModal({
         display_name: name.trim(),
         system_user_id: systemUserId || null,
         is_active: isActive,
+        receives_agenda: recvAgenda,
       },
       collaborator?.id,
     )
@@ -328,6 +359,14 @@ function CollaboratorModal({
               onChange={(e) => setIsActive(e.target.checked)}
             />
             Ativo (pode cadastrar pelo robô)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={recvAgenda}
+              onChange={(e) => setRecvAgenda(e.target.checked)}
+            />
+            Recebe a agenda diária (todo dia, entre 8h e 9h)
           </label>
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">

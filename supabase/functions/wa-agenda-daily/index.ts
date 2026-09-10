@@ -1,6 +1,6 @@
 // wa-agenda-daily — dispara a agenda (resumo do dia + resto da semana) para
-// todos os colaboradores ativos do robô. Agendado para 08h30 (America/Sao_Paulo)
-// por um cron da Vercel que chama esta função.
+// os colaboradores marcados como receives_agenda. Agendado para ~08h30
+// (America/Sao_Paulo) por um cron da Vercel que chama esta função.
 //
 // Auth: interna (service role) — via /api/cron/agenda-broadcast do Next.
 // Input:  {} | { dry_run?: boolean }
@@ -53,8 +53,9 @@ async function run(dryRun: boolean) {
 
   const { data: collaborators } = await db
     .from('wa_collaborators')
-    .select('id, phone_e164, display_name, system_user_id, is_active')
+    .select('id, phone_e164, display_name, system_user_id, is_active, receives_agenda')
     .eq('is_active', true)
+    .eq('receives_agenda', true)
 
   // dedupe por telefone (uma pessoa pode ter linha "loja" e "pessoal")
   const seen = new Set<string>()
