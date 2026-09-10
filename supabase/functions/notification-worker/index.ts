@@ -59,6 +59,14 @@ async function run(notificationId?: string) {
   const { data: rows, error } = await query
   if (error) throw error
 
+  const { data: cfg } = await db
+    .from('wa_bot_config')
+    .select('system_api_base_url')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  const baseUrl = (cfg?.system_api_base_url ?? '').replace(/\/$/, '')
+
   let sent = 0
   let failed = 0
 
@@ -67,10 +75,13 @@ async function run(notificationId?: string) {
       ? `#${row.system_quote_id}`
       : String(row.system_quote_id)
 
+    const link = await quoteLink(db, baseUrl, String(row.system_quote_id))
+
     const text =
       `🔔 *Novo orçamento em seu nome*\n` +
       `O orçamento *${displayId}* foi cadastrado pelo Robô de Orçamentos e está com você como ` +
-      `vendedor responsável. Abra o sistema para iniciar a análise e a negociação.`
+      `vendedor responsável. Abra o sistema para iniciar a análise e a negociação.` +
+      (link ? `\n\n${link}` : '')
 
     let ok = false
     try {
@@ -105,4 +116,27 @@ async function run(notificationId?: string) {
   }
 
   return { processed: rows?.length ?? 0, sent, failed }
+}
+
+// Monta o link do orçamento no sistema. system_quote_id normalmente é o número
+// (quotes.number) — resolve o uuid em quotes pra montar /quotes/<uuid>.
+async function quoteLink(
+  db: ReturnType<typeof createServiceClient>,
+  baseUrl: string,
+  systemQuoteId: string,
+): Promise<string | null> {
+  if (!baseUrl || !systemQuoteId) return null
+  const isNumber = /^\d+$/.test(systemQuoteId)
+  if (isNumber) {
+    const { data } = await db
+      .from('quotes')
+      .select('id')
+      .eq('number', Number(systemQuoteId))
+      .limit(1)
+      .maybeSingle()
+    if (!data?.id) return null
+    return `${baseUrl}/quotes/${data.id}`
+  }
+  // já é uuid (caso de fallback)
+  return `${baseUrl}/quotes/${systemQuoteId}`
 }
