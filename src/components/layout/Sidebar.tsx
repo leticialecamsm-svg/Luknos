@@ -13,6 +13,8 @@ import type { User } from '@/types'
 const NAV = [
   { href: '/dashboard',       label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/dashboard/tasks', label: 'Tarefas',     icon: CheckSquare },
+  // /schedules redireciona pra aba Agenda da página de Tarefas — mantido aqui
+  // pra preservar as permissões por página já cadastradas nos colaboradores.
   { href: '/schedules',       label: 'Agenda',      icon: Calendar },
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },

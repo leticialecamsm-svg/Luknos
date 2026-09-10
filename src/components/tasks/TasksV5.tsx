@@ -10,10 +10,14 @@ import {
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, ChevronLeft, ChevronRight, Link2, Trash2, Users, GripVertical, StickyNote, Loader2 } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, ChevronLeft, ChevronRight, Link2, Trash2, Users, GripVertical, StickyNote, Loader2, CalendarDays, CheckSquare } from 'lucide-react'
 import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
+import { AgendaPanel, AgendaFull } from '@/components/agenda/AgendaPanel'
+import { ScheduleModal } from '@/components/schedules/ScheduleModal'
+import { ScheduleViewModal } from '@/components/schedules/ScheduleViewModal'
+import { getSchedules, deleteSchedule } from '@/lib/actions'
 
 type Status   = 'todo' | 'doing' | 'paused' | 'done'
 type Priority = 'high' | 'mid' | 'low'
@@ -84,11 +88,15 @@ function weekLabel(weekOffset: number): string {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
+export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, canSeeAgenda = true, initialSchedules = [], initialView = 'tarefas' }: {
   myTasks: Task[]; allTasks: Task[]; allUsers: User[]
   currentUser: User; isAdmin: boolean
+  canSeeAgenda?: boolean
+  initialSchedules?: any[]
+  initialView?: 'tarefas' | 'agenda'
 }) {
   const toast = useToast()
+  const [view, setView] = useState<'tarefas' | 'agenda'>(initialView)
   const [scope, setScope]   = useState<'mine' | 'team'>('mine')
   const [memberFilter, setMemberFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
@@ -98,6 +106,26 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
   const [showAllEarlier, setShowAllEarlier] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
+
+  // ── Agenda (mesma página, painel lateral + aba própria) ────────────────────
+  const [schedules, setSchedules] = useState<any[]>(initialSchedules)
+  const [viewingSchedule, setViewingSchedule] = useState<any | null>(null)
+  const [editingSchedule, setEditingSchedule] = useState<any | null>(null)
+  const [creatingSchedule, setCreatingSchedule] = useState<{ date?: string } | null>(null)
+
+  async function reloadSchedules() {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]
+    const end = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString().split('T')[0]
+    setSchedules(await getSchedules(start, end) as any[])
+  }
+
+  async function removeSchedule(id: string) {
+    const res = await deleteSchedule(id)
+    if (res?.error) { toast.error('Não foi possível excluir', res.error); return }
+    setViewingSchedule(null)
+    reloadSchedules()
+  }
 
   // As concluídas só vêm da semana selecionada (weekOffset 0 = atual) — o
   // resto do histórico não é carregado de cara, pra nunca esbarrar de novo
@@ -349,6 +377,41 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
     low:  todayTasks.filter(t => t.priority === 'low'),
   }
 
+  // ── Aba Agenda (tela cheia) ───────────────────────────────────────────────
+  if (view === 'agenda' && canSeeAgenda) {
+    return (
+      <>
+      <div className="flex flex-col h-full min-h-0 gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
+            <p className="text-sm text-gray-400">Compromissos da equipe</p>
+          </div>
+          <div className="flex gap-2">
+            <ViewTabs view={view} setView={setView} />
+            <button onClick={() => setCreatingSchedule({})} className="btn-primary">
+              <Plus className="w-4 h-4" /> Novo agendamento
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0">
+          <AgendaFull
+            schedules={schedules}
+            onSelect={setViewingSchedule}
+            onNew={() => setCreatingSchedule({})}
+          />
+        </div>
+      </div>
+      <ScheduleModals
+        viewing={viewingSchedule} editing={editingSchedule} creating={creatingSchedule}
+        setViewing={setViewingSchedule} setEditing={setEditingSchedule} setCreating={setCreatingSchedule}
+        onDelete={removeSchedule} onSaved={reloadSchedules}
+      />
+      </>
+    )
+  }
+
   return (
     <>
     <div className="flex gap-5 h-full min-h-0">
@@ -366,6 +429,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             </p>
           </div>
           <div className="flex gap-2">
+            {canSeeAgenda && <ViewTabs view={view} setView={setView} />}
             {isAdmin && scope === 'team' && (
               <select
                 value={memberFilter}
@@ -523,7 +587,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
         </div>
       </div>
 
-      {selected && (
+      {/* Coluna da direita: agenda por padrão; a tarefa aberta toma o lugar dela */}
+      {selected ? (
         <DetailPanel
           key={selected.id} task={selected}
           onClose={() => setSelected(null)}
@@ -535,12 +600,74 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin }: {
             setSelected(p => p ? { ...p, subtasks } : p)
           }}
         />
-      )}
+      ) : canSeeAgenda ? (
+        <AgendaPanel
+          schedules={schedules}
+          onSelect={setViewingSchedule}
+          onNew={() => setCreatingSchedule({})}
+        />
+      ) : null}
     </div>
 
     {selectedQuoteId && (
       <QuoteQuickViewModal quoteId={selectedQuoteId} onClose={() => setSelectedQuoteId(null)} />
     )}
+    <ScheduleModals
+      viewing={viewingSchedule} editing={editingSchedule} creating={creatingSchedule}
+      setViewing={setViewingSchedule} setEditing={setEditingSchedule} setCreating={setCreatingSchedule}
+      onDelete={removeSchedule} onSaved={reloadSchedules}
+    />
+    </>
+  )
+}
+
+// ── Abas Tarefas / Agenda ─────────────────────────────────────────────────────
+
+function ViewTabs({ view, setView }: { view: 'tarefas' | 'agenda'; setView: (v: 'tarefas' | 'agenda') => void }) {
+  return (
+    <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+      {([['tarefas', 'Tarefas', CheckSquare], ['agenda', 'Agenda', CalendarDays]] as const).map(([v, label, Icon]) => (
+        <button key={v} onClick={() => setView(v)}
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            view === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+          <Icon className="w-3.5 h-3.5" /> {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Modais de agendamento (compartilhados pelas duas abas) ────────────────────
+
+function ScheduleModals({ viewing, editing, creating, setViewing, setEditing, setCreating, onDelete, onSaved }: {
+  viewing: any | null; editing: any | null; creating: { date?: string } | null
+  setViewing: (s: any | null) => void; setEditing: (s: any | null) => void; setCreating: (s: { date?: string } | null) => void
+  onDelete: (id: string) => void; onSaved: () => void
+}) {
+  return (
+    <>
+      {creating && (
+        <ScheduleModal
+          defaultDate={creating.date}
+          onClose={() => setCreating(null)}
+          onSuccess={() => { setCreating(null); onSaved() }}
+        />
+      )}
+      {editing && (
+        <ScheduleModal
+          schedule={editing}
+          onClose={() => setEditing(null)}
+          onSuccess={() => { setEditing(null); onSaved() }}
+        />
+      )}
+      {viewing && (
+        <ScheduleViewModal
+          schedule={viewing}
+          onClose={() => setViewing(null)}
+          onEdit={() => { setEditing(viewing); setViewing(null) }}
+          onDelete={() => onDelete(viewing.id)}
+        />
+      )}
     </>
   )
 }
@@ -970,9 +1097,14 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
 
   return (
     <>
-      <div className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
-      <div className={cn('flex items-center gap-2 px-4 py-3 border-b border-gray-100',
+      <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
+      <div className={cn('flex items-center gap-2 px-3 py-3 border-b border-gray-100',
         task.priority === 'high' ? 'bg-red-50' : task.priority === 'mid' ? 'bg-amber-50' : 'bg-gray-50')}>
+        {/* Fechar a tarefa devolve a agenda pro painel */}
+        <button onClick={onClose} title="Voltar para a Agenda"
+          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-white/60 rounded-lg transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
         <span className={cn('w-2 h-2 rounded-full', P[task.priority].dot)} />
         <span className={cn('text-xs font-bold flex-1 uppercase tracking-wide', P[task.priority].text)}>{P[task.priority].label}</span>
         <button onClick={onDelete} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
