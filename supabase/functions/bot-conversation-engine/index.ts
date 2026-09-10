@@ -51,7 +51,8 @@ const ALL_OPTIONAL = [
 const OPT_GROUPS = [
   { key: 'partner', label: 'Parceiro', fields: ['partner'] },
   { key: 'size', label: 'Porte do orçamento', fields: ['size'] },
-  { key: 'prazovalor', label: 'Prazo, valor', fields: ['deadline', 'quote_value'] },
+  { key: 'deadline', label: 'Prazo', fields: ['deadline'] },
+  { key: 'quote_value', label: 'Valor orçado', fields: ['quote_value'] },
   { key: 'notes', label: 'Observações', fields: ['notes'] },
   { key: 'seller', label: 'Consultor responsável', fields: ['seller'] },
 ]
@@ -245,7 +246,12 @@ async function runEngineInner(conversationId: string) {
       await say(`Vamos corrigir *${label(editField)}*.\n\n` + promptFor(editField, cfgOpts, data))
       return { status: 'collecting', next_field: editField }
     }
-    await say('Não entendi. Responda *sim* pra cadastrar, *não* pra cancelar, ou diga o campo que quer corrigir (ex: "corrigir origem").')
+    await say(
+      '⚠️ *Preciso da sua resposta pra concluir:*\n' +
+      '✅ *Sim* — cadastrar o orçamento\n' +
+      '❌ *Não* — cancelar\n' +
+      '✏️ *Corrigir* — ex: "corrigir consultor"',
+    )
     return { status: 'awaiting_confirmation' }
   }
 
@@ -787,7 +793,11 @@ function buildSummary(data: Data, userName: string | null): string {
     `📝 *Observações:* ${opt('notes')}`,
     `🧑‍💼 *Consultor responsável:* ${sellerLine}`,
     '',
-    'Confirma? Responde *sim* pra cadastrar, *não* pra cancelar, ou diz o que corrigir (ex: "corrigir origem").',
+    '━━━━━━━━━━━━━━',
+    '⚠️ *Falta você confirmar!* Responde uma opção:',
+    '✅ *Sim* — cadastrar o orçamento',
+    '❌ *Não* — cancelar',
+    '✏️ *Corrigir* — ex: "corrigir consultor"',
   ].join('\n')
 }
 

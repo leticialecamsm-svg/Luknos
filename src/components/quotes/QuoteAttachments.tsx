@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { cn } from '@/lib/utils'
 import {
-  Paperclip, Upload, FileText, Image as ImageIcon, Box, Trash2, Download, Loader2, Bot,
+  Paperclip, Upload, FileText, Image as ImageIcon, Box, Trash2, Download, Eye, Loader2, Bot,
 } from 'lucide-react'
 
 type Item = {
@@ -112,10 +112,10 @@ export function QuoteAttachments({
     })
   }
 
-  async function open(item: Item) {
+  async function open(item: Item, mode: 'view' | 'download') {
     setBusyId(item.id)
     try {
-      const res = await getQuoteAttachmentUrl(item.id, item.source)
+      const res = await getQuoteAttachmentUrl(item.id, item.source, mode)
       if (res.error || !res.url) {
         toast.error('OCORREU UM ERRO', res.error ?? 'Não foi possível abrir o arquivo.')
         return
@@ -127,11 +127,17 @@ export function QuoteAttachments({
   }
 
   async function remove(item: Item) {
-    if (item.source === 'robot') return
-    const yes = await confirm(`Remover "${item.file_name}"? O arquivo será apagado permanentemente.`, 'Remover')
+    if (!quoteId) return
+    const extra = item.source === 'robot'
+      ? ' (veio pelo robô — some também do painel do robô)'
+      : ''
+    const yes = await confirm(
+      `Remover "${item.file_name}"?${extra} O arquivo será apagado permanentemente.`,
+      'Remover',
+    )
     if (!yes) return
     setBusyId(item.id)
-    const res = await deleteQuoteAttachment(item.id, quoteId!)
+    const res = await deleteQuoteAttachment(item.id, quoteId, item.source)
     setBusyId(null)
     if (res.error) toast.error('OCORREU UM ERRO', res.error)
     else { toast.success('TUDO CERTO!', 'Anexo removido.'); refresh() }
@@ -203,16 +209,25 @@ export function QuoteAttachments({
                 </div>
                 <button
                   type="button"
-                  onClick={() => open(item)}
+                  onClick={() => open(item, 'view')}
                   disabled={busyId === item.id}
                   className="p-1 text-gray-400 hover:text-brand-600"
-                  title="Abrir"
+                  title="Visualizar"
                 >
                   {busyId === item.id
                     ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <Download className="w-4 h-4" />}
+                    : <Eye className="w-4 h-4" />}
                 </button>
-                {item.source === 'manual' && quoteId && (
+                <button
+                  type="button"
+                  onClick={() => open(item, 'download')}
+                  disabled={busyId === item.id}
+                  className="p-1 text-gray-400 hover:text-brand-600"
+                  title="Baixar"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                {quoteId && (
                   <button
                     type="button"
                     onClick={() => remove(item)}

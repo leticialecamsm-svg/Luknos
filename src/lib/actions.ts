@@ -3577,11 +3577,31 @@ export async function uploadQuoteAttachment(formData: FormData) {
   return { ok: true, id: data.id }
 }
 
-export async function deleteQuoteAttachment(id: string, quoteId: string) {
+export async function deleteQuoteAttachment(
+  id: string,
+  quoteId: string,
+  source: 'manual' | 'robot' = 'manual',
+) {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
   const admin = createAdminClient()
+
+  if (source === 'robot') {
+    const { data: row } = await admin
+      .from('wa_attachments')
+      .select('storage_path')
+      .eq('id', id)
+      .maybeSingle()
+    if (row?.storage_path) {
+      await admin.storage.from('wa-attachments').remove([row.storage_path])
+    }
+    const { error } = await admin.from('wa_attachments').delete().eq('id', id)
+    if (error) return { error: error.message }
+    revalidatePath(`/quotes/${quoteId}`)
+    return { ok: true }
+  }
+
   const { data: row } = await admin
     .from('quote_attachments')
     .select('storage_path')
@@ -3597,36 +3617,32 @@ export async function deleteQuoteAttachment(id: string, quoteId: string) {
   return { ok: true }
 }
 
-// URL assinada (5 min) pra abrir um anexo — manual (quote-attachments) ou do
-// robô (wa-attachments).
-export async function getQuoteAttachmentUrl(id: string, source: 'manual' | 'robot') {
+// URL assinada (5 min) pra um anexo — manual (quote-attachments) ou do robô
+// (wa-attachments). mode 'view' abre no navegador (PDF/imagem renderizam);
+// mode 'download' força baixar.
+export async function getQuoteAttachmentUrl(
+  id: string,
+  source: 'manual' | 'robot',
+  mode: 'view' | 'download' = 'view',
+) {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
   const admin = createAdminClient()
-  if (source === 'robot') {
-    const { data: att } = await admin
-      .from('wa_attachments')
-      .select('storage_path, file_name')
-      .eq('id', id)
-      .maybeSingle()
-    if (!att?.storage_path) return { error: 'Anexo não encontrado' }
-    const { data, error } = await admin.storage
-      .from('wa-attachments')
-      .createSignedUrl(att.storage_path, 300, { download: att.file_name })
-    if (error) return { error: error.message }
-    return { url: data.signedUrl }
-  }
+  const bucket = source === 'robot' ? 'wa-attachments' : 'quote-attachments'
+  const table = source === 'robot' ? 'wa_attachments' : 'quote_attachments'
 
   const { data: att } = await admin
-    .from('quote_attachments')
+    .from(table)
     .select('storage_path, file_name')
     .eq('id', id)
     .maybeSingle()
   if (!att?.storage_path) return { error: 'Anexo não encontrado' }
+
+  const opts = mode === 'download' ? { download: att.file_name } : undefined
   const { data, error } = await admin.storage
-    .from('quote-attachments')
-    .createSignedUrl(att.storage_path, 300, { download: att.file_name })
+    .from(bucket)
+    .createSignedUrl(att.storage_path, 300, opts)
   if (error) return { error: error.message }
   return { url: data.signedUrl }
 }
