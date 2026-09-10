@@ -14,6 +14,7 @@ import { isInternalCall, invokeFunction } from '../_shared/internal.ts'
 import { createServiceClient } from '../_shared/supabase.ts'
 import { sendWhatsappMessage } from '../_shared/wa-send.ts'
 import { toE164 } from '../_shared/phone.ts'
+import { buildAgendaText } from '../_shared/agenda.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 Deno.serve(async (req) => {
@@ -76,18 +77,6 @@ function norm(s: string): string {
 }
 function todayISO(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
-}
-function hourSP(): number {
-  return Number(
-    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Sao_Paulo' })
-      .format(new Date()),
-  )
-}
-function greetingWord(): string {
-  const h = hourSP()
-  if (h < 12) return 'Bom dia'
-  if (h < 18) return 'Boa tarde'
-  return 'Boa noite'
 }
 function pickNumber(n: string, count: number): number | null {
   const m = n.match(/^(\d{1,2})$/)
@@ -295,13 +284,13 @@ async function runEngineInner(conversationId: string) {
       return { status: 'collecting', next_field: '_await_files' }
     }
     if (pick === 2 || /(agenda|compromiss).*(dia|hoje)|^dia$|^hoje$/.test(n)) {
-      await say(await buildAgenda(db, collab?.system_user_id ?? null, 'day', firstName))
+      await say(await buildAgendaText(db, { sellerId: collab?.system_user_id ?? null, firstName, mode: 'day' }))
       await save({ current_field: '_menu' })
       await say('Precisa de mais alguma coisa? Manda *oi* que eu mostro as opções.')
       return { status: 'collecting', next_field: '_menu', done: 'agenda_day' }
     }
     if (pick === 3 || /(agenda|compromiss).*semana|^semana$/.test(n)) {
-      await say(await buildAgenda(db, collab?.system_user_id ?? null, 'week', firstName))
+      await say(await buildAgendaText(db, { sellerId: collab?.system_user_id ?? null, firstName, mode: 'week' }))
       await save({ current_field: '_menu' })
       await say('Precisa de mais alguma coisa? Manda *oi* que eu mostro as opções.')
       return { status: 'collecting', next_field: '_menu', done: 'agenda_week' }
@@ -472,73 +461,6 @@ function ensureAutoOptionals(data: Data) {
   if (!('quote_date' in data)) data.quote_date = todayISO()
   if (!('stage' in data)) data.stage = SKIP_SENTINEL
   if (!('drive_link' in data)) data.drive_link = SKIP_SENTINEL
-}
-
-// ── agenda ────────────────────────────────────────────────────────────────
-
-async function buildAgenda(
-  db: SupabaseClient,
-  sellerId: string | null,
-  range: 'day' | 'week',
-  firstName: string,
-): Promise<string> {
-  const today = todayISO()
-  let start = today
-  let end = today
-  if (range === 'week') {
-    const d = new Date(today + 'T12:00:00')
-    const dow = (d.getDay() + 6) % 7 // 0 = segunda
-    const mon = new Date(d)
-    mon.setDate(d.getDate() - dow)
-    const sun = new Date(mon)
-    sun.setDate(mon.getDate() + 6)
-    start = mon.toISOString().slice(0, 10)
-    end = sun.toISOString().slice(0, 10)
-  }
-
-  const { data: rows } = await db
-    .from('schedules')
-    .select('title, location, scheduled_date, scheduled_time, team_members')
-    .gte('scheduled_date', start)
-    .lte('scheduled_date', end)
-    .order('scheduled_date', { ascending: true })
-    .order('scheduled_time', { ascending: true, nullsFirst: false })
-
-  const list = (rows ?? []) as {
-    title: string
-    location: string | null
-    scheduled_date: string
-    scheduled_time: string | null
-    team_members: string[] | null
-  }[]
-
-  const hi = `Olá${firstName ? `, ${firstName}` : ''}! ${greetingWord()}`
-  if (list.length === 0) {
-    return `${hi}\n\n${range === 'day' ? 'Não há eventos na agenda de hoje.' : 'Não há eventos na agenda desta semana.'}`
-  }
-
-  const hhmm = (t: string | null) => (t ? t.slice(0, 5).replace(':', 'h') : 'Sem horário')
-  const lines = list.map((e) => {
-    const day = range === 'week' ? `${fmtDate(e.scheduled_date)} · ` : ''
-    const loc = e.location ? ` | Local: ${e.location}` : ''
-    return `• ${day}${hhmm(e.scheduled_time)} - ${e.title}${loc}`
-  })
-
-  const mine = list.filter((e) => sellerId && (e.team_members ?? []).includes(sellerId))
-  let tail: string
-  if (mine.length > 0) {
-    const when = mine.map((e) => hhmm(e.scheduled_time)).join(', ')
-    tail =
-      `\n\nVocê está ligado diretamente ${mine.length === 1 ? 'ao evento' : 'aos eventos'} das ${when} — ` +
-      `vamos trabalhar junto à equipe para garantir o cumprimento da agenda!`
-  } else {
-    tail =
-      '\n\nVocê não está ligado diretamente a esses eventos, mas vamos trabalhar junto à equipe ' +
-      'para garantir o cumprimento da agenda!'
-  }
-
-  const header = range === 'day' ? 'Hoje nossa agenda será:' : 'Nossa agenda da semana:'
-  return `${hi}\n${header}\n\n${lines.join('\n')}${tail}`
 }
 
 // ── estado do cadastro ────────────────────────────────────────────────────

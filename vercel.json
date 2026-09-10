@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/cron/agenda-broadcast", "schedule": "30 11 * * *" }
+  ]
+}
