@@ -6,8 +6,8 @@ export const metadata = { title: 'Entrar — Luknos' }
 export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex flex-col bg-gradient-to-b from-white via-[#FBFBFA] to-[#F2F3F6]">
-      <div className="flex-1 w-full max-w-[1500px] mx-auto px-8 lg:px-16 py-12
-                      grid lg:grid-cols-2 gap-14 lg:gap-10 items-center">
+      <div className="flex-1 w-full max-w-[1120px] mx-auto px-8 lg:px-10 py-12
+                      grid lg:grid-cols-2 gap-14 lg:gap-12 items-center">
 
         {/* ─── Marca + versículo ─── */}
         <div className="max-w-xl">

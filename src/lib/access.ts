@@ -32,3 +32,38 @@ export async function requirePageAccess(pagePath: string) {
 
   return { profile, allowedPages, roleLabel }
 }
+
+/** true se `allowedPages` (null = admin) cobre `pagePath`. */
+export function canAccessPage(allowedPages: string[] | null, pagePath: string) {
+  return allowedPages === null
+    || allowedPages.some(p => pagePath === p || pagePath.startsWith(p + '/'))
+}
+
+// Mesma checagem do requirePageAccess, mas basta ter acesso a UMA das páginas.
+// Usado por Tarefas & Agenda, que juntou duas páginas que antes eram separadas:
+// quem tinha só uma das duas permissões continua entrando.
+export async function requireAnyPageAccess(pagePaths: string[]) {
+  const supabase = createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) redirect('/auth/login')
+
+  const { data: profile } = await supabase.from('users').select('*').eq('id', user.id).single()
+  if (!profile) redirect('/auth/login')
+
+  const admin = createAdminClient()
+  const { data: role } = await admin.from('roles').select('label, allowed_pages').eq('name', profile.role).maybeSingle()
+  const roleLabel = role?.label ?? profile.role
+
+  if (profile.role === 'admin') return { profile, allowedPages: null as string[] | null, roleLabel }
+
+  const allowedPages: string[] = [
+    ...(role?.allowed_pages ?? []),
+    ...((profile.extra_pages as string[] | null) ?? []),
+  ]
+
+  if (!pagePaths.some(path => canAccessPage(allowedPages, path))) {
+    redirect(allowedPages[0] ?? '/dashboard')
+  }
+
+  return { profile, allowedPages, roleLabel }
+}
