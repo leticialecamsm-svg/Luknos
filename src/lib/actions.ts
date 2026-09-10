@@ -3600,44 +3600,62 @@ export async function getQuoteAttachments(quoteId: string) {
   }
 }
 
-export async function uploadQuoteAttachment(formData: FormData) {
+// O arquivo NÃO passa mais pelo servidor. Mandar o PDF dentro de uma server
+// action esbarrava no limite de 1 MB do Next (e no teto de 4,5 MB de corpo de
+// request da Vercel) — o envio simplesmente estourava antes de chegar no nosso
+// código, derrubando a página. Agora o servidor só assina a URL de upload e o
+// navegador manda o arquivo direto pro Storage, então os 25 MB da tela valem
+// de verdade.
+export async function createQuoteAttachmentUpload(input: {
+  quoteId: string
+  fileName: string
+  sizeBytes: number
+}): Promise<{ error?: string; path?: string; token?: string }> {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!input.quoteId) return { error: 'Orçamento inválido' }
+  if (!input.sizeBytes) return { error: 'Arquivo vazio' }
+  if (input.sizeBytes > QUOTE_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 25 MB' }
+
+  const safe = input.fileName.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
+  const storagePath = `${input.quoteId}/${Date.now()}_${safe}`
+
+  const { data, error } = await createAdminClient().storage
+    .from('quote-attachments')
+    .createSignedUploadUrl(storagePath)
+  if (error || !data) return { error: error?.message ?? 'Não foi possível preparar o envio' }
+
+  return { path: data.path, token: data.token }
+}
+
+// Chamado depois que o navegador terminou de subir o arquivo — só grava a linha.
+export async function confirmQuoteAttachment(input: {
+  quoteId: string
+  storagePath: string
+  fileName: string
+  mimeType?: string | null
+  sizeBytes: number
+}): Promise<{ error?: string; ok?: boolean }> {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
-  const quoteId = String(formData.get('quote_id') ?? '')
-  const file = formData.get('file') as File | null
-  if (!quoteId) return { error: 'Orçamento inválido' }
-  if (!file || file.size === 0) return { error: 'Nenhum arquivo enviado' }
-  if (file.size > QUOTE_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 25 MB' }
-
   const admin = createAdminClient()
-  const safe = file.name.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
-  const storagePath = `${quoteId}/${Date.now()}_${safe}`
-
-  const { error: upErr } = await admin.storage
-    .from('quote-attachments')
-    .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: false })
-  if (upErr) return { error: upErr.message }
-
-  const { data, error } = await admin
-    .from('quote_attachments')
-    .insert({
-      quote_id: quoteId,
-      file_name: file.name,
-      storage_path: storagePath,
-      mime_type: file.type || null,
-      size_bytes: file.size,
-      uploaded_by: user.id,
-    })
-    .select('id')
-    .single()
+  const { error } = await admin.from('quote_attachments').insert({
+    quote_id: input.quoteId,
+    file_name: input.fileName,
+    storage_path: input.storagePath,
+    mime_type: input.mimeType || null,
+    size_bytes: input.sizeBytes,
+    uploaded_by: user.id,
+  })
   if (error) {
-    await admin.storage.from('quote-attachments').remove([storagePath])
+    // não deixa arquivo órfão no bucket se a linha não entrou
+    await admin.storage.from('quote-attachments').remove([input.storagePath])
     return { error: error.message }
   }
 
-  revalidatePath(`/quotes/${quoteId}`)
-  return { ok: true, id: data.id }
+  revalidatePath(`/quotes/${input.quoteId}`)
+  return { ok: true }
 }
 
 export async function deleteQuoteAttachment(

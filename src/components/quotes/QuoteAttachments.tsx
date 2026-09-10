@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import {
   getQuoteAttachments,
-  uploadQuoteAttachment,
   deleteQuoteAttachment,
   getQuoteAttachmentUrl,
 } from '@/lib/actions'
+import { uploadQuoteFile } from '@/lib/quote-upload'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { cn } from '@/lib/utils'
@@ -100,10 +100,7 @@ export function QuoteAttachments({
     startTransition(async () => {
       let ok = 0
       for (const file of files) {
-        const fd = new FormData()
-        fd.set('quote_id', quoteId)
-        fd.set('file', file)
-        const res = await uploadQuoteAttachment(fd)
+        const res = await uploadQuoteFile(quoteId, file)
         if (res.error) toast.error('OCORREU UM ERRO', `${file.name}: ${res.error}`)
         else ok++
       }

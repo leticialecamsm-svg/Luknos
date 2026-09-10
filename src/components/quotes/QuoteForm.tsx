@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { updateQuote, createQuote, uploadQuoteAttachment } from '@/lib/actions'
+import { updateQuote, createQuote } from '@/lib/actions'
+import { uploadQuoteFile } from '@/lib/quote-upload'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { ContactSearch } from './EditQuoteForm'
@@ -85,10 +86,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
         if (newId && stagedFiles.length > 0) {
           let ok = 0
           for (const file of stagedFiles) {
-            const afd = new FormData()
-            afd.set('quote_id', newId)
-            afd.set('file', file)
-            const up = await uploadQuoteAttachment(afd)
+            const up = await uploadQuoteFile(newId, file)
             if (up.error) toast.error('ANEXO NÃO ENVIADO', `${file.name}: ${up.error}`)
             else ok++
           }
