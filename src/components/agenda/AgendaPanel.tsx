@@ -81,7 +81,7 @@ export function MiniCalendar({ schedules, selected, onSelect }: {
           className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700">
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="text-sm font-semibold text-gray-900 capitalize">{monthLabel}</span>
+        <span className="text-sm font-semibold text-gray-900 first-letter:uppercase">{monthLabel}</span>
         <button onClick={() => setCursor(new Date(year, month + 1, 1))}
           className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700">
           <ChevronRight className="w-3.5 h-3.5" />
@@ -257,7 +257,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
   return (
     <div className={compact ? 'px-3 pb-4 pt-2' : 'px-1 pb-6'}>
       <div className="flex items-center justify-between px-1 pb-3">
-        <span className="text-sm font-semibold text-gray-900 capitalize">{rangeLabel}</span>
+        <span className="text-sm font-semibold text-gray-900">{rangeLabel}</span>
         <div className="flex gap-1">
           <button onClick={onPrev} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
             <ChevronLeft className="w-4 h-4" />
