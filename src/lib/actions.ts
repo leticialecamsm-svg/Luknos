@@ -3484,3 +3484,149 @@ export async function setMetropolitanoLancado(quoteId: string, contactId: string
   revalidatePath('/metropolitano')
   return { ok: true }
 }
+
+// ── Anexos de orçamento ───────────────────────────────────────────────────
+// Arquivos anexados manualmente ficam no bucket privado `quote-attachments` +
+// tabela `quote_attachments`. Os arquivos que chegaram pelo Robô WhatsApp
+// continuam em `wa_attachments` (bucket `wa-attachments`) e são só listados
+// aqui como leitura, vinculados por system_quote_id = número do orçamento.
+
+const QUOTE_ATTACH_MAX_BYTES = 25 * 1024 * 1024 // 25 MB
+
+export async function getQuoteAttachments(quoteId: string) {
+  const admin = createAdminClient()
+
+  const [{ data: manual }, { data: quote }] = await Promise.all([
+    admin
+      .from('quote_attachments')
+      .select('id, file_name, mime_type, size_bytes, created_at, uploaded_by, users:uploaded_by(name)')
+      .eq('quote_id', quoteId)
+      .order('created_at', { ascending: true }),
+    admin.from('quotes').select('number').eq('id', quoteId).maybeSingle(),
+  ])
+
+  let robot: any[] = []
+  if (quote?.number != null) {
+    const { data } = await admin
+      .from('wa_attachments')
+      .select('id, file_name, mime_type, size_bytes, detected_kind, created_at')
+      .eq('system_quote_id', String(quote.number))
+      .order('created_at', { ascending: true })
+    robot = data ?? []
+  }
+
+  return {
+    manual: (manual ?? []).map((a: any) => ({
+      id: a.id,
+      source: 'manual' as const,
+      file_name: a.file_name,
+      mime_type: a.mime_type,
+      size_bytes: a.size_bytes,
+      created_at: a.created_at,
+      uploaded_by_name: a.users?.name ?? null,
+    })),
+    robot: robot.map((a: any) => ({
+      id: a.id,
+      source: 'robot' as const,
+      file_name: a.file_name,
+      mime_type: a.mime_type,
+      size_bytes: a.size_bytes,
+      detected_kind: a.detected_kind,
+      created_at: a.created_at,
+    })),
+  }
+}
+
+export async function uploadQuoteAttachment(formData: FormData) {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const quoteId = String(formData.get('quote_id') ?? '')
+  const file = formData.get('file') as File | null
+  if (!quoteId) return { error: 'Orçamento inválido' }
+  if (!file || file.size === 0) return { error: 'Nenhum arquivo enviado' }
+  if (file.size > QUOTE_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 25 MB' }
+
+  const admin = createAdminClient()
+  const safe = file.name.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
+  const storagePath = `${quoteId}/${Date.now()}_${safe}`
+
+  const { error: upErr } = await admin.storage
+    .from('quote-attachments')
+    .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: false })
+  if (upErr) return { error: upErr.message }
+
+  const { data, error } = await admin
+    .from('quote_attachments')
+    .insert({
+      quote_id: quoteId,
+      file_name: file.name,
+      storage_path: storagePath,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      uploaded_by: user.id,
+    })
+    .select('id')
+    .single()
+  if (error) {
+    await admin.storage.from('quote-attachments').remove([storagePath])
+    return { error: error.message }
+  }
+
+  revalidatePath(`/quotes/${quoteId}`)
+  return { ok: true, id: data.id }
+}
+
+export async function deleteQuoteAttachment(id: string, quoteId: string) {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const admin = createAdminClient()
+  const { data: row } = await admin
+    .from('quote_attachments')
+    .select('storage_path')
+    .eq('id', id)
+    .maybeSingle()
+  if (row?.storage_path) {
+    await admin.storage.from('quote-attachments').remove([row.storage_path])
+  }
+  const { error } = await admin.from('quote_attachments').delete().eq('id', id)
+  if (error) return { error: error.message }
+
+  revalidatePath(`/quotes/${quoteId}`)
+  return { ok: true }
+}
+
+// URL assinada (5 min) pra abrir um anexo — manual (quote-attachments) ou do
+// robô (wa-attachments).
+export async function getQuoteAttachmentUrl(id: string, source: 'manual' | 'robot') {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const admin = createAdminClient()
+  if (source === 'robot') {
+    const { data: att } = await admin
+      .from('wa_attachments')
+      .select('storage_path, file_name')
+      .eq('id', id)
+      .maybeSingle()
+    if (!att?.storage_path) return { error: 'Anexo não encontrado' }
+    const { data, error } = await admin.storage
+      .from('wa-attachments')
+      .createSignedUrl(att.storage_path, 300, { download: att.file_name })
+    if (error) return { error: error.message }
+    return { url: data.signedUrl }
+  }
+
+  const { data: att } = await admin
+    .from('quote_attachments')
+    .select('storage_path, file_name')
+    .eq('id', id)
+    .maybeSingle()
+  if (!att?.storage_path) return { error: 'Anexo não encontrado' }
+  const { data, error } = await admin.storage
+    .from('quote-attachments')
+    .createSignedUrl(att.storage_path, 300, { download: att.file_name })
+  if (error) return { error: error.message }
+  return { url: data.signedUrl }
+}

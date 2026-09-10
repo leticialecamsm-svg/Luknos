@@ -27,6 +27,7 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { Avatar } from '@/components/ui/Avatar'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
+import { QuoteAttachments } from './QuoteAttachments'
 import { NegotiationTracker } from '@/components/negotiations/NegotiationTracker'
 import { QuotePartnersSplit } from './QuotePartnersSplit'
 import { OptionTag, CATEGORY_OPTS, SIZE_OPTS, ORIGIN_OPTS, STAGE_OPTS, PRIORITY_OPTS } from './OptionPills'
@@ -860,7 +861,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
         {quote.drive_link && (
           <div className="card p-4">
             <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <Folder className="w-4 h-4" /> Arquivos
+              <Folder className="w-4 h-4" /> Pasta no Drive
             </h2>
             <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"
               className="block p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors group">
@@ -877,6 +878,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
             </a>
           </div>
         )}
+        <QuoteAttachments quoteId={quote.id} />
       </div>
 
       </div>{/* fim grid */}

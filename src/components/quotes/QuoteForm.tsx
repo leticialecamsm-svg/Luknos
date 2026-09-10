@@ -2,12 +2,13 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { updateQuote, createQuote } from '@/lib/actions'
+import { updateQuote, createQuote, uploadQuoteAttachment } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { ContactSearch } from './EditQuoteForm'
 import { QuoteTasks } from './QuoteTasks'
 import { QuoteSchedules } from './QuoteSchedules'
+import { QuoteAttachments } from './QuoteAttachments'
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { QUOTE_STATUS_LABEL, STATUS_COLOR } from '@/types'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
   const isEdit = !!quote?.id
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [stagedFiles, setStagedFiles] = useState<File[]>([])
 
   const [selectedClient, setSelectedClient] = useState<any>(
     isEdit ? { id: quote.client_id, name: quote.client_name } : null
@@ -79,9 +81,24 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
       } else {
         const res = await createQuote(payload as any)
         if (res.error) { setError(res.error); toast.error('OCORREU UM ERRO', 'Não foi possível criar.'); return }
-        toast.success('TUDO CERTO!', 'Orçamento criado.')
-        if (onSuccess) onSuccess(res.data?.id)
-        else { router.push(`/quotes/${res.data?.id}`); router.refresh() }
+        const newId = res.data?.id
+        if (newId && stagedFiles.length > 0) {
+          let ok = 0
+          for (const file of stagedFiles) {
+            const afd = new FormData()
+            afd.set('quote_id', newId)
+            afd.set('file', file)
+            const up = await uploadQuoteAttachment(afd)
+            if (up.error) toast.error('ANEXO NÃO ENVIADO', `${file.name}: ${up.error}`)
+            else ok++
+          }
+          if (ok > 0) toast.success('TUDO CERTO!', `Orçamento criado com ${ok} anexo(s).`)
+          else toast.success('TUDO CERTO!', 'Orçamento criado.')
+        } else {
+          toast.success('TUDO CERTO!', 'Orçamento criado.')
+        }
+        if (onSuccess) onSuccess(newId)
+        else { router.push(`/quotes/${newId}`); router.refresh() }
       }
     })
   }
@@ -205,6 +222,8 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
             </div>
           </div>
 
+          {!isEdit && <QuoteAttachments onStagedChange={setStagedFiles} />}
+
           {/* Responsáveis */}
           <div className="card p-5 space-y-4">
             <h2 className="text-sm font-semibold text-gray-700">Responsáveis</h2>
@@ -258,6 +277,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
           <div className="sticky top-4 space-y-4">
             <QuoteTasks quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
             <QuoteSchedules quoteId={quote.id} quoteLabel={`#${quote.number} · ${quote.client_name}`} />
+            <QuoteAttachments quoteId={quote.id} />
           </div>
         )}
       </div>
