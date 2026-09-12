@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/agenda-broadcast", "schedule": "30 11 * * *" }
+    { "path": "/api/cron/agenda-broadcast", "schedule": "30 11 * * *" },
+    { "path": "/api/cron/update-reminder", "schedule": "0 20 * * 1-6" }
   ]
 }

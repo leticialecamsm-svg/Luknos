@@ -15,6 +15,7 @@ import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
 import { AgendaPanel, AgendaFull } from '@/components/agenda/AgendaPanel'
+import { UpdateQueueCard } from '@/components/tasks/UpdateQueueCard'
 import { ScheduleModal } from '@/components/schedules/ScheduleModal'
 import { ScheduleViewModal } from '@/components/schedules/ScheduleViewModal'
 import { getSchedules, deleteSchedule } from '@/lib/actions'
@@ -455,6 +456,9 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
             )}
           </div>
         </div>
+
+        {/* Fila do dia: negociações sem notícia há tempo demais (só na visão pessoal) */}
+        {scope === 'mine' && <UpdateQueueCard />}
 
         {/* Quick add */}
         <form onSubmit={handleAdd}
