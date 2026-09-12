@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -23,6 +23,7 @@ const NAV = [
   { href: '/metropolitano',   label: 'Metropolitano', icon: Award },
 ]
 const ADMIN_NAV = [
+  { href: '/reports', label: 'Relatórios', icon: BarChart3 },
   { href: '/marketing', label: 'Marketing', icon: Megaphone },
   { href: '/finance', label: 'Financeiro', icon: Wallet },
   { href: '/hr', label: 'RH', icon: UserCog },
