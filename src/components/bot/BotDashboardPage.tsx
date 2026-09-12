@@ -91,22 +91,22 @@ export function BotDashboardPage({ stats, range }: { stats: Stats; range: string
             <Card label="Falhas de cadastro" value={stats.failed} accent={stats.failed ? 'red' : undefined} />
             <Card label="Conversas ativas agora" value={stats.active + stats.awaiting_confirmation} />
             <Card
-              label="Tempo típico (mediana)"
-              value={stats.typical_minutes_to_submit != null ? `${stats.typical_minutes_to_submit} min` : '—'}
+              label="Tempo típico"
+              value={stats.avg_minutes_to_submit_capped != null ? `${stats.avg_minutes_to_submit_capped} min` : '—'}
             />
             <Card
-              label="Tempo médio (geral)"
-              value={stats.avg_minutes_to_submit != null ? `${stats.avg_minutes_to_submit} min` : '—'}
+              label="Tempo médio"
+              value={stats.typical_minutes_to_submit != null ? `${stats.typical_minutes_to_submit} min` : '—'}
             />
           </div>
-          {stats.resumed_later_count > 0 && (
-            <p className="text-xs text-gray-400">
-              {stats.resumed_later_count} cadastro(s) passaram de {stats.cap_minutes} min entre a 1ª mensagem e a
-              confirmação (retomados depois de uma pausa) — puxam a média geral pra cima, mas não entram na
-              mediana. Sem eles, a média fica em{' '}
-              {stats.avg_minutes_to_submit_capped != null ? `${stats.avg_minutes_to_submit_capped} min` : '—'}.
-            </p>
-          )}
+          <p className="text-xs text-gray-400">
+            <strong>Tempo típico</strong>: média só dos cadastros que fluíram direto, sem pausa (até{' '}
+            {stats.cap_minutes} min entre a 1ª mensagem e a confirmação). <strong>Tempo médio</strong>: mediana de
+            todos os cadastros do período — não é puxada pra cima por uma ou duas conversas que ficaram muito
+            tempo paradas no meio.
+            {stats.resumed_later_count > 0 &&
+              ` ${stats.resumed_later_count} cadastro(s) neste período passaram do teto de ${stats.cap_minutes} min (retomados depois de uma pausa) e não entram no "tempo típico".`}
+          </p>
 
           {/* Volume por dia */}
           <section className="card p-5">
