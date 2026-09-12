@@ -668,7 +668,8 @@ function GoalPlanner({ dim, channels, closed, months, month }: {
     .sort((a, b) => b.value - a.value)
   const cols = channels.filter(c => list.some(s => s.byC[c]))
   const teamValue = list.reduce((a, s) => a + s.value, 0) * factor
-  const teamQty = list.reduce((a, s) => a + s.qty, 0) * factor
+  // Venda com 2 donos conta 1 pra cada um na linha do vendedor, mas na equipe é 1 venda só
+  const teamQty = (closed.filter(r => base.includes(monthOf(r.closedAt!))).length / nMonths) * factor
 
   return (
     <Card icon={Target} title="Planejador de metas"
