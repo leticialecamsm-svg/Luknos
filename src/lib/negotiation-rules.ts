@@ -4,12 +4,26 @@
 
 export type Temp = 'hot' | 'warm' | 'cold' | 'no_forecast'
 
-/** Dias sem atualização até a negociação entrar na fila, por temperatura. */
-export const CADENCE_DAYS: Record<Temp, number> = {
-  hot: 2,          // quente esfria rápido — precisa de notícia a cada 2 dias
-  warm: 4,
-  cold: 7,
-  no_forecast: 14,
+/**
+ * Dias sem atualização até a negociação entrar na fila.
+ *
+ * Calibrado pelo tempo real de fechamento das vendas negociadas (excluindo as
+ * de balcão, que fecham no mesmo dia), medido em set/26:
+ *   com parceiro → mediana 12 dias, 3 em cada 4 fecham em até 32
+ *   sem parceiro → mediana  7 dias, 3 em cada 4 fecham em até 17
+ *
+ * Regra: quente = ¼ do tempo típico, morna = ½, fria = o tempo típico inteiro,
+ * sem previsão = até onde 3 em cada 4 já fecharam (limitado a 21 dias — mais
+ * que isso a negociação some do radar). Venda com parceiro demora mais porque
+ * depende de obra e aprovação de projeto, então tem prazo mais longo.
+ */
+export const CADENCE_DAYS: Record<'partner' | 'direct', Record<Temp, number>> = {
+  partner: { hot: 3, warm: 6, cold: 12, no_forecast: 21 },
+  direct:  { hot: 2, warm: 4, cold: 7,  no_forecast: 17 },
+}
+
+export function cadenceFor(temp: Temp, hasPartner: boolean) {
+  return CADENCE_DAYS[hasPartner ? 'partner' : 'direct'][temp] ?? 17
 }
 
 /** Quantas negociações cada vendedor recebe por dia na fila. */
@@ -36,10 +50,11 @@ export type QueueCandidate = {
   temperature: Temp
   lastTouch: string | null
   value: number
+  hasPartner: boolean
 }
 
 export function isOverdue(c: QueueCandidate, now = new Date()) {
-  return daysBetween(c.lastTouch, now) >= (CADENCE_DAYS[c.temperature] ?? 14)
+  return daysBetween(c.lastTouch, now) >= cadenceFor(c.temperature, c.hasPartner)
 }
 
 /**
@@ -48,6 +63,6 @@ export function isOverdue(c: QueueCandidate, now = new Date()) {
  * pesam no mês, e o backlog antigo vai sendo limpo aos poucos.
  */
 export function priorityScore(c: QueueCandidate, now = new Date()) {
-  const overdue = daysBetween(c.lastTouch, now) - (CADENCE_DAYS[c.temperature] ?? 14)
+  const overdue = daysBetween(c.lastTouch, now) - cadenceFor(c.temperature, c.hasPartner)
   return TEMP_WEIGHT[c.temperature] * 100 + Math.min(Math.max(overdue, 0), 60) + Math.log10((c.value || 0) + 1)
 }

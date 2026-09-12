@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { updateTemperature, markAsLost } from '@/lib/actions'
 import {
-  CADENCE_DAYS, DAILY_UPDATE_CAP, daysBetween, isOverdue, priorityScore, todayBR,
+  cadenceFor, DAILY_UPDATE_CAP, daysBetween, isOverdue, priorityScore, todayBR,
   type Temp, type QueueCandidate,
 } from '@/lib/negotiation-rules'
 
@@ -36,7 +36,7 @@ async function loadOpenByOwner(onlyUserId?: string) {
 
   const [qRes, nRes, aRes, hRes] = await Promise.all([
     admin.from('quotes_full')
-      .select('id, number, client_name, architect_name, quoted_value, temperature, created_at')
+      .select('id, number, client_name, architect_id, architect_name, quoted_value, temperature, created_at')
       .in('id', quoteIds),
     admin.from('negotiations').select('quote_id, updated_at, temperature_updated_at').in('quote_id', quoteIds),
     admin.from('activities').select('quote_id, created_at').in('quote_id', quoteIds).not('user_id', 'is', null)
@@ -71,7 +71,8 @@ async function loadOpenByOwner(onlyUserId?: string) {
       value: Number(q.quoted_value ?? 0),
       lastTouch,
       daysSilent: daysBetween(lastTouch, now),
-      cadence: CADENCE_DAYS[temp as Temp],
+      hasPartner: !!q.architect_id,
+      cadence: cadenceFor(temp as Temp, !!q.architect_id),
       done: false,
     })
   })

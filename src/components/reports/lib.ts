@@ -1,5 +1,5 @@
 import { formatCurrency } from '@/lib/utils'
-import { CADENCE_DAYS, type Temp } from '@/lib/negotiation-rules'
+import { cadenceFor, type Temp } from '@/lib/negotiation-rules'
 
 export type ReportRow = {
   id: string
@@ -80,7 +80,7 @@ export function daysSince(iso: string | null | undefined, now = new Date()) {
 }
 export function isStale(r: ReportRow, now = new Date()) {
   const t = (r.temperature && OPEN_TEMPS.includes(r.temperature) ? r.temperature : 'no_forecast') as Temp
-  return daysSince(r.lastTouch ?? r.createdAt, now) >= CADENCE_DAYS[t]
+  return daysSince(r.lastTouch ?? r.createdAt, now) >= cadenceFor(t, !!r.partnerId)
 }
 
 // ── Datas e números ─────────────────────────────────────────────────────────

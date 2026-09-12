@@ -19,7 +19,7 @@ export function UpdateHealth({ health, team }: { health: TeamHealth[]; team: { o
   return (
     <Card icon={Activity} title="As negociações estão atualizadas?"
       subtitle="Negociação sem notícia não serve pra previsão — é por aqui que você sabe se dá pra confiar no funil"
-      help="Uma negociação fica 'sem notícia' quando passa do prazo da temperatura dela sem nota ou mudança feita por alguém: quente 2 dias, morna 4, fria 7, sem previsão 14. Constância = das negociações que entraram na lista do dia, quantas foram atualizadas (últimos 30 dias).">
+      help="Uma negociação fica 'sem notícia' quando passa do prazo da temperatura dela sem nota ou mudança feita por alguém: com parceiro: quente 3 dias, morna 6, fria 12, sem previsão 21 · sem parceiro: quente 2, morna 4, fria 7, sem previsão 17 (calibrado pelo tempo real de fechamento das vendas negociadas). Constância = das negociações que entraram na lista do dia, quantas foram atualizadas (últimos 30 dias).">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
         <MiniStat label="Negociações abertas" value={nf(totalOpen)} />
         <MiniStat label="Sem notícia (atrasadas)" value={`${nf(totalOverdue)} · ${totalOpen ? pct(totalOverdue / totalOpen) : '0%'}`}
