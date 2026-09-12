@@ -227,7 +227,17 @@ export async function getTeamUpdateHealth() {
   ])
   const userMap = new Map((users ?? []).map(u => [u.id, u]))
 
-  return Array.from(byOwner.entries())
+  // Totais da equipe sem contar duas vezes orçamento com mais de um responsável
+  const unique = new Map<string, QueueItem>()
+  Array.from(byOwner.values()).flat().forEach(i => unique.set(i.quoteId, i))
+  const uniqueOverdue = rankOverdue(Array.from(unique.values()))
+  const team = {
+    open: unique.size,
+    overdue: uniqueOverdue.length,
+    overdueValue: uniqueOverdue.reduce((s, i) => s + i.value, 0),
+  }
+
+  const sellers = Array.from(byOwner.entries())
     .filter(([id]) => userMap.has(id))
     .map(([userId, items]) => {
       const rows = (daily ?? []).filter(d => d.user_id === userId)
@@ -249,4 +259,6 @@ export async function getTeamUpdateHealth() {
       }
     })
     .sort((a, b) => b.overdue - a.overdue)
+
+  return { sellers, team }
 }

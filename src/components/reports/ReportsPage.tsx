@@ -36,7 +36,9 @@ const FILTERS: Record<Tab, { month: boolean; compare: boolean; seller: boolean; 
   goals: { month: true, compare: false, seller: false, dim: true, metric: true },
 }
 
-export function ReportsPage({ rows, health, goals }: { rows: ReportRow[]; health: TeamHealth[]; goals: Goal[] }) {
+export function ReportsPage({ rows, health, team, goals }: {
+  rows: ReportRow[]; health: TeamHealth[]; team: { open: number; overdue: number; overdueValue: number }; goals: Goal[]
+}) {
   const closed = useMemo(() => rows.filter(r => r.temperature === 'closed' && r.closedAt), [rows])
   const months = useMemo(() => Array.from(new Set(closed.map(r => monthOf(r.closedAt!)))).sort(), [closed])
 
@@ -134,7 +136,12 @@ export function ReportsPage({ rows, health, goals }: { rows: ReportRow[]; health
             <Kpi label="Conversão dos orçamentos do mês" value={pct(S.conv)} cur={S.conv} prev={P.conv} compare={compare}
               hint={`${nf(S.cohort)} orçamentos abertos em ${monthLabel(month, true)}`} />
           </div>
-          <UpdateHealth health={seller === 'all' ? health : health.filter(h => h.userId === seller)} />
+          <UpdateHealth
+            health={seller === 'all' ? health : health.filter(h => h.userId === seller)}
+            team={seller === 'all' ? team : (() => {
+              const h = health.find(x => x.userId === seller)
+              return { open: h?.open ?? 0, overdue: h?.overdue ?? 0, overdueValue: h?.overdueValue ?? 0 }
+            })()} />
           <PipelineCoverage rows={bySeller(rows)} closedNow={closedIn(cm)} goals={goals} />
           <ChannelTable dim={dim} channels={channels} cur={cur} prev={prev} cohort={cohortOf(month)}
             month={month} compare={compare} shareFor={shareFor} />

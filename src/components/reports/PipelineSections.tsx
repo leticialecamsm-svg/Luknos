@@ -11,10 +11,10 @@ import { Card, Empty, MiniStat, SellerName, TH } from './ui'
 
 // ── Saúde das atualizações ─────────────────────────────────────────────────
 
-export function UpdateHealth({ health }: { health: TeamHealth[] }) {
-  const totalOpen = health.reduce((s, h) => s + h.open, 0)
-  const totalOverdue = health.reduce((s, h) => s + h.overdue, 0)
-  const overdueValue = health.reduce((s, h) => s + h.overdueValue, 0)
+export function UpdateHealth({ health, team }: { health: TeamHealth[]; team: { open: number; overdue: number; overdueValue: number } }) {
+  const totalOpen = team.open
+  const totalOverdue = team.overdue
+  const overdueValue = team.overdueValue
 
   return (
     <Card icon={Activity} title="As negociações estão atualizadas?"
@@ -172,13 +172,13 @@ export function ChannelFunnel({ dim, channels, cohort, month }: { dim: Dim; chan
           </div>
           <div className="space-y-2.5">
             {[...data, { c: 'Total', ...total }].map(d => (
-              <div key={d.c} className={cn('grid grid-cols-[140px_1fr_200px] items-center gap-3 text-sm', d.c === 'Total' && 'pt-2 border-t border-gray-100')}>
+              <div key={d.c} className={cn('grid grid-cols-[140px_1fr_250px] items-center gap-3 text-sm', d.c === 'Total' && 'pt-2 border-t border-gray-100')}>
                 <span className={cn('inline-flex items-center gap-2', d.c === 'Total' ? 'font-bold text-gray-900' : 'font-medium text-gray-700')}>
                   {d.c !== 'Total' && <i className="w-2.5 h-2.5 rounded-sm" style={{ background: colorOf(d.c) }} />}{d.c}
                 </span>
                 <Bar d={d as any} />
-                <span className="text-xs tabular-nums text-gray-600 text-right">
-                  {d.n} orç · <b className="text-emerald-600">{pct(d.closed / d.n)} fechou</b> · {d.lost} perdidos
+                <span className="text-xs tabular-nums text-gray-600 text-right whitespace-nowrap">
+                  {d.n} orç · <b className="text-emerald-600">{pct(d.closed / d.n)} fechou</b> · {d.lost} {d.lost === 1 ? 'perdido' : 'perdidos'}
                 </span>
               </div>
             ))}
@@ -234,7 +234,11 @@ export function LossReasons({ dim, lost, months }: { dim: Dim; lost: ReportRow[]
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className={cn(TH, 'text-left pr-3')}>Colaborador</th>
-                  {counts.map(c => <th key={c.k} className={cn(TH, 'text-center px-1.5 normal-case tracking-normal')}>{c.k === '_none' ? '?' : labelOf(c.k).split(' ')[0]}</th>)}
+                  {counts.map(c => (
+                    <th key={c.k} title={labelOf(c.k)} className={cn(TH, 'text-center px-1.5 normal-case tracking-normal')}>
+                      {({ price: 'Preço', competition: 'Concorrente', no_reply: 'Sumiu', gave_up: 'Desistiu', other: 'Outro', _none: 'Sem motivo' } as Record<string, string>)[c.k]}
+                    </th>
+                  ))}
                   <th className={cn(TH, 'text-right pl-2')}>Total</th>
                 </tr>
               </thead>

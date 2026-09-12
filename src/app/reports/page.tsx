@@ -8,7 +8,7 @@ export const metadata = { title: 'Relatórios — Luknos' }
 export default async function Page() {
   const admin = createAdminClient()
 
-  const [qfRes, qRes, cRes, nRes, aRes, hRes, gRes, health] = await Promise.all([
+  const [qfRes, qRes, cRes, nRes, aRes, hRes, gRes, healthRes] = await Promise.all([
     admin.from('quotes_full')
       .select('id, number, client_id, client_name, architect_id, architect_name, origin, temperature, loss_reason, final_value, quoted_value, quote_date, created_at, closed_at, owners')
       .limit(20000),
@@ -60,5 +60,5 @@ export default async function Page() {
 
   const goals = (gRes.data ?? []).map((g: any) => ({ userId: g.user_id, year: g.year, month: g.month, target: Number(g.target) }))
 
-  return <ReportsPage rows={rows} health={health} goals={goals} />
+  return <ReportsPage rows={rows} health={healthRes.sellers} team={healthRes.team} goals={goals} />
 }
