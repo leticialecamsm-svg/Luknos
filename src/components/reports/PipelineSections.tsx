@@ -272,7 +272,7 @@ export function SalesCycle({ dim, channels, closed, month, openRows }: {
 
   const byChannel = channels.map(c => {
     const ds = list.filter(x => channelOf(x.r, dim) === c).map(x => x.d)
-    return { c, med: median(ds), n: ds.length }
+    return { c, med: median(ds.filter(d => d > 0)), n: ds.length }
   }).filter(x => x.n > 0)
   const sellers = new Map<string, { name: string; color: string; ds: number[] }>()
   participations(list.map(x => x.r)).forEach(p => {
@@ -280,11 +280,14 @@ export function SalesCycle({ dim, channels, closed, month, openRows }: {
     const d = cycle(p.row); if (d !== null) s.ds.push(d)
     sellers.set(p.sellerId, s)
   })
-  const teamMed = median(list.map(x => x.d))
+  // 65% das vendas fecham no mesmo dia (balcão) — se entrarem na mediana, o
+  // "tempo típico" vira 0 e esconde quanto demora uma venda negociada de fato.
+  const sameDay = list.filter(x => x.d === 0).length
+  const teamMed = median(list.map(x => x.d).filter(d => d > 0))
   const maxD = Math.max(1, ...byChannel.map(x => x.med ?? 0), ...Array.from(sellers.values()).map(s => median(s.ds) ?? 0))
 
   // Quantos orçamentos abertos já passaram do ciclo típico (estão "velhos")
-  const old = teamMed !== null ? openRows.filter(r => daysSince(r.createdAt) > teamMed * 2).length : 0
+  const old = teamMed ? openRows.filter(r => daysSince(r.createdAt) > teamMed * 2).length : 0
 
   const Row = ({ label, color, value, n, dot }: { label: string; color: string; value: number | null; n: number; dot: 'square' | 'round' }) => (
     <div className="grid grid-cols-[140px_1fr_90px] items-center gap-3 text-sm">
@@ -300,8 +303,8 @@ export function SalesCycle({ dim, channels, closed, month, openRows }: {
 
   return (
     <Card icon={Timer} title="Quanto tempo leva pra fechar"
-      subtitle={`Vendas fechadas em ${monthLabel(month)} · tempo típico da equipe: ${teamMed === null ? '—' : `${nf(teamMed)} dias`}`}
-      help="Dias entre abrir o orçamento e fechar a venda. Usa a mediana (o caso do meio), que não é distorcida por uma venda que levou meses.">
+      subtitle={`Vendas fechadas em ${monthLabel(month)} · ${list.length ? pct(sameDay / list.length) : '0%'} fecharam no mesmo dia · as negociadas levam em média ${teamMed === null ? '—' : `${nf(teamMed)} dias`}`}
+      help="Dias entre abrir o orçamento e fechar a venda, contando só as vendas que NÃO fecharam no mesmo dia (as de balcão puxariam tudo pra zero). Usa a mediana (o caso do meio), que não é distorcida por uma venda que levou meses. '—' = só teve venda no mesmo dia.">
       {list.length === 0 ? <Empty /> : (
         <>
           <div className="grid lg:grid-cols-2 gap-6">
@@ -311,7 +314,7 @@ export function SalesCycle({ dim, channels, closed, month, openRows }: {
             </div>
             <div className="space-y-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Por colaborador</p>
-              {Array.from(sellers.entries()).map(([id, s]) => ({ id, ...s, med: median(s.ds) }))
+              {Array.from(sellers.entries()).map(([id, s]) => ({ id, ...s, med: median(s.ds.filter(d => d > 0)) }))
                 .sort((a, b) => (a.med ?? 0) - (b.med ?? 0))
                 .map(s => <Row key={s.id} label={s.name} color={s.color} value={s.med} n={s.ds.length} dot="round" />)}
             </div>
