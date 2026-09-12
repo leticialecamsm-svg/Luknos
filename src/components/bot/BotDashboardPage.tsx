@@ -14,6 +14,10 @@ type Stats = {
   expired: number
   cancelled: number
   avg_minutes_to_submit: number | null
+  typical_minutes_to_submit: number | null
+  cap_minutes: number
+  avg_minutes_to_submit_capped: number | null
+  resumed_later_count: number
   notifications_sent: number
   notifications_failed: number
   submission_attempts: number
@@ -82,15 +86,27 @@ export function BotDashboardPage({ stats, range }: { stats: Stats; range: string
           )}
 
           {/* Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
             <Card label="Cadastrados pelo robô" value={stats.submitted} accent="green" />
             <Card label="Falhas de cadastro" value={stats.failed} accent={stats.failed ? 'red' : undefined} />
             <Card label="Conversas ativas agora" value={stats.active + stats.awaiting_confirmation} />
             <Card
-              label="Tempo médio de cadastro"
+              label="Tempo típico (mediana)"
+              value={stats.typical_minutes_to_submit != null ? `${stats.typical_minutes_to_submit} min` : '—'}
+            />
+            <Card
+              label="Tempo médio (geral)"
               value={stats.avg_minutes_to_submit != null ? `${stats.avg_minutes_to_submit} min` : '—'}
             />
           </div>
+          {stats.resumed_later_count > 0 && (
+            <p className="text-xs text-gray-400">
+              {stats.resumed_later_count} cadastro(s) passaram de {stats.cap_minutes} min entre a 1ª mensagem e a
+              confirmação (retomados depois de uma pausa) — puxam a média geral pra cima, mas não entram na
+              mediana. Sem eles, a média fica em{' '}
+              {stats.avg_minutes_to_submit_capped != null ? `${stats.avg_minutes_to_submit_capped} min` : '—'}.
+            </p>
+          )}
 
           {/* Volume por dia */}
           <section className="card p-5">
