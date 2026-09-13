@@ -64,3 +64,31 @@
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #E5E3DC; border-radius: 99px; }
+
+/* ── Tela de carregamento ─────────────────────────────────────────────── */
+.luk-shimmer {
+  background: linear-gradient(90deg, #EEECE6 0%, #F6F5F1 45%, #EEECE6 90%);
+  background-size: 200% 100%;
+  animation: luk-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes luk-shimmer { from { background-position: 100% 0 } to { background-position: -100% 0 } }
+
+.luk-mark { animation: luk-breathe 1.6s ease-in-out infinite; }
+@keyframes luk-breathe {
+  0%, 100% { transform: scale(1);    box-shadow: 0 1px 2px rgba(26,26,46,.06) }
+  50%      { transform: scale(1.06); box-shadow: 0 8px 24px -8px rgba(203,164,85,.45) }
+}
+.luk-mark .luk-star-gold { animation: luk-glow 1.6s ease-in-out infinite; transform-origin: center; }
+@keyframes luk-glow { 0%, 100% { opacity: .75 } 50% { opacity: 1 } }
+
+/* Barra de progresso da navegação */
+.luk-progress {
+  position: fixed; top: 0; left: 0; height: 2.5px; z-index: 9999;
+  background: linear-gradient(90deg, #CBA455, #E2C27E);
+  box-shadow: 0 0 8px rgba(203,164,85,.6);
+  transition: width .25s ease, opacity .3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luk-shimmer, .luk-mark, .luk-mark .luk-star-gold { animation: none; }
+}

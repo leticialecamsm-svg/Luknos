@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -56,10 +56,13 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
+  // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
+  // e como cada seção tem o próprio layout, ele sumia e voltava a cada clique.
+  // useLayoutEffect aplica o "recolhido" antes da tela ser pintada, sem esconder nada.
+  useLayoutEffect(() => {
     const saved = localStorage.getItem('sidebar-collapsed') === 'true'
     setCollapsed(saved)
+    setMounted(true)
   }, [])
 
   function toggleCollapse() {
@@ -108,12 +111,11 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     visibleNav.push(MARKETING_ITEM)
   }
 
-  if (!mounted) return null
 
   return (
     <div className="relative shrink-0 flex">
       <aside
-        className={`flex flex-col h-full min-h-0 transition-all duration-300 ${collapsed ? 'w-16' : 'w-56'}`}
+        className={`flex flex-col h-full min-h-0 ${mounted ? 'transition-all duration-300' : ''} ${collapsed ? 'w-16' : 'w-56'}`}
         style={{ background: '#1A1A2E', borderTopRightRadius: '43px' }}
       >
         {/* Logo */}
