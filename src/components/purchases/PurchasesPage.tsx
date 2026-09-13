@@ -312,7 +312,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <div className="flex items-center gap-3">
             {step === 'fill' && (
               <button onClick={() => setStep('key')} className="text-gray-400 hover:text-gray-600">
@@ -350,7 +350,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                 </div>
               )}
               <div className="relative">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-surface-border" /></div>
                 <div className="relative flex justify-center">
                   <span className="bg-white px-3 text-xs text-gray-400">ou</span>
                 </div>
@@ -416,18 +416,18 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
               </div>
 
               {/* Tabela de produtos */}
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <div className="overflow-x-auto rounded-xl shadow-card border border-surface-border">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
+                    <tr className="bg-surface-secondary border-b border-surface-border">
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide w-8">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide min-w-[200px]">Produto</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-wide w-24">NCM</th>
-                      <th className="text-left px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-24">Cód. Prod.</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-bold text-navy uppercase tracking-wide w-24">Cód. Prod.</th>
                       {/* NF-e — entrada manual ou XML */}
-                      <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-20">Qtd</th>
-                      <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-28">Valor Total</th>
-                      <th className="text-right px-3 py-2.5 text-xs font-bold text-blue-600 uppercase tracking-wide w-20">IPI %</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-navy uppercase tracking-wide w-20">Qtd</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-navy uppercase tracking-wide w-28">Valor Total</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold text-navy uppercase tracking-wide w-20">IPI %</th>
                       {/* SEFAZ — automático */}
                       <th className="text-center px-3 py-2.5 text-xs font-bold text-emerald-600 uppercase tracking-wide w-16">Tipo</th>
                       <th className="text-right px-3 py-2.5 text-xs font-bold text-emerald-600 uppercase tracking-wide w-28">ICMS</th>
@@ -439,7 +439,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                   </thead>
                   <tbody>
                     {/* Legenda das cores */}
-                    <tr className="bg-gray-50 border-b border-gray-100">
+                    <tr className="bg-surface-secondary border-b border-surface-border">
                       <td colSpan={4} />
                       <td colSpan={3} className="px-3 py-1 text-[10px] text-blue-500 text-center font-medium">← da nota fiscal</td>
                       <td colSpan={3} className="px-3 py-1 text-[10px] text-emerald-500 text-center font-medium">← SEFAZ (automático)</td>
@@ -456,13 +456,13 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                       const preco = custo > 0 ? calcPrecoCredito(custo, it.tipoIcms, c, l, m) : 0
 
                       return (
-                        <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                        <tr key={i} className="border-b border-surface-border last:border-0 hover:bg-surface-secondary">
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{it.numeroItem}</td>
                           <td className="px-3 py-2.5 text-gray-800 font-medium">{it.descricao}</td>
                           <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{it.ncm}</td>
                           <td className="px-2 py-1.5">
                             <input
-                              className="w-full border border-blue-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400 bg-blue-50 font-mono"
+                              className="w-full border border-brand-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-400 bg-brand-50 font-mono"
                               placeholder="—"
                               value={it.codigoProduto}
                               onChange={e => updateItem(i, 'codigoProduto', e.target.value)}
@@ -472,7 +472,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                           {/* Campos manuais / XML */}
                           <td className="px-2 py-1.5">
                             <input
-                              className="w-full text-right border border-blue-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400 bg-blue-50"
+                              className="w-full text-right border border-brand-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-400 bg-brand-50"
                               placeholder="0"
                               value={it.quantidade}
                               onChange={e => updateItem(i, 'quantidade', e.target.value)}
@@ -480,7 +480,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                           </td>
                           <td className="px-2 py-1.5">
                             <input
-                              className="w-full text-right border border-blue-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400 bg-blue-50"
+                              className="w-full text-right border border-brand-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-400 bg-brand-50"
                               placeholder="0,00"
                               value={it.valorTotal}
                               onChange={e => updateItem(i, 'valorTotal', e.target.value)}
@@ -489,7 +489,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
                           <td className="px-2 py-1.5">
                             <div className="relative">
                               <input
-                                className="w-full text-right border border-blue-200 rounded px-2 py-1 pr-5 text-sm focus:outline-none focus:border-blue-400 bg-blue-50"
+                                className="w-full text-right border border-brand-200 rounded px-2 py-1 pr-5 text-sm focus:outline-none focus:border-brand-400 bg-brand-50"
                                 placeholder="0"
                                 value={it.ipiPercent}
                                 onChange={e => updateItem(i, 'ipiPercent', e.target.value)}
@@ -540,7 +540,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
 
         {/* Footer */}
         {step === 'fill' && (
-          <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <div className="flex justify-end gap-3 px-6 py-4 border-t border-surface-border">
             <button onClick={onClose} className="btn-secondary px-6">Cancelar</button>
             <button
               onClick={handleSave}
@@ -565,7 +565,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <div>
             <h2 className="text-lg font-bold text-gray-900">
               Nota {invoice.numero_nota ?? '—'} · {invoice.fornecedor_nome ?? 'Fornecedor'}
@@ -576,10 +576,10 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
         </div>
 
         <div className="flex-1 overflow-auto p-6">
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
+          <div className="overflow-x-auto rounded-xl shadow-card border border-surface-border">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
+                <tr className="bg-surface-secondary border-b border-surface-border">
                   <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">#</th>
                   <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Produto</th>
                   <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">NCM</th>
@@ -595,7 +595,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
               </thead>
               <tbody>
                 {items.sort((a, b) => a.numero_item - b.numero_item).map((it: any) => (
-                  <tr key={it.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <tr key={it.id} className="border-b border-surface-border last:border-0 hover:bg-surface-secondary">
                     <td className="px-3 py-2.5 text-gray-400 text-xs">{it.numero_item}</td>
                     <td className="px-3 py-2.5 text-gray-800 font-medium">{it.descricao}</td>
                     <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{it.ncm}</td>
@@ -621,7 +621,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+        <div className="px-6 py-4 border-t border-surface-border flex justify-end">
           <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
         </div>
       </div>
@@ -677,7 +677,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <div>
             <h2 className="text-lg font-bold text-gray-900">{nfe.fornecedor_nome ?? 'Fornecedor'}</h2>
             <p className="text-sm text-gray-500">Nota {nfe.numero_nota ?? '—'} · {fmtDate(nfe.data_emissao)}</p>
@@ -739,10 +739,10 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
                 <span>{data?._motivo ?? 'Nenhum item retornado para esta nota.'}</span>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <div className="overflow-x-auto rounded-xl shadow-card border border-surface-border">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
+                    <tr className="bg-surface-secondary border-b border-surface-border">
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Produto</th>
                       <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-500 uppercase">Cód. Prod.</th>
@@ -754,7 +754,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
                   </thead>
                   <tbody>
                     {items.map((it: any) => (
-                      <tr key={it.nItem} className="border-b border-gray-100 last:border-0">
+                      <tr key={it.nItem} className="border-b border-surface-border last:border-0">
                         <td className="px-3 py-2.5 text-gray-400 text-xs">{it.nItem}</td>
                         <td className="px-3 py-2.5 text-gray-800 max-w-xs">{it.xProd ?? '—'}</td>
                         <td className="px-3 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">{it.cProd}</td>
@@ -771,7 +771,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
+        <div className="px-6 py-4 border-t border-surface-border flex justify-between items-center">
           <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
           {nfe.status !== 'added' && (
             <button onClick={onAdd} className="btn-primary flex items-center gap-2 px-6">
@@ -964,7 +964,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               <span
                 className={cn(
                   'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
-                  quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-500'
+                  quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-surface-secondary text-gray-500'
                 )}
                 title="Consultas ao webservice nacional da SEFAZ (NFeDistribuicaoDFe) usadas na última hora — limite é por CNPJ, compartilhado entre todas as buscas"
               >
@@ -989,16 +989,16 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       </div>
 
       {/* Abas */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-surface-border">
         <button
           onClick={() => handleSelectTab('notas')}
-          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'notas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'notas' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
         >
           Notas Cadastradas
         </button>
         <button
           onClick={() => handleSelectTab('recebidas')}
-          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2', tab === 'recebidas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2', tab === 'recebidas' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700')}
         >
           NFs Recebidas
           {pendingCount > 0 && (
@@ -1019,7 +1019,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             )
           })()}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
             {loadingNfes || syncingNfes ? (
               <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -1033,7 +1033,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] bg-gray-50 border-b border-gray-100 items-center">
+                <div className="grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] bg-surface-secondary border-b border-surface-border items-center">
                   {['Fornecedor / Nota', 'CNPJ Emitente', 'Data Emissão', 'Valor Total', 'Transportadora', 'Última passagem', ''].map((h, i) => (
                     <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide truncate', i === 3 && 'text-right')}>{h}</div>
                   ))}
@@ -1042,7 +1042,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                   <div
                     key={nfe.id}
                     onClick={() => setNfeDetail(nfe)}
-                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] items-center border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', nfe.status === 'added' && 'bg-gray-50/60')}
+                    className={cn('grid grid-cols-[minmax(0,1fr)_150px_110px_120px_160px_210px_190px] items-center border-b border-surface-border last:border-0 cursor-pointer hover:bg-surface-secondary transition-colors', nfe.status === 'added' && 'bg-surface-secondary/60')}
                   >
                     <div className="px-4 py-3.5 min-w-0">
                       <p className={cn('text-sm font-semibold truncate', nfe.status === 'added' ? 'text-gray-400' : 'text-gray-900')}>{nfe.fornecedor_nome ?? '—'}</p>
@@ -1087,7 +1087,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                       ) : (
                         <button
                           onClick={e => { e.stopPropagation(); handleAddNfe(nfe) }}
-                          className="text-xs font-semibold text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
+                          className="text-xs font-semibold text-brand-600 hover:text-brand-700 border border-brand-200 hover:border-brand-400 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
                         >
                           + Adicionar
                         </button>
@@ -1102,7 +1102,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       )}
 
       {/* Aba: Notas Cadastradas */}
-      {tab === 'notas' && <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {tab === 'notas' && <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
         {invoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <FileText className="w-12 h-12 text-gray-200 mb-3" />
@@ -1111,7 +1111,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] bg-gray-50 border-b border-gray-100">
+            <div className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] bg-surface-secondary border-b border-surface-border">
               {['Fornecedor / Nota', 'Chave NF-e', 'Data', 'Produtos', 'Registrado em', ''].map((h, i) => (
                 <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i >= 3 && 'text-right')}>{h}</div>
               ))}
@@ -1123,7 +1123,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               return (
                 <div
                   key={inv.id}
-                  className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="grid grid-cols-[1fr_160px_130px_80px_80px_44px] items-center border-b border-surface-border last:border-0 hover:bg-surface-secondary cursor-pointer transition-colors"
                   onClick={() => handleRowClick(inv)}
                 >
                   <div className="px-4 py-3.5">

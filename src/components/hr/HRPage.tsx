@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
-import { ChevronRight, Upload, X, Pencil, Check, AlertCircle, FileText, Trash2 } from 'lucide-react'
+import { ChevronRight, Upload, X, Pencil, Check, AlertCircle, FileText, Trash2, Inbox } from 'lucide-react'
 import { useState, useRef, useTransition } from 'react'
 import { cn } from '@/lib/utils'
 import { upsertPayrollEntry, savePayrollMonthUpload, deletePayrollMonthUpload, deletePayrollEntry, updateUserPixKey } from '@/lib/actions'
@@ -129,7 +129,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 px-6 py-4 flex items-center justify-between">
+      <div className="bg-white rounded-card shadow-card border border-surface-border px-6 py-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">Total de comissões no mês</p>
           <p className="text-3xl font-bold text-emerald-700 mt-0.5">{formatCurrency(totalComm)}</p>
@@ -137,15 +137,20 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
         <p className="text-sm text-gray-400">{rows.length} colaborador{rows.length !== 1 ? 'es' : ''}</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-[1fr_160px_180px_160px_140px] border-b border-gray-100 bg-gray-50">
+      <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className="grid grid-cols-[1fr_160px_180px_160px_140px] border-b border-surface-border bg-surface-secondary">
           {['Colaborador','Vendas no mês','Com. vendedor (1%)','Com. projetista','Total'].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
           ))}
         </div>
 
         {rows.length === 0 && (
-          <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhuma comissão registrada para este mês</div>
+          <div className="px-4 py-12 text-center">
+            <div className="w-10 h-10 rounded-full bg-surface-secondary flex items-center justify-center mx-auto mb-2">
+              <Inbox className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-sm text-gray-400">Nenhuma comissão registrada para este mês</p>
+          </div>
         )}
 
         {rows.map((r: any) => {
@@ -154,10 +159,10 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
           const hasProjDetails = r.projetistaSales?.length > 0
 
           return (
-            <div key={r.user?.id} className="border-b border-gray-100 last:border-0">
+            <div key={r.user?.id} className="border-b border-surface-border last:border-0">
               <div
                 onClick={() => setDetailUser(isDetail ? null : r.user?.id)}
-                className="grid grid-cols-[1fr_160px_180px_160px_140px] items-center hover:bg-gray-50 transition-colors cursor-pointer"
+                className="grid grid-cols-[1fr_160px_180px_160px_140px] items-center hover:bg-surface-secondary transition-colors cursor-pointer"
               >
                 <div className="px-4 py-3.5 flex items-center gap-3">
                   <Avatar user={r.user} size={32} />
@@ -283,7 +288,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
         })}
 
         {rows.length > 0 && (
-          <div className="grid grid-cols-[1fr_160px_180px_160px_140px] bg-gray-50 border-t-2 border-gray-200">
+          <div className="grid grid-cols-[1fr_160px_180px_160px_140px] bg-surface-secondary border-t-2 border-surface-border">
             <div className="px-4 py-3 text-sm font-bold text-gray-700">
               Total a pagar
               <span className="ml-1 text-[10px] font-normal text-gray-400">(excl. admin)</span>
@@ -484,7 +489,7 @@ function RemuneracaoTab({
       {/* Upload + arquivo registrado */}
       <div className={cn(
         'bg-white border rounded-xl px-5 py-4',
-        uploadSuccess ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200'
+        uploadSuccess ? 'border-emerald-200 bg-emerald-50' : 'border-surface-border'
       )}>
         {monthUpload ? (
           <div className="flex items-center justify-between gap-4">
@@ -572,7 +577,7 @@ function RemuneracaoTab({
           { label: 'Total comissões (mês ant.)', value: totalComissoes, color: 'text-violet-700' },
           { label: 'Total geral a pagar', value: totalGeral, color: 'text-emerald-700' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+          <div key={label} className="bg-white border border-surface-border shadow-card rounded-xl px-4 py-3">
             <p className="text-xs text-gray-500">{label}</p>
             <p className={cn('text-xl font-bold mt-0.5', color)}>{formatCurrency(value)}</p>
           </div>
@@ -580,15 +585,20 @@ function RemuneracaoTab({
       </div>
 
       {/* Tabela */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className={cn('grid border-b border-gray-100 bg-gray-50', COLS)}>
+      <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className={cn('grid border-b border-surface-border bg-surface-secondary', COLS)}>
           {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão (mês ant.)', 'Total a pagar', ''].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && i < 5 && 'text-right')}>{h}</div>
           ))}
         </div>
 
         {collaborators.length === 0 && (
-          <div className="px-4 py-12 text-center text-sm text-gray-400">Nenhum colaborador encontrado</div>
+          <div className="px-4 py-12 text-center">
+            <div className="w-10 h-10 rounded-full bg-surface-secondary flex items-center justify-center mx-auto mb-2">
+              <Inbox className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-sm text-gray-400">Nenhum colaborador encontrado</p>
+          </div>
         )}
 
         {collaborators.map((u: any) => {
@@ -602,7 +612,7 @@ function RemuneracaoTab({
           const receiptUrl = p?.receipt_url
 
           return (
-            <div key={u.id} className={cn('grid items-center border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group', COLS)}>
+            <div key={u.id} className={cn('grid items-center border-b border-surface-border last:border-0 hover:bg-surface-secondary transition-colors group', COLS)}>
               {/* Colaborador */}
               <div className="px-4 py-3.5 flex items-center gap-3 min-w-0">
                 <Avatar user={u} size={32} />
@@ -673,7 +683,7 @@ function RemuneracaoTab({
         })}
 
         {collaborators.length > 0 && (
-          <div className={cn('grid bg-gray-50 border-t-2 border-gray-200', COLS)}>
+          <div className={cn('grid bg-surface-secondary border-t-2 border-surface-border', COLS)}>
             <div className="px-4 py-3 text-sm font-bold text-gray-700">Total</div>
             <div className="px-4 py-3 text-sm font-bold text-blue-700 text-right tabular-nums">{formatCurrency(totalSalarios)}</div>
             <div className="px-4 py-3 text-sm font-bold text-amber-700 text-right tabular-nums">{formatCurrency(totalVT)}</div>
@@ -713,7 +723,7 @@ export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers,
           <h1 className="text-2xl font-bold text-gray-900">RH</h1>
           <p className="text-sm text-gray-500 mt-1">Comissões e remuneração dos colaboradores</p>
         </div>
-        <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
+        <div className="flex items-center gap-1 bg-white border border-surface-border shadow-card rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
           <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900 px-1">◀</button>
           <span className="w-36 text-center">{MONTH_NAMES[month - 1].toUpperCase()} {year}</span>
           <button onClick={() => navigateMonth(1)} className="hover:text-gray-900 px-1">▶</button>
