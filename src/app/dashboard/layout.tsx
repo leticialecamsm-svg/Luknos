@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/layout/Sidebar'
+import { AppHeader } from '@/components/layout/AppHeader'
 import { ContentContainer } from '@/components/layout/ContentContainer'
 import { FloatingActionButton } from '@/components/ui/FloatingActionButton'
 import { requirePageAccess } from '@/lib/access'
@@ -9,9 +10,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar user={profile} allowedPages={allowedPages} roleLabel={roleLabel} />
+
+      <div className="flex-1 flex flex-col min-h-0">
+
+        <AppHeader user={profile} roleLabel={roleLabel} />
       <main className="flex-1 overflow-y-auto bg-surface">
         <ContentContainer>{children}</ContentContainer>
       </main>
+
+      </div>
       <FloatingActionButton currentUserId={profile.id} />
     </div>
   )

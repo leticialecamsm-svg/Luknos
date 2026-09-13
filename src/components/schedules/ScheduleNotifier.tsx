@@ -25,8 +25,9 @@ function markFired(key: string) {
 }
 
 // mode='fixed' → botão flutuante canto superior direito (legado)
-// mode='sidebar' → botão embutido na sidebar (dark background)
-export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar' }) {
+// mode='sidebar' → botão embutido na sidebar (legado, a sidebar não tem mais rodapé)
+// mode='header' → sino simples no AppHeader, igual ao ScheduleNotifier do Viver de IA
+export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar' | 'header' }) {
   const toast = useToast()
   const [open, setOpen] = useState(false)
   const [notifs, setNotifs] = useState<Notif[]>([])
@@ -121,6 +122,50 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
                   <div key={n.id + n.at} className="px-4 py-3 border-b border-surface-border last:border-0">
                     <p className="text-sm font-medium text-gray-800">{n.title}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{n.body}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (mode === 'header') {
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="relative w-9 h-9 rounded-full flex items-center justify-center text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.04)] transition-colors"
+          title="Notificações"
+        >
+          <Bell className="w-[18px] h-[18px]" />
+          {unread > 0 && (
+            <span className="absolute top-1 right-1.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          )}
+        </button>
+        {open && (
+          <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-surface-border overflow-hidden z-50">
+            <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
+              <span className="text-sm font-semibold text-navy">Notificações</span>
+              {notifs.length > 0 && (
+                <button onClick={() => setNotifs([])} className="text-xs text-navy-muted hover:text-navy">Limpar</button>
+              )}
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+              {notifs.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-gray-400">
+                  <CalendarClock className="w-6 h-6 mx-auto mb-2 text-gray-300" />
+                  Nenhuma notificação
+                </div>
+              ) : (
+                notifs.map(n => (
+                  <div key={n.id + n.at} className="px-4 py-3 border-b border-surface-border last:border-0">
+                    <p className="text-sm font-medium text-navy">{n.title}</p>
+                    <p className="text-xs text-navy-muted mt-0.5">{n.body}</p>
                   </div>
                 ))
               )}

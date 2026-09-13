@@ -3,11 +3,8 @@
 import { useState, useEffect, useLayoutEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles } from 'lucide-react'
-import { cn, getInitials } from '@/lib/utils'
-import { Avatar } from '@/components/ui/Avatar'
-import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
 const NAV = [
@@ -72,12 +69,6 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     localStorage.setItem('sidebar-collapsed', String(newState))
   }
 
-  async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    window.location.href = '/auth/login'
-  }
-
   const isAdmin = user?.role === 'admin'
   const isMarketing = user?.role === 'marketing'
 
@@ -89,13 +80,6 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     window.addEventListener('mkt-onboarding-done', read)
     return () => window.removeEventListener('mkt-onboarding-done', read)
   }, [])
-
-  const ROLE_LABEL: Record<string, string> = {
-    admin: 'Administrador',
-    seller: 'Vendedor',
-    logistics: 'Logística',
-    marketing: 'Marketing',
-  }
 
   const canAccess = (href: string) =>
     isAdmin || (allowedPages ?? []).some(p => href === p || href.startsWith(p + '/'))
@@ -140,7 +124,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                   title={collapsed ? item.label : undefined}
                   className={cn('flex items-center gap-2.5 rounded-pill text-sm transition-colors',
                     collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
-                    active ? 'bg-[rgba(10,31,59,0.06)] text-navy font-medium' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
+                    active ? 'bg-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                   )}
                 >
                   <item.icon className="w-4 h-4 shrink-0" />
@@ -191,7 +175,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                       title={collapsed ? item.label : undefined}
                       className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
                         collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
-                        active ? 'bg-[rgba(10,31,59,0.06)] text-navy font-medium' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
+                        active ? 'bg-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                       )}
                     >
                       <item.icon className="w-4 h-4 shrink-0" />
@@ -268,33 +252,12 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
           </div>
         )}
 
-        {/* Notificações */}
-        {!collapsed && <div className="shrink-0"><ScheduleNotifier mode="sidebar" /></div>}
-
-        {/* Footer: usuário + logout */}
-        <div className={`shrink-0 border-t border-surface-border ${collapsed ? 'px-3 py-3 flex justify-center' : 'p-3'}`}>
-          {collapsed ? (
-            <button onClick={handleLogout} className="text-navy-muted hover:text-navy transition-colors" title="Sair">
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <div className="flex items-center gap-2.5 px-2 py-1.5">
-              {user ? <Avatar user={user} size={28} /> : (
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                  style={{ backgroundColor: 'var(--color-accent-gold)' }}>U</div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-navy truncate">{user?.name ?? '—'}</p>
-                <p className="text-[10px] text-navy-muted truncate">
-                  {roleLabel ?? ROLE_LABEL[user?.role ?? 'seller'] ?? user?.role ?? 'Vendedor'}
-                </p>
-              </div>
-              <button onClick={handleLogout} className="text-navy-muted hover:text-navy transition-colors" title="Sair">
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Rodapé de marca (usuário/notificações/sair viraram o AppHeader, igual ao Viver de IA) */}
+        {!collapsed && (
+          <div className="shrink-0 py-4 text-center">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-navy-muted/50">Luknos</p>
+          </div>
+        )}
       </aside>
 
       {/* Botão flutuante de toggle — flutua na borda direita do aside */}

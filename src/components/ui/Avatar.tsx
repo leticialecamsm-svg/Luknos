@@ -52,7 +52,7 @@ export function Avatar({
     <div
       title={title ?? name}
       className={cn('rounded-full flex items-center justify-center text-white font-bold shrink-0', className)}
-      style={{ width: px, height: px, fontSize, backgroundColor: user.avatar_color ?? '#185FA5' }}
+      style={{ width: px, height: px, fontSize, backgroundColor: user.avatar_color ?? '#0A1F3B' }}
     >
       {getInitials(name)}
     </div>
