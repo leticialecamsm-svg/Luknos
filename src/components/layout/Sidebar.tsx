@@ -4,7 +4,7 @@ import { useState, useEffect, useLayoutEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, FileText, LogOut, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -31,6 +31,7 @@ const ADMIN_NAV = [
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/admin/users', label: 'Usuários e Papéis', icon: Users2 },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
+  { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
 
