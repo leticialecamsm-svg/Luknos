@@ -193,7 +193,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
         Aceita a planilha exportada pelo Master Lojista (.xls) ou um CSV simples. Só entram os <strong>boletos com fornecedor</strong> (linhas com CPF/CNPJ) que ainda estão em aberto — contas sem fornecedor (aluguel, internet, prolabore etc.) são ignoradas automaticamente, pois já são lançadas manualmente. Boletos já importados (mesmo fornecedor + vencimento + valor) não são duplicados.
       </p>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+      <div className="bg-white border border-surface-border rounded-card shadow-card p-5 mb-6">
         <div className="flex flex-wrap items-end gap-4 mb-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Arquivo (.xls, .xlsx ou .csv)</label>
@@ -227,7 +227,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
             <div className="overflow-x-auto mb-4">
               <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
                 <thead>
-                  <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase">
+                  <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase">
                     <th className="px-3 py-2">Descrição</th>
                     <th className="px-3 py-2">Documento</th>
                     <th className="px-3 py-2">Fornecedor</th>
@@ -255,7 +255,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
         )}
 
         {summary && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg text-sm space-y-1">
+          <div className="mt-4 p-4 bg-surface-secondary rounded-lg text-sm space-y-1">
             <p className="flex items-center gap-2 text-green-700"><CheckCircle2 className="w-4 h-4" /> {summary.rows_imported} importados de {summary.rows_total}</p>
             {summary.rows_skipped_duplicate > 0 && <p className="text-gray-600">{summary.rows_skipped_duplicate} ignorados por já existirem (duplicados)</p>}
             {summary.incomplete_rows > 0 && <p className="text-amber-700">{summary.incomplete_rows} ficaram incompletos (sem categoria e/ou centro de custo) — classifique em Contas a pagar</p>}
@@ -272,10 +272,10 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
       </div>
 
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Histórico de importações</h2>
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Arquivo</th>
               <th className="px-4 py-2.5">Data</th>
               <th className="px-4 py-2.5">Total</th>

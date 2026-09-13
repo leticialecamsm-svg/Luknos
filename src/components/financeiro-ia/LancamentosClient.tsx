@@ -103,10 +103,10 @@ export function LancamentosClient({
         Em aberto: <span className="font-semibold text-gray-700">{money(total)}</span>
       </p>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Descrição</th>
               <th className="px-4 py-2.5">Vencimento</th>
               <th className="px-4 py-2.5">Categoria</th>
@@ -150,7 +150,7 @@ export function LancamentosClient({
       </div>
 
       {adding ? (
-        <div className="mt-3 bg-gray-50/50 border border-gray-200 rounded-xl p-4 space-y-3">
+        <div className="mt-3 bg-surface-secondary/60 border border-surface-border rounded-xl p-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <input className={inputCls} placeholder="Descrição" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} autoFocus />
             <input className={inputCls} placeholder="Valor (ex: 350,00)" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />

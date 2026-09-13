@@ -89,7 +89,7 @@ function AprovacaoTab({ initialThreshold }: { initialThreshold: number }) {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 max-w-md">
+    <div className="bg-white border border-surface-border rounded-card shadow-card p-5 max-w-md">
       <h2 className="text-sm font-semibold text-gray-700 mb-1">Valor de corte para aprovação</h2>
       <p className="text-sm text-gray-500 mb-4">
         Lançamentos completos acima deste valor entram na fila de <strong>Aprovações</strong> antes de contar no fluxo de caixa. Deixe em branco ou 0 para desativar.
@@ -455,10 +455,10 @@ const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm f
 
 function Table({ headers, rows, empty }: { headers: string[]; rows: React.ReactNode[]; empty: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
             {headers.map(h => <th key={h} className="px-4 py-2.5">{h}</th>)}
           </tr>
         </thead>
@@ -505,7 +505,7 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
 
 function EditRow({ children, colSpan, onSave, onCancel, pending }: { children: React.ReactNode; colSpan: number; onSave: () => void; onCancel: () => void; pending: boolean }) {
   return (
-    <tr className="border-b border-gray-100 last:border-0 bg-gray-50/50">
+    <tr className="border-b border-surface-border last:border-0 bg-surface-secondary/60">
       <td colSpan={colSpan} className="px-4 py-2.5">
         <div className="flex items-center gap-2">
           <div className="flex-1 grid gap-2" style={{ gridTemplateColumns: `repeat(${Array.isArray(children) ? children.length : 1}, minmax(0, 1fr))` }}>

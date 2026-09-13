@@ -38,10 +38,10 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
         <Card icon={CircleDollarSign} label={remainingLabel} value={money(Math.abs(remaining))} tone={remaining >= 0 ? 'text-green-600' : 'text-red-600'} />
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Descrição</th>
               <th className="px-4 py-2.5">Tipo</th>
               <th className="px-4 py-2.5">Categoria</th>
@@ -84,7 +84,7 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
 
 function Card({ icon: Icon, label, value, tone }: { icon: typeof Wallet; label: string; value: string; tone?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className="bg-white border border-surface-border rounded-card shadow-card p-4">
       <div className="flex items-center gap-2 text-gray-400 mb-2">
         <Icon className="w-4 h-4" />
         <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>

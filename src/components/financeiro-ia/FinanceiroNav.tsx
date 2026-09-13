@@ -31,7 +31,7 @@ export function FinanceiroNav({ profile }: { profile: FinanceiroProfile }) {
   const items = NAV.filter(i => !i.gestorOnly || gestor)
 
   return (
-    <aside className="w-60 shrink-0 h-full flex flex-col border-r border-surface-border bg-white">
+    <aside className="w-60 shrink-0 h-full flex flex-col border-r border-surface-border bg-white shadow-[rgba(10,31,59,0.08)_8px_0_24px_-16px]">
       <div className="px-5 pt-6 pb-5">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-brand-500" />
@@ -46,7 +46,7 @@ export function FinanceiroNav({ profile }: { profile: FinanceiroProfile }) {
           return (
             <Link key={item.href} href={item.href}
               className={cn('flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                active ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
+                active ? 'bg-navy text-white shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-gray-600 hover:bg-surface-secondary hover:text-gray-900')}>
               <Icon className="w-4 h-4 shrink-0" />
               {item.label}
             </Link>

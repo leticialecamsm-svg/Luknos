@@ -28,10 +28,10 @@ export function AprovacoesClient({ initialItems }: { initialItems: Transaction[]
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Aprovações</h1>
       <p className="text-gray-500 mb-6">Lançamentos acima do valor de corte, aguardando decisão.</p>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Descrição</th>
               <th className="px-4 py-2.5">Tipo</th>
               <th className="px-4 py-2.5">Vencimento</th>

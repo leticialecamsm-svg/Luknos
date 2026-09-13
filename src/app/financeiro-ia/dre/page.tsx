@@ -47,7 +47,7 @@ export default async function Page() {
 
 function Card({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className="bg-white border border-surface-border rounded-card shadow-card p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{label}</div>
       <div className={`text-xl font-bold ${tone || 'text-gray-900'}`}>{value}</div>
     </div>
@@ -58,7 +58,7 @@ function BreakdownList({ items, empty }: { items: { label: string; total: number
   if (items.length === 0) return <p className="text-sm text-gray-400">{empty}</p>
   const max = Math.max(...items.map(i => i.total), 1)
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white border border-surface-border rounded-card shadow-card p-4 space-y-3">
       {items.map(i => (
         <div key={i.label}>
           <div className="flex justify-between text-sm text-gray-700 mb-1">

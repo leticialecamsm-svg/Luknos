@@ -19,10 +19,10 @@ export function FluxoSemanalClient({ days }: { days: CashflowDay[] }) {
         )}
       </p>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-card shadow-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Dia</th>
               <th className="px-4 py-2.5">Saldo inicial</th>
               <th className="px-4 py-2.5">Entradas previstas</th>

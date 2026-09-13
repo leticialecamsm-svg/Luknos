@@ -37,7 +37,7 @@ export default async function Page() {
 
 function Card({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className="bg-white border border-surface-border rounded-card shadow-card p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{label}</div>
       <div className={`text-xl font-bold ${tone || 'text-gray-900'}`}>{value}</div>
     </div>
