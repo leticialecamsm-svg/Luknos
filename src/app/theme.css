@@ -1,0 +1,21 @@
+/* Gerado a partir dos design_tokens do tema "viver-de-ia" (Supabase).
+   Não edite valores aqui à mão — atualize design_tokens e regenere via
+   export-theme-config. Fonte da verdade: tabela public.design_tokens. */
+:root {
+  --color-background-base: #111827;
+  --color-background-surface: #1f2937;
+  --color-accent-gold: #cba455;
+  --color-accent-gold-hover: #b8934a;
+  --color-text-primary: #f9fafb;
+  --color-text-muted: #9ca3af;
+  --color-border-subtle: #374151;
+  --color-feedback-success: #22c55e;
+  --color-feedback-error: #ef4444;
+  --color-feedback-warning: #f59e0b;
+  --font-family-base: 'Inter';
+  --font-size-base: 0.875rem;
+  --font-weight-bold: 700;
+  --spacing-unit: 0.25rem;
+  --radius-base: 0.75rem;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+}

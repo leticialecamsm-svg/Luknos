@@ -116,7 +116,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     <div className="relative shrink-0 flex">
       <aside
         className={`flex flex-col h-full min-h-0 ${mounted ? 'transition-all duration-300' : ''} ${collapsed ? 'w-16' : 'w-56'}`}
-        style={{ background: '#1A1A2E', borderTopRightRadius: '43px' }}
+        style={{ background: 'var(--color-background-base)', borderTopRightRadius: '43px' }}
       >
         {/* Logo */}
         <div className={`shrink-0 flex items-center ${collapsed ? 'justify-center px-2 pt-6 pb-5' : 'px-5 pt-6 pb-5'}`}>
@@ -276,7 +276,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
             <div className="flex items-center gap-2.5 px-2 py-1.5">
               {user ? <Avatar user={user} size={28} /> : (
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                  style={{ backgroundColor: '#185FA5' }}>U</div>
+                  style={{ backgroundColor: 'var(--color-accent-gold)' }}>U</div>
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">{user?.name ?? '—'}</p>
@@ -297,7 +297,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
         onClick={toggleCollapse}
         title={collapsed ? 'Expandir menu' : 'Recolher menu'}
         className="absolute top-6 -right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
-        style={{ backgroundColor: '#CBA455' }}
+        style={{ backgroundColor: 'var(--color-accent-gold)' }}
       >
         <ChevronLeft
           className="w-4 h-4 text-white transition-transform duration-300"
