@@ -237,7 +237,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       </div>
 
       {/* Saldos das contas */}
-      <div className="rounded-xl border border-surface-border bg-white p-4">
+      <div className="rounded-card shadow-card border border-surface-border bg-white p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <Landmark className="w-4 h-4 text-brand-500" /> Saldo nas contas
@@ -263,7 +263,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Semana */}
-        <div className="lg:col-span-2 rounded-xl border border-surface-border bg-white p-4">
+        <div className="lg:col-span-2 rounded-card shadow-card border border-surface-border bg-white p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-brand-500" /> A pagar — {weekLabel}
@@ -426,7 +426,7 @@ function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; 
   }
 
   return (
-    <div ref={containerRef} className="rounded-xl border border-surface-border bg-white p-4 relative">
+    <div ref={containerRef} className="rounded-card shadow-card border border-surface-border bg-white p-4 relative">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
       {pieData.length === 0 ? (
         <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>
@@ -469,7 +469,7 @@ function AccountCard({ account, onSave }: { account: any; onSave: (id: string, v
   }
 
   return (
-    <div className="rounded-xl border border-surface-border bg-gray-50 p-3 flex flex-col gap-1">
+    <div className="rounded-xl border border-surface-border bg-surface-secondary p-3 flex flex-col gap-1">
       <p className="text-xs font-semibold text-gray-500">{account.name}</p>
       {editing ? (
         <div className="flex items-center gap-1 mt-1">
@@ -517,7 +517,7 @@ function NewAccountCard({ onCreate }: { onCreate: (name: string, balance: number
     return (
       <button
         onClick={() => setAdding(true)}
-        className="rounded-xl border border-dashed border-surface-border bg-gray-50/50 p-3 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors min-h-[76px]"
+        className="rounded-xl border border-dashed border-surface-border bg-surface-secondary/60 p-3 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors min-h-[76px]"
       >
         <Plus className="w-5 h-5" />
         <span className="text-xs font-semibold">Nova conta</span>
@@ -526,7 +526,7 @@ function NewAccountCard({ onCreate }: { onCreate: (name: string, balance: number
   }
 
   return (
-    <div className="rounded-xl border border-brand-200 bg-white p-3 flex flex-col gap-1.5">
+    <div className="rounded-xl shadow-card border border-brand-200 bg-white p-3 flex flex-col gap-1.5">
       <input
         value={name} onChange={e => setName(e.target.value)}
         placeholder="Nome da conta"
@@ -559,7 +559,7 @@ function KpiCard({ label, value, color, alert }: { label: string; value: number;
     gray: 'text-gray-700 border-gray-200 from-gray-50',
   }
   return (
-    <div className={cn('rounded-xl border bg-gradient-to-br to-white p-4', colors[color])}>
+    <div className={cn('rounded-xl shadow-card border bg-gradient-to-br to-white p-4', colors[color])}>
       <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80 flex items-center gap-1">
         {alert && <AlertTriangle className="w-3 h-3" />} {label}
       </p>
@@ -805,7 +805,7 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
 
           {/* Recorrente / Parcelado */}
           {!isEdit && (
-            <div className="rounded-xl border border-surface-border p-4 space-y-4">
+            <div className="rounded-card shadow-card border border-surface-border p-4 space-y-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repetição</p>
               <div className="flex gap-2">
                 {([['recurring','Recorrente'],['installment','Parcelado']] as const).map(([v,l]) => (

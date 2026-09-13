@@ -55,7 +55,7 @@ export function FinanceSuppliersPage({ initialSuppliers }: { initialSuppliers: a
       <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-surface-border bg-surface text-left">
+            <tr className="border-b border-surface-border bg-surface-secondary text-left">
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Nome</th>
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Área de fornecimento</th>
               <th className="px-4 py-3 w-20"></th>
@@ -66,7 +66,7 @@ export function FinanceSuppliersPage({ initialSuppliers }: { initialSuppliers: a
               <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum fornecedor cadastrado</td></tr>
             )}
             {suppliers.map(s => (
-              <tr key={s.id} className="border-b border-surface-border last:border-0 hover:bg-surface">
+              <tr key={s.id} className="border-b border-surface-border last:border-0 hover:bg-surface-secondary">
                 <td className="px-4 py-3 text-sm font-medium text-gray-800">{s.name}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{s.supply_area || '—'}</td>
                 <td className="px-4 py-3">

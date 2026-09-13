@@ -51,7 +51,7 @@ export function FinanceCategoriesPage({ initialCategories }: { initialCategories
       <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-surface-border bg-surface text-left">
+            <tr className="border-b border-surface-border bg-surface-secondary text-left">
               <th className="px-4 py-3 text-xs font-semibold text-gray-600">Nome</th>
               <th className="px-4 py-3 w-20"></th>
             </tr>
@@ -61,7 +61,7 @@ export function FinanceCategoriesPage({ initialCategories }: { initialCategories
               <tr><td colSpan={2} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma categoria cadastrada</td></tr>
             )}
             {categories.map(c => (
-              <tr key={c.id} className="border-b border-surface-border last:border-0 hover:bg-surface">
+              <tr key={c.id} className="border-b border-surface-border last:border-0 hover:bg-surface-secondary">
                 <td className="px-4 py-3 text-sm font-medium text-gray-800">{c.name}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
