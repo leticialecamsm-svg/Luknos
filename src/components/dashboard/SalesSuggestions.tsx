@@ -101,7 +101,7 @@ export function SalesSuggestions({ quotes }: { quotes: any[] }) {
   const suggestions = buildSuggestions(quotes)
 
   return (
-    <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4">
+    <div className="rounded-card shadow-card border border-amber-200/60 bg-gradient-to-br from-amber-50/60 to-white p-4">
       <div className="flex items-center gap-2 mb-3">
         <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center">
           <Lightbulb className="w-4 h-4 text-amber-600" />
@@ -120,7 +120,7 @@ export function SalesSuggestions({ quotes }: { quotes: any[] }) {
             const t = TONE[s.tone]
             return (
               <Link key={s.key} href={s.href}
-                className={cn('group flex items-start gap-3 rounded-lg bg-white border border-surface-border p-3 hover:shadow-sm transition-all')}>
+                className={cn('group flex items-start gap-3 rounded-xl bg-white border border-surface-border p-3 hover:shadow-card transition-all')}>
                 <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ring-4', t.bg, t.ring)}>
                   <s.icon className={cn('w-4 h-4', t.text)} />
                 </div>

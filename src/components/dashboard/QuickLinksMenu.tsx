@@ -27,7 +27,7 @@ export function QuickLinksMenu() {
   return (
     <div className="relative group">
       <button
-        className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors flex items-center gap-2 text-gray-700 text-sm font-medium"
+        className="px-3 py-2 rounded-pill bg-surface-secondary hover:bg-[rgba(10,31,59,0.06)] transition-colors flex items-center gap-2 text-navy text-sm font-medium"
         title="Links rápidos"
       >
         <Link2 className="w-4 h-4" />
@@ -35,7 +35,7 @@ export function QuickLinksMenu() {
       </button>
 
       {/* Dropdown Menu */}
-      <div className="absolute right-0 mt-0 w-56 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+      <div className="absolute right-0 mt-0 w-56 bg-white border border-surface-border rounded-card shadow-card opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
         <div className="py-2">
           {QUICK_LINKS.map((link, idx) => (
             <a
@@ -43,7 +43,7 @@ export function QuickLinksMenu() {
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-navy hover:bg-surface-secondary transition-colors"
             >
               <span className="text-lg">{link.icon}</span>
               <span className="flex-1">{link.label}</span>

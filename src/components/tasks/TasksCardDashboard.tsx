@@ -56,7 +56,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-6">
+      <div className="rounded-card shadow-card border border-surface-border bg-white p-6">
         <div className="h-64 flex items-center justify-center">
           <p className="text-gray-400 text-sm">Carregando tarefas...</p>
         </div>
@@ -65,15 +65,15 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+    <div className="rounded-card shadow-card border border-surface-border bg-white overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Minhas tarefas</h3>
+          <h3 className="text-sm font-semibold text-navy">Minhas tarefas</h3>
           {pendingCount > 0 && (
             <p className="text-xs text-orange-600 font-medium mt-0.5">{pendingCount} pausadas</p>
           )}
         </div>
-        <Link href="/dashboard/tasks" className="text-xs font-medium text-blue-600 hover:text-blue-700">
+        <Link href="/dashboard/tasks" className="text-xs font-medium text-navy hover:text-brand-600">
           Ver todas →
         </Link>
       </div>

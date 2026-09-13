@@ -45,22 +45,22 @@ export function DashboardAgenda() {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+    <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+      <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-navy flex items-center gap-2">
           <CalendarClock className="w-4 h-4 text-brand-500" /> Agenda
         </h3>
         <div className="flex items-center gap-2">
-          <div className="flex gap-1 bg-surface-secondary rounded-lg p-0.5">
+          <div className="flex gap-1 bg-surface-secondary rounded-pill p-0.5">
             {([['today', `Hoje (${todayList.length})`], ['week', `Semana (${weekList.length})`]] as const).map(([v, label]) => (
               <button key={v} onClick={() => setTab(v)}
-                className={cn('px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                  tab === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                className={cn('px-2.5 py-1 rounded-full text-xs font-medium transition-all',
+                  tab === v ? 'bg-navy text-white shadow-sm' : 'text-navy-muted hover:text-navy')}>
                 {label}
               </button>
             ))}
           </div>
-          <Link href="/schedules" className="text-gray-300 hover:text-brand-500" title="Ver agenda">
+          <Link href="/schedules" className="text-navy-muted hover:text-brand-500" title="Ver agenda">
             <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
