@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, QuotePriority } from '@/types'
-import { ChevronDown, ChevronUp, ChevronRight, Search, X, Pencil, Trash2, Loader2, AlertTriangle, LayoutList, LayoutGrid } from 'lucide-react'
+import { ChevronDown, ChevronUp, ChevronRight, Search, X, Pencil, Trash2, Loader2, AlertTriangle, LayoutList, LayoutGrid, FileSearch } from 'lucide-react'
 import { deleteQuote, deleteQuotes } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -38,6 +38,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const selectAllRef = useRef<HTMLInputElement>(null)
 
   const quotes = view === 'mine' ? myQuotes : allQuotes
 
@@ -93,6 +94,14 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
     const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
     return sortOrder === 'asc' ? cmp : -cmp
   })
+
+  // Checkbox "selecionar todos" mostra o traço (indeterminate) quando só
+  // parte da lista está marcada, em vez de aparentar "nada selecionado".
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selected.size > 0 && selected.size < sorted.length
+    }
+  }, [selected, sorted.length])
 
   // Agrupa por prioridade — igual à tela de tarefas, do mais urgente pro menos urgente
   const grouped = PRIORITY_GROUPS.map(g => ({
@@ -319,13 +328,14 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
       {layout === 'list' && <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/80">
+            <tr className="border-b border-surface-border bg-surface-secondary">
               <th className="px-4 py-3 text-left">
                 <input
                   type="checkbox"
+                  ref={selectAllRef}
                   checked={selected.size > 0 && selected.size === sorted.length}
                   onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded cursor-pointer"
+                  className="w-4 h-4 rounded cursor-pointer accent-brand-500"
                 />
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">Nº</th>
@@ -365,11 +375,32 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
           </tbody>
         </table>
 
-        {sorted.length === 0 && (
-          <div className="px-6 py-12 text-center">
-            <p className="text-gray-500">Nenhum orçamento encontrado</p>
-          </div>
-        )}
+        {sorted.length === 0 && (() => {
+          const hasFilters = !!(search || dateFilter || statusFilter || ownerFilter)
+          return (
+            <div className="px-6 py-16 text-center flex flex-col items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-surface-secondary flex items-center justify-center">
+                <FileSearch className="w-5 h-5 text-gray-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-navy">
+                  {hasFilters ? 'Nenhum orçamento bate com esses filtros' : 'Nenhum orçamento por aqui ainda'}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {hasFilters ? 'Tente ajustar a busca ou limpar os filtros.' : 'Assim que criar um orçamento, ele aparece aqui.'}
+                </p>
+              </div>
+              {hasFilters && (
+                <button
+                  onClick={() => { setSearch(''); setDateFilter(''); setStatusFilter(null); setOwnerFilter(null) }}
+                  className="text-xs font-medium text-brand-600 hover:text-brand-700"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          )
+        })()}
       </div>}
       {ConfirmDialog}
     </div>
@@ -387,7 +418,7 @@ function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSe
 }) {
   return (
     <>
-      <tr className={cn('border-b border-gray-100 cursor-pointer select-none', group.bg)} onClick={onToggle}>
+      <tr className={cn('border-b border-surface-border cursor-pointer select-none', group.bg)} onClick={onToggle}>
         <td colSpan={8} className={cn('px-6 py-2.5 border-l-4', group.border)}>
           <div className="flex items-center gap-2">
             <ChevronRight className={cn('w-3.5 h-3.5 text-gray-400 transition-transform', !collapsed && 'rotate-90')} />
@@ -436,19 +467,19 @@ function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSe
 
               return (
                 <tr key={q.id} onClick={() => router.push(`/quotes/${q.id}`)}
-                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                  className="border-b border-surface-border hover:bg-surface-secondary transition-colors group">
                     <td className="px-4 py-3" onClick={e => { e.stopPropagation(); toggleSelectQuote(q.id) }}>
                       <input
                         type="checkbox"
                         checked={selected.has(q.id)}
                         onChange={() => toggleSelectQuote(q.id)}
-                        className="w-4 h-4 rounded cursor-pointer"
+                        className="w-4 h-4 rounded cursor-pointer accent-brand-500"
                       />
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500 cursor-pointer">#{String(q.number).padStart(3, '0')}</td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold bg-blue-500">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold bg-navy">
                           {getInitials(q.client_name)}
                         </div>
                         <div className="flex flex-col">

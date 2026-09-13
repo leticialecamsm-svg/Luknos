@@ -108,7 +108,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
           { label: 'Quente', value: formatCurrency(totalHot), dot: '#EF4444' },
           { label: `Fechado — ${monthLabel}`, value: formatCurrency(totalClosed), dot: '#10B981' },
         ].map(kpi => (
-          <div key={kpi.label} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+          <div key={kpi.label} className="rounded-card shadow-card border border-surface-border bg-white px-4 py-3">
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: kpi.dot }} />
               <p className="text-xs text-gray-400">{kpi.label}</p>
@@ -136,12 +136,12 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
         </div>
 
         {/* Passador de mês — filtra Fechadas e Perdidas */}
-        <div className="ml-auto flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-1 py-0.5">
-          <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50">
+        <div className="ml-auto flex items-center gap-1 rounded-xl border border-surface-border bg-white px-1 py-0.5 shadow-card">
+          <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-navy rounded-lg hover:bg-surface-secondary">
             <ChevronLeft className="w-4 h-4" />
           </button>
           <span className="text-sm font-semibold text-gray-700 capitalize min-w-[130px] text-center">{monthLabel}</span>
-          <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50">
+          <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-navy rounded-lg hover:bg-surface-secondary">
             <ChevronRight className="w-4 h-4" />
           </button>
           {monthOffset !== 0 && (
@@ -166,8 +166,8 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
               key={col.key}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, col.key)}
-              className={cn('rounded-2xl bg-gray-50/70 border border-gray-100 flex flex-col overflow-hidden transition-colors',
-                isDropTarget && 'bg-gray-50')}
+              className={cn('rounded-2xl bg-surface-secondary/70 border border-surface-border flex flex-col overflow-hidden transition-colors',
+                isDropTarget && 'bg-surface-secondary')}
             >
               {/* Accent + header */}
               <div className="h-1" style={{ backgroundColor: col.accent }} />
@@ -175,7 +175,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: col.accent }} />
                   <span className="text-sm font-semibold text-gray-700">{col.label}</span>
-                  <span className="ml-auto text-xs font-medium text-gray-400 bg-white border border-gray-100 rounded-full px-2 py-0.5">{cards.length}</span>
+                  <span className="ml-auto text-xs font-medium text-gray-400 bg-white border border-surface-border rounded-full px-2 py-0.5">{cards.length}</span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1 pl-4">{formatCurrency(colValue)}</p>
               </div>
@@ -183,7 +183,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
               {/* Cards */}
               <div className="px-2 pb-2 space-y-2 flex-1">
                 {cards.length === 0 && (
-                  <div className="h-14 rounded-xl border border-dashed border-gray-200 flex items-center justify-center">
+                  <div className="h-14 rounded-xl border border-dashed border-surface-border flex items-center justify-center">
                     <p className="text-[11px] text-gray-300">vazio</p>
                   </div>
                 )}
@@ -215,8 +215,8 @@ function KanbanCard({ quote: q, accent, onDragStart, isDragging, onOpen }: {
         onDragStart={e => onDragStart(e, q.id)}
         onClick={onOpen}
         className={cn(
-          'group bg-white rounded-xl p-3 border border-gray-100 transition-all cursor-pointer',
-          'hover:border-gray-200 hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]',
+          'group bg-white rounded-xl p-3 border border-surface-border shadow-card transition-all cursor-pointer',
+          'hover:border-[rgba(10,31,59,0.16)] hover:shadow-[0_8px_20px_-10px_rgba(10,31,59,0.35)]',
           isDragging && 'opacity-40'
         )}
       >
