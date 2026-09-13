@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { TrendingUp, TrendingDown, Minus, Info } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Info, Inbox } from 'lucide-react'
 import { colorOf, monthLabel, nf } from './lib'
 
 export function Select({ label, value, onChange, options }: {
@@ -20,7 +20,7 @@ export function Select({ label, value, onChange, options }: {
 
 export function Seg({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <div className="flex bg-gray-100 rounded-lg p-1 gap-0.5 self-end">
+    <div className="flex bg-surface-secondary rounded-lg p-1 gap-0.5 self-end">
       {options.map(([v, l]) => (
         <button key={v} onClick={() => onChange(v)}
           className={cn('px-3 py-1.5 rounded-md text-sm font-medium transition-all',
@@ -90,7 +90,7 @@ export function Kpi({ label, value, cur, prev, compare, hint, inverse }: {
 
 export function MiniStat({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' | 'bad' }) {
   return (
-    <div className="rounded-lg bg-surface border border-surface-border px-3 py-2.5">
+    <div className="rounded-lg bg-surface-secondary border border-surface-border px-3 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
       <p className={cn('text-lg font-bold mt-0.5 tabular-nums',
         tone === 'good' ? 'text-emerald-600' : tone === 'warn' ? 'text-amber-600' : tone === 'bad' ? 'text-red-600' : 'text-gray-900')}>
@@ -121,7 +121,14 @@ export function SellerName({ name, color }: { name: string; color: string }) {
 }
 
 export function Empty({ text = 'Nenhuma venda fechada nesse período.' }: { text?: string }) {
-  return <p className="text-sm text-gray-400 py-6 text-center">{text}</p>
+  return (
+    <div className="flex flex-col items-center gap-2 py-6 text-center">
+      <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center">
+        <Inbox className="w-4 h-4 text-gray-400" />
+      </div>
+      <p className="text-sm text-gray-400">{text}</p>
+    </div>
+  )
 }
 
 export const TH = 'font-semibold py-2 text-[11px] uppercase tracking-wide text-gray-400'

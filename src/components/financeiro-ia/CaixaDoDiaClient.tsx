@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { CircleDollarSign, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { CircleDollarSign, TrendingDown, TrendingUp, Wallet, PartyPopper } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import type { DailyCashPanel } from '@/lib/financeiro-ia/panels-actions'
 import { markTransactionPaid } from '@/lib/financeiro-ia/transactions-actions'
@@ -73,7 +73,14 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Nenhum lançamento vencendo hoje.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10">
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
+                    <PartyPopper className="w-4 h-4 text-green-600" />
+                  </div>
+                  <p className="text-sm text-gray-500">Nada vencendo hoje. Dia tranquilo.</p>
+                </div>
+              </td></tr>
             )}
           </tbody>
         </table>

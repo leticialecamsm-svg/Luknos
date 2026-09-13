@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Plus, Trash2, Pencil, X, Check, Landmark, Tag, Truck, Layers, ShieldCheck } from 'lucide-react'
+import { Plus, Trash2, Pencil, X, Check, Landmark, Tag, Truck, Layers, ShieldCheck, Inbox } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import {
@@ -464,7 +464,14 @@ function Table({ headers, rows, empty }: { headers: string[]; rows: React.ReactN
         </thead>
         <tbody>
           {rows.length > 0 ? rows : (
-            <tr><td colSpan={headers.length} className="px-4 py-8 text-center text-gray-400">{empty}</td></tr>
+            <tr><td colSpan={headers.length} className="px-4 py-10">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="w-10 h-10 rounded-full bg-surface-secondary flex items-center justify-center">
+                  <Inbox className="w-4 h-4 text-gray-400" />
+                </div>
+                <p className="text-sm text-gray-400">{empty}</p>
+              </div>
+            </td></tr>
           )}
         </tbody>
       </table>

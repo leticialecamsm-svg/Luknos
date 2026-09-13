@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Plus, Trash2, Check, X, CircleDollarSign } from 'lucide-react'
+import { Plus, Trash2, Check, X, CircleDollarSign, Inbox } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import type { BankAccount, Category, Supplier, CostCenter } from '@/lib/financeiro-ia/actions'
@@ -143,7 +143,14 @@ export function LancamentosClient({
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">{emptyMsg}</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10">
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-10 h-10 rounded-full bg-surface-secondary flex items-center justify-center">
+                    <Inbox className="w-4 h-4 text-gray-400" />
+                  </div>
+                  <p className="text-sm text-gray-400">{emptyMsg}</p>
+                </div>
+              </td></tr>
             )}
           </tbody>
         </table>
