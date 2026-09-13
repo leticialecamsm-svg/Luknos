@@ -98,10 +98,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const effectiveIsLogistics = viewAsTarget ? viewAsTarget.role === 'logistics' : profile?.role === 'logistics'
   const effectiveName = viewAsTarget?.name ?? profile?.name
 
-  const collaboratorsForBanner = isAdmin ? await getActiveUsers() : []
-  const viewAsOptions = collaboratorsForBanner.filter((u: any) => VIEW_AS_ALLOWED_NAMES.includes(u.name))
-
   if (effectiveIsLogistics) {
+    const collaboratorsForBanner = isAdmin ? await getActiveUsers() : []
+    const viewAsOptions = collaboratorsForBanner.filter((u: any) => VIEW_AS_ALLOWED_NAMES.includes(u.name))
     const [shipments, tasks] = await Promise.all([
       getShipments(),
       viewAsTarget ? getTasksForUser(effectiveUserId) : getTasks(),
@@ -122,7 +121,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const year  = searchParams.year  ? parseInt(searchParams.year)  : now.getFullYear()
   const month = searchParams.month ? parseInt(searchParams.month) : now.getMonth() + 1
 
-  const [stats, myQuotes, allUsers, goalsResult, allQuotes, prospectionsCount, collaboratorRoles] = await Promise.all([
+  // Tudo que o painel precisa sai de uma vez só. Antes eram 5 esperas em
+  // sequência (usuários → bloco principal → negociações críticas → alertas →
+  // comissões → vendas do dia/semana), cada uma aguardando a anterior.
+  const businessDays = businessDaysInMonth(year, month)
+  const todayStr = toISODate(now)
+  const week = currentBusinessWeekRange()
+  const [stats, myQuotes, allUsers, goalsResult, allQuotes, prospectionsCount, collaboratorRoles,
+         criticalNegotiations, flaggedAlerts, earnings, todaySoldRes, weekSoldRes] = await Promise.all([
     getDashboardStats(effectiveIsAdmin ? undefined : effectiveUserId, year, month),
     viewAsTarget ? getQuotesForUser(effectiveUserId) : getMyQuotes(),
     getActiveUsers(),
@@ -130,7 +136,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     getAllQuotes(),
     effectiveIsAdmin ? getProspectionsThisMonth(undefined, year, month) : getProspectionsThisMonth(effectiveUserId, year, month),
     getCollaboratorRoleNames(),
+    effectiveIsAdmin ? getCriticalNegotiations() : Promise.resolve([]),
+    effectiveIsAdmin ? getFlaggedAlerts() : Promise.resolve([]),
+    getCommissionEarnings(year, month),
+    effectiveIsAdmin ? Promise.resolve(0) : getSalesForUserInRange(effectiveUserId, todayStr, todayStr),
+    effectiveIsAdmin ? Promise.resolve(0) : getSalesForUserInRange(effectiveUserId, week.start, week.end),
   ])
+  const viewAsOptions = isAdmin ? (allUsers as any[]).filter((u: any) => VIEW_AS_ALLOWED_NAMES.includes(u.name)) : []
 
   const { goals, isFallback, fallbackLabel } = goalsResult
 
@@ -138,9 +150,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const myGoalEntry = goals.find((g: any) => g.user_id === effectiveUserId)
   const myGoal = myGoalEntry?.target ?? 0
 
-  const criticalNegotiations = effectiveIsAdmin ? await getCriticalNegotiations() : []
-  const flaggedAlerts = effectiveIsAdmin ? await getFlaggedAlerts() : []
-  const earnings = await getCommissionEarnings(year, month)
   const myEarnings = earnings.byUser[effectiveUserId] ?? null
 
   const totalSold = stats.sales
@@ -156,17 +165,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   )
 
   // Metas de dia/semana — só fazem sentido pro vendedor vendo o próprio painel
-  let dailyGoal = 0, weeklyGoal = 0, todaySold = 0, weekSold = 0
+  let dailyGoal = 0, weeklyGoal = 0
+  const todaySold = Number(todaySoldRes ?? 0), weekSold = Number(weekSoldRes ?? 0)
   if (!effectiveIsAdmin) {
-    const businessDays = businessDaysInMonth(year, month)
     dailyGoal = businessDays > 0 ? myGoal / businessDays : 0
     weeklyGoal = dailyGoal * 6
-    const todayStr = toISODate(now)
-    const week = currentBusinessWeekRange()
-    ;[todaySold, weekSold] = await Promise.all([
-      getSalesForUserInRange(effectiveUserId, todayStr, todayStr),
-      getSalesForUserInRange(effectiveUserId, week.start, week.end),
-    ])
   }
 
   return (
