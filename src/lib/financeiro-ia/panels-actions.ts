@@ -29,6 +29,7 @@ export type CashflowDay = {
   opening_balance: number
   expected_in: number
   expected_out: number
+  pending_approval: number
   closing_balance: number
 }
 

@@ -1,12 +1,9 @@
 import { requireFinanceiroProfile } from '@/lib/financeiro-ia/auth'
-import { EmConstrucao } from '@/components/financeiro-ia/EmConstrucao'
+import { listPendingApprovals } from '@/lib/financeiro-ia/approval-actions'
+import { AprovacoesClient } from '@/components/financeiro-ia/AprovacoesClient'
 
 export default async function Page() {
   await requireFinanceiroProfile()
-  return (
-    <EmConstrucao
-      title="Aprovações"
-      description="Fila de lançamentos acima do valor de corte, aguardando aprovação da gestora ou de quem tiver a permissão."
-    />
-  )
+  const items = await listPendingApprovals()
+  return <AprovacoesClient initialItems={items} />
 }

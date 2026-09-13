@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Plus, Trash2, Pencil, X, Check, Landmark, Tag, Truck, Layers } from 'lucide-react'
+import { Plus, Trash2, Pencil, X, Check, Landmark, Tag, Truck, Layers, ShieldCheck } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import {
@@ -11,14 +11,16 @@ import {
   createSupplier, updateSupplier, deleteSupplier,
   createCostCenter, updateCostCenter, deleteCostCenter,
 } from '@/lib/financeiro-ia/actions'
+import { setApprovalThreshold } from '@/lib/financeiro-ia/approval-actions'
 
-type Tab = 'contas' | 'categorias' | 'fornecedores' | 'centros'
+type Tab = 'contas' | 'categorias' | 'fornecedores' | 'centros' | 'aprovacao'
 
 const TABS: { key: Tab; label: string; icon: typeof Landmark }[] = [
   { key: 'contas', label: 'Contas bancárias', icon: Landmark },
   { key: 'categorias', label: 'Categorias', icon: Tag },
   { key: 'fornecedores', label: 'Fornecedores', icon: Truck },
   { key: 'centros', label: 'Centros de custo', icon: Layers },
+  { key: 'aprovacao', label: 'Aprovação', icon: ShieldCheck },
 ]
 
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -28,11 +30,13 @@ export function ConfiguracoesClient({
   initialCategories,
   initialSuppliers,
   initialCostCenters,
+  initialApprovalThreshold,
 }: {
   initialBankAccounts: BankAccount[]
   initialCategories: Category[]
   initialSuppliers: Supplier[]
   initialCostCenters: CostCenter[]
+  initialApprovalThreshold: number
 }) {
   const [tab, setTab] = useState<Tab>('contas')
   const [bankAccounts, setBankAccounts] = useState(initialBankAccounts)
@@ -64,6 +68,43 @@ export function ConfiguracoesClient({
       {tab === 'categorias' && <CategoriesTab items={categories} setItems={setCategories} />}
       {tab === 'fornecedores' && <SuppliersTab items={suppliers} setItems={setSuppliers} />}
       {tab === 'centros' && <CostCentersTab items={costCenters} setItems={setCostCenters} />}
+      {tab === 'aprovacao' && <AprovacaoTab initialThreshold={initialApprovalThreshold} />}
+    </div>
+  )
+}
+
+function AprovacaoTab({ initialThreshold }: { initialThreshold: number }) {
+  const toast = useToast()
+  const [pending, startTransition] = useTransition()
+  const [value, setValue] = useState(initialThreshold > 0 ? String(initialThreshold) : '')
+
+  const save = () => {
+    const threshold = value.trim() === '' ? 0 : Number(value.replace(',', '.'))
+    if (Number.isNaN(threshold) || threshold < 0) return toast.error('Informe um valor válido')
+    startTransition(async () => {
+      const res = await setApprovalThreshold(threshold)
+      if ('error' in res) return toast.error('Erro ao salvar', res.error)
+      toast.success(threshold > 0 ? 'Valor de corte atualizado' : 'Aprovação desativada')
+    })
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5 max-w-md">
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">Valor de corte para aprovação</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Lançamentos completos acima deste valor entram na fila de <strong>Aprovações</strong> antes de contar no fluxo de caixa. Deixe em branco ou 0 para desativar.
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+          placeholder="Ex: 2000,00"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+        />
+        <button onClick={save} disabled={pending} className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50">
+          <Check className="w-4 h-4" /> Salvar
+        </button>
+      </div>
     </div>
   )
 }

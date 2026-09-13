@@ -5,6 +5,7 @@ const dateFmt = (v: string) => new Date(v + 'T00:00:00').toLocaleDateString('pt-
 
 export function FluxoSemanalClient({ days }: { days: CashflowDay[] }) {
   const last = days[days.length - 1]
+  const pendingApproval = days.reduce((s, d) => s + d.pending_approval, 0)
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Fluxo semanal</h1>
@@ -12,6 +13,9 @@ export function FluxoSemanalClient({ days }: { days: CashflowDay[] }) {
         Projeção dos próximos 7 dias.{' '}
         {last && (
           <>Saldo projetado no fim do período: <span className={`font-semibold ${last.closing_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{money(last.closing_balance)}</span></>
+        )}
+        {pendingApproval > 0 && (
+          <> · <span className="text-purple-700">{money(pendingApproval)} aguardando aprovação (não entram nesta projeção)</span></>
         )}
       </p>
 

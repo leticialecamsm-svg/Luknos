@@ -6,22 +6,12 @@ import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import type { BankAccount, Category, Supplier, CostCenter } from '@/lib/financeiro-ia/actions'
 import { type Transaction, type Direction, createTransaction, markTransactionPaid, deleteTransaction } from '@/lib/financeiro-ia/transactions-actions'
+import { STATUS_LABEL, STATUS_CLASS, canMarkPaid } from '@/lib/financeiro-ia/status'
 
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dateFmt = (v: string) => new Date(v + 'T00:00:00').toLocaleDateString('pt-BR')
 
 const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
-
-const STATUS_LABEL: Record<string, string> = {
-  incompleto: 'Incompleto',
-  pendente: 'Pendente',
-  pago: 'Pago',
-}
-const STATUS_CLASS: Record<string, string> = {
-  incompleto: 'bg-amber-50 text-amber-700',
-  pendente: 'bg-blue-50 text-blue-700',
-  pago: 'bg-green-50 text-green-700',
-}
 
 export function LancamentosClient({
   direction,
@@ -151,7 +141,7 @@ export function LancamentosClient({
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                  {t.status !== 'pago' && (
+                  {canMarkPaid(t.status) && (
                     <button onClick={() => markPaid(t)} disabled={pending} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors disabled:opacity-50" title="Marcar como pago">
                       <CircleDollarSign className="w-4 h-4" />
                     </button>

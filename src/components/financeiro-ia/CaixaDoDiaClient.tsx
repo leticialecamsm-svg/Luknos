@@ -5,6 +5,7 @@ import { CircleDollarSign, TrendingDown, TrendingUp, Wallet } from 'lucide-react
 import { useToast } from '@/components/ui/Toast'
 import type { DailyCashPanel } from '@/lib/financeiro-ia/panels-actions'
 import { markTransactionPaid } from '@/lib/financeiro-ia/transactions-actions'
+import { STATUS_LABEL, STATUS_CLASS, canMarkPaid } from '@/lib/financeiro-ia/status'
 
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -59,12 +60,12 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
                 <td className="px-4 py-2.5 text-gray-700">{i.bank_account || '—'}</td>
                 <td className="px-4 py-2.5 text-gray-700">{money(i.amount)}</td>
                 <td className="px-4 py-2.5">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${i.status === 'pago' ? 'bg-green-50 text-green-700' : i.status === 'incompleto' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
-                    {i.status === 'pago' ? 'Pago' : i.status === 'incompleto' ? 'Incompleto' : 'Pendente'}
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CLASS[i.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                    {STATUS_LABEL[i.status] ?? i.status}
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  {i.status !== 'pago' && (
+                  {canMarkPaid(i.status) && (
                     <button onClick={() => markPaid(i.transaction_id)} disabled={pending} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors disabled:opacity-50" title="Marcar como pago">
                       <CircleDollarSign className="w-4 h-4" />
                     </button>
