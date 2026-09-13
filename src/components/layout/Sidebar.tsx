@@ -26,7 +26,6 @@ const ADMIN_NAV = [
   { href: '/hr', label: 'RH', icon: UserCog },
   { href: '/purchases', label: 'Notas de Entrada', icon: ShoppingBag },
   { href: '/admin', label: 'Administração', icon: Settings },
-  { href: '/admin/users', label: 'Usuários e Papéis', icon: Users2 },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
 ]
@@ -98,13 +97,14 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
 
 
   return (
-    <div className="relative shrink-0 flex">
+    <div className="relative z-30 shrink-0 flex">
       <aside
         className={`flex flex-col h-full min-h-0 border-r border-surface-border ${mounted ? 'transition-all duration-300' : ''} ${collapsed ? 'w-16' : 'w-56'}`}
         style={{
           backgroundImage: 'linear-gradient(rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.84) 10%, rgba(247,248,250,0.58) 100%)',
           backdropFilter: 'blur(20px) saturate(1.4)',
           WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
+          boxShadow: 'rgba(255,255,255,0.7) 0 1px 0 0 inset, rgba(10,31,59,0.12) 8px 0 24px -12px',
         }}
       >
         {/* Logo */}
@@ -165,10 +165,13 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                 const financeOpen = pathname.startsWith('/finance')
                 const isBot = item.href === '/bot-config'
                 const botOpen = pathname.startsWith('/bot-')
+                const isAdminSection = item.href === '/admin'
+                const adminOpen = pathname.startsWith('/admin')
                 const active = pathname === item.href
                   || (isFinance ? pathname === '/finance' : false)
                   || (isBot ? pathname.startsWith('/bot-') : false)
-                  || (!isFinance && !isBot && pathname.startsWith(item.href))
+                  || (isAdminSection ? pathname === '/admin' : false)
+                  || (!isFinance && !isBot && !isAdminSection && pathname.startsWith(item.href))
                 return (
                   <div key={item.href}>
                     <Link href={item.href}
@@ -182,7 +185,16 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                       {!collapsed && <span className="flex-1">{item.label}</span>}
                       {isFinance && !collapsed && financeOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
                       {isBot && !collapsed && botOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
+                      {isAdminSection && !collapsed && adminOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
                     </Link>
+                    {isAdminSection && !collapsed && adminOpen && (
+                      <Link href="/admin/users"
+                        className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-surface-border',
+                          pathname.startsWith('/admin/users') ? 'text-navy font-medium' : 'text-navy-muted hover:text-navy'
+                        )}>
+                        Usuários e Papéis
+                      </Link>
+                    )}
                     {isBot && !collapsed && botOpen && (
                       <>
                         <Link href="/bot-config"
@@ -264,7 +276,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
       <button
         onClick={toggleCollapse}
         title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-        className="absolute top-6 -right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
+        className="absolute top-[13px] -right-3.5 z-40 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
         style={{ backgroundColor: 'var(--color-accent-gold)' }}
       >
         <ChevronLeft
