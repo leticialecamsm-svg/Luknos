@@ -72,8 +72,21 @@ export async function createTransaction(input: {
     p_total_installments: input.total_installments || 1,
   })
   if (error) return { error: error.message }
+
+  const transactionId = data as string
+  const { data: created } = await supabase
+    .from('transactions')
+    .select(`
+      id, direction, description, amount, due_date, paid_date, status, is_complete,
+      category_id, supplier_id, cost_center_id, bank_account_id,
+      category:categories(name), supplier:suppliers(name),
+      cost_center:cost_centers(name), bank_account:bank_accounts(name)
+    `)
+    .eq('id', transactionId)
+    .maybeSingle()
+
   PATHS.forEach(p => revalidatePath(p))
-  return { ok: true, id: data as string }
+  return { ok: true, id: transactionId, transaction: created as unknown as Transaction | null }
 }
 
 export async function markTransactionPaid(id: string, paidOn?: string) {

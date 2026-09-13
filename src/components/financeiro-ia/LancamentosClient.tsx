@@ -67,18 +67,9 @@ export function LancamentosClient({
       toast.success('Lançamento criado', installments > 1 ? `${installments} parcelas geradas.` : undefined)
       setAdding(false)
       resetForm()
-      const cat = categories.find(c => c.id === form.category_id) ?? null
-      const sup = suppliers.find(s => s.id === form.supplier_id) ?? null
-      const cc = costCenters.find(c => c.id === form.cost_center_id) ?? null
-      const ba = bankAccounts.find(b => b.id === form.bank_account_id) ?? null
-      setItems([...items, {
-        id: res.id!, direction, description: form.description, amount, due_date: form.due_date, paid_date: null,
-        status: (cat && cc && ba) ? 'pendente' : 'incompleto', is_complete: !!(cat && cc && ba),
-        category_id: form.category_id || null, supplier_id: form.supplier_id || null,
-        cost_center_id: form.cost_center_id || null, bank_account_id: form.bank_account_id || null,
-        category: cat ? { name: cat.name } : null, supplier: sup ? { name: sup.name } : null,
-        cost_center: cc ? { name: cc.name } : null, bank_account: ba ? { name: ba.name } : null,
-      }].sort((a, b) => a.due_date.localeCompare(b.due_date)))
+      if (res.transaction) {
+        setItems([...items, res.transaction].sort((a, b) => a.due_date.localeCompare(b.due_date)))
+      }
     })
   }
 
