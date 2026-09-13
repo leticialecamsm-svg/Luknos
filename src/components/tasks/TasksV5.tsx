@@ -5,7 +5,7 @@ import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder, getQuotesList,
   createSubtask, updateSubtask, deleteSubtask,
-  getMyDoneTasksWeek, getTeamDoneTasksWeek, getTasksAssignedByMe,
+  getMyDoneTasksWeek, getTeamDoneTasksWeek, getTasksAssignedByMe, reassignTask,
 } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
@@ -243,6 +243,34 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
       // criada tentaria salvar usando o id fake e falharia.
       setTasks(prev => prev.map(t => t.id === tmp.id ? { ...t, id: res.data.id } : t))
     }
+  }
+
+  // ── Trocar responsável de uma tarefa já criada ─────────────────────────────
+  async function reassign(task: Task, userId: string) {
+    if (!userId || userId === task.user_id) return
+    const who = allUsers.find(u => u.id === userId)
+    const res = await reassignTask(task.id, userId)
+    if (res?.error) { toast.error('Não foi possível reatribuir', res.error); return }
+    const newUsers = who ? { name: who.name, avatar_color: who.avatar_color, avatar_url: who.avatar_url } : task.users
+
+    if (scope === 'team') {
+      // Visão da equipe: a tarefa só muda de dono na mesma lista
+      mapTask(task.id, t => ({ ...t, user_id: userId, users: newUsers }))
+      setSelected(p => p ? { ...p, user_id: userId, users: newUsers } : p)
+    } else if (userId === currentUser.id) {
+      // Peguei de volta pra mim: sai de "Atribuídas por mim" e volta pra minha lista
+      setDelegated(list => list.filter(t => t.id !== task.id))
+      setSelected(null)
+      window.location.reload()
+      return
+    } else {
+      // Passei pra outra pessoa: some da minha lista e vai pra "Atribuídas por mim"
+      setTasks(prev => prev.filter(t => t.id !== task.id))
+      setCompleted(prev => prev.filter(t => t.id !== task.id))
+      setSelected(null)
+      setDelegated(await getTasksAssignedByMe() as Task[])
+    }
+    toast.success('TAREFA REATRIBUÍDA', `Agora está com ${who?.name ?? 'outra pessoa'}.`)
   }
 
   // ── Ações nas tarefas que atribuí a outros ────────────────────────────────
@@ -679,6 +707,9 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
           onToggle={() => scope === 'delegated' ? toggleDelegated(selected) : toggleDone(selected)}
           onDelete={() => scope === 'delegated' ? removeDelegated(selected.id) : removeTask(selected.id)}
           onChange={updates => scope === 'delegated' ? changeDelegated(selected.id, updates) : changeTask(selected.id, updates)}
+          users={allUsers}
+          currentUserId={currentUser.id}
+          onReassign={uid => reassign(selected, uid)}
           onSubtasksSync={subtasks => {
             if (scope === 'delegated') setDelegated(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
             else setTasks(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
@@ -1066,8 +1097,10 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSync }: {
+function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSync, users = [], currentUserId, onReassign }: {
   task: Task; onClose: () => void
+  users?: User[]; currentUserId?: string
+  onReassign?: (userId: string) => void
   onToggle: () => void; onDelete: () => void
   onChange: (u: Partial<Task>) => void
   onSubtasksSync?: (subtasks: { id: string; title: string; done: boolean }[]) => void
@@ -1323,13 +1356,26 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
               className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
             />
           </Row2>
-          {task.users && (
-            <Row2 label="Responsável">
+          <Row2 label="Responsável">
+            {onReassign && users.length > 0 ? (
+              <select
+                value={task.user_id ?? currentUserId ?? ''}
+                onChange={e => onReassign(e.target.value)}
+                className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
+              >
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.id === currentUserId ? `${u.name} (eu)` : u.name}</option>
+                ))}
+              </select>
+            ) : task.users ? (
               <div className="flex items-center gap-2">
                 <Avatar user={task.users} size={22} />
                 <span className="text-sm text-gray-700">{task.users.name}</span>
               </div>
-            </Row2>
+            ) : <span className="text-sm text-gray-500">Eu</span>}
+          </Row2>
+          {task.assigned_by && (
+            <p className="text-[11px] text-violet-700 -mt-1">Atribuída por {task.assigned_by.name}</p>
           )}
         </div>
 

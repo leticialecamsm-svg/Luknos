@@ -1946,6 +1946,38 @@ async function getDbClient(taskId?: string) {
   return supabase
 }
 
+/**
+ * Troca quem vai fazer a tarefa. Pode: admin, o dono atual ou quem criou.
+ * Quando alguém passa a tarefa pra outra pessoa, quem passou vira o
+ * "atribuído por" (created_by) — assim ela aparece em "Atribuídas por mim".
+ */
+export async function reassignTask(taskId: string, newUserId: string) {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const admin = createAdminClient()
+
+  const [{ data: task }, { data: me }, { data: target }] = await Promise.all([
+    admin.from('tasks').select('user_id, created_by').eq('id', taskId).maybeSingle(),
+    admin.from('users').select('role').eq('id', user.id).maybeSingle(),
+    admin.from('users').select('id, name, avatar_color, avatar_url').eq('id', newUserId).eq('active', true).maybeSingle(),
+  ])
+  if (!task) return { error: 'Tarefa não encontrada' }
+  if (!target) return { error: 'Essa pessoa não está ativa no sistema.' }
+  const allowed = me?.role === 'admin' || task.user_id === user.id || task.created_by === user.id
+  if (!allowed) return { error: 'Sem permissão pra reatribuir essa tarefa.' }
+  if (task.user_id === newUserId) return { ok: true, user: target }
+
+  const created_by = newUserId === user.id ? (task.created_by ?? user.id) : user.id
+  const { error } = await admin.from('tasks')
+    .update({ user_id: newUserId, created_by, sort_order: 0, updated_at: new Date().toISOString() })
+    .eq('id', taskId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard')
+  return { ok: true, user: target, created_by }
+}
+
 async function taskIdOfSubtask(subtaskId: string) {
   const { data } = await createAdminClient().from('subtasks').select('task_id').eq('id', subtaskId).maybeSingle()
   return data?.task_id as string | undefined
