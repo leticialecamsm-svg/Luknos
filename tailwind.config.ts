@@ -10,10 +10,10 @@ const config: Config = {
     extend: {
       colors: {
         // Cor de destaque do redesign "Viver de IA" (mesmos valores de
-        // design_tokens.color.accent.gold / color.background.base no
-        // Supabase — mantidos como hex estático aqui porque os modificadores
-        // de opacidade do Tailwind, ex. `brand-500/20`, exigem uma cor real
-        // e não um var() apontando pra uma string hex).
+        // design_tokens.color.accent.gold/navy no Supabase — mantidos como
+        // hex estático aqui porque os modificadores de opacidade do
+        // Tailwind, ex. `brand-500/20`, exigem uma cor real e não um var()
+        // apontando pra uma string hex).
         brand: {
           50:  '#f9f4ea',
           100: '#f0e4c9',
@@ -21,16 +21,19 @@ const config: Config = {
           500: '#cba455',
           600: '#b8934a',
           700: '#96742f',
-          900: '#111827',
+          900: '#0a1f3b',
         },
+        navy: {
+          DEFAULT: '#0a1f3b',
+          muted: '#4f596b',
+        },
+        // Base clara real do Viver de IA (branco, não creme) — extraída por
+        // inspeção do app.viverdeia.ai, não suposição.
         surface: {
-          DEFAULT: '#F8F7F4',
-          secondary: '#F0EEE8',
-          border: '#E5E3DC',
+          DEFAULT: '#ffffff',
+          secondary: '#f7f8fa',
+          border: 'rgba(10, 31, 59, 0.08)',
         },
-        // Tokens do redesign "Viver de IA" (design_tokens no Supabase).
-        // Namespace `via-*` isolado da paleta legada acima — usado só pelo
-        // shell/loader na Fase 1; os módulos migram tela a tela na Fase 2.
         'via-bg': 'var(--color-background-base)',
         'via-surface': 'var(--color-background-surface)',
         'via-gold': 'var(--color-accent-gold)',
@@ -40,9 +43,16 @@ const config: Config = {
         'via-border': 'var(--color-border-subtle)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
+      },
+      borderRadius: {
+        card: '20px',
+        pill: '10px',
       },
       boxShadow: {
+        card: 'var(--shadow-card)',
+        hero: 'var(--shadow-hero)',
         'via-card': 'var(--shadow-card)',
       },
     },

@@ -3,58 +3,58 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --brand: #185FA5;
-    --dark:  #1A1A2E;
-    --surface: #F8F7F4;
-    --border: #E5E3DC;
-  }
-
   * { box-sizing: border-box; }
 
   body {
-    background-color: #F8F7F4;
+    background-color: #ffffff;
   }
 }
 
 @layer components {
+  /* Recipe calibrada por inspeção real do app.viverdeia.ai: base clara,
+     borda navy bem sutil, sombra em camadas (realce interno + difusa
+     externa), raio generoso — não um card "flat" com shadow-sm. */
   .card {
-    @apply bg-white rounded-xl border border-surface-border shadow-sm;
+    @apply bg-white rounded-card border border-surface-border shadow-card;
   }
 
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
   }
 
+  .eyebrow {
+    @apply font-mono text-[10.5px] font-medium uppercase tracking-wider text-navy-muted;
+  }
+
   .btn-primary {
     @apply inline-flex items-center gap-2 px-4 py-2 bg-brand-500 text-white
-           rounded-lg text-sm font-medium hover:bg-brand-600
+           rounded-pill text-sm font-medium hover:bg-brand-600
            transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700
-           border border-surface-border rounded-lg text-sm font-medium
-           hover:bg-surface transition-colors;
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-navy
+           border border-surface-border rounded-pill text-sm font-medium
+           hover:bg-surface-secondary transition-colors;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center gap-2 px-3 py-1.5 text-gray-500
-           rounded-lg text-sm hover:bg-surface-secondary transition-colors;
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-navy-muted
+           rounded-pill text-sm hover:bg-surface-secondary transition-colors;
   }
 
   .input {
-    @apply w-full px-3 py-2 bg-white border border-surface-border rounded-lg
+    @apply w-full px-3 py-2 bg-white border border-surface-border rounded-pill
            text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20
            focus:border-brand-500 transition-colors;
   }
 
   .label {
-    @apply block text-xs font-medium text-gray-500 mb-1;
+    @apply block text-xs font-medium text-navy-muted mb-1;
   }
 
   .select {
-    @apply w-full px-3 py-2 bg-white border border-surface-border rounded-lg
+    @apply w-full px-3 py-2 bg-white border border-surface-border rounded-pill
            text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20
            focus:border-brand-500 transition-colors appearance-none;
   }
@@ -63,7 +63,7 @@
 /* Scrollbar sutil */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #E5E3DC; border-radius: 99px; }
+::-webkit-scrollbar-thumb { background: rgba(10, 31, 59, 0.12); border-radius: 99px; }
 
 /* ── Tela de carregamento ─────────────────────────────────────────────── */
 .luk-shimmer {

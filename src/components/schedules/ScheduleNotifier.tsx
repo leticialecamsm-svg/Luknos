@@ -80,7 +80,7 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
       <div className="relative px-3 pb-2">
         <button
           onClick={() => setOpen(o => !o)}
-          className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-white/60 hover:text-white hover:bg-white/8 transition-colors text-sm"
+          className="w-full flex items-center gap-2.5 rounded-pill px-3 py-2 text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)] transition-colors text-sm"
           title="Notificações"
         >
           <div className="relative">
