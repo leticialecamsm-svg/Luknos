@@ -1,12 +1,21 @@
 import { requireFinanceiroProfile } from '@/lib/financeiro-ia/auth'
-import { EmConstrucao } from '@/components/financeiro-ia/EmConstrucao'
+import { ConfiguracoesClient } from '@/components/financeiro-ia/ConfiguracoesClient'
+import { listBankAccounts, listCategories, listSuppliers, listCostCenters } from '@/lib/financeiro-ia/actions'
 
 export default async function Page() {
   await requireFinanceiroProfile()
+  const [bankAccounts, categories, suppliers, costCenters] = await Promise.all([
+    listBankAccounts(),
+    listCategories(),
+    listSuppliers(),
+    listCostCenters(),
+  ])
   return (
-    <EmConstrucao
-      title="Configurações"
-      description="Contas bancárias, categorias, fornecedores, centros de custo, recorrências e o valor de corte da aprovação."
+    <ConfiguracoesClient
+      initialBankAccounts={bankAccounts}
+      initialCategories={categories}
+      initialSuppliers={suppliers}
+      initialCostCenters={costCenters}
     />
   )
 }
