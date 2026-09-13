@@ -10,6 +10,10 @@
     {
       "path": "/api/cron/update-reminder",
       "schedule": "0 20 * * 1-6"
+    },
+    {
+      "path": "/api/cron/financial-daily-summary",
+      "schedule": "0 10 * * *"
     }
   ]
 }
