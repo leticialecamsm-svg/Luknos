@@ -1670,7 +1670,18 @@ async function attachQuoteInfo(tasks: any[], client: ReturnType<typeof createAdm
     const { data: quotes } = await client.from('quotes_full').select('id, number, client_name').in('id', quoteIds)
     if (quotes) quotesMap = Object.fromEntries(quotes.map((q: any) => [q.id, q]))
   }
-  return tasks.map((t: any) => ({ ...t, quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null }))
+  // Quem atribuiu a tarefa, quando não foi a própria pessoa
+  const creatorIds = Array.from(new Set(tasks.filter((t: any) => t.created_by && t.created_by !== t.user_id).map((t: any) => t.created_by)))
+  let creators: Record<string, any> = {}
+  if (creatorIds.length > 0) {
+    const { data: us } = await client.from('users').select('id, name, avatar_color, avatar_url').in('id', creatorIds)
+    if (us) creators = Object.fromEntries(us.map((u: any) => [u.id, u]))
+  }
+  return tasks.map((t: any) => ({
+    ...t,
+    quote: t.quote_id ? (quotesMap[t.quote_id] ?? null) : null,
+    assigned_by: t.created_by && t.created_by !== t.user_id ? (creators[t.created_by] ?? null) : null,
+  }))
 }
 
 // Tarefas de um usuário pra exibição em "semana": ativas (todo/doing/paused)
@@ -1860,13 +1871,27 @@ export async function createTask(formData: {
   due_date?: string
   checklist?: { text: string; done: boolean }[]
   quote_id?: string | null
+  assignee_id?: string | null
 }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
-  const { data, error } = await supabase.from('tasks').insert({
-    user_id: user.id,
+  // Qualquer usuário pode criar tarefa pra outra pessoa. A tarefa vai pra
+  // lista de quem recebe (user_id) e guarda quem criou (created_by).
+  const assignee = formData.assignee_id && formData.assignee_id !== user.id ? formData.assignee_id : user.id
+  const forOther = assignee !== user.id
+  const admin = createAdminClient()
+  if (forOther) {
+    const { data: target } = await admin.from('users').select('id').eq('id', assignee).eq('active', true).maybeSingle()
+    if (!target) return { error: 'Essa pessoa não está ativa no sistema.' }
+  }
+
+  // Inserir na lista de outra pessoa passa pela RLS (auth.uid() = user_id), por isso vai pelo admin
+  const db = forOther ? admin : supabase
+  const { data, error } = await db.from('tasks').insert({
+    user_id: assignee,
+    created_by: user.id,
     title: formData.title,
     description: formData.description || null,
     priority: formData.priority,
@@ -1882,12 +1907,48 @@ export async function createTask(formData: {
   return { ok: true, data }
 }
 
-async function getDbClient() {
+/** Tarefas que o usuário criou para outras pessoas (abertas + concluídas nos últimos 30 dias). */
+export async function getTasksAssignedByMe() {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return []
+  const admin = createAdminClient()
+  const since = new Date(Date.now() - 30 * 86400000).toISOString()
+  const { data } = await admin.from('tasks')
+    .select('*, subtasks(id, title, done)')
+    .eq('created_by', user.id)
+    .neq('user_id', user.id)
+    .or(`status.neq.done,completed_at.gte.${since}`)
+    .order('created_at', { ascending: false })
+    .limit(500)
+  const tasks = data ?? []
+  const ids = Array.from(new Set(tasks.map((t: any) => t.user_id)))
+  const { data: us } = ids.length
+    ? await admin.from('users').select('id, name, avatar_color, avatar_url').in('id', ids)
+    : { data: [] as any[] }
+  const map = Object.fromEntries((us ?? []).map((u: any) => [u.id, u]))
+  const withQuotes = await attachQuoteInfo(tasks, admin)
+  return withQuotes.map((t: any) => ({ ...t, users: map[t.user_id] ?? null, assigned_by: null }))
+}
+
+async function getDbClient(taskId?: string) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return supabase
-  const { data: profile } = await createAdminClient().from('users').select('role').eq('id', user.id).single()
-  return profile?.role === 'admin' ? createAdminClient() : supabase
+  const admin = createAdminClient()
+  const { data: profile } = await admin.from('users').select('role').eq('id', user.id).single()
+  if (profile?.role === 'admin') return admin
+  // Quem criou a tarefa pra outra pessoa continua podendo mexer nela
+  // (a RLS só libera o dono, user_id).
+  if (taskId) {
+    const { data: t } = await admin.from('tasks').select('created_by').eq('id', taskId).maybeSingle()
+    if (t?.created_by === user.id) return admin
+  }
+  return supabase
+}
+
+async function taskIdOfSubtask(subtaskId: string) {
+  const { data } = await createAdminClient().from('subtasks').select('task_id').eq('id', subtaskId).maybeSingle()
+  return data?.task_id as string | undefined
 }
 
 export async function updateTask(id: string, formData: {
@@ -1900,7 +1961,7 @@ export async function updateTask(id: string, formData: {
   quote_id?: string | null
   pinned_to_today?: boolean
 }) {
-  const db = await getDbClient()
+  const db = await getDbClient(id)
   const extra: Record<string, unknown> = {}
   if (formData.status === 'done') extra.completed_at = new Date().toISOString()
   else if (formData.status) extra.completed_at = null
@@ -1916,7 +1977,7 @@ export async function updateTask(id: string, formData: {
 }
 
 export async function updateTaskStatus(id: string, status: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(id)
   const completed_at = status === 'done' ? new Date().toISOString() : null
 
   const { error } = await db
@@ -1953,7 +2014,7 @@ export async function updateTaskStatus(id: string, status: string) {
 }
 
 export async function deleteTask(id: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(id)
   const { error } = await db.from('tasks').delete().eq('id', id)
 
   if (error) return { error: error.message }
@@ -1965,7 +2026,7 @@ export async function deleteTask(id: string) {
 // ── Subtarefas ─────────────────────────────────────────────────────────────
 
 export async function getSubtasks(taskId: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(taskId)
   const { data, error } = await db
     .from('subtasks')
     .select('*')
@@ -1976,7 +2037,7 @@ export async function getSubtasks(taskId: string) {
 }
 
 export async function createSubtask(taskId: string, title: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(taskId)
   const { data: existing } = await db
     .from('subtasks')
     .select('position')
@@ -1996,7 +2057,7 @@ export async function createSubtask(taskId: string, title: string) {
 }
 
 export async function updateSubtask(id: string, updates: { title?: string; done?: boolean }) {
-  const db = await getDbClient()
+  const db = await getDbClient(await taskIdOfSubtask(id))
   const { data, error } = await db
     .from('subtasks')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -2017,7 +2078,7 @@ export async function reorderSubtasks(items: { id: string; position: number }[])
 }
 
 export async function deleteSubtask(id: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(await taskIdOfSubtask(id))
   const { error } = await db.from('subtasks').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/dashboard/tasks')
@@ -2025,7 +2086,7 @@ export async function deleteSubtask(id: string) {
 }
 
 export async function completeAllSubtasks(taskId: string) {
-  const db = await getDbClient()
+  const db = await getDbClient(taskId)
   const { error } = await db
     .from('subtasks')
     .update({ done: true, updated_at: new Date().toISOString() })

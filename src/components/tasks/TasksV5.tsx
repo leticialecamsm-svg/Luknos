@@ -5,12 +5,12 @@ import {
   updateTaskStatus, deleteTask, createTask,
   updateTask, updateTasksOrder, getQuotesList,
   createSubtask, updateSubtask, deleteSubtask,
-  getMyDoneTasksWeek, getTeamDoneTasksWeek,
+  getMyDoneTasksWeek, getTeamDoneTasksWeek, getTasksAssignedByMe,
 } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, X, Search, ChevronDown, ChevronLeft, ChevronRight, Link2, Trash2, Users, GripVertical, StickyNote, Loader2, CalendarDays, CheckSquare } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, ChevronLeft, ChevronRight, Link2, Trash2, Users, GripVertical, StickyNote, Loader2, CalendarDays, CheckSquare, Send, UserPlus } from 'lucide-react'
 import { format, isToday, isPast, isTomorrow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { QuoteQuickViewModal } from '@/components/quotes/QuoteQuickViewModal'
@@ -28,8 +28,10 @@ interface Task {
   status: Status; priority: Priority
   due_date?: string | null; completed_at?: string | null
   sort_order?: number; pinned_to_today?: boolean
-  created_at: string; user_id?: string
+  created_at: string; user_id?: string; created_by?: string | null
   users?: { name: string; avatar_color: string; avatar_url?: string | null } | null
+  /** Preenchido quando outra pessoa criou a tarefa pra você */
+  assigned_by?: { name: string; avatar_color: string; avatar_url?: string | null } | null
   quote?: { number: number; client_name: string } | null
   quote_id?: string | null
   checklist?: { text: string; done: boolean }[]
@@ -89,16 +91,20 @@ function weekLabel(weekOffset: number): string {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, canSeeAgenda = true, initialSchedules = [], initialView = 'tarefas' }: {
+export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, canSeeAgenda = true, initialSchedules = [], initialView = 'tarefas', initialDelegated = [] }: {
   myTasks: Task[]; allTasks: Task[]; allUsers: User[]
   currentUser: User; isAdmin: boolean
+  initialDelegated?: Task[]
   canSeeAgenda?: boolean
   initialSchedules?: any[]
   initialView?: 'tarefas' | 'agenda'
 }) {
   const toast = useToast()
   const [view, setView] = useState<'tarefas' | 'agenda'>(initialView)
-  const [scope, setScope]   = useState<'mine' | 'team'>('mine')
+  const [scope, setScope]   = useState<'mine' | 'team' | 'delegated'>('mine')
+  // Tarefas que EU criei pra outras pessoas (aba "Atribuídas por mim")
+  const [delegated, setDelegated] = useState<Task[]>(initialDelegated)
+  const [assignee, setAssignee] = useState<string>('me')
   const [memberFilter, setMemberFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [newTitle, setNewTitle] = useState('')
@@ -213,6 +219,18 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
     const title = newTitle.trim()
     if (!title) return
     setNewTitle('')
+
+    // Pra outra pessoa: não entra na minha lista — vai pra lista dela e
+    // aparece na aba "Atribuídas por mim"
+    if (assignee !== 'me' && assignee !== currentUser.id) {
+      const who = allUsers.find(u => u.id === assignee)
+      const res = await createTask({ title, priority: newPriority, status: 'todo', due_date: TODAY, assignee_id: assignee })
+      if (res?.error) { toast.error('Erro', res.error); setNewTitle(title); return }
+      toast.success('TAREFA ENVIADA', `Já está na lista de ${who?.name ?? 'quem recebeu'}. Acompanhe em "Atribuídas por mim".`)
+      setDelegated(await getTasksAssignedByMe() as Task[])
+      return
+    }
+
     const tmp: Task = { id: '__tmp__' + Date.now(), title, status: 'todo', priority: newPriority, created_at: new Date().toISOString(), due_date: TODAY, sort_order: -1 }
     setTasks(prev => [tmp, ...prev])
     const res = await createTask({ title, priority: newPriority, status: 'todo', due_date: TODAY })
@@ -225,6 +243,37 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
       // criada tentaria salvar usando o id fake e falharia.
       setTasks(prev => prev.map(t => t.id === tmp.id ? { ...t, id: res.data.id } : t))
     }
+  }
+
+  // ── Ações nas tarefas que atribuí a outros ────────────────────────────────
+  async function changeDelegated(id: string, updates: Partial<Task>) {
+    const prev = delegated.find(t => t.id === id)
+    setDelegated(list => list.map(t => t.id === id ? { ...t, ...updates } : t))
+    if (selected?.id === id) setSelected(p => p ? { ...p, ...updates } : p)
+    const { quote, users, assigned_by, ...db } = updates as any
+    const res = await updateTask(id, db)
+    if (res?.error && prev) {
+      setDelegated(list => list.map(t => t.id === id ? prev : t))
+      toast.error('Não foi possível salvar', 'Tente novamente.')
+    }
+  }
+  async function toggleDelegated(task: Task) {
+    const next: Status = task.status === 'done' ? 'todo' : 'done'
+    const completed_at = next === 'done' ? new Date().toISOString() : null
+    setDelegated(list => list.map(t => t.id === task.id ? { ...t, status: next, completed_at } : t))
+    if (selected?.id === task.id) setSelected(p => p ? { ...p, status: next, completed_at } : p)
+    const res = await updateTaskStatus(task.id, next)
+    if (res?.error) {
+      setDelegated(list => list.map(t => t.id === task.id ? task : t))
+      toast.error('Não foi possível salvar', 'Tente novamente.')
+    }
+  }
+  async function removeDelegated(id: string) {
+    const prev = delegated
+    setDelegated(list => list.filter(t => t.id !== id))
+    if (selected?.id === id) setSelected(null)
+    const res = await deleteTask(id)
+    if (res?.error) { setDelegated(prev); toast.error('Não foi possível excluir', 'Tente novamente.') }
   }
 
   async function toggleDone(task: Task) {
@@ -443,17 +492,27 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
                 ))}
               </select>
             )}
-            {isAdmin && (
-              <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
-                {(['mine', 'team'] as const).map(s => (
-                  <button key={s} onClick={() => setScope(s)}
-                    className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                      scope === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                    {s === 'mine' ? 'Minhas' : <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Equipe</span>}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Admin: Minhas / Equipe · demais: Minhas / Atribuídas por mim */}
+            <div className="flex bg-gray-100 rounded-xl p-1 gap-0.5">
+              {((isAdmin ? ['mine', 'team'] : ['mine', 'delegated']) as ('mine' | 'team' | 'delegated')[]).map(s => (
+                <button key={s} onClick={() => { setScope(s); setSelected(null) }}
+                  className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap',
+                    scope === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                  {s === 'mine' && 'Minhas'}
+                  {s === 'team' && <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Equipe</span>}
+                  {s === 'delegated' && (
+                    <span className="flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5" />Atribuídas por mim
+                      {delegated.filter(t => t.status !== 'done').length > 0 && (
+                        <span className="text-[10px] font-bold bg-brand-100 text-brand-700 rounded-full px-1.5">
+                          {delegated.filter(t => t.status !== 'done').length}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -465,8 +524,22 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
           className="flex items-center gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-brand-300 focus-within:border-brand-400 focus-within:shadow-sm transition-all px-4 py-3">
           <Plus className="w-4 h-4 text-gray-400 shrink-0" />
           <input value={newTitle} onChange={e => setNewTitle(e.target.value)}
-            placeholder="Adicionar tarefa de hoje... (Enter para salvar)"
+            placeholder={assignee === 'me'
+              ? 'Adicionar tarefa de hoje... (Enter para salvar)'
+              : `Tarefa para ${allUsers.find(u => u.id === assignee)?.name ?? 'outra pessoa'}... (Enter para enviar)`}
             className="flex-1 text-sm text-gray-800 bg-transparent outline-none placeholder-gray-400" />
+          <label className={cn('shrink-0 flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
+            assignee === 'me' ? 'border-gray-200 text-gray-500' : 'border-brand-200 bg-brand-50 text-brand-700')}
+            title="Quem vai fazer essa tarefa">
+            <UserPlus className="w-3.5 h-3.5" />
+            <select value={assignee} onChange={e => setAssignee(e.target.value)}
+              className="bg-transparent outline-none cursor-pointer max-w-[130px]">
+              <option value="me">Para mim</option>
+              {allUsers.filter(u => u.id !== currentUser.id).map(u => (
+                <option key={u.id} value={u.id}>Para {u.name}</option>
+              ))}
+            </select>
+          </label>
           <div className="flex items-center gap-1.5 shrink-0">
             {(['high', 'mid', 'low'] as Priority[]).map(p => (
               <button key={p} type="button" onClick={() => setNewPriority(p)} title={P[p].label}
@@ -476,13 +549,19 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
           </div>
           {newTitle && (
             <button type="submit" className="shrink-0 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg transition-colors">
-              Salvar
+              {assignee === 'me' ? 'Salvar' : 'Enviar'}
             </button>
           )}
         </form>
 
 
-        {/* Lists */}
+        {scope === 'delegated' ? (
+          <DelegatedList
+            tasks={delegated}
+            selectedId={selected?.id}
+            onSelect={t => setSelected(s => s?.id === t.id ? null : t)}
+          />
+        ) : (
         <div className="flex-1 overflow-y-auto space-y-3 pb-6">
           <Section title="Tarefas do dia" count={todayTasks.length} accent="text-orange-600" defaultOpen>
             {(['high', 'mid', 'low'] as Priority[]).map(p => (
@@ -589,6 +668,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Coluna da direita: agenda por padrão; a tarefa aberta toma o lugar dela */}
@@ -596,11 +676,12 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
         <DetailPanel
           key={selected.id} task={selected}
           onClose={() => setSelected(null)}
-          onToggle={() => toggleDone(selected)}
-          onDelete={() => removeTask(selected.id)}
-          onChange={updates => changeTask(selected.id, updates)}
+          onToggle={() => scope === 'delegated' ? toggleDelegated(selected) : toggleDone(selected)}
+          onDelete={() => scope === 'delegated' ? removeDelegated(selected.id) : removeTask(selected.id)}
+          onChange={updates => scope === 'delegated' ? changeDelegated(selected.id, updates) : changeTask(selected.id, updates)}
           onSubtasksSync={subtasks => {
-            setTasks(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
+            if (scope === 'delegated') setDelegated(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
+            else setTasks(prev => prev.map(t => t.id === selected.id ? { ...t, subtasks } : t))
             setSelected(p => p ? { ...p, subtasks } : p)
           }}
         />
@@ -922,6 +1003,12 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
           {!done && (
             <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-md', STATUS_CFG[task.status].cls)}>
               {STATUS_CFG[task.status].label}
+            </span>
+          )}
+          {task.assigned_by && (
+            <span className="text-[10px] font-medium text-violet-700 bg-violet-50 rounded-md px-1.5 py-0.5 flex items-center gap-1"
+              title={`${task.assigned_by.name} criou essa tarefa pra você`}>
+              <Send className="w-2.5 h-2.5" /> de {task.assigned_by.name.split(' ')[0]}
             </span>
           )}
           {task.quote && (
@@ -1340,6 +1427,104 @@ function Row2({ label, children }: { label: string; children: React.ReactNode })
     <div className="flex items-center gap-3">
       <span className="text-xs text-gray-400 font-medium w-20 shrink-0">{label}</span>
       {children}
+    </div>
+  )
+}
+
+// ── Atribuídas por mim ─────────────────────────────────────────────────────
+
+function DelegatedList({ tasks, selectedId, onSelect }: {
+  tasks: Task[]; selectedId?: string; onSelect: (t: Task) => void
+}) {
+  const open = tasks.filter(t => t.status !== 'done')
+  const done = tasks.filter(t => t.status === 'done')
+
+  // Agrupa por quem recebeu; quem tem mais coisa aberta primeiro
+  const groups = new Map<string, { user: Task['users']; tasks: Task[] }>()
+  tasks.forEach(t => {
+    const key = t.user_id ?? '_'
+    const g = groups.get(key) ?? { user: t.users, tasks: [] }
+    g.tasks.push(t)
+    groups.set(key, g)
+  })
+  const ordered = Array.from(groups.entries()).sort((a, b) =>
+    b[1].tasks.filter(t => t.status !== 'done').length - a[1].tasks.filter(t => t.status !== 'done').length)
+
+  return (
+    <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+      {/* Explicação da aba */}
+      <div className="rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3 flex gap-3">
+        <Send className="w-4 h-4 text-violet-600 shrink-0 mt-0.5" />
+        <div className="text-sm text-gray-700 leading-relaxed">
+          <p className="font-semibold text-gray-900">Tarefas que você criou para outras pessoas</p>
+          <p className="text-gray-600">
+            Elas aparecem na lista de quem recebeu com a marca <span className="font-medium text-violet-700">“de {'{'}seu nome{'}'}”</span>, pra pessoa saber quem pediu.
+            Aqui você acompanha o andamento: o status muda quando a pessoa começa ou conclui.
+            Pra criar uma, use <span className="font-medium">“Para mim ▾”</span> no campo de nova tarefa e escolha a pessoa.
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{open.length} em aberto · {done.length} concluídas nos últimos 30 dias</p>
+        </div>
+      </div>
+
+      {tasks.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white px-6 py-10 text-center">
+          <p className="text-sm font-medium text-gray-700">Você ainda não atribuiu nenhuma tarefa</p>
+          <p className="text-xs text-gray-400 mt-1">Escolha uma pessoa em “Para mim ▾” no campo acima e escreva a tarefa.</p>
+        </div>
+      ) : ordered.map(([uid, g]) => {
+        const openCount = g.tasks.filter(t => t.status !== 'done').length
+        const sorted = [...g.tasks].sort((a, b) =>
+          (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0) || (b.created_at).localeCompare(a.created_at))
+        return (
+          <div key={uid} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+              {g.user && <Avatar user={g.user as any} size={22} />}
+              <span className="text-sm font-semibold text-gray-900">{g.user?.name ?? 'Usuário'}</span>
+              <span className="text-xs text-gray-400">{openCount} em aberto</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {sorted.map(t => {
+                const isDone = t.status === 'done'
+                const due = t.due_date ? parseLocalDate(t.due_date) : null
+                const late = due && isPast(due) && !isToday(due) && !isDone
+                const subs = t.subtasks ?? []
+                const subsDone = subs.filter(x => x.done || x.completed).length
+                return (
+                  <button key={t.id} onClick={() => onSelect(t)}
+                    className={cn('w-full text-left flex items-center gap-3 px-4 py-2.5 transition-colors',
+                      selectedId === t.id ? 'bg-brand-50' : 'hover:bg-gray-50/80')}>
+                    <span className={cn('w-2 h-2 rounded-full shrink-0', P[t.priority].dot)} />
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('text-sm truncate', isDone ? 'line-through text-gray-400' : 'text-gray-800')}>{t.title}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span>enviada {format(new Date(t.created_at), "dd/MM", { locale: ptBR })}</span>
+                        {subs.length > 0 && <span>{subsDone}/{subs.length} subtarefas</span>}
+                        {t.quote && <span className="text-brand-500">#{t.quote.number}</span>}
+                      </p>
+                    </div>
+                    {isDone ? (
+                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                        Concluída{t.completed_at ? ` ${format(new Date(t.completed_at), 'dd/MM', { locale: ptBR })}` : ''}
+                      </span>
+                    ) : (
+                      <>
+                        {due && (
+                          <span className={cn('shrink-0 text-[11px] tabular-nums', late ? 'text-red-600 font-semibold' : 'text-gray-400')}>
+                            {late ? 'atrasada · ' : ''}{isToday(due) ? 'hoje' : format(due, 'dd/MM', { locale: ptBR })}
+                          </span>
+                        )}
+                        <span className={cn('shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md', STATUS_CFG[t.status].cls)}>
+                          {STATUS_CFG[t.status].label}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

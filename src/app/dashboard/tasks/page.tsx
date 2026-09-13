@@ -1,4 +1,4 @@
-import { getMyTasksWeek, getAllTasksWeek, getCurrentUser, getActiveUsers, getSchedules } from '@/lib/actions'
+import { getMyTasksWeek, getAllTasksWeek, getCurrentUser, getActiveUsers, getSchedules, getTasksAssignedByMe } from '@/lib/actions'
 import { TasksV5 } from '@/components/tasks/TasksV5'
 import { requireAnyPageAccess, canAccessPage } from '@/lib/access'
 
@@ -22,15 +22,16 @@ export default async function TasksPage({ searchParams }: { searchParams?: { vie
 
   // Ativas: sempre todas. Concluídas: só a semana atual (weekOffset 0) —
   // o resto do histórico é buscado sob demanda pelo passador de semana.
-  const [currentUser, myTasks, schedules] = await Promise.all([
+  const [currentUser, myTasks, schedules, allUsers, delegated] = await Promise.all([
     getCurrentUser(),
     getMyTasksWeek(0),
     canSeeAgenda ? getSchedules(agStart, agEnd) : Promise.resolve([]),
+    // Todo mundo pode atribuir tarefa a qualquer colaborador ativo
+    getActiveUsers(),
+    getTasksAssignedByMe(),
   ])
   const isAdmin = currentUser?.role === 'admin'
-  const [allTasks, allUsers] = isAdmin
-    ? await Promise.all([getAllTasksWeek(0), getActiveUsers()])
-    : [[], []]
+  const allTasks = isAdmin ? await getAllTasksWeek(0) : []
 
   return (
     <TasksV5
@@ -42,6 +43,7 @@ export default async function TasksPage({ searchParams }: { searchParams?: { vie
       canSeeAgenda={canSeeAgenda}
       initialSchedules={schedules as any[]}
       initialView={canSeeAgenda && searchParams?.view === 'agenda' ? 'agenda' : 'tarefas'}
+      initialDelegated={delegated as any[]}
     />
   )
 }
