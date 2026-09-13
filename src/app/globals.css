@@ -67,7 +67,7 @@
 
 /* ── Tela de carregamento ─────────────────────────────────────────────── */
 .luk-shimmer {
-  background: linear-gradient(90deg, #EEECE6 0%, #F6F5F1 45%, #EEECE6 90%);
+  background: linear-gradient(90deg, #eceef1 0%, #f7f8fa 45%, #eceef1 90%);
   background-size: 200% 100%;
   animation: luk-shimmer 1.3s ease-in-out infinite;
 }
