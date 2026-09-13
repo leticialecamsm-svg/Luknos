@@ -17,7 +17,7 @@ function todayISO() {
 function parseISO(s: string) { return new Date(s + 'T00:00:00') }
 function isoDate(d: Date) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 
-const PIE_COLORS = ['#185FA5','#CBA455','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#EC4899','#6B7280','#84CC16']
+const PIE_COLORS = ['#111827','#CBA455','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#EC4899','#6B7280','#84CC16']
 
 export function FinancePage({ initialEntries, suppliers: initialSuppliers, categories: initialCategories, accounts: initialAccounts }: {
   initialEntries: any[]
@@ -286,7 +286,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
                   <div className="w-full h-20 flex items-end">
                     <div className="w-full rounded-t-md transition-all"
                       style={{ height: `${d.total > 0 ? Math.max(6, (d.total / maxDay) * 100) : 2}%`,
-                               backgroundColor: isSelected ? '#185FA5' : d.isToday ? '#185FA5' : '#CBD5E1',
+                               backgroundColor: isSelected ? '#CBA455' : d.isToday ? '#CBA455' : '#CBD5E1',
                                opacity: isSelected ? 1 : d.isToday ? 1 : 0.7 }} />
                   </div>
                   <p className={cn('text-[10px] font-semibold', isSelected ? 'text-brand-600' : d.isToday ? 'text-brand-600' : 'text-gray-400')}>{WEEKDAYS[i]} {d.date.getDate()}</p>

@@ -253,7 +253,7 @@ export function AdminDashboardV2({
   })
 
   const origins = [
-    { label: 'Indicação', value: originCount.referral || 0, color: '#185FA5' },
+    { label: 'Indicação', value: originCount.referral || 0, color: '#111827' },
     { label: 'Loja', value: originCount.store || 0, color: '#10B981' },
     { label: 'WhatsApp', value: originCount.whatsapp || 0, color: '#F59E0B' },
     { label: 'Visita / Outro', value: (originCount.visit || 0) + (originCount.other || 0), color: '#E5E3DC' },

@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import * as XLSX from 'xlsx'
 import { Upload, FileText, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import type { CostCenter } from '@/lib/financeiro-ia/actions'
@@ -10,12 +11,104 @@ const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm f
 const dateFmt = (v: string) => new Date(v).toLocaleDateString('pt-BR')
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-// Parser CSV simples: separador vírgula ou ponto e vírgula, aspas duplas
-// opcionais em qualquer campo. Suficiente para exportações tabulares comuns
-// (Excel/Sheets/ERP) sem precisar de uma dependência externa.
-function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+function normalizeDateBR(raw: string): string {
+  const v = raw.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  return v
+}
+
+function excelDateToISO(serial: number): string {
+  // Excel conta dias a partir de 1899-12-30 (compensando o bug do ano bissexto de 1900)
+  const utcDays = Math.floor(serial - 25569)
+  const date = new Date(utcDays * 86400 * 1000)
+  return date.toISOString().slice(0, 10)
+}
+
+function normalizeAmount(raw: string | number): number {
+  if (typeof raw === 'number') return raw
+  const v = raw.trim().replace(/[R$\s]/g, '')
+  if (v.includes(',') && v.includes('.')) return Number(v.replace(/\./g, '').replace(',', '.'))
+  if (v.includes(',')) return Number(v.replace(',', '.'))
+  return Number(v)
+}
+
+type SheetRow = Record<string, string | number | undefined>
+
+// O Master Lojista exporta TODAS as contas cadastradas (aluguel, internet,
+// prolabore, energia...), não só boletos de fornecedor. Só entram no
+// financeiro as linhas que têm CPF/CNPJ preenchido (ou seja, são de fato
+// um fornecedor com nota fiscal) e que ainda estão "Em aberto" — o resto
+// (contas fixas sem fornecedor) já é lançado manualmente em Contas a pagar.
+function findKey(headers: string[], ...needles: string[]): string | undefined {
+  return headers.find(h => needles.some(n => h.toLowerCase().includes(n)))
+}
+
+function toBoletoRows(sheetRows: SheetRow[]): { rows: CsvBoletoRow[]; skippedNonSupplier: number } {
+  if (sheetRows.length === 0) return { rows: [], skippedNonSupplier: 0 }
+  const headers = Object.keys(sheetRows[0])
+  const kPagarPara = findKey(headers, 'pagar para', 'fornecedor')
+  const kDoc = findKey(headers, 'cpf/cnpj', 'cnpj', 'document')
+  const kValor = findKey(headers, 'valor') && headers.filter(h => h.toLowerCase().includes('valor'))[0]
+  const kVenc = findKey(headers, 'vencimento')
+  const kSituacao = findKey(headers, 'situa')
+  const kNotaFiscal = findKey(headers, 'nota fiscal')
+  const kNFatura = findKey(headers, 'n° fatura', 'n fatura', 'fatura')
+  const kDescricao = findKey(headers, 'descri')
+  const kCategoria = findKey(headers, 'categoria')
+
+  // Formato "Master Lojista" reconhecido: tem coluna de CPF/CNPJ e "pagar para"
+  const isMasterLojista = !!kDoc && !!kPagarPara
+
+  let skippedNonSupplier = 0
+  const rows: CsvBoletoRow[] = []
+
+  for (const r of sheetRows) {
+    const rawVenc = kVenc ? r[kVenc] : undefined
+    if (rawVenc === undefined || rawVenc === '') continue // linha de rodapé/total sem vencimento
+
+    if (isMasterLojista) {
+      const doc = kDoc ? String(r[kDoc] ?? '').trim() : ''
+      const situacao = kSituacao ? String(r[kSituacao] ?? '').trim().toLowerCase() : ''
+      if (!doc) { skippedNonSupplier++; continue }
+      if (kSituacao && situacao && situacao !== 'em aberto') { skippedNonSupplier++; continue }
+
+      const pagarPara = String(r[kPagarPara!] ?? '').trim()
+      const nf = kNotaFiscal ? String(r[kNotaFiscal] ?? '').replace(/\.0$/, '').trim() : ''
+      const nFatura = kNFatura ? String(r[kNFatura] ?? '').trim() : ''
+      const vencimento = typeof rawVenc === 'number' ? excelDateToISO(rawVenc) : normalizeDateBR(String(rawVenc))
+      const valorRaw = kValor ? r[kValor] : undefined
+
+      rows.push({
+        descricao: nf ? `NF ${nf} — ${pagarPara}` : (nFatura ? `Fatura ${nFatura} — ${pagarPara}` : pagarPara),
+        documento: doc,
+        fornecedor: pagarPara,
+        valor: valorRaw !== undefined ? normalizeAmount(valorRaw) : NaN,
+        vencimento,
+        categoria: kCategoria ? String(r[kCategoria] ?? '').trim() || undefined : undefined,
+      })
+      continue
+    }
+
+    // Formato simples/genérico: descricao, documento, fornecedor, valor, vencimento, categoria
+    const valorRaw = kValor ? r[kValor] : undefined
+    rows.push({
+      descricao: kDescricao ? String(r[kDescricao] ?? '').trim() : '',
+      documento: kDoc ? String(r[kDoc] ?? '').trim() || undefined : undefined,
+      fornecedor: kPagarPara ? String(r[kPagarPara] ?? '').trim() || undefined : undefined,
+      valor: valorRaw !== undefined ? normalizeAmount(valorRaw) : NaN,
+      vencimento: typeof rawVenc === 'number' ? excelDateToISO(rawVenc) : normalizeDateBR(String(rawVenc)),
+      categoria: kCategoria ? String(r[kCategoria] ?? '').trim() || undefined : undefined,
+    })
+  }
+
+  return { rows, skippedNonSupplier }
+}
+
+function parseCsvText(text: string): SheetRow[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim().length > 0)
-  if (lines.length === 0) return { headers: [], rows: [] }
+  if (lines.length === 0) return []
   const sep = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ','
   const parseLine = (line: string) => {
     const cells: string[] = []
@@ -31,42 +124,11 @@ function parseCsv(text: string): { headers: string[]; rows: string[][] } {
     return cells
   }
   const headers = parseLine(lines[0]).map(h => h.toLowerCase())
-  const rows = lines.slice(1).map(parseLine)
-  return { headers, rows }
-}
-
-function normalizeDate(raw: string): string {
-  const v = raw.trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
-  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-  return v
-}
-
-function normalizeAmount(raw: string): number {
-  const v = raw.trim().replace(/[R$\s]/g, '')
-  if (v.includes(',') && v.includes('.')) return Number(v.replace(/\./g, '').replace(',', '.'))
-  if (v.includes(',')) return Number(v.replace(',', '.'))
-  return Number(v)
-}
-
-function toRows(headers: string[], raw: string[][]): CsvBoletoRow[] {
-  const idx = (name: string) => headers.findIndex(h => h.includes(name))
-  const iDesc = idx('descric')
-  const iDoc = idx('document') !== -1 ? idx('document') : idx('cnpj')
-  const iForn = idx('fornecedor')
-  const iValor = idx('valor')
-  const iVenc = idx('vencimento')
-  const iCat = idx('categoria')
-
-  return raw.map(cols => ({
-    descricao: iDesc !== -1 ? cols[iDesc] ?? '' : '',
-    documento: iDoc !== -1 ? cols[iDoc] : undefined,
-    fornecedor: iForn !== -1 ? cols[iForn] : undefined,
-    valor: iValor !== -1 ? normalizeAmount(cols[iValor] ?? '') : NaN,
-    vencimento: iVenc !== -1 ? normalizeDate(cols[iVenc] ?? '') : '',
-    categoria: iCat !== -1 ? cols[iCat] : undefined,
-  }))
+  return lines.slice(1).map(parseLine).map(cols => {
+    const row: SheetRow = {}
+    headers.forEach((h, i) => { row[h] = cols[i] })
+    return row
+  })
 }
 
 export function ImportarCsvClient({ costCenters, initialImports }: { costCenters: CostCenter[]; initialImports: CsvImportLog[] }) {
@@ -75,6 +137,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
   const fileRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [rows, setRows] = useState<CsvBoletoRow[]>([])
+  const [skippedNonSupplier, setSkippedNonSupplier] = useState(0)
   const [costCenterId, setCostCenterId] = useState('')
   const [summary, setSummary] = useState<CsvImportSummary | null>(null)
   const [imports, setImports] = useState(initialImports)
@@ -82,17 +145,30 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
   const onFile = (file: File) => {
     setSummary(null)
     setFileName(file.name)
+    const isCsv = /\.csv$/i.test(file.name)
     const reader = new FileReader()
     reader.onload = () => {
-      const text = String(reader.result ?? '')
-      const { headers, rows: raw } = parseCsv(text)
-      setRows(toRows(headers, raw))
+      if (isCsv) {
+        const text = String(reader.result ?? '')
+        const { rows: parsed, skippedNonSupplier: skipped } = toBoletoRows(parseCsvText(text))
+        setRows(parsed)
+        setSkippedNonSupplier(skipped)
+      } else {
+        const buf = reader.result as ArrayBuffer
+        const workbook = XLSX.read(buf, { type: 'array', cellDates: false })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const sheetRows = XLSX.utils.sheet_to_json<SheetRow>(sheet, { defval: '' })
+        const { rows: parsed, skippedNonSupplier: skipped } = toBoletoRows(sheetRows)
+        setRows(parsed)
+        setSkippedNonSupplier(skipped)
+      }
     }
-    reader.readAsText(file, 'utf-8')
+    if (isCsv) reader.readAsText(file, 'utf-8')
+    else reader.readAsArrayBuffer(file)
   }
 
   const doImport = () => {
-    if (!fileName || rows.length === 0) return toast.error('Selecione um CSV com boletos')
+    if (!fileName || rows.length === 0) return toast.error('Nenhum boleto de fornecedor encontrado no arquivo')
     startTransition(async () => {
       const res = await importBoletosCsv(fileName, rows, costCenterId || null)
       if ('error' in res) return toast.error('Erro ao importar', res.error)
@@ -104,6 +180,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
       }, ...imports])
       toast.success('Importação concluída', `${res.rows_imported} lançamentos criados.`)
       setRows([])
+      setSkippedNonSupplier(0)
       setFileName(null)
       if (fileRef.current) fileRef.current.value = ''
     })
@@ -113,17 +190,17 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Importar CSV do Master Lojista</h1>
       <p className="text-gray-500 mb-6">
-        Colunas esperadas: descrição, documento (CNPJ/CPF do fornecedor), fornecedor, valor, vencimento e categoria (opcional). Boletos já importados (mesmo documento + vencimento + valor + descrição) não são duplicados.
+        Aceita a planilha exportada pelo Master Lojista (.xls) ou um CSV simples. Só entram os <strong>boletos com fornecedor</strong> (linhas com CPF/CNPJ) que ainda estão em aberto — contas sem fornecedor (aluguel, internet, prolabore etc.) são ignoradas automaticamente, pois já são lançadas manualmente. Boletos já importados (mesmo fornecedor + vencimento + valor) não são duplicados.
       </p>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex flex-wrap items-end gap-4 mb-4">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Arquivo CSV</label>
+            <label className="text-xs text-gray-500 mb-1 block">Arquivo (.xls, .xlsx ou .csv)</label>
             <input
               ref={fileRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={e => e.target.files?.[0] && onFile(e.target.files[0])}
               className="text-sm"
             />
@@ -137,9 +214,16 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
           </div>
         </div>
 
+        {fileName && (
+          <p className="text-sm text-gray-600 mb-2">
+            {rows.length} boleto(s) de fornecedor encontrado(s)
+            {skippedNonSupplier > 0 && <> · {skippedNonSupplier} linha(s) ignorada(s) por não ter fornecedor/CNPJ (conta fixa, já lançada manualmente)</>}
+          </p>
+        )}
+
         {rows.length > 0 && (
           <>
-            <p className="text-sm text-gray-600 mb-2">{rows.length} linha(s) lida(s) do arquivo. Pré-visualização das primeiras 5:</p>
+            <p className="text-xs text-gray-500 mb-2">Pré-visualização das primeiras 5:</p>
             <div className="overflow-x-auto mb-4">
               <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
                 <thead>

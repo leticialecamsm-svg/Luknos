@@ -52,9 +52,9 @@ export function channelOf(r: ReportRow, dim: Dim): string {
 }
 
 const CHANNEL_COLOR: Record<string, string> = {
-  'Arquiteto': '#185FA5', 'Designer': '#7C3AED', 'Engenheiro': '#0891B2', 'Eletricista': '#D97706',
+  'Arquiteto': '#111827', 'Designer': '#7C3AED', 'Engenheiro': '#0891B2', 'Eletricista': '#D97706',
   'Gesseiro': '#DB2777', 'Marceneiro': '#65A30D', 'Outro parceiro': '#64748B', 'Sem parceiro': '#CBD5E1',
-  'Loja': '#185FA5', 'WhatsApp': '#16A34A', 'Indicação': '#CBA455', 'Visita': '#0891B2',
+  'Loja': '#111827', 'WhatsApp': '#16A34A', 'Indicação': '#CBA455', 'Visita': '#0891B2',
   'Tráfego pago': '#DB2777', 'Outros': '#94A3B8',
 }
 export const colorOf = (c: string) => CHANNEL_COLOR[c] ?? '#94A3B8'

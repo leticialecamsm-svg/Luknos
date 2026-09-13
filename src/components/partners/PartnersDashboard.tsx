@@ -15,7 +15,7 @@ export function statsFor(contact: any, stats?: PartnerStats) {
   return stats.byId[contact.id] ?? stats.byName[String(contact.name).trim().toLowerCase()] ?? EMPTY
 }
 
-const BAR_COLORS = ['#185FA5', '#CBA455', '#0E7C66', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D']
+const BAR_COLORS = ['#111827', '#CBA455', '#0E7C66', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D']
 
 export function PartnersDashboard({ contacts, stats }: { contacts: any[]; stats?: PartnerStats }) {
   const ranked = contacts
