@@ -1,12 +1,12 @@
 import { requireFinanceiroProfile } from '@/lib/financeiro-ia/auth'
-import { EmConstrucao } from '@/components/financeiro-ia/EmConstrucao'
+import { getCashflowProjection } from '@/lib/financeiro-ia/panels-actions'
+import { FluxoSemanalClient } from '@/components/financeiro-ia/FluxoSemanalClient'
 
 export default async function Page() {
   await requireFinanceiroProfile()
-  return (
-    <EmConstrucao
-      title="Fluxo semanal"
-      description={'Saldo inicial, entradas e saídas previstas e saldo final dia a dia — responde "quanto sobra se pagar todos os boletos essa semana" (RF-02).'}
-    />
-  )
+  const start = new Date()
+  const end = new Date()
+  end.setDate(end.getDate() + 6)
+  const days = await getCashflowProjection(start.toISOString().slice(0, 10), end.toISOString().slice(0, 10))
+  return <FluxoSemanalClient days={days} />
 }
