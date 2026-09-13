@@ -7,7 +7,7 @@ import { Loader2, Lock, Eye, EyeOff, ArrowRight, CheckCircle2 } from 'lucide-rea
 
 const FIELD =
   'w-full rounded-xl border border-[#E3E5EA] bg-white pl-11 py-3.5 pr-12 text-sm text-[#0B2447] ' +
-  'placeholder-[#AEB4BF] outline-none transition-colors focus:border-[#185FA5] focus:ring-4 focus:ring-[#185FA5]/10'
+  'placeholder-[#AEB4BF] outline-none transition-colors focus:border-[#CBA455] focus:ring-4 focus:ring-[#CBA455]/10'
 
 export default function ResetPasswordPage() {
   const [ready, setReady]       = useState(false)

@@ -1,34 +1,21 @@
-// /loader — tela de carregamento no boot com a identidade Viver de IA
-// (fundo #111827 + spinner dourado #cba455). Estados: a animação já é o
-// próprio estado de "carregando"; sem chamada de rede, os tokens vêm
-// embutidos via theme.css — o mesmo fallback que valeria se
-// get-active-theme falhasse.
+import { LuknosLogo } from '@/components/ui/LuknosLogo'
+
+// /loader — tela de carregamento no boot. Fundo claro (o app Viver de IA é
+// todo claro) com o dourado da marca como acento no spinner. #111827 fica
+// reservado a elementos pontuais (ex.: sidebar), não como fundo de página.
 export const metadata = { title: 'Carregando — Luknos' }
 
 export default function LoaderPage() {
   return (
-    <div
-      className="min-h-screen w-full flex flex-col items-center justify-center gap-6"
-      style={{ background: 'var(--color-background-base)' }}
-    >
+    <div className="min-h-screen w-full flex flex-col items-center justify-center gap-6 bg-gradient-to-b from-white via-[#FBFBFA] to-[#F2F3F6]">
+      <LuknosLogo className="h-9 w-auto" />
       <div className="flex items-center gap-3">
         <span
-          className="w-10 h-10 rounded-full border-4 animate-spin"
-          style={{
-            borderColor: 'var(--color-border-subtle)',
-            borderTopColor: 'var(--color-accent-gold)',
-          }}
+          className="w-6 h-6 rounded-full border-4 border-gray-200 animate-spin"
+          style={{ borderTopColor: 'var(--color-accent-gold)' }}
         />
-        <span
-          className="text-2xl font-bold tracking-tight"
-          style={{ color: 'var(--color-text-primary)' }}
-        >
-          Luknos
-        </span>
+        <span className="text-sm text-gray-500">Preparando o Luknos…</span>
       </div>
-      <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-        Preparando o Luknos…
-      </p>
     </div>
   )
 }

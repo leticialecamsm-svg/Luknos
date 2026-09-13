@@ -9,14 +9,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Cor de destaque do redesign "Viver de IA" (mesmos valores de
+        // design_tokens.color.accent.gold / color.background.base no
+        // Supabase — mantidos como hex estático aqui porque os modificadores
+        // de opacidade do Tailwind, ex. `brand-500/20`, exigem uma cor real
+        // e não um var() apontando pra uma string hex).
         brand: {
-          50:  '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          500: '#185FA5',
-          600: '#1a56db',
-          700: '#1e429f',
-          900: '#1A1A2E',
+          50:  '#f9f4ea',
+          100: '#f0e4c9',
+          200: '#e3cd9c',
+          500: '#cba455',
+          600: '#b8934a',
+          700: '#96742f',
+          900: '#111827',
         },
         surface: {
           DEFAULT: '#F8F7F4',
