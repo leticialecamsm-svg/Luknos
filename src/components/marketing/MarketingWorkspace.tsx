@@ -103,7 +103,7 @@ export function MarketingWorkspace({ initialPosts, editorialLines: initialLines,
         </div>
         <div className="flex items-center gap-2">
           <Link href="/marketing/editorial" data-tour="editorial-lines" className="btn-secondary flex items-center gap-2"><BookOpen className="w-4 h-4" /> Linhas editoriais</Link>
-          <div data-tour="view-toggle" className="flex rounded-lg border border-gray-200 overflow-hidden">
+          <div data-tour="view-toggle" className="flex rounded-lg border border-surface-border overflow-hidden">
             <button onClick={() => setView('month')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Mês</button>
             <button onClick={() => setView('week')} className={cn('px-3 py-1.5 text-sm font-medium', view === 'week' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600')}>Semana</button>
           </div>
@@ -192,8 +192,8 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick, onMovePost, d
   const cells = Array.from({ length: 42 }).map((_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d })
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-gray-100 bg-gray-50">
+    <div className="rounded-card shadow-card border border-surface-border bg-white overflow-hidden">
+      <div className="grid grid-cols-7 border-b border-surface-border bg-surface-secondary">
         {WEEKDAYS.map(w => <div key={w} className="px-2 py-2 text-xs font-bold text-gray-500 text-center">{w}</div>)}
       </div>
       <div className="grid grid-cols-7">
@@ -203,9 +203,9 @@ function MonthGrid({ refDate, postsByDay, onDayClick, onPostClick, onMovePost, d
             <div key={i} onClick={() => onDayClick(key)}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
               onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('postId'); if (id) onMovePost(id, key); setDraggingId(null) }}
-              className={cn('min-h-[130px] border-b border-r border-gray-100 p-1.5 cursor-pointer transition-colors flex flex-col gap-1',
-                draggingId ? 'hover:bg-brand-50/60' : 'hover:bg-gray-50/70',
-                !inMonth && 'bg-gray-50/40', i % 7 === 6 && 'border-r-0')}>
+              className={cn('min-h-[130px] border-b border-r border-surface-border p-1.5 cursor-pointer transition-colors flex flex-col gap-1',
+                draggingId ? 'hover:bg-brand-50/60' : 'hover:bg-surface-secondary/70',
+                !inMonth && 'bg-surface-secondary/40', i % 7 === 6 && 'border-r-0')}>
               <span className={cn('text-xs font-medium self-start px-1',
                 key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : inMonth ? 'text-gray-600' : 'text-gray-300')}>
                 {d.getDate()}
@@ -231,7 +231,7 @@ function WeekGrid({ refDate, postsByDay, onDayClick, onPostClick, onMovePost, dr
             onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
             onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('postId'); if (id) onMovePost(id, key); setDraggingId(null) }}
             className={cn('rounded-xl border bg-white p-2.5 min-h-[240px] cursor-pointer transition-colors flex flex-col gap-2',
-              draggingId ? 'border-brand-300 bg-brand-50/40' : 'border-gray-200 hover:border-gray-300')}>
+              draggingId ? 'border-brand-300 bg-brand-50/40' : 'border-surface-border hover:border-gray-300')}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-500">{WEEKDAYS[d.getDay()]}</span>
               <span className={cn('text-xs font-semibold', key === todayStr ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-gray-600')}>{d.getDate()}</span>

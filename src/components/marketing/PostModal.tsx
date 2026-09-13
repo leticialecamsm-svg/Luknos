@@ -48,7 +48,7 @@ function ToggleSwitch({ on, onChange }: { on: boolean; onChange: (v: boolean) =>
 function Section({ icon: Icon, title, action, children }: { icon: any; title: string; action?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+      <div className="flex items-center gap-2 pb-1 border-b border-surface-border">
         <Icon className="w-4 h-4 text-brand-500" />
         <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">{title}</h3>
         {action && <div className="ml-auto">{action}</div>}
@@ -98,9 +98,9 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{post ? 'Editar postagem' : 'Nova postagem'}</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary"><X className="w-4 h-4" /></button>
         </div>
 
         {/* Seções pareadas por altura para alinhar os cabeçalhos:
@@ -120,7 +120,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
                   return (
                     <button key={t} onClick={() => setType(t)}
                       className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
-                        active ? st.active : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                        active ? st.active : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
                       <Icon className={cn('w-4 h-4', active ? st.icon : 'text-gray-400')} />
                       {MARKETING_POST_TYPE_LABEL[t]}
                     </button>
@@ -189,7 +189,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
                       on
                         ? (s === 'posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-inset ring-emerald-200'
                                           : 'bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-inset ring-amber-200')
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                        : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
                     <span className={cn('w-2 h-2 rounded-full', on ? dot : 'bg-gray-300')} />
                     {MARKETING_POST_STATUS_LABEL[s]}
                   </button>
@@ -209,7 +209,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
                     return (
                       <button key={u.id} onClick={() => toggleParticipant(u.id)}
                         className={cn('flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm transition-all',
-                          on ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                          on ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-surface-border text-gray-500 hover:border-gray-300')}>
                         <Avatar user={u} size={20} />
                         {u.name}
                         {on && <Check className="w-3.5 h-3.5" />}
@@ -224,7 +224,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
           {error && <p className="md:col-span-2 text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-end gap-2">
+        <div className="sticky bottom-0 bg-white border-t border-surface-border px-6 py-4 flex items-center justify-end gap-2">
           <button onClick={onClose} className="btn-secondary px-5">Cancelar</button>
           <button onClick={save} disabled={saving} className="btn-primary px-6 flex items-center gap-2">
             {saving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
@@ -271,19 +271,19 @@ function EditorialCombobox({ lines, value, onChange, onCreated }: {
           className={cn('input', !open && selected && 'pl-8')} />
       </div>
       {open && (
-        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+        <div className="absolute z-20 mt-1 w-full bg-white border border-surface-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
           {value && (
-            <button onClick={() => { onChange(null); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-50">— Nenhuma —</button>
+            <button onClick={() => { onChange(null); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-surface-secondary">— Nenhuma —</button>
           )}
           {filtered.map(l => (
             <button key={l.id} onClick={() => { onChange(l.id); setOpen(false) }}
-              className={cn('w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2', l.id === value && 'bg-brand-50 text-brand-700')}>
+              className={cn('w-full text-left px-3 py-2 text-sm hover:bg-surface-secondary flex items-center gap-2', l.id === value && 'bg-brand-50 text-brand-700')}>
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color || '#94A3B8' }} />
               {l.name}</button>
           ))}
           {query.trim() && !exact && (
             <button onClick={handleCreate} disabled={creating}
-              className="w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 flex items-center gap-1.5 border-t border-gray-100">
+              className="w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 flex items-center gap-1.5 border-t border-surface-border">
               {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Criar "{query.trim()}"
             </button>
           )}

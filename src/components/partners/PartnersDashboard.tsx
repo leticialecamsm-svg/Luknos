@@ -34,17 +34,17 @@ export function PartnersDashboard({ contacts, stats }: { contacts: any[]; stats?
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4">
+        <div className="rounded-xl shadow-card border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4">
           <div className="flex items-center gap-2 text-blue-700"><TrendingUp className="w-4 h-4" /><span className="text-xs font-semibold uppercase tracking-wide">Em negociação</span></div>
           <p className="text-2xl font-bold text-blue-700 mt-2">{formatCurrency(totalOpen)}</p>
           <p className="text-xs text-gray-500 mt-0.5">via parceiros</p>
         </div>
-        <div className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">
+        <div className="rounded-xl shadow-card border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">
           <div className="flex items-center gap-2 text-emerald-700"><CircleDollarSign className="w-4 h-4" /><span className="text-xs font-semibold uppercase tracking-wide">Fechado</span></div>
           <p className="text-2xl font-bold text-emerald-700 mt-2">{formatCurrency(totalClosed)}</p>
           <p className="text-xs text-gray-500 mt-0.5">vendas via parceiros</p>
         </div>
-        <div className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-4">
+        <div className="rounded-xl shadow-card border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-4">
           <div className="flex items-center gap-2 text-amber-700"><Handshake className="w-4 h-4" /><span className="text-xs font-semibold uppercase tracking-wide">Parceiros ativos</span></div>
           <p className="text-2xl font-bold text-amber-700 mt-2">{activePartners}</p>
           <p className="text-xs text-gray-500 mt-0.5">com orçamento em negociação</p>
@@ -52,7 +52,7 @@ export function PartnersDashboard({ contacts, stats }: { contacts: any[]; stats?
       </div>
 
       {/* Ranking */}
-      <div className="rounded-xl border border-surface-border bg-white p-4">
+      <div className="rounded-xl shadow-card border border-surface-border bg-white p-4">
         <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
           <Trophy className="w-4 h-4 text-amber-500" /> Maiores parceiros em negociação
         </h3>

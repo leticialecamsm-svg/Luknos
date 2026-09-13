@@ -9,7 +9,7 @@ import { cn, formatDate } from '@/lib/utils'
 import { Portal } from '@/components/ui/Portal'
 import { PostViewModal } from './PostViewModal'
 import { TYPE_ICON } from './PostModal'
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Loader2, Check, X, BookOpen, PieChart as PieIcon, BarChart3, ArrowLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Loader2, Check, X, BookOpen, PieChart as PieIcon, BarChart3, ArrowLeft, Inbox } from 'lucide-react'
 
 const PALETTE = ['#6366F1', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EF4444', '#14B8A6', '#F97316', '#A855F7', '#0EA5E9', '#84CC16']
 
@@ -194,8 +194,15 @@ export function EditorialLinesPage({ initialLines, posts: initialPosts }: { init
         </div>
 
         {/* Lista */}
-        <div className="divide-y divide-gray-100">
-          {lines.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Nenhuma linha editorial cadastrada</p>}
+        <div className="divide-y divide-surface-border">
+          {lines.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center">
+                <Inbox className="w-4 h-4 text-gray-400" />
+              </div>
+              <p className="text-sm text-gray-400">Nenhuma linha editorial cadastrada</p>
+            </div>
+          )}
           {lines.map((l, i) => {
             const count = countByLineId(l.id)
             const color = l.color || PALETTE[i % PALETTE.length]
@@ -304,24 +311,24 @@ function EditorialViewModal({ line, posts, onClose, onEditLine, onDeleteLine, on
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: line.color || '#94A3B8' }} />
             <h2 className="text-base font-semibold text-gray-900 truncate">{line.name}</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50 shrink-0"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary shrink-0"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-6 space-y-4">
           {line.description && (
-            <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">{line.description}</p>
+            <p className="text-sm text-gray-500 bg-surface-secondary border border-surface-border rounded-lg px-3 py-2">{line.description}</p>
           )}
 
           {/* Passador de mês */}
           <div className="flex items-center justify-center gap-1">
-            <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => setMonthOffset(o => o - 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-surface-secondary"><ChevronLeft className="w-4 h-4" /></button>
             <span className="text-sm font-semibold text-gray-700 capitalize min-w-[130px] text-center">{monthLabel}</span>
-            <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={() => setMonthOffset(o => o + 1)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-surface-secondary"><ChevronRight className="w-4 h-4" /></button>
             {monthOffset !== 0 && <button onClick={() => setMonthOffset(0)} className="text-[11px] font-medium text-brand-600 hover:underline px-1.5">Hoje</button>}
           </div>
 
@@ -332,8 +339,8 @@ function EditorialViewModal({ line, posts, onClose, onEditLine, onDeleteLine, on
             {linePosts.map(p => {
               const Icon = TYPE_ICON[p.type as MarketingPostType]
               return (
-                <button key={p.id} onClick={() => setViewPost(p)} className="w-full flex items-center gap-3 rounded-xl border border-gray-200 p-3 hover:border-gray-300 text-left">
-                  <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0"><Icon className="w-4 h-4 text-gray-500" /></div>
+                <button key={p.id} onClick={() => setViewPost(p)} className="w-full flex items-center gap-3 rounded-xl shadow-card border border-surface-border p-3 hover:border-gray-300 text-left">
+                  <div className="w-8 h-8 rounded-lg bg-surface-secondary border border-surface-border flex items-center justify-center shrink-0"><Icon className="w-4 h-4 text-gray-500" /></div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
                     <p className="text-xs text-gray-400">{MARKETING_POST_TYPE_LABEL[p.type as MarketingPostType]} · {p.post_date ? formatDate(p.post_date) : '—'}</p>
@@ -346,7 +353,7 @@ function EditorialViewModal({ line, posts, onClose, onEditLine, onDeleteLine, on
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-between">
+        <div className="sticky bottom-0 bg-white border-t border-surface-border px-6 py-4 flex items-center justify-between">
           <button onClick={onDeleteLine} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Excluir linha</button>
           <button onClick={onEditLine} className="btn-primary px-6 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar linha</button>
         </div>

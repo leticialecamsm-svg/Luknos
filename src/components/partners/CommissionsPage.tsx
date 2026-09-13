@@ -81,7 +81,7 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
         </div>
 
         {/* Seletor de mês */}
-        <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2 py-1.5">
+        <div className="flex items-center gap-1 bg-white border border-surface-border rounded-xl px-2 py-1.5">
           <button onClick={prevMonth} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500">
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -96,25 +96,25 @@ export function CommissionsPage({ initialCommissions, initialYear, initialMonth 
 
       {/* KPI cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-gray-400" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total do mês</p>
           <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(totalMonth)}</p>
           <p className="text-xs text-gray-400 mt-1">{commissions.length} comissões</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">A pagar</p>
           <p className="text-2xl font-bold text-blue-600 mt-2">{formatCurrency(totalPending)}</p>
           <p className="text-xs text-gray-400 mt-1">em aberto</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pagas</p>
           <p className="text-2xl font-bold text-emerald-600 mt-2">{formatCurrency(totalPaid)}</p>
           <p className="text-xs text-gray-400 mt-1">{commissions.filter(c => c.status === 'paid').length} registros</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vence hoje</p>
           <p className="text-2xl font-bold text-amber-600 mt-2">{formatCurrency(dueToday)}</p>

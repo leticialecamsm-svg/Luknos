@@ -301,10 +301,10 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-50" title="Editar">
+              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-surface-secondary" title="Editar">
                 <Pencil className="w-4 h-4" />
               </button>
-              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-50">
+              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-surface-secondary">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -392,7 +392,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
                     const val = isClosed ? (q.final_value ?? q.quoted_value) : q.quoted_value
                     return (
                       <button key={q.id} type="button" onClick={() => setQuoteModal(q.id)}
-                        className="w-full flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors text-left">
+                        className="w-full flex items-center justify-between bg-surface-secondary rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors text-left">
                         <div className="min-w-0 flex items-center gap-2">
                           <span className="text-xs font-semibold text-brand-600">#{q.number}</span>
                           <span className="text-xs text-gray-600 truncate">{q.client_name ?? '—'}</span>
@@ -435,7 +435,7 @@ function ContactModal({ contact, onClose, onEdit, isAdmin }: {
               ) : commData && commData.length > 0 ? (
                 <>
                   <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="bg-surface-secondary rounded-lg p-3">
                       <p className="text-[10px] font-semibold text-gray-500 uppercase">Total vendas</p>
                       <p className="text-base font-bold text-gray-900 mt-0.5">{fmtCurrency(monthTotal)}</p>
                     </div>
@@ -680,7 +680,7 @@ export function PartnersPage({
                   </button>
                 )}
                 {TYPE_KEYS.map(k => (
-                  <label key={k} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50 rounded-lg cursor-pointer">
+                  <label key={k} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-surface-secondary rounded-lg cursor-pointer">
                     <input
                       type="checkbox"
                       checked={typeFilter.includes(k)}

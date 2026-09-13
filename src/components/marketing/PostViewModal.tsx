@@ -57,7 +57,7 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-start justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-start justify-between z-10">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center shrink-0">
               <Icon className="w-5 h-5 text-brand-600" />
@@ -67,12 +67,12 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
               <p className="text-xs text-gray-500">{MARKETING_POST_TYPE_LABEL[post.type as MarketingPostType]}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50 shrink-0"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary shrink-0"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-6 space-y-5">
           {/* Status + ação rápida */}
-          <div className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+          <div className="flex items-center justify-between rounded-xl border border-surface-border p-3">
             <div className="flex items-center gap-2">
               <span className={cn('w-2.5 h-2.5 rounded-full', status === 'posted' ? 'bg-emerald-500' : 'bg-amber-500')} />
               <span className="text-sm font-semibold text-gray-700">{MARKETING_POST_STATUS_LABEL[status as keyof typeof MARKETING_POST_STATUS_LABEL]}</span>
@@ -122,7 +122,7 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
               <p className="text-xs font-semibold text-gray-500 flex items-center gap-1.5 mb-2"><Users className="w-3.5 h-3.5" /> Participantes</p>
               <div className="flex flex-wrap gap-1.5">
                 {post.participants.map((u: any) => (
-                  <span key={u.id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border border-gray-200 text-sm text-gray-600">
+                  <span key={u.id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border border-surface-border text-sm text-gray-600">
                     <Avatar user={u} size={20} /> {u.name}
                   </span>
                 ))}
@@ -148,7 +148,7 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
             ) : (
               <div className="space-y-2">
                 {(expandedHistory ? activities : activities.slice(0, 1)).map((a: any) => (
-                  <div key={a.id} className="flex gap-2.5 rounded-lg bg-gray-50 border border-gray-100 p-2.5">
+                  <div key={a.id} className="flex gap-2.5 rounded-lg bg-surface-secondary border border-surface-border p-2.5">
                     <div className="shrink-0 mt-0.5">
                       {a.user ? <Avatar user={a.user} size={24} /> : <div className="w-6 h-6 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-xs">🤖</div>}
                     </div>
@@ -171,7 +171,7 @@ export function PostViewModal({ post, onClose, onEdit, onChanged }: Props) {
         </div>
 
         {/* Footer ações */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-between">
+        <div className="sticky bottom-0 bg-white border-t border-surface-border px-6 py-4 flex items-center justify-between">
           <button onClick={remove} disabled={busy} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1.5">
             <Trash2 className="w-4 h-4" /> Excluir
           </button>
