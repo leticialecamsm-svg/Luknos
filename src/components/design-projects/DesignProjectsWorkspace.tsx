@@ -429,6 +429,7 @@ function EvolveToQuoteModal({ target, onClose }: { target: { kind: 'visit' | 'pr
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [category, setCategory] = useState('lighting')
+  const [origin, setOrigin] = useState('other')
   const [priority, setPriority] = useState('normal')
   const [quotedValue, setQuotedValue] = useState('')
 
@@ -436,7 +437,7 @@ function EvolveToQuoteModal({ target, onClose }: { target: { kind: 'visit' | 'pr
     startTransition(async () => {
       const fn = target.kind === 'visit' ? evolveVisitToQuote : evolveProjectToQuote
       const res = await fn(target.id, {
-        category, priority,
+        category, origin, priority,
         quoted_value: quotedValue ? Number(quotedValue.replace(',', '.')) : undefined,
       })
       if ('error' in res) return toast.error('Erro ao evoluir', res.error)
@@ -451,6 +452,16 @@ function EvolveToQuoteModal({ target, onClose }: { target: { kind: 'visit' | 'pr
         <label className="label">Categoria</label>
         <select value={category} onChange={e => setCategory(e.target.value)} className="select">
           {Object.entries(CATEGORY_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="label">Como o cliente chegou até nós</label>
+        <select value={origin} onChange={e => setOrigin(e.target.value)} className="select">
+          <option value="store">Frente de loja</option>
+          <option value="whatsapp">Arquiteto ou parceiro</option>
+          <option value="visit">Tráfego pago</option>
+          <option value="referral">Indicação</option>
+          <option value="other">Orgânico</option>
         </select>
       </div>
       <div>

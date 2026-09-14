@@ -90,7 +90,11 @@ export async function evolveVisitToProject(visitId: string, input: { title: stri
   return { data: project }
 }
 
-// Visita -> Orçamento direto (pula o setor de projetos)
+// Visita -> Orçamento direto (pula o setor de projetos).
+// origin aqui é canal de venda (loja/parceiro/indicação/etc — o enum
+// 'visit' já foi reaproveitado pela equipe pra "Tráfego Pago", não tem
+// relação com a Visita do agendamento), não o fato de ter tido visita;
+// por isso o modal de evolução pede pra escolher, com 'other' de default.
 export async function evolveVisitToQuote(visitId: string, input: {
   category: string
   origin?: string
@@ -108,7 +112,7 @@ export async function evolveVisitToQuote(visitId: string, input: {
   const res = await createQuote({
     client_id: visit.client_id,
     architect_id: visit.architect_id ?? undefined,
-    origin: input.origin ?? 'visit',
+    origin: input.origin ?? 'other',
     category: input.category,
     priority: input.priority ?? 'normal',
     quoted_value: input.quoted_value,
