@@ -16,7 +16,7 @@ export function ContentContainer({ children }: { children: React.ReactNode }) {
   const isFullWidth = FULL_WIDTH_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   if (isFullWidth) {
-    return <div className="h-full p-6">{children}</div>
+    return <div className="h-full min-w-0 p-6">{children}</div>
   }
   return <div className="max-w-7xl mx-auto p-6">{children}</div>
 }

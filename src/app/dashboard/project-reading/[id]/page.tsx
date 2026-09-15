@@ -24,7 +24,7 @@ export default async function ProjectReadingDetailPage({ params }: { params: { i
         </Link>
         <h1 className="text-lg font-bold text-gray-900">{data.plan.name}</h1>
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 min-w-0">
         <ProjectReadingWorkspace
           plan={data.plan as any}
           environments={data.environments as any[]}

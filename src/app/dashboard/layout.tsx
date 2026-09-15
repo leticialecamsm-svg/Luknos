@@ -11,10 +11,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen overflow-hidden">
       <Sidebar user={profile} allowedPages={allowedPages} roleLabel={roleLabel} />
 
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
 
         <AppHeader user={profile} roleLabel={roleLabel} />
-      <main className="flex-1 overflow-y-auto bg-surface">
+      <main className="flex-1 min-w-0 overflow-y-auto bg-surface">
         <ContentContainer>{children}</ContentContainer>
       </main>
 
