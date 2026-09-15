@@ -12,7 +12,7 @@ const TEMP_STYLE: Record<string, string> = {
   hot: 'bg-red-50 text-red-600 border-red-200',
   warm: 'bg-amber-50 text-amber-700 border-amber-200',
   cold: 'bg-sky-50 text-sky-700 border-sky-200',
-  no_forecast: 'bg-gray-50 text-gray-500 border-gray-200',
+  no_forecast: 'bg-surface-secondary text-gray-500 border-surface-border',
   lost: 'bg-gray-100 text-gray-600 border-gray-300',
 }
 
@@ -106,7 +106,7 @@ export function UpdateQueueCard() {
               </div>
             ))}
             {allDone && queue.backlog > 0 && (
-              <div className="px-4 py-3 flex items-center justify-between gap-3 bg-gray-50/50">
+              <div className="px-4 py-3 flex items-center justify-between gap-3 bg-surface-secondary/50">
                 <p className="text-xs text-gray-500">Terminou a lista do dia. Quer adiantar mais algumas da fila?</p>
                 <button onClick={pullMore} disabled={pulling}
                   className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700">
@@ -165,7 +165,7 @@ function QuickUpdateModal({ item, onClose, onSaved }: { item: QueueItem; onClose
               {options.map(t => (
                 <button key={t} onClick={() => setTemp(t)}
                   className={cn('px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all',
-                    temp === t ? TEMP_STYLE[t] + ' ring-2 ring-offset-1 ring-brand-500/30' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300')}>
+                    temp === t ? TEMP_STYLE[t] + ' ring-2 ring-offset-1 ring-brand-500/30' : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
                   {TEMP_LABEL[t]}
                 </button>
               ))}

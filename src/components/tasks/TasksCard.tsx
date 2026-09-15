@@ -34,7 +34,7 @@ export function TasksCard() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="bg-white rounded-xl border border-surface-border p-6">
         <div className="h-64 flex items-center justify-center">
           <p className="text-gray-500">Carregando tarefas...</p>
         </div>
@@ -43,17 +43,17 @@ export function TasksCard() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-surface-border overflow-hidden">
       {/* Header */}
-      <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+      <div className="border-b border-surface-border px-6 py-4 flex items-center justify-between">
         <h3 className="font-bold text-gray-900">Minhas Tarefas</h3>
-        <Link href="/dashboard/tasks" className="text-blue-600 text-sm font-semibold hover:text-blue-700">
+        <Link href="/dashboard/tasks" className="text-brand-600 text-sm font-semibold hover:text-brand-700">
           Ver tudo
         </Link>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 p-4 border-b border-gray-200 bg-gray-50">
+      <div className="grid grid-cols-4 gap-3 p-4 border-b border-surface-border bg-surface-secondary">
         <div className="text-center">
           <div className="text-xl font-bold text-blue-600">{todoCount}</div>
           <div className="text-xs text-gray-600">A Fazer</div>
@@ -78,9 +78,9 @@ export function TasksCard() {
           <p>Nenhuma tarefa ainda</p>
         </div>
       ) : (
-        <div className="divide-y divide-gray-200">
+        <div className="divide-y divide-surface-border">
           {tasks.map((task) => (
-            <div key={task.id} className="p-4 hover:bg-gray-50 transition-colors">
+            <div key={task.id} className="p-4 hover:bg-surface-secondary transition-colors">
               <div className="flex items-start gap-3">
                 <div className="mt-1">
                   {task.status === 'done' ? (

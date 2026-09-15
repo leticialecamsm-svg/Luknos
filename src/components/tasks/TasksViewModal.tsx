@@ -118,7 +118,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-5 py-3">
           <div className="flex items-start justify-between mb-3">
             {/* Left side: Priority, Status, Title */}
             <div className="flex-1">
@@ -150,7 +150,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
             <div className="flex items-center gap-2 ml-4">
               <button
                 onClick={() => onEdit(task)}
-                className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg text-sm hover:bg-surface-secondary transition-colors flex items-center gap-2"
               >
                 <Edit2 className="w-3.5 h-3.5" />
                 Editar
@@ -183,7 +183,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
                         STATUS_COLORS[value as keyof typeof STATUS_COLORS].text +
                         ' border-2 ' +
                         STATUS_COLORS[value as keyof typeof STATUS_COLORS].border
-                      : 'bg-gray-50 text-gray-700 border border-gray-200 hover:border-gray-300'
+                      : 'bg-surface-secondary text-gray-700 border border-surface-border hover:border-gray-300'
                   }`}
                 >
                   {label}
@@ -194,11 +194,11 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
 
           {/* Dates */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-surface-secondary rounded-lg p-3">
               <div className="text-xs font-semibold text-gray-600 mb-1">Início</div>
               <div className="text-sm font-bold text-gray-900">{formatDate(localTask.created_at)}</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-surface-secondary rounded-lg p-3">
               <div className="text-xs font-semibold text-gray-600 mb-1">Conclusão</div>
               <div className={`text-sm font-bold ${localTask.due_date ? 'text-gray-900' : 'text-gray-400'}`}>
                 {localTask.due_date ? (
@@ -216,7 +216,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           </div>
 
           {/* Subtarefas */}
-          <div className="border-t border-gray-100 pt-4">
+          <div className="border-t border-surface-border pt-4">
             <SubtasksList
               taskId={localTask.id}
               allDone={localTask.status === 'done'}
@@ -228,7 +228,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
           {localTask.description && (
             <div>
               <h3 className="text-xs font-semibold text-gray-700 mb-2 uppercase">Observações</h3>
-              <p className="text-gray-600 text-xs whitespace-pre-wrap bg-gray-50 p-3 rounded-lg">
+              <p className="text-gray-600 text-xs whitespace-pre-wrap bg-surface-secondary p-3 rounded-lg">
                 {localTask.description}
               </p>
             </div>
@@ -236,7 +236,7 @@ export function TasksViewModal({ task, onClose, onEdit, onStatusChange }: TasksV
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
+        <div className="sticky bottom-0 bg-surface-secondary border-t border-surface-border px-5 py-3 flex items-center justify-between">
           <button
             onClick={() => setShowConfirmDelete(true)}
             disabled={deleting || updating}

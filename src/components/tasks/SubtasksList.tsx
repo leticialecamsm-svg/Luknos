@@ -202,7 +202,7 @@ function SubtaskItem({
       onDragOver={onDragOver}
       onDragEnd={() => { setDragging(false); onDragEnd() }}
       className={`flex items-center gap-2 group rounded-lg px-2 py-1.5 transition-colors ${
-        dragging ? 'opacity-40 bg-blue-50' : 'hover:bg-gray-50'
+        dragging ? 'opacity-40 bg-brand-50' : 'hover:bg-surface-secondary'
       }`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

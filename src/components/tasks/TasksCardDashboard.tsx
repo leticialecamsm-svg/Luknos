@@ -91,7 +91,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
       <div className="p-2 space-y-0.5">
         {pendingTasks.length > 0 ? (
           pendingTasks.map(task => (
-            <div key={task.id} className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-gray-50/80 transition-colors">
+            <div key={task.id} className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-surface-secondary/80 transition-colors">
               <button
                 onClick={() => handleCheckboxChange(task.id, task.status)}
                 className="w-5 h-5 rounded-full border-2 border-gray-300 hover:border-emerald-400 bg-white shrink-0 flex items-center justify-center transition-all hover:scale-110"
@@ -115,7 +115,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
       <div className="p-2 pt-0">
         <Link
           href="/dashboard/tasks"
-          className="flex items-center justify-center gap-1.5 border-2 border-dashed border-gray-200 hover:border-brand-300 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-500 hover:text-brand-600 transition-colors"
+          className="flex items-center justify-center gap-1.5 border-2 border-dashed border-surface-border hover:border-brand-300 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-500 hover:text-brand-600 transition-colors"
         >
           + Nova tarefa
         </Link>

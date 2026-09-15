@@ -65,7 +65,7 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Nova tarefa para colaborador</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X className="w-5 h-5 text-gray-600" />
@@ -82,7 +82,7 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
               <select
                 value={formData.userId}
                 onChange={e => setFormData({ ...formData, userId: e.target.value })}
-                className="w-full px-3 py-2 pl-10 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 appearance-none"
+                className="w-full px-3 py-2 pl-10 border border-surface-border rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 appearance-none"
               >
                 {users.map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
@@ -107,7 +107,7 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
               onChange={e => setFormData({ ...formData, title: e.target.value })}
               placeholder="Digite o título da tarefa"
               autoFocus
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full px-3 py-2 border border-surface-border rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
 
@@ -119,7 +119,7 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
               onChange={e => setFormData({ ...formData, description: e.target.value })}
               placeholder="Descrição detalhada (opcional)"
               rows={3}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-none"
+              className="w-full px-3 py-2 border border-surface-border rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-none"
             />
           </div>
 
@@ -137,7 +137,7 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
                       ? pri === 'high' ? 'bg-red-100 text-red-700 border border-red-200'
                         : pri === 'mid' ? 'bg-amber-100 text-amber-700 border border-amber-200'
                         : 'bg-slate-100 text-slate-700 border border-slate-200'
-                      : 'bg-gray-50 text-gray-600 border border-gray-200 hover:border-gray-300'
+                      : 'bg-surface-secondary text-gray-600 border border-surface-border hover:border-gray-300'
                   }`}
                 >
                   {pri === 'high' ? 'Alta' : pri === 'mid' ? 'Média' : 'Baixa'}
@@ -153,22 +153,22 @@ export function AdminTaskModal({ users, defaultUserId, onClose, onSuccess }: Adm
               type="date"
               value={formData.due_date}
               onChange={e => setFormData({ ...formData, due_date: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full px-3 py-2 border border-surface-border rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
         </form>
 
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex gap-3">
+        <div className="sticky bottom-0 bg-surface-secondary border-t border-surface-border px-6 py-4 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 font-semibold rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"
+            className="flex-1 px-4 py-2 text-gray-700 font-semibold rounded-lg border border-surface-border hover:bg-gray-100 transition-colors"
           >
             Cancelar
           </button>
           <button
             onClick={handleSubmit as any}
             disabled={loading || !formData.title.trim()}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="flex-1 px-4 py-2 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50"
           >
             {loading ? 'Criando...' : 'Criar tarefa'}
           </button>

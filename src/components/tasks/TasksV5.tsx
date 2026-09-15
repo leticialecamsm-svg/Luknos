@@ -43,7 +43,7 @@ interface User { id: string; name: string; avatar_color: string; avatar_url?: st
 const P = {
   high: { label: 'Alta',  dot: 'bg-red-500',   text: 'text-red-600',   bg: 'bg-red-50',   pill: 'bg-red-100 text-red-600',    lborder: 'border-l-red-400' },
   mid:  { label: 'Média', dot: 'bg-amber-400', text: 'text-amber-600', bg: 'bg-amber-50', pill: 'bg-amber-100 text-amber-600', lborder: 'border-l-amber-400' },
-  low:  { label: 'Baixa', dot: 'bg-gray-300',  text: 'text-gray-500',  bg: 'bg-gray-50',  pill: 'bg-gray-100 text-gray-500',   lborder: 'border-l-gray-300' },
+  low:  { label: 'Baixa', dot: 'bg-gray-300',  text: 'text-gray-500',  bg: 'bg-surface-secondary',  pill: 'bg-gray-100 text-gray-500',   lborder: 'border-l-gray-300' },
 }
 
 const STATUS_CFG: Record<Status, { label: string; cls: string }> = {
@@ -512,7 +512,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
               <select
                 value={memberFilter}
                 onChange={e => setMemberFilter(e.target.value)}
-                className="bg-white border border-gray-200 rounded-xl px-3 text-sm font-medium text-gray-700 outline-none"
+                className="bg-white border border-surface-border rounded-xl px-3 text-sm font-medium text-gray-700 outline-none"
               >
                 <option value="all">Todo mundo</option>
                 {allUsers.map(u => (
@@ -549,7 +549,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
 
         {/* Quick add */}
         <form onSubmit={handleAdd}
-          className="flex items-center gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-brand-300 focus-within:border-brand-400 focus-within:shadow-sm transition-all px-4 py-3">
+          className="flex items-center gap-3 bg-white rounded-2xl border-2 border-dashed border-surface-border hover:border-brand-300 focus-within:border-brand-400 focus-within:shadow-sm transition-all px-4 py-3">
           <Plus className="w-4 h-4 text-gray-400 shrink-0" />
           <input value={newTitle} onChange={e => setNewTitle(e.target.value)}
             placeholder={assignee === 'me'
@@ -557,7 +557,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
               : `Tarefa para ${allUsers.find(u => u.id === assignee)?.name ?? 'outra pessoa'}... (Enter para enviar)`}
             className="flex-1 text-sm text-gray-800 bg-transparent outline-none placeholder-gray-400" />
           <label className={cn('shrink-0 flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
-            assignee === 'me' ? 'border-gray-200 text-gray-500' : 'border-brand-200 bg-brand-50 text-brand-700')}
+            assignee === 'me' ? 'border-surface-border text-gray-500' : 'border-brand-200 bg-brand-50 text-brand-700')}
             title="Quem vai fazer essa tarefa">
             <UserPlus className="w-3.5 h-3.5" />
             <select value={assignee} onChange={e => setAssignee(e.target.value)}
@@ -618,8 +618,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
             />
           </Section>
 
-          <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
-            <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+          <div className="rounded-2xl border border-surface-border overflow-hidden bg-white">
+            <div className="flex items-center gap-2 px-4 py-3 bg-surface-secondary border-b border-surface-border">
               <button onClick={() => setDoneOpen(o => !o)} className="flex items-center gap-2 hover:opacity-70 transition-opacity">
                 <span className="text-xs font-bold text-emerald-600">✓ Concluídas</span>
                 <span className="text-xs text-gray-400">{done.length} {weekOffset === 0 ? 'nesta semana' : 'nessa semana'}{doneToday.length > 0 ? ` · ${doneToday.length} hoje` : ''}</span>
@@ -654,7 +654,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
                   {doneToday.length > 0 && (
                     <div>
                       <p className="px-4 pt-3 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">Hoje</p>
-                      <div className="divide-y divide-gray-100">
+                      <div className="divide-y divide-surface-border">
                         {doneToday.map(task => (
                           <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
                             isSelected={selected?.id === task.id}
@@ -670,7 +670,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
                   {doneEarlier.length > 0 && (
                     <div>
                       <p className="px-4 pt-3 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">Anteriores</p>
-                      <div className="divide-y divide-gray-100">
+                      <div className="divide-y divide-surface-border">
                         {(showAllEarlier ? doneEarlier : doneEarlier.slice(0, 3)).map(task => (
                           <TaskRow key={task.id} task={task} showUser={scope === 'team'} isDone
                             isSelected={selected?.id === task.id}
@@ -684,7 +684,7 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
                       {doneEarlier.length > 3 && (
                         <button
                           onClick={() => setShowAllEarlier(v => !v)}
-                          className="w-full text-center py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 border-t border-gray-100 transition-colors"
+                          className="w-full text-center py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-surface-secondary border-t border-surface-border transition-colors"
                         >
                           {showAllEarlier ? 'Mostrar menos' : `Mostrar tudo (${doneEarlier.length})`}
                         </button>
@@ -795,9 +795,9 @@ function Section({ title, count, accent, defaultOpen, children }: {
 }) {
   const [open, setOpen] = useState(defaultOpen ?? true)
   return (
-    <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+    <div className="rounded-2xl border border-surface-border overflow-hidden bg-white">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-100">
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-surface-secondary transition-colors border-b border-surface-border">
         <span className={cn('text-sm font-bold', accent)}>{title}</span>
         {count > 0 && <span className="text-xs text-gray-400 font-medium">{count}</span>}
         <ChevronDown className={cn('w-3.5 h-3.5 text-gray-400 ml-auto transition-transform', !open && '-rotate-90')} />
@@ -991,9 +991,9 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
       onDrop={onRowDrop}
       onClick={isPending ? undefined : onSelect}
       className={cn(
-        'group flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 last:border-0 transition-colors select-none',
+        'group flex items-center gap-2 px-3 py-2.5 border-b border-surface-border last:border-0 transition-colors select-none',
         isPending ? 'opacity-60 cursor-default' : 'cursor-pointer',
-        isSelected ? 'bg-brand-50' : 'hover:bg-gray-50/80'
+        isSelected ? 'bg-brand-50' : 'hover:bg-surface-secondary/80'
       )}
     >
       {/* Drag handle — único ponto que inicia o drag */}
@@ -1016,7 +1016,7 @@ function TaskRow({ task, showUser, showPriorityPill, isDone, isSelected,
         title={isPending ? 'Aguarde a tarefa terminar de ser criada...' : undefined}
         className={cn(
           'w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-all',
-          isPending ? 'border-gray-200 bg-gray-50 cursor-wait' : 'hover:scale-110',
+          isPending ? 'border-surface-border bg-surface-secondary cursor-wait' : 'hover:scale-110',
           done ? 'bg-emerald-500 border-emerald-500' : !isPending && 'border-gray-300 hover:border-emerald-400 bg-white'
         )}
       >
@@ -1221,9 +1221,9 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
 
   return (
     <>
-      <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
-      <div className={cn('flex items-center gap-2 px-3 py-3 border-b border-gray-100',
-        task.priority === 'high' ? 'bg-red-50' : task.priority === 'mid' ? 'bg-amber-50' : 'bg-gray-50')}>
+      <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border shadow-xl overflow-hidden">
+      <div className={cn('flex items-center gap-2 px-3 py-3 border-b border-surface-border',
+        task.priority === 'high' ? 'bg-red-50' : task.priority === 'mid' ? 'bg-amber-50' : 'bg-surface-secondary')}>
         {/* Fechar a tarefa devolve a agenda pro painel */}
         <button onClick={onClose} title="Voltar para a Agenda"
           className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-white/60 rounded-lg transition-colors">
@@ -1281,7 +1281,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
                 onFocus={() => setShowQuoteSearch(true)}
                 onBlur={() => setTimeout(() => setShowQuoteSearch(false), 200)}
                 placeholder="Buscar por número ou cliente..."
-                className="w-full text-xs px-3 py-2 pl-9 border border-gray-200 rounded-xl outline-none focus:ring-1 focus:ring-brand-300 placeholder-gray-400"
+                className="w-full text-xs px-3 py-2 pl-9 border border-surface-border rounded-xl outline-none focus:ring-1 focus:ring-brand-300 placeholder-gray-400"
               />
               {searchQuote && (
                 <button
@@ -1293,14 +1293,14 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
               )}
             </div>
             {showQuoteSearch && (
-              <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
+              <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-surface-border rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
                 <div
                   onClick={() => {
                     onChange({ quote_id: null })
                     setSearchQuote('')
                     setShowQuoteSearch(false)
                   }}
-                  className="px-3 py-1.5 text-xs text-gray-400 border-b border-gray-200 cursor-pointer hover:bg-gray-50">
+                  className="px-3 py-1.5 text-xs text-gray-400 border-b border-surface-border cursor-pointer hover:bg-surface-secondary">
                   — Nenhum orçamento —
                 </div>
                 {filteredQuotes.length === 0 ? (
@@ -1314,7 +1314,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
                         setSearchQuote('')
                         setShowQuoteSearch(false)
                       }}
-                      className="px-3 py-2 text-sm hover:bg-brand-50 cursor-pointer flex items-center gap-2 border-b border-gray-100 last:border-b-0">
+                      className="px-3 py-2 text-sm hover:bg-brand-50 cursor-pointer flex items-center gap-2 border-b border-surface-border last:border-b-0">
                       <span className="text-xs font-semibold text-brand-600 shrink-0">#{q.number}</span>
                       <span className="text-gray-700 truncate">{q.client_name}</span>
                     </div>
@@ -1328,7 +1328,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
         <div className="space-y-2.5">
           <Row2 label="Status">
             <select value={task.status} onChange={e => onChange({ status: e.target.value as Status })}
-              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700">
+              className="flex-1 text-sm border border-surface-border rounded-lg px-2 py-1.5 bg-white text-gray-700">
               <option value="todo">A fazer</option>
               <option value="doing">Em andamento</option>
               <option value="paused">Pausada</option>
@@ -1342,7 +1342,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
                   className={cn('flex-1 text-xs font-semibold py-1.5 rounded-lg border transition-all',
                     task.priority === p
                       ? `${P[p].dot} text-white border-transparent`
-                      : 'border-gray-200 text-gray-500 hover:border-gray-300')}>
+                      : 'border-surface-border text-gray-500 hover:border-gray-300')}>
                   {P[p].label}
                 </button>
               ))}
@@ -1353,7 +1353,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
               type="date"
               value={task.due_date ? task.due_date.slice(0, 10) : ''}
               onChange={e => onChange({ due_date: e.target.value || null })}
-              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
+              className="flex-1 text-sm border border-surface-border rounded-lg px-2 py-1.5 bg-white text-gray-700"
             />
           </Row2>
           <Row2 label="Responsável">
@@ -1361,7 +1361,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
               <select
                 value={task.user_id ?? currentUserId ?? ''}
                 onChange={e => onReassign(e.target.value)}
-                className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
+                className="flex-1 text-sm border border-surface-border rounded-lg px-2 py-1.5 bg-white text-gray-700"
               >
                 {users.map(u => (
                   <option key={u.id} value={u.id}>{u.id === currentUserId ? `${u.name} (eu)` : u.name}</option>
@@ -1435,7 +1435,7 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
               if (e.key === 'Enter') addSubtask()
             }}
               placeholder="Adicionar subtarefa..."
-              className="flex-1 text-xs px-2 py-1 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-300" />
+              className="flex-1 text-xs px-2 py-1 border border-surface-border rounded-lg outline-none focus:ring-1 focus:ring-brand-300" />
             <button onClick={addSubtask}
               className="px-2 py-1 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
               +
@@ -1448,10 +1448,10 @@ function DetailPanel({ task, onClose, onToggle, onDelete, onChange, onSubtasksSy
           <textarea ref={descRef} value={desc} onChange={handleDescChange}
             onBlur={() => onChange({ description: desc })}
             placeholder="Adicionar notas..." rows={4}
-            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed max-h-[60vh] overflow-y-auto" />
+            className="w-full mt-1.5 text-sm text-gray-700 resize-none border border-surface-border rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-200 placeholder-gray-300 leading-relaxed max-h-[60vh] overflow-y-auto" />
         </div>
 
-        <p className="text-[11px] text-gray-300 border-t border-gray-100 pt-3">
+        <p className="text-[11px] text-gray-300 border-t border-surface-border pt-3">
           Criada em {format(new Date(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
           {done && task.completed_at && (
             <> · Concluída em {format(new Date(task.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</>
@@ -1513,7 +1513,7 @@ function DelegatedList({ tasks, selectedId, onSelect }: {
       </div>
 
       {tasks.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white px-6 py-10 text-center">
+        <div className="rounded-2xl border-2 border-dashed border-surface-border bg-white px-6 py-10 text-center">
           <p className="text-sm font-medium text-gray-700">Você ainda não atribuiu nenhuma tarefa</p>
           <p className="text-xs text-gray-400 mt-1">Escolha uma pessoa em “Para mim ▾” no campo acima e escreva a tarefa.</p>
         </div>
@@ -1522,13 +1522,13 @@ function DelegatedList({ tasks, selectedId, onSelect }: {
         const sorted = [...g.tasks].sort((a, b) =>
           (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0) || (b.created_at).localeCompare(a.created_at))
         return (
-          <div key={uid} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+          <div key={uid} className="rounded-2xl border border-surface-border bg-white overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-surface-secondary border-b border-surface-border">
               {g.user && <Avatar user={g.user as any} size={22} />}
               <span className="text-sm font-semibold text-gray-900">{g.user?.name ?? 'Usuário'}</span>
               <span className="text-xs text-gray-400">{openCount} em aberto</span>
             </div>
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-surface-border">
               {sorted.map(t => {
                 const isDone = t.status === 'done'
                 const due = t.due_date ? parseLocalDate(t.due_date) : null
@@ -1538,7 +1538,7 @@ function DelegatedList({ tasks, selectedId, onSelect }: {
                 return (
                   <button key={t.id} onClick={() => onSelect(t)}
                     className={cn('w-full text-left flex items-center gap-3 px-4 py-2.5 transition-colors',
-                      selectedId === t.id ? 'bg-brand-50' : 'hover:bg-gray-50/80')}>
+                      selectedId === t.id ? 'bg-brand-50' : 'hover:bg-surface-secondary/80')}>
                     <span className={cn('w-2 h-2 rounded-full shrink-0', P[t.priority].dot)} />
                     <div className="flex-1 min-w-0">
                       <p className={cn('text-sm truncate', isDone ? 'line-through text-gray-400' : 'text-gray-800')}>{t.title}</p>

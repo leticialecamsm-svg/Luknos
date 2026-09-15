@@ -376,7 +376,7 @@ export const InlineTitleEditor = forwardRef(function InlineTitleEditor(
         e.stopPropagation()
         setIsEditing(true)
       }}
-      className={`text-sm font-semibold cursor-text hover:underline hover:text-blue-600 transition-colors ${
+      className={`text-sm font-semibold cursor-text hover:underline hover:text-brand-600 transition-colors ${
         error ? 'text-red-600' : 'text-gray-900'
       }`}
       title="Clique para editar o título"
