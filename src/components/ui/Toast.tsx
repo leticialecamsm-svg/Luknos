@@ -44,8 +44,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={ctx}>
       {children}
-      {/* Portal de toasts — canto superior centro */}
-      <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 items-center pointer-events-none">
+      {/* Portal de toasts — canto inferior direito, igual ao Viver de IA */}
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col-reverse gap-3 items-end pointer-events-none">
         {toasts.map(toast => (
           <ToastItem key={toast.id} toast={toast} onClose={() => remove(toast.id)} />
         ))}
@@ -54,45 +54,44 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
-function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
-  const isSuccess = toast.type === 'success'
-  const isError = toast.type === 'error'
+const ICON_TONE: Record<ToastType, string> = {
+  success: 'bg-emerald-400/20 text-emerald-300',
+  error: 'bg-red-400/20 text-red-300',
+  info: 'bg-white/10 text-white',
+}
 
+function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
   return (
     <div
-      className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-full border shadow-lg animate-in fade-in slide-in-from-top-2 duration-300 min-w-[320px] max-w-[560px] ${
-        isSuccess
-          ? 'bg-white border-emerald-200 text-emerald-800'
-          : isError
-          ? 'bg-white border-red-200 text-red-700'
-          : 'bg-white border-blue-200 text-blue-700'
-      }`}
+      className="pointer-events-auto relative w-[340px] max-w-[90vw] rounded-2xl bg-gradient-navy shadow-hero border border-white/10 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300"
     >
-      {/* Ícone */}
-      <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
-        isSuccess ? 'text-emerald-600' : isError ? 'text-red-500' : 'text-blue-500'
-      }`}>
-        {isError ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" strokeWidth={3} />}
-      </span>
+      <div className="flex items-start gap-3 p-4 pb-3.5">
+        {/* Ícone */}
+        <span className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${ICON_TONE[toast.type]}`}>
+          {toast.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" strokeWidth={3} />}
+        </span>
 
-      {/* Texto */}
-      <div className="flex-1 flex items-center gap-2 min-w-0">
-        <span className="font-bold text-sm tracking-wide whitespace-nowrap">{toast.title}</span>
-        {toast.message && (
-          <>
-            <span className="text-sm opacity-40 select-none">|</span>
-            <span className="text-sm opacity-70 truncate">{toast.message}</span>
-          </>
-        )}
+        {/* Texto */}
+        <div className="flex-1 min-w-0 pt-1">
+          <p className="font-semibold text-[15px] text-white leading-snug">{toast.title}</p>
+          {toast.message && (
+            <p className="text-sm text-white/55 leading-snug mt-0.5">{toast.message}</p>
+          )}
+        </div>
+
+        {/* Fechar */}
+        <button
+          onClick={onClose}
+          className="flex-shrink-0 text-white/40 hover:text-white/80 transition-colors mt-0.5"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Fechar */}
-      <button
-        onClick={onClose}
-        className="flex-shrink-0 opacity-30 hover:opacity-70 transition-opacity"
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+      {/* Barra de progresso (tempo até fechar sozinho) */}
+      <div className="h-[3px] bg-white/10">
+        <div className="h-full bg-brand-500 animate-[toast-progress_4s_linear_forwards]" />
+      </div>
     </div>
   )
 }

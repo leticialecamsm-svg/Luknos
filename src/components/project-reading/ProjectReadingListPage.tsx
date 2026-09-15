@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { uploadPlan, deletePlan } from '@/lib/project-reading/actions'
-import { FileText, Upload, Loader2, Trash2 } from 'lucide-react'
+import { FileText, Upload, Loader2, Trash2, FolderOpen } from 'lucide-react'
 
 interface PlanRow {
   id: string; name: string; original_filename: string | null; num_pages: number
@@ -54,34 +54,44 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Leitura de Projeto</h1>
-        <p className="text-sm text-gray-400">Suba uma planta luminotécnica em PDF pra marcar ambientes, legenda, símbolos e medições — sem precisar de régua ou app externo.</p>
+        <h1 className="text-2xl font-bold text-navy">Leitura de Projeto</h1>
+        <p className="text-sm text-navy-muted">Suba uma planta luminotécnica em PDF pra marcar ambientes, legenda, símbolos e medições — sem precisar de régua ou app externo.</p>
       </div>
 
       <label
         onDragOver={e => e.preventDefault()}
         onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-        className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 hover:border-brand-400 rounded-2xl py-12 cursor-pointer transition-colors bg-white"
+        className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-surface-border hover:border-brand-400 rounded-card py-12 cursor-pointer transition-colors bg-gradient-card shadow-card"
       >
         <input ref={inputRef} type="file" accept="application/pdf" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
-        {uploading ? <Loader2 className="w-8 h-8 text-brand-500 animate-spin" /> : <Upload className="w-8 h-8 text-gray-300" />}
-        <p className="text-sm font-medium text-gray-600">{uploading ? 'Processando PDF...' : 'Clique ou arraste um PDF aqui'}</p>
+        {uploading ? <Loader2 className="w-8 h-8 text-brand-500 animate-spin" /> : <Upload className="w-8 h-8 text-navy-muted/50" />}
+        <p className="text-sm font-medium text-navy-muted">{uploading ? 'Processando PDF...' : 'Clique ou arraste um PDF aqui'}</p>
       </label>
       {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
 
       <div className="space-y-2">
         {plans.map(p => (
-          <div key={p.id} className="flex items-center gap-3 bg-white border border-surface-border rounded-xl px-4 py-3 hover:border-brand-300 transition-colors">
-            <FileText className="w-5 h-5 text-gray-300 shrink-0" />
+          <div key={p.id} className="card flex items-center gap-3 px-4 py-3 hover:border-brand-300 transition-colors">
+            <FileText className="w-5 h-5 text-navy-muted/40 shrink-0" />
             <Link href={`/dashboard/project-reading/${p.id}`} className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
-              <p className="text-xs text-gray-400">{p.num_pages} página(s) · {p.users?.name ?? '—'} · {new Date(p.created_at).toLocaleDateString('pt-BR')}</p>
+              <p className="text-sm font-semibold text-navy truncate">{p.name}</p>
+              <p className="text-xs text-navy-muted">{p.num_pages} página(s) · {p.users?.name ?? '—'} · {new Date(p.created_at).toLocaleDateString('pt-BR')}</p>
             </Link>
-            <button onClick={() => handleDelete(p.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={() => handleDelete(p.id)} className="text-navy-muted/40 hover:text-red-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
-        {plans.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Nenhuma planta enviada ainda.</p>}
+        {plans.length === 0 && (
+          <div className="card flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-surface-secondary flex items-center justify-center">
+              <FolderOpen className="w-6 h-6 text-navy-muted/50" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-navy">Nenhuma planta enviada ainda</p>
+              <p className="text-xs text-navy-muted mt-0.5">Suba um PDF acima pra começar a marcar os pontos.</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

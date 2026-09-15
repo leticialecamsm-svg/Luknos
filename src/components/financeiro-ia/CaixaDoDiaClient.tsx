@@ -28,11 +28,13 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Bom dia, {firstName}</h1>
-      <p className="text-gray-500 mb-6">Painel de caixa de hoje.</p>
+      <div className="rounded-card bg-gradient-navy-mesh shadow-hero px-6 py-5 mb-6">
+        <h1 className="text-2xl font-bold text-white mb-1">Bom dia, {firstName}</h1>
+        <p className="text-white/55">Painel de caixa de hoje.</p>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card icon={Wallet} label="Saldo consolidado" value={money(panel.consolidated_balance)} />
+        <Card icon={Wallet} label="Saldo consolidado" value={money(panel.consolidated_balance)} navy />
         <Card icon={TrendingDown} label="Vence hoje" value={money(panel.total_due_today)} tone="text-red-600" />
         <Card icon={TrendingUp} label="A receber hoje" value={money(panel.total_receivable_today)} tone="text-green-600" />
         <Card icon={CircleDollarSign} label={remainingLabel} value={money(Math.abs(remaining))} tone={remaining >= 0 ? 'text-green-600' : 'text-red-600'} />
@@ -89,9 +91,20 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
   )
 }
 
-function Card({ icon: Icon, label, value, tone }: { icon: typeof Wallet; label: string; value: string; tone?: string }) {
+function Card({ icon: Icon, label, value, tone, navy }: { icon: typeof Wallet; label: string; value: string; tone?: string; navy?: boolean }) {
+  if (navy) {
+    return (
+      <div className="rounded-card bg-gradient-navy shadow-hero p-4">
+        <div className="flex items-center gap-2 text-white/50 mb-2">
+          <Icon className="w-4 h-4" />
+          <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
+        </div>
+        <div className="text-xl font-bold text-white">{value}</div>
+      </div>
+    )
+  }
   return (
-    <div className="bg-white border border-surface-border rounded-card shadow-card p-4">
+    <div className="bg-gradient-card border border-surface-border rounded-card shadow-card p-4">
       <div className="flex items-center gap-2 text-gray-400 mb-2">
         <Icon className="w-4 h-4" />
         <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>

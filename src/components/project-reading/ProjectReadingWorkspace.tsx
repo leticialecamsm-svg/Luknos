@@ -1228,54 +1228,54 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     <>
     <div className="flex h-full gap-4 min-h-0">
       {/* Viewer */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-surface-border overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center gap-1 px-3 py-2 border-b border-surface-border bg-surface-secondary flex-wrap">
           {TOOLS.map(t => (
             <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                tool === t.id ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+                tool === t.id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <t.icon className="w-3.5 h-3.5" /> {t.label}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1">
             <button onClick={undo} disabled={undoStack.length === 0} title="Desfazer (Cmd+Z)"
-              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+              className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30 disabled:hover:bg-transparent">
               <Undo2 className="w-4 h-4" />
             </button>
             <button onClick={redo} disabled={redoStack.length === 0} title="Refazer (Cmd+Shift+Z)"
-              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+              className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30 disabled:hover:bg-transparent">
               <Redo2 className="w-4 h-4" />
             </button>
             <div className="w-px h-4 bg-gray-200 mx-1" />
-            <button onClick={() => setRenderScale(s => Math.max(0.3, s - 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomOut className="w-4 h-4" /></button>
-            <button onClick={fitToScreen} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
-            <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200"><ZoomIn className="w-4 h-4" /></button>
-            <button onClick={rotatePage} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
+            <button onClick={() => setRenderScale(s => Math.max(0.3, s - 0.2))} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary"><ZoomOut className="w-4 h-4" /></button>
+            <button onClick={fitToScreen} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
+            <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary"><ZoomIn className="w-4 h-4" /></button>
+            <button onClick={rotatePage} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
             <div className="w-px h-4 bg-gray-200 mx-1" />
             <button onClick={() => { setReaproveitamentoView(v => !v); setFontesView(false) }} title="Visualizar reaproveitamento"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+                reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Layers className="w-3.5 h-3.5" /> Reaproveitamento
             </button>
             <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes (12V) já posicionadas"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                fontesView ? 'bg-amber-600 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+                fontesView ? 'bg-amber-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Zap className="w-3.5 h-3.5" /> Fontes
             </button>
             <button onClick={() => setAmbientesDiscretos(v => !v)} title="Ambientes discretos — só o nome em cinza, sem cor nem contorno"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                ambientesDiscretos ? 'bg-surface-secondary0 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+                ambientesDiscretos ? 'bg-surface-secondary0 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <EyeOff className="w-3.5 h-3.5" /> Ambientes discretos
             </button>
             <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 disabled:opacity-40">
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary disabled:opacity-40">
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Exportar PDF
             </button>
             {plan.num_pages > 1 && (
               <>
                 <div className="w-px h-4 bg-gray-200 mx-1" />
-                <button disabled={pageNum <= 1} onClick={() => setPageNum(p => p - 1)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
+                <button disabled={pageNum <= 1} onClick={() => setPageNum(p => p - 1)} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
                 <input type="number" min={1} max={plan.num_pages} value={pageNum}
                   onChange={e => {
                     const n = Number(e.target.value)
@@ -1283,7 +1283,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   }}
                   className="w-10 text-xs text-center border border-surface-border rounded px-1 py-1" />
                 <span className="text-xs text-gray-400">/ {plan.num_pages}</span>
-                <button disabled={pageNum >= plan.num_pages} onClick={() => setPageNum(p => p + 1)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
+                <button disabled={pageNum >= plan.num_pages} onClick={() => setPageNum(p => p + 1)} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
               </>
             )}
           </div>
@@ -1613,7 +1613,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       </div>
 
       {/* Painel lateral — recolhível pra dar mais espaço ao PDF */}
-      <div className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border overflow-hidden transition-[width] duration-150', panelOpen ? 'w-96' : 'w-11')}>
+      <div className={cn('shrink-0 flex flex-col bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden transition-[width] duration-150', panelOpen ? 'w-96' : 'w-11')}>
         <div className="flex items-center border-b border-surface-border">
           {panelOpen && (['ambientes', 'legenda', 'medicoes', 'resultado'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -1815,7 +1815,7 @@ function SelectionPopover({
               className={cn('w-full flex items-center gap-2 text-left px-2 py-1 rounded-lg border transition-colors',
                 li.id === s.legend_item_id ? 'bg-violet-50 border-violet-300' : 'bg-white border-transparent hover:bg-surface-secondary')}>
               <span className={cn('shrink-0 text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center',
-                li.id === s.legend_item_id ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600')}>{li.code}</span>
+                li.id === s.legend_item_id ? 'bg-violet-600 text-white' : 'bg-surface-secondary text-navy-muted')}>{li.code}</span>
               <span className="text-xs text-gray-600 truncate">{li.description || 'sem descrição'}</span>
             </button>
           ))}
@@ -1913,10 +1913,10 @@ function SelectionPopover({
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-gray-500">Tamanho</span>
               <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.max(9, fontSize - 2) })}
-                className="w-6 h-6 rounded border border-surface-border text-gray-500 hover:bg-surface-secondary">−</button>
+                className="w-6 h-6 rounded border border-surface-border text-navy-muted hover:bg-surface-secondary">−</button>
               <span className="text-[11px] text-gray-600 w-6 text-center">{fontSize}</span>
               <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.min(40, fontSize + 2) })}
-                className="w-6 h-6 rounded border border-surface-border text-gray-500 hover:bg-surface-secondary">+</button>
+                className="w-6 h-6 rounded border border-surface-border text-navy-muted hover:bg-surface-secondary">+</button>
             </div>
             <textarea defaultValue={a.data.note ?? ''} rows={2} placeholder="Observação (opcional, não aparece na planta)..."
               onBlur={e => onUpdateAnnotation(a.id, { note: e.target.value })}
@@ -1996,7 +1996,7 @@ function AmbientesTab({
                 <input defaultValue={env.name} onClick={e => e.stopPropagation()}
                   onBlur={e => e.target.value.trim() && e.target.value !== env.name && onRename(env.id, e.target.value.trim())}
                   className="flex-1 text-sm font-semibold text-gray-800 outline-none border-b border-transparent focus:border-brand-300" />
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{env.status}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-navy-muted">{env.status}</span>
                 <Locate className="w-3.5 h-3.5 text-gray-300" />
                 <button onClick={e => { e.stopPropagation(); onDelete(env.id) }} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
@@ -2172,7 +2172,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
         <input placeholder="Potência (W)" value={powerW} onChange={e => setPowerW(e.target.value)} className="input text-xs !py-1.5 w-full" />
         <button type="button" onClick={() => setHasLamp(v => !v)}
           className={cn('text-xs font-medium rounded-lg px-2.5 py-1.5 w-full text-left transition-colors',
-            hasLamp ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+            hasLamp ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-navy-muted hover:bg-surface-secondary')}>
           💡 {hasLamp ? '✓ Inclui lâmpada' : '+ Incluir lâmpada (spot que já vem com a lâmpada especificada)'}
         </button>
         {hasLamp && (
@@ -2784,7 +2784,7 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
   return (
     <div className="space-y-2">
       <div className="flex items-baseline gap-2">
-        <p className="text-2xl font-bold text-gray-900 leading-none">{plano.quantidadePecas}</p>
+        <p className="text-2xl font-bold text-navy leading-none">{plano.quantidadePecas}</p>
         <p className="text-xs text-gray-500 leading-tight">{noun.toLowerCase()}(s) pra comprar</p>
       </div>
       <p className="text-[11px] text-gray-400">sobra total {plano.sobraTotalM}m · {plano.desperdicioPct}% de desperdício</p>

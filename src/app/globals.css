@@ -16,6 +16,11 @@
   }
 }
 
+@keyframes toast-progress {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
 @layer components {
   /* Recipe calibrada por inspeção real do app.viverdeia.ai: base com leve
      degradê branco -> cinza-azulado (não branco chapado), borda navy bem
