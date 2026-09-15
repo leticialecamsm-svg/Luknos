@@ -184,7 +184,7 @@ export function PartnerRanking({ rows }: { rows: ReportRow[] }) {
     if (p.prev90 === 0 && p.rev90 > 0) return ['Novo', 'bg-brand-50 text-brand-700']
     if (p.rev90 > p.prev90 * 1.15) return ['Crescendo', 'bg-emerald-50 text-emerald-700']
     if (p.rev90 < p.prev90 * 0.85) return ['Caindo', 'bg-red-50 text-red-600']
-    return ['Estável', 'bg-gray-50 text-gray-600']
+    return ['Estável', 'bg-surface-secondary text-gray-600']
   }
 
   return (

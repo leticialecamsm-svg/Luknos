@@ -215,7 +215,7 @@ export function DailyChart({ dim, channels, month, closed, sellerFilter }: {
                       ? `${s.name} · dia ${day} (${WEEKDAYS[wd]}): ${tot} venda(s)\n` + Object.entries(dc).map(([c, q]) => `${c}: ${q}`).join('\n')
                       : `${s.name} · dia ${day} (${WEEKDAYS[wd]}): sem vendas`
                     return (
-                      <div key={day} title={title} className={cn('h-full flex flex-col justify-end rounded-[3px]', wd === 0 && 'bg-gray-50')}>
+                      <div key={day} title={title} className={cn('h-full flex flex-col justify-end rounded-[3px]', wd === 0 && 'bg-surface-secondary')}>
                         {tot > 0 && (
                           <div className="flex flex-col-reverse rounded-[3px] overflow-hidden" style={{ height: `${(tot / maxDay) * 100}%` }}>
                             {used.filter(c => dc[c]).map(c => <div key={c} style={{ flex: dc[c], background: colorOf(c) }} />)}
