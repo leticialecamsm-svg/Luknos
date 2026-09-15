@@ -11,7 +11,7 @@ export default function LoaderPage() {
       <LuknosLogo className="h-9 w-auto" />
       <div className="flex items-center gap-3">
         <span
-          className="w-6 h-6 rounded-full border-4 border-gray-200 animate-spin"
+          className="w-6 h-6 rounded-full border-4 border-surface-border animate-spin"
           style={{ borderTopColor: 'var(--color-accent-gold)' }}
         />
         <span className="text-sm text-gray-500">Preparando o Luknos…</span>

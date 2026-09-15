@@ -36,7 +36,7 @@ export function PublishThemePanel({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
+    <div className="bg-white border border-surface-border rounded-xl p-6">
       {ConfirmDialog}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -55,8 +55,8 @@ export function PublishThemePanel({
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <span className="w-6 h-6 rounded-full border border-gray-200" style={{ background: theme.primary_color }} title={theme.primary_color} />
-            <span className="w-6 h-6 rounded-full border border-gray-200" style={{ background: theme.accent_color }} title={theme.accent_color} />
+            <span className="w-6 h-6 rounded-full border border-surface-border" style={{ background: theme.primary_color }} title={theme.primary_color} />
+            <span className="w-6 h-6 rounded-full border border-surface-border" style={{ background: theme.accent_color }} title={theme.accent_color} />
           </div>
           <button
             onClick={handlePublish}

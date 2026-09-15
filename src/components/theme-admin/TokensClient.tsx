@@ -49,16 +49,16 @@ export function TokensClient({ tokens }: { tokens: DesignToken[] }) {
       {Object.entries(byCategory).map(([category, catTokens]) => (
         <div key={category}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{CATEGORY_LABEL[category] ?? category}</h3>
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <tbody>
                 {catTokens.map(t => (
-                  <tr key={t.id} className="border-b border-gray-100 last:border-0">
+                  <tr key={t.id} className="border-b border-surface-border last:border-0">
                     <td className="px-4 py-2.5 text-gray-500 font-mono text-xs w-1/3">{t.token_key}</td>
                     <td className="px-4 py-2.5">
                       {editingId === t.id ? (
                         <input
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
+                          className="w-full px-2 py-1 border border-surface-border rounded text-sm"
                           value={draft}
                           onChange={e => setDraft(e.target.value)}
                           autoFocus
@@ -66,7 +66,7 @@ export function TokensClient({ tokens }: { tokens: DesignToken[] }) {
                       ) : (
                         <div className="flex items-center gap-2">
                           {category === 'color' && (
-                            <span className="w-4 h-4 rounded border border-gray-200 inline-block" style={{ background: t.token_value }} />
+                            <span className="w-4 h-4 rounded border border-surface-border inline-block" style={{ background: t.token_value }} />
                           )}
                           <span className="text-gray-700">{t.token_value}</span>
                         </div>

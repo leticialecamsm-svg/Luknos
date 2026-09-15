@@ -51,7 +51,7 @@ export function ProgressClient({ screens }: { screens: ScreenProgress[] }) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {STATUSES.map(s => (
-          <div key={s} className="bg-white border border-gray-200 rounded-xl p-4">
+          <div key={s} className="bg-white border border-surface-border rounded-xl p-4">
             <p className="text-xs text-gray-500">{STATUS_LABEL[s]}</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{counts[s]}</p>
           </div>
@@ -68,10 +68,10 @@ export function ProgressClient({ screens }: { screens: ScreenProgress[] }) {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-2.5">Módulo</th>
               <th className="px-4 py-2.5">Rota</th>
               <th className="px-4 py-2.5">Embed</th>
@@ -80,7 +80,7 @@ export function ProgressClient({ screens }: { screens: ScreenProgress[] }) {
           </thead>
           <tbody>
             {items.map(s => (
-              <tr key={s.screen_slug} className="border-b border-gray-100 last:border-0">
+              <tr key={s.screen_slug} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-900">{s.module_name}</td>
                 <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{s.route_path}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.has_external_embed ? 'Sim' : '—'}</td>

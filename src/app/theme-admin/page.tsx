@@ -28,15 +28,15 @@ export default async function ThemeAdminPage() {
       <PublishThemePanel theme={theme} flag={flag} />
 
       <div className="grid sm:grid-cols-3 gap-4">
-        <Link href="/theme-admin/tokens" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-colors">
+        <Link href="/theme-admin/tokens" className="bg-white border border-surface-border rounded-xl p-5 hover:border-gray-300 transition-colors">
           <p className="font-medium text-gray-900">Editar tokens</p>
           <p className="text-sm text-gray-500 mt-1">Cores, tipografia, espaçamento, raio e sombra.</p>
         </Link>
-        <Link href="/theme-admin/components" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-colors">
+        <Link href="/theme-admin/components" className="bg-white border border-surface-border rounded-xl p-5 hover:border-gray-300 transition-colors">
           <p className="font-medium text-gray-900">Ver componentes</p>
           <p className="text-sm text-gray-500 mt-1">Catálogo de botões, cards, inputs, gráficos e o loader.</p>
         </Link>
-        <Link href="/theme-admin/progress" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-colors">
+        <Link href="/theme-admin/progress" className="bg-white border border-surface-border rounded-xl p-5 hover:border-gray-300 transition-colors">
           <p className="font-medium text-gray-900">Ver progresso</p>
           <p className="text-sm text-gray-500 mt-1">Status da repaginação das 17 telas do Luknos.</p>
         </Link>

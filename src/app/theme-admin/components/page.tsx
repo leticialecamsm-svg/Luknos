@@ -34,7 +34,7 @@ export default async function ThemeAdminComponentsPage() {
             <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{group}</h3>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {items.map(c => (
-                <div key={c.id} className="bg-white border border-gray-200 rounded-xl p-4">
+                <div key={c.id} className="bg-white border border-surface-border rounded-xl p-4">
                   <div className="flex items-center justify-between">
                     <p className="font-mono text-sm text-gray-900">{c.component_key}</p>
                     {c.is_external_embed && (

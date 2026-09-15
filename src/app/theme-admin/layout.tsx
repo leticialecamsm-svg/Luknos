@@ -8,7 +8,7 @@ export default async function ThemeAdminLayout({ children }: { children: React.R
 
   return (
     <div className="max-w-5xl mx-auto p-6">
-      <nav className="flex gap-1 border-b border-gray-200 mb-6">
+      <nav className="flex gap-1 border-b border-surface-border mb-6">
         {[
           { href: '/theme-admin', label: 'Painel' },
           { href: '/theme-admin/tokens', label: 'Tokens' },
