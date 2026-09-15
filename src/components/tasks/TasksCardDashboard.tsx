@@ -56,7 +56,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
 
   if (loading) {
     return (
-      <div className="rounded-card shadow-card border border-surface-border bg-white p-6">
+      <div className="rounded-card shadow-card border border-surface-border bg-gradient-card p-6">
         <div className="h-64 flex items-center justify-center">
           <p className="text-gray-400 text-sm">Carregando tarefas...</p>
         </div>
@@ -65,7 +65,7 @@ export function TasksCardDashboard({ onNewTaskClick }: TasksCardProps) {
   }
 
   return (
-    <div className="rounded-card shadow-card border border-surface-border bg-white overflow-hidden">
+    <div className="rounded-card shadow-card border border-surface-border bg-gradient-card overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
         <div>
           <h3 className="text-sm font-semibold text-navy">Minhas tarefas</h3>

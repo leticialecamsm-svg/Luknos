@@ -237,7 +237,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
       </div>
 
       {/* Saldos das contas */}
-      <div className="rounded-card shadow-card border border-surface-border bg-white p-4">
+      <div className="rounded-card shadow-card border border-surface-border bg-gradient-card p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <Landmark className="w-4 h-4 text-brand-500" /> Saldo nas contas
@@ -263,7 +263,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Semana */}
-        <div className="lg:col-span-2 rounded-card shadow-card border border-surface-border bg-white p-4">
+        <div className="lg:col-span-2 rounded-card shadow-card border border-surface-border bg-gradient-card p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-brand-500" /> A pagar — {weekLabel}
@@ -426,7 +426,7 @@ function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; 
   }
 
   return (
-    <div ref={containerRef} className="rounded-card shadow-card border border-surface-border bg-white p-4 relative">
+    <div ref={containerRef} className="rounded-card shadow-card border border-surface-border bg-gradient-card p-4 relative">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
       {pieData.length === 0 ? (
         <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>

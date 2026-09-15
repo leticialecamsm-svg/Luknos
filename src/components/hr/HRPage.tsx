@@ -129,7 +129,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-card shadow-card border border-surface-border px-6 py-4 flex items-center justify-between">
+      <div className="bg-gradient-card rounded-card shadow-card border border-surface-border px-6 py-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">Total de comissões no mês</p>
           <p className="text-3xl font-bold text-emerald-700 mt-0.5">{formatCurrency(totalComm)}</p>
@@ -137,7 +137,7 @@ function CommissionTab({ earnings }: { earnings: Record<string, any> }) {
         <p className="text-sm text-gray-400">{rows.length} colaborador{rows.length !== 1 ? 'es' : ''}</p>
       </div>
 
-      <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+      <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
         <div className="grid grid-cols-[1fr_160px_180px_160px_140px] border-b border-surface-border bg-surface-secondary">
           {['Colaborador','Vendas no mês','Com. vendedor (1%)','Com. projetista','Total'].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && 'text-right')}>{h}</div>
@@ -585,7 +585,7 @@ function RemuneracaoTab({
       </div>
 
       {/* Tabela */}
-      <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+      <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
         <div className={cn('grid border-b border-surface-border bg-surface-secondary', COLS)}>
           {['Colaborador', 'Salário (líquido)', 'V.T. mês seguinte', 'Comissão (mês ant.)', 'Total a pagar', ''].map((h, i) => (
             <div key={i} className={cn('px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide', i > 0 && i < 5 && 'text-right')}>{h}</div>

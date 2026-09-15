@@ -479,7 +479,7 @@ function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSe
                     <td className="px-6 py-3 text-sm text-gray-500 cursor-pointer">#{String(q.number).padStart(3, '0')}</td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold bg-navy">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold bg-gradient-navy">
                           {getInitials(q.client_name)}
                         </div>
                         <div className="flex flex-col">

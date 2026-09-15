@@ -342,7 +342,7 @@ export function AdminDashboardV2({
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         <div onClick={() => setDetail({ title: 'Vendas fechadas no mês (recebido)', items: closedThisMonth, field: 'recebido' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-green-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-green-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento do mês</p>
           <p className="text-xl font-bold text-green-600 mt-2">{formatCurrency(totalFaturamento)}</p>
@@ -356,7 +356,7 @@ export function AdminDashboardV2({
         </div>
 
         <div onClick={() => setDetail({ title: 'Oportunidades em aberto', items: quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')), field: 'quoted' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-blue-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-blue-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Oportunidades</p>
           <p className="text-xl font-bold text-brand-600 mt-2">{formatCurrency(oportunidades)}</p>
@@ -365,7 +365,7 @@ export function AdminDashboardV2({
         </div>
 
         <div onClick={() => setDetail({ title: 'Vendas fechadas (ticket médio, recebido)', items: closedThisMonth, field: 'recebido' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-amber-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-amber-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ticket médio</p>
           <p className="text-xl font-bold text-amber-600 mt-2">{formatCurrency(ticketMedio)}</p>
@@ -376,7 +376,7 @@ export function AdminDashboardV2({
         </div>
 
         <div onClick={() => setDetail({ title: 'Vendas fechadas (taxa de conversão)', items: closedThisMonth, field: 'final' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-purple-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-purple-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-purple-600"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Taxa de conversão</p>
           <p className="text-xl font-bold text-purple-600 mt-2">{conversionRate}%</p>
@@ -387,7 +387,7 @@ export function AdminDashboardV2({
         </div>
 
         <div onClick={() => setDetail({ title: 'Negociações perdidas no mês', items: lostThisMonth, field: 'quoted' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-red-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-red-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Perdidas no mês</p>
           <p className="text-xl font-bold text-red-500 mt-2">{lostThisMonth.length}</p>
@@ -396,14 +396,14 @@ export function AdminDashboardV2({
         </div>
 
         <div onClick={() => setDetail({ title: 'Orçamentos quentes', items: quotes.filter(q => q.temperature === 'hot'), field: 'quoted' })}
-          className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-orange-300 transition-all">
+          className="cursor-pointer bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-orange-300 transition-all">
           <div className="absolute top-0 left-0 right-0 h-1 bg-orange-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Orç. quentes</p>
           <p className="text-xl font-bold text-orange-500 mt-2">{formatCurrency(hotValue)}</p>
           <p className="text-xs text-gray-500 mt-1">{hotCount} orçamento{hotCount !== 1 ? 's' : ''} quente{hotCount !== 1 ? 's' : ''}</p>
         </div>
 
-        <div className="bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-teal-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Prospecções</p>
           <p className="text-xl font-bold text-teal-600 mt-2">{prospectionsThisMonth}</p>
@@ -416,7 +416,7 @@ export function AdminDashboardV2({
 
       {/* Radar de Alertas: orçamentos flagados */}
       {flaggedAlerts.length > 0 && (
-        <div className="bg-white rounded-card shadow-card border border-amber-200/60 overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-amber-200/60 overflow-hidden">
           <div className="border-b border-amber-100 px-4 py-3 flex items-center gap-2">
             <span className="text-base">🚩</span>
             <h2 className="text-sm font-semibold text-amber-800">Radar de Alertas</h2>
@@ -444,7 +444,7 @@ export function AdminDashboardV2({
 
       {/* Pontos de atenção: negociações críticas */}
       {criticalNegotiations.length > 0 && (
-        <div className="bg-white rounded-card shadow-card border border-orange-200/60 overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-orange-200/60 overflow-hidden">
           <div className="border-b border-orange-100 px-4 py-3 flex items-center gap-2">
             <span className="text-base">⚠️</span>
             <h2 className="text-sm font-semibold text-orange-800">Pontos de atenção</h2>
@@ -474,9 +474,9 @@ export function AdminDashboardV2({
       {/* Grid 3 colunas: Gráfico + Ranking + Funil/Visitas */}
       <div className="grid grid-cols-3 gap-4">
         {/* Gráfico Faturamento */}
-        <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
           <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Faturamento mensal <span className="bg-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">2026</span></h3>
+            <h3 className="text-sm font-semibold text-gray-900">Faturamento mensal <span className="bg-gradient-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">2026</span></h3>
             <select className="text-xs border border-surface-border rounded px-2 py-1 text-gray-600">
               <option>Faturado</option>
             </select>
@@ -515,7 +515,7 @@ export function AdminDashboardV2({
         </div>
 
         {/* Ranking Colaboradores */}
-        <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
           <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">
               Ranking — {currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).charAt(0).toUpperCase() + currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).slice(1)}
@@ -560,7 +560,7 @@ export function AdminDashboardV2({
         {/* Funil + Visitas */}
         <div className="space-y-4">
           {/* Funil */}
-          <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+          <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
             <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Funil da loja</h3>
               <a href="/quotes" className="text-xs text-navy hover:text-brand-600">Ver Kanban →</a>
@@ -596,9 +596,9 @@ export function AdminDashboardV2({
       {/* Grid 2 colunas: Top Parceiros + Atenção */}
       <div className="grid grid-cols-2 gap-4">
         {/* Top Parceiros */}
-        <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
           <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Top parceiros <span className="bg-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">por volume</span></h3>
+            <h3 className="text-sm font-semibold text-gray-900">Top parceiros <span className="bg-gradient-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">por volume</span></h3>
             <a href="/partners" className="text-xs text-navy hover:text-brand-600">Ver todos →</a>
           </div>
           <div className="p-4">
@@ -647,7 +647,7 @@ export function AdminDashboardV2({
         </div>
 
         {/* Atenção Necessária */}
-        <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+        <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
           <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">⚠️ Atenção necessária</h3>
             <span className="bg-red-50 text-red-600 text-xs font-semibold px-2 py-1 rounded-full">
@@ -711,7 +711,7 @@ export function AdminDashboardV2({
               <h2 className="text-sm font-semibold text-gray-700">Comissões a pagar no mês</h2>
               <span className="text-sm font-bold text-emerald-700">Total: {formatCurrency(totalGeral)}</span>
             </div>
-            <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+            <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-surface-border bg-surface-secondary text-left">

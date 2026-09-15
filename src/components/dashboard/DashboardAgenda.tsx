@@ -45,7 +45,7 @@ export function DashboardAgenda() {
   }
 
   return (
-    <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+    <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
       <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
         <h3 className="text-sm font-semibold text-navy flex items-center gap-2">
           <CalendarClock className="w-4 h-4 text-brand-500" /> Agenda
@@ -55,7 +55,7 @@ export function DashboardAgenda() {
             {([['today', `Hoje (${todayList.length})`], ['week', `Semana (${weekList.length})`]] as const).map(([v, label]) => (
               <button key={v} onClick={() => setTab(v)}
                 className={cn('px-2.5 py-1 rounded-full text-xs font-medium transition-all',
-                  tab === v ? 'bg-navy text-white shadow-sm' : 'text-navy-muted hover:text-navy')}>
+                  tab === v ? 'bg-gradient-navy text-white shadow-sm' : 'text-navy-muted hover:text-navy')}>
                 {label}
               </button>
             ))}

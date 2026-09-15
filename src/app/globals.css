@@ -8,14 +8,21 @@
   body {
     background-color: #ffffff;
   }
+
+  /* Titulos usam Geist (igual ao Viver de IA); o corpo do texto (default)
+     fica com Poppins, aplicado globalmente via --font-sans. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
 }
 
 @layer components {
-  /* Recipe calibrada por inspeção real do app.viverdeia.ai: base clara,
-     borda navy bem sutil, sombra em camadas (realce interno + difusa
-     externa), raio generoso — não um card "flat" com shadow-sm. */
+  /* Recipe calibrada por inspeção real do app.viverdeia.ai: base com leve
+     degradê branco -> cinza-azulado (não branco chapado), borda navy bem
+     sutil, sombra em camadas (realce interno + difusa externa), raio
+     generoso — não um card "flat" com shadow-sm. */
   .card {
-    @apply bg-white rounded-card border border-surface-border shadow-card;
+    @apply bg-gradient-card rounded-card border border-surface-border shadow-card;
   }
 
   .badge {

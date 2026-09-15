@@ -44,7 +44,13 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['var(--font-sans)'],
+        heading: ['var(--font-heading)'],
         mono: ['var(--font-mono)'],
+      },
+      backgroundImage: {
+        'gradient-card': 'var(--gradient-card)',
+        'gradient-navy': 'var(--gradient-navy)',
+        'gradient-navy-mesh': 'var(--gradient-navy-mesh)',
       },
       borderRadius: {
         card: '20px',

@@ -1019,7 +1019,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               </div>
             )
           })()}
-          <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+          <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
             {loadingNfes || syncingNfes ? (
               <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -1102,7 +1102,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
       )}
 
       {/* Aba: Notas Cadastradas */}
-      {tab === 'notas' && <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
+      {tab === 'notas' && <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
         {invoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <FileText className="w-12 h-12 text-gray-200 mb-3" />

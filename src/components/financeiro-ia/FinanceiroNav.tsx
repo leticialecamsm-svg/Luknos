@@ -46,7 +46,7 @@ export function FinanceiroNav({ profile }: { profile: FinanceiroProfile }) {
           return (
             <Link key={item.href} href={item.href}
               className={cn('flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                active ? 'bg-navy text-white shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-gray-600 hover:bg-surface-secondary hover:text-gray-900')}>
+                active ? 'bg-gradient-navy text-white shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-gray-600 hover:bg-surface-secondary hover:text-gray-900')}>
               <Icon className="w-4 h-4 shrink-0" />
               {item.label}
             </Link>

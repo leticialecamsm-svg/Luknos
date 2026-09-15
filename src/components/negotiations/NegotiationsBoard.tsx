@@ -108,7 +108,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
           { label: 'Quente', value: formatCurrency(totalHot), dot: '#EF4444' },
           { label: `Fechado — ${monthLabel}`, value: formatCurrency(totalClosed), dot: '#10B981' },
         ].map(kpi => (
-          <div key={kpi.label} className="rounded-card shadow-card border border-surface-border bg-white px-4 py-3">
+          <div key={kpi.label} className="rounded-card shadow-card border border-surface-border bg-gradient-card px-4 py-3">
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: kpi.dot }} />
               <p className="text-xs text-gray-400">{kpi.label}</p>

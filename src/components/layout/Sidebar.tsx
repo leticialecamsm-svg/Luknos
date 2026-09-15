@@ -125,7 +125,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                   title={collapsed ? item.label : undefined}
                   className={cn('flex items-center gap-2.5 rounded-pill text-sm transition-colors',
                     collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
-                    active ? 'bg-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
+                    active ? 'bg-gradient-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                   )}
                 >
                   <item.icon className="w-4 h-4 shrink-0" />
@@ -179,7 +179,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                       title={collapsed ? item.label : undefined}
                       className={cn('flex items-center gap-2.5 rounded-lg text-sm transition-colors',
                         collapsed ? 'justify-center px-3 py-2' : 'px-3 py-2',
-                        active ? 'bg-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
+                        active ? 'bg-gradient-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                       )}
                     >
                       <item.icon className="w-4 h-4 shrink-0" />
