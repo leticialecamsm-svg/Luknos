@@ -30,7 +30,7 @@ export function UpdateHealth({ health, team }: { health: TeamHealth[]; team: { o
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100">
+              <tr className="border-b border-surface-border">
                 <th className={cn(TH, 'text-left pr-4')}>Colaborador</th>
                 <th className={cn(TH, 'text-right px-3')}>Abertas</th>
                 <th className={cn(TH, 'text-left px-3 w-[28%]')}>Sem notícia</th>
@@ -172,7 +172,7 @@ export function ChannelFunnel({ dim, channels, cohort, month }: { dim: Dim; chan
           </div>
           <div className="space-y-2.5">
             {[...data, { c: 'Total', ...total }].map(d => (
-              <div key={d.c} className={cn('grid grid-cols-[140px_1fr_250px] items-center gap-3 text-sm', d.c === 'Total' && 'pt-2 border-t border-gray-100')}>
+              <div key={d.c} className={cn('grid grid-cols-[140px_1fr_250px] items-center gap-3 text-sm', d.c === 'Total' && 'pt-2 border-t border-surface-border')}>
                 <span className={cn('inline-flex items-center gap-2', d.c === 'Total' ? 'font-bold text-gray-900' : 'font-medium text-gray-700')}>
                   {d.c !== 'Total' && <i className="w-2.5 h-2.5 rounded-sm" style={{ background: colorOf(d.c) }} />}{d.c}
                 </span>
@@ -232,7 +232,7 @@ export function LossReasons({ dim, lost, months }: { dim: Dim; lost: ReportRow[]
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-gray-100">
+                <tr className="border-b border-surface-border">
                   <th className={cn(TH, 'text-left pr-3')}>Colaborador</th>
                   {counts.map(c => (
                     <th key={c.k} title={labelOf(c.k)} className={cn(TH, 'text-center px-1.5 normal-case tracking-normal')}>

@@ -41,7 +41,7 @@ export function ChannelTable({ dim, channels, cur, prev, cohort, month, compare,
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-100">
+            <tr className="border-b border-surface-border">
               <th className={cn(TH, 'text-left pr-4')}>Canal</th>
               <th className={cn(TH, 'text-left pr-4 w-[30%]')}>Participação no faturamento</th>
               <th className={cn(TH, 'text-right px-3')}>Vendas</th>
@@ -120,7 +120,7 @@ export function SellerMatrix({ dim, channels, list, metric, month }: {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100">
+              <tr className="border-b border-surface-border">
                 <th className={cn(TH, 'text-left pr-4')}>Colaborador</th>
                 <th className={cn(TH, 'text-center px-2')} title="Canais com pelo menos 1 venda">Canais</th>
                 {cols.map(c => (
@@ -470,7 +470,7 @@ export function GoalPlanner({ dim, channels, closed, months, month }: {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100">
+                <tr className="border-b border-surface-border">
                   <th className={cn(TH, 'text-left pr-4')}>Colaborador</th>
                   <th className={cn(TH, 'text-right px-3')}>Meta/mês</th>
                   <th className={cn(TH, 'text-right px-3')}>Meta/dia</th>

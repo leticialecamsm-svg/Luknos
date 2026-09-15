@@ -160,7 +160,7 @@ function RadarColumn({ title, hint, tone, items }: { title: string; hint: string
         ))}
       </div>
       {items.length > 6 && (
-        <button onClick={() => setAll(v => !v)} className="text-xs font-medium text-gray-500 hover:text-gray-800 py-2 border-t border-gray-100">
+        <button onClick={() => setAll(v => !v)} className="text-xs font-medium text-gray-500 hover:text-gray-800 py-2 border-t border-surface-border">
           {all ? 'Mostrar menos' : `Ver todos (${items.length})`}
         </button>
       )}
@@ -201,7 +201,7 @@ export function PartnerRanking({ rows }: { rows: ReportRow[] }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100">
+              <tr className="border-b border-surface-border">
                 <th className={cn(TH, 'text-left pr-3 w-8')}>#</th>
                 <th className={cn(TH, 'text-left pr-4')}>Parceiro</th>
                 <th className={cn(TH, 'text-left px-3')}>Situação</th>
