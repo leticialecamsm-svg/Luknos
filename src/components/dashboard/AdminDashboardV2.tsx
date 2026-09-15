@@ -292,13 +292,13 @@ export function AdminDashboardV2({
           <p className="text-sm text-gray-500 mt-1">Visão gerencial · Luknos Iluminação</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
+          <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
             <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
             <span className="w-32 text-center">{currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
             <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
           </div>
           <QuickLinksMenu />
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-border rounded-lg text-sm font-medium text-gray-700 hover:bg-surface-secondary">
             <Download className="w-4 h-4" /> Exportar
           </button>
         </div>
@@ -306,7 +306,7 @@ export function AdminDashboardV2({
 
       {/* Tabs */}
       {PIPELINE_ENABLED && (
-        <div className="flex gap-2 border-b border-gray-200">
+        <div className="flex gap-2 border-b border-surface-border">
           <button
             onClick={() => setActiveTab('dashboard')}
             className={cn(
@@ -357,9 +357,9 @@ export function AdminDashboardV2({
 
         <div onClick={() => setDetail({ title: 'Oportunidades em aberto', items: quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')), field: 'quoted' })}
           className="cursor-pointer bg-white rounded-card shadow-card border border-surface-border p-4 relative overflow-hidden hover:shadow-md hover:border-blue-300 transition-all">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
+          <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Oportunidades</p>
-          <p className="text-xl font-bold text-blue-600 mt-2">{formatCurrency(oportunidades)}</p>
+          <p className="text-xl font-bold text-brand-600 mt-2">{formatCurrency(oportunidades)}</p>
           <p className="text-xs text-gray-500 mt-1">Frio + Morno + Quente</p>
           <p className="text-xs text-green-600 font-semibold mt-1">↑ {quotes.filter(q => !['closed', 'lost'].includes(q.temperature ?? 'cold')).length} oportunidades</p>
         </div>
@@ -428,7 +428,7 @@ export function AdminDashboardV2({
               const hoursOld = q.flagged_alert_at ? Math.floor((Date.now() - new Date(q.flagged_alert_at).getTime()) / (1000 * 60 * 60)) : 0
               const isDayOld = hoursOld >= 24
               return (
-                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-amber-50 transition-colors border border-gray-100">
+                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-amber-50 transition-colors border border-surface-border">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">#{String(q.number).padStart(3,'0')} · {q.client_name}</p>
                     <p className={`text-xs ${isDayOld ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
@@ -453,7 +453,7 @@ export function AdminDashboardV2({
           <div className="p-3 space-y-2">
             <p className="text-xs text-gray-400 mb-2">Orçamentos em etapa crítica (Fase do Gesso / Instalação Imediata) com temperatura morna, fria ou sem previsão.</p>
             {criticalNegotiations.map((q: any) => (
-              <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-orange-50 transition-colors border border-gray-100">
+              <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-orange-50 transition-colors border border-surface-border">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">#{String(q.number).padStart(3,'0')} · {q.client_name}</p>
                   <p className="text-xs text-gray-400">{q.work_stage === 'finishing' ? 'Fase do Gesso' : 'Instalação Imediata'}</p>
@@ -475,9 +475,9 @@ export function AdminDashboardV2({
       <div className="grid grid-cols-3 gap-4">
         {/* Gráfico Faturamento */}
         <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Faturamento mensal <span className="bg-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">2026</span></h3>
-            <select className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">
+            <select className="text-xs border border-surface-border rounded px-2 py-1 text-gray-600">
               <option>Faturado</option>
             </select>
           </div>
@@ -516,7 +516,7 @@ export function AdminDashboardV2({
 
         {/* Ranking Colaboradores */}
         <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">
               Ranking — {currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).charAt(0).toUpperCase() + currentMonth.toLocaleDateString('pt-BR', { month: 'long' }).slice(1)}
             </h3>
@@ -531,7 +531,7 @@ export function AdminDashboardV2({
           )}
           <div className="p-4 space-y-3">
             {userPerformance.map((u, i) => (
-              <div key={u.id} className="flex items-start gap-2 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+              <div key={u.id} className="flex items-start gap-2 pb-3 border-b border-surface-border last:border-0 last:pb-0">
                 <div className="text-sm font-bold text-gray-400 w-6 shrink-0">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                 </div>
@@ -561,7 +561,7 @@ export function AdminDashboardV2({
         <div className="space-y-4">
           {/* Funil */}
           <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
-            <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+            <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Funil da loja</h3>
               <a href="/quotes" className="text-xs text-navy hover:text-brand-600">Ver Kanban →</a>
             </div>
@@ -597,7 +597,7 @@ export function AdminDashboardV2({
       <div className="grid grid-cols-2 gap-4">
         {/* Top Parceiros */}
         <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Top parceiros <span className="bg-navy text-white text-xs font-bold px-2 py-0.5 rounded ml-2">por volume</span></h3>
             <a href="/partners" className="text-xs text-navy hover:text-brand-600">Ver todos →</a>
           </div>
@@ -608,15 +608,15 @@ export function AdminDashboardV2({
                 <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Arquitetos</p>
                 <div className="space-y-2">
                   {topArchs.map((a, i) => (
-                    <div key={i} className="flex items-start gap-2 pb-2 border-b border-gray-100 last:border-0 last:pb-0">
-                      <div className="w-6 h-6 rounded bg-blue-50 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0">
+                    <div key={i} className="flex items-start gap-2 pb-2 border-b border-surface-border last:border-0 last:pb-0">
+                      <div className="w-6 h-6 rounded bg-brand-50 flex items-center justify-center text-brand-600 text-xs font-bold shrink-0">
                         {getInitials(a.name)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-gray-900 truncate">{a.name}</p>
                         <p className="text-xs text-gray-500">{a.count} orçamento{a.count !== 1 ? 's' : ''}</p>
                       </div>
-                      <p className="text-xs font-bold text-blue-600 shrink-0">{formatCurrency(a.total)}</p>
+                      <p className="text-xs font-bold text-brand-600 shrink-0">{formatCurrency(a.total)}</p>
                     </div>
                   ))}
                 </div>
@@ -648,7 +648,7 @@ export function AdminDashboardV2({
 
         {/* Atenção Necessária */}
         <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">⚠️ Atenção necessária</h3>
             <span className="bg-red-50 text-red-600 text-xs font-semibold px-2 py-1 rounded-full">
               {urgentQuotes.length + hotNoFollowup.length} itens
@@ -661,7 +661,7 @@ export function AdminDashboardV2({
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Prazos vencidos</p>
                   <div className="space-y-1.5">
                     {urgentQuotes.map(q => (
-                      <div key={q.id} className="flex items-center gap-2 pb-1.5 border-b border-gray-100 last:border-0 last:pb-0">
+                      <div key={q.id} className="flex items-center gap-2 pb-1.5 border-b border-surface-border last:border-0 last:pb-0">
                         <p className="text-xs font-bold text-red-600">#{String(q.number).padStart(3, '0')}</p>
                         <p className="text-xs font-semibold text-gray-900 flex-1">{q.client_name}</p>
                         <p className="text-xs font-semibold text-red-600">Vencido {formatDate(q.deadline)}</p>
@@ -679,7 +679,7 @@ export function AdminDashboardV2({
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Quentes sem follow-up (+3 dias)</p>
                   <div className="space-y-1.5">
                     {hotNoFollowup.map(q => (
-                      <div key={q.id} className="flex items-center gap-2 pb-1.5 border-b border-gray-100 last:border-0 last:pb-0">
+                      <div key={q.id} className="flex items-center gap-2 pb-1.5 border-b border-surface-border last:border-0 last:pb-0">
                         <p className="text-xs font-bold text-amber-600">#{String(q.number).padStart(3, '0')}</p>
                         <p className="text-xs font-semibold text-gray-900 flex-1">{q.client_name}</p>
                         <p className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
@@ -706,7 +706,7 @@ export function AdminDashboardV2({
         const totalGeral = rows.reduce((s: number, r: any) => s + r.total, 0)
         if (!rows.length) return null
         return (
-          <div className="border-t border-gray-200 pt-6">
+          <div className="border-t border-surface-border pt-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-700">Comissões a pagar no mês</h2>
               <span className="text-sm font-bold text-emerald-700">Total: {formatCurrency(totalGeral)}</span>
@@ -714,7 +714,7 @@ export function AdminDashboardV2({
             <div className="bg-white rounded-card shadow-card border border-surface-border overflow-hidden">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50 text-left">
+                  <tr className="border-b border-surface-border bg-surface-secondary text-left">
                     <th className="px-4 py-2.5 text-xs font-semibold text-gray-600">Colaborador</th>
                     <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-right">1% vendas</th>
                     <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-right">Projetista</th>
@@ -723,7 +723,7 @@ export function AdminDashboardV2({
                 </thead>
                 <tbody>
                   {rows.map((r: any) => (
-                    <tr key={r.user.id} className="border-b border-gray-100 last:border-0">
+                    <tr key={r.user.id} className="border-b border-surface-border last:border-0">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           <Avatar user={r.user} size={26} />
@@ -744,7 +744,7 @@ export function AdminDashboardV2({
       })()}
 
       {/* Minhas Tarefas */}
-      <div className="border-t border-gray-200 pt-6">
+      <div className="border-t border-surface-border pt-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Minhas Tarefas</h2>
         <TasksCardDashboard />
       </div>
@@ -756,7 +756,7 @@ export function AdminDashboardV2({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+            <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">{detail.title}</h2>
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -764,14 +764,14 @@ export function AdminDashboardV2({
                   Total: <strong className="text-gray-700">{formatCurrency(detail.items.reduce((s, q) => s + detailValue(q, detail.field), 0))}</strong>
                 </p>
               </div>
-              <button onClick={() => setDetail(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">✕</button>
+              <button onClick={() => setDetail(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">✕</button>
             </div>
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-surface-border">
               {detail.items.length === 0 && <p className="px-6 py-8 text-center text-sm text-gray-400">Nenhum orçamento</p>}
               {detail.items.map((q: any) => {
                 const aberto = detail.field === 'recebido' ? (Number((q.final_value ?? q.quoted_value) ?? 0) - recebidoDeQuote(q)) : 0
                 return (
-                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 px-6 py-3 hover:bg-gray-50">
+                <a key={q.id} href={`/quotes/${q.id}`} className="flex items-center gap-3 px-6 py-3 hover:bg-surface-secondary">
                   <span className="text-xs text-gray-400 w-12 shrink-0">#{String(q.number).padStart(3,'0')}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{q.client_name}</p>

@@ -30,12 +30,12 @@ export function LogisticsDashboard({ shipments, tasks, userName }: LogisticsDash
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="card p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-            <Package className="w-5 h-5 text-blue-600" />
+          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+            <Package className="w-5 h-5 text-brand-600" />
           </div>
           <div>
             <p className="text-xs text-gray-500">Na fila</p>
-            <p className="text-2xl font-bold text-blue-600">{pending}</p>
+            <p className="text-2xl font-bold text-brand-600">{pending}</p>
           </div>
         </div>
         <div className="card p-4 flex items-center gap-3">

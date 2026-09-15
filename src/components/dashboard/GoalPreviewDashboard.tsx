@@ -52,7 +52,7 @@ export function GoalPreviewDashboard({ data, userName }: { data: any; userName: 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* 2. Meta de hoje */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="rounded-2xl border border-surface-border bg-white p-5 shadow-card">
           <div className="flex items-center gap-2 mb-3">
             <span className="shrink-0 w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">2</span>
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Meta de hoje</p>
@@ -83,7 +83,7 @@ export function GoalPreviewDashboard({ data, userName }: { data: any; userName: 
         </div>
 
         {/* 4. Pipeline em jogo */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="rounded-2xl border border-surface-border bg-white p-5 shadow-card">
           <div className="flex items-center gap-2 mb-3">
             <span className="shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">4</span>
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Pipeline em jogo</p>
@@ -113,7 +113,7 @@ export function GoalPreviewDashboard({ data, userName }: { data: any; userName: 
 
 function Stat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-3">
+    <div className="bg-white rounded-xl border border-surface-border p-3">
       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{label}</p>
       <p className={cn('text-base font-bold mt-1', color ?? 'text-gray-900')}>{value}</p>
       {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
@@ -138,7 +138,7 @@ function PipelineBar({ icon, label, count, total, max, color }: { icon: React.Re
         <span className="flex items-center gap-1.5 font-medium text-gray-700">{icon} {label}</span>
         <span className="text-gray-500">{formatCurrency(total)} ({count})</span>
       </div>
-      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-surface-secondary rounded-full overflow-hidden">
         <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
       </div>
     </div>

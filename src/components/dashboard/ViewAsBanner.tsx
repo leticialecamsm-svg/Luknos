@@ -37,12 +37,12 @@ export function ViewAsBanner({ options, activeId }: { options: Option[]; activeI
           Visualização dos colaboradores
           <ChevronDown className="w-3.5 h-3.5" />
         </button>
-        <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+        <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-surface-border rounded-xl shadow-lg py-1.5 z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
           {options.map(o => (
             <Link
               key={o.id}
               href={`/dashboard?viewAs=${o.id}`}
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-brand-700"
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-surface-secondary hover:text-brand-700"
             >
               {o.name}
             </Link>

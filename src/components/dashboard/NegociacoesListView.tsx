@@ -126,10 +126,10 @@ export function NegociacoesListView() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          <button className="px-3 py-1.5 text-sm border border-surface-border rounded-lg hover:bg-surface-secondary transition-colors">
             Filtros
           </button>
-          <button className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          <button className="px-3 py-1.5 text-sm border border-surface-border rounded-lg hover:bg-surface-secondary transition-colors">
             Este mês
           </button>
         </div>
@@ -138,7 +138,7 @@ export function NegociacoesListView() {
       {/* Stats Cards */}
       <div className="grid grid-cols-5 gap-3">
         {Object.entries(stageLabels).map(([stage, label]) => (
-          <div key={stage} className="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition-colors">
+          <div key={stage} className="bg-white rounded-lg border border-surface-border p-4 hover:border-gray-300 transition-colors">
             <p className="text-xs text-gray-500 font-semibold uppercase">{label}</p>
             <p className="text-3xl font-bold text-gray-900 mt-2">
               {stats.byStage[stage as keyof typeof stats.byStage]}
@@ -148,11 +148,11 @@ export function NegociacoesListView() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
+              <tr className="border-b border-surface-border bg-surface-secondary">
                 <th className="text-left px-4 py-3 font-semibold text-gray-900">Cliente</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-900">Local</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-900">Etapa</th>
@@ -167,7 +167,7 @@ export function NegociacoesListView() {
               {data.map((neg) => (
                 <tr
                   key={neg.id}
-                  className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
+                  className={`border-b border-surface-border hover:bg-surface-secondary cursor-pointer transition-colors ${
                     neg.status === 'fechado' ? 'bg-green-50 hover:bg-green-100' : ''
                   }`}
                 >

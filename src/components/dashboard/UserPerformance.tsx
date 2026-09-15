@@ -21,7 +21,7 @@ export function UserPerformance({ users, sales, funnel, goals, storeGoal, noCard
             <div key={user.id}>
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                  style={{ backgroundColor: user.avatar_color ?? '#185FA5' }}>
+                  style={{ backgroundColor: user.avatar_color ?? '#0a1f3b' }}>
                   {getInitials(user.name)}
                 </div>
                 <div className="flex-1 min-w-0">

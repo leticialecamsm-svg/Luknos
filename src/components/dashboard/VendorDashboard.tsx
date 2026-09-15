@@ -132,13 +132,13 @@ export function VendorDashboard({
           <p className="text-sm text-gray-500 mt-1">{monthName.charAt(0).toUpperCase() + monthName.slice(1)} · {todayDate.charAt(0).toUpperCase() + todayDate.slice(1)}</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
+          <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
             <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
             <span className="w-32 text-center">{monthName.toUpperCase()}</span>
             <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
           </div>
           <QuickLinksMenu />
-          <NewQuoteButton className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+          <NewQuoteButton className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
             + Novo orçamento
           </NewQuoteButton>
         </div>
@@ -202,7 +202,7 @@ export function VendorDashboard({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Vendido no mês</p>
           <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(sales)}</p>
@@ -214,28 +214,28 @@ export function VendorDashboard({
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Em negociação</p>
           <p className="text-2xl font-bold text-amber-600 mt-2">{formatCurrency(negotiating)}</p>
           <p className="text-xs text-gray-500 mt-2">Morno + Quente</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
+        <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Oportunidades</p>
-          <p className="text-2xl font-bold text-blue-600 mt-2">{opportunities}</p>
+          <p className="text-2xl font-bold text-brand-600 mt-2">{opportunities}</p>
           <p className="text-xs text-gray-500 mt-2">orçamentos ativos</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Urgentes</p>
           <p className="text-2xl font-bold text-red-500 mt-2">{urgent}</p>
           <p className="text-xs text-gray-500 mt-2">precisam de atenção</p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-400"></div>
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Novas Prospecções</p>
           <p className="text-2xl font-bold text-amber-600 mt-2">{prospectionsThisMonth ?? 0}</p>
@@ -252,8 +252,8 @@ export function VendorDashboard({
       {/* Grid 2 colunas: Urgências + Orçamentos */}
       <div className="grid grid-cols-2 gap-4">
         {/* Urgências */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2">
+        <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-red-500" />
             <h3 className="text-sm font-semibold text-gray-900">Urgente — ação imediata</h3>
             {urgent > 0 && (
@@ -267,7 +267,7 @@ export function VendorDashboard({
               urgentQuotes.map(q => {
                 const daysAgo = Math.floor((Date.now() - new Date(q.deadline).getTime()) / 86400000)
                 return (
-                  <div key={q.id} className="flex items-center gap-3 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+                  <div key={q.id} className="flex items-center gap-3 pb-3 border-b border-surface-border last:border-0 last:pb-0">
                     <p className="text-xs text-gray-500 font-medium">#{String(q.number).padStart(3, '0')}</p>
                     <p className="text-sm font-semibold text-gray-900 flex-1">{q.client_name}</p>
                     <span className="bg-red-50 text-red-600 text-xs font-bold px-2 py-1 rounded whitespace-nowrap">
@@ -281,7 +281,7 @@ export function VendorDashboard({
               <p className="text-sm text-gray-500 text-center py-4">Nenhum orçamento urgente 🎉</p>
             )}
             {urgentQuotes.length > 0 && (
-              <div className="pt-2 border-t border-gray-100 mt-2">
+              <div className="pt-2 border-t border-surface-border mt-2">
                 <p className="text-xs text-gray-500 italic">
                   Orçamentos com prazo vencido e negociações quentes sem contato
                 </p>
@@ -291,17 +291,17 @@ export function VendorDashboard({
         </div>
 
         {/* Orçamentos Recentes */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+        <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+          <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Meus orçamentos</h3>
-            <a href="/quotes" className="text-xs text-blue-600 hover:text-blue-700">Ver todos →</a>
+            <a href="/quotes" className="text-xs text-brand-600 hover:text-brand-700">Ver todos →</a>
           </div>
           <div className="p-4 space-y-3">
             {recentQuotes.length > 0 ? (
               recentQuotes.map(q => {
                 const tempC = q.temperature ? TEMPERATURE_COLOR[q.temperature as keyof typeof TEMPERATURE_COLOR] : null
                 return (
-                  <div key={q.id} className="flex items-center gap-3 pb-3 border-b border-gray-100 last:border-0 last:pb-0 cursor-pointer hover:opacity-70 transition-opacity">
+                  <div key={q.id} className="flex items-center gap-3 pb-3 border-b border-surface-border last:border-0 last:pb-0 cursor-pointer hover:opacity-70 transition-opacity">
                     <p className="text-xs text-gray-500 font-medium w-8">#0{String(q.number).slice(-2)}</p>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{q.client_name}</p>
@@ -333,10 +333,10 @@ export function VendorDashboard({
       </div>
 
       {/* Meu Funil */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+      <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+        <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Meu funil</h3>
-          <a href="/negotiations" className="text-xs text-blue-600 hover:text-blue-700">Ver negociações →</a>
+          <a href="/negotiations" className="text-xs text-brand-600 hover:text-brand-700">Ver negociações →</a>
         </div>
         <div className="p-4 space-y-3">
           {[
@@ -372,21 +372,21 @@ export function VendorDashboard({
         <div className="space-y-6">
           {/* KPI Cards da Loja */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+            <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-green-500"></div>
               <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Faturamento da loja</p>
               <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(totalFaturamento)}</p>
               <p className="text-xs text-gray-500 mt-2">Todos os vendedores · {monthName}</p>
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
+            <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500"></div>
               <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Pipeline total</p>
-              <p className="text-2xl font-bold text-blue-600 mt-2">{formatCurrency(pipelineTotal)}</p>
+              <p className="text-2xl font-bold text-brand-600 mt-2">{formatCurrency(pipelineTotal)}</p>
               <p className="text-xs text-gray-500 mt-2">Todas as oportunidades</p>
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 p-4 relative overflow-hidden">
+            <div className="bg-white rounded-lg border border-surface-border p-4 relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-purple-600"></div>
               <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total de colaboradores</p>
               <p className="text-2xl font-bold text-purple-600 mt-2">{users?.length ?? 0}</p>
@@ -395,8 +395,8 @@ export function VendorDashboard({
           </div>
 
           {/* Ranking de Vendas — apenas posições, sem valores (privacidade) */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+            <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Ranking de Vendas</h3>
               <p className="text-xs text-gray-500">{monthName}</p>
             </div>
@@ -463,19 +463,19 @@ function EarningsModal({ myEarnings, onClose }: { myEarnings: any; onClose: () =
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Minha comissão do mês</h2>
             <p className="text-2xl font-bold text-emerald-700 mt-0.5">{formatCurrency(myEarnings.total)}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-6 space-y-5">
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-surface-secondary rounded-lg p-3">
               <p className="text-[11px] font-semibold text-gray-500 uppercase">1% das minhas vendas</p>
               <p className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(myEarnings.sellerComm)}</p>
             </div>
@@ -490,7 +490,7 @@ function EarningsModal({ myEarnings, onClose }: { myEarnings: any; onClose: () =
           {myEarnings.sellerDetails?.length > 0 && (
             <div>
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Minhas vendas do mês</p>
-              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+              <div className="divide-y divide-surface-border border border-surface-border rounded-lg overflow-hidden">
                 {myEarnings.sellerDetails.map((s: any) => (
                   <div key={s.number} className="flex items-center justify-between px-3 py-2 text-sm">
                     <div className="min-w-0">
@@ -511,7 +511,7 @@ function EarningsModal({ myEarnings, onClose }: { myEarnings: any; onClose: () =
           {myEarnings.projetistaSales?.length > 0 && (
             <div>
               <p className="text-xs font-bold text-violet-600 uppercase tracking-wide mb-2">Vendas como projetista</p>
-              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+              <div className="divide-y divide-surface-border border border-surface-border rounded-lg overflow-hidden">
                 {myEarnings.projetistaSales.map((p: any) => (
                   <div key={p.number} className="flex items-center justify-between px-3 py-2 text-sm">
                     <span><span className="font-semibold text-brand-600">#{p.number}</span> <span className="text-gray-700">{p.client_name}</span> <span className="text-gray-400">({p.rate}%)</span></span>
