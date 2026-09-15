@@ -121,26 +121,26 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
             value={busca}
             onChange={e => setBusca(e.target.value)}
             placeholder="Buscar especificador, cliente ou nº"
-            className="pl-9 pr-3 py-2 w-72 bg-white border border-gray-200 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:border-brand-400"
+            className="pl-9 pr-3 py-2 w-72 bg-white border border-surface-border rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:border-brand-400"
           />
         </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pendentes</p>
           <p className="text-2xl font-bold text-amber-600 mt-2">{pendentes.length}</p>
           <p className="text-xs text-gray-400 mt-1">aguardando lançamento</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Valor pendente</p>
           <p className="text-2xl font-bold text-blue-600 mt-2">{formatCurrency(valorPendente)}</p>
           <p className="text-xs text-gray-400 mt-1">soma das vendas não lançadas</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 relative overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Já lançados</p>
           <p className="text-2xl font-bold text-emerald-600 mt-2">{realizados.length}</p>
@@ -159,7 +159,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
       )}
 
       {/* Abas */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-surface-border">
         {([
           ['pendentes', 'Lançamentos Pendentes', pendentes.length],
           ['realizados', 'Lançamentos realizados', realizados.length],
@@ -169,13 +169,13 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
             onClick={() => setTab(id)}
             className={cn(
               'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
-              tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === id ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             )}
           >
             {label}
             <span className={cn(
               'text-xs font-bold px-1.5 py-0.5 rounded-full',
-              tab === id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+              tab === id ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500'
             )}>{count}</span>
           </button>
         ))}
@@ -183,7 +183,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
 
       {/* Tabela */}
       {filtradas.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
+        <div className="bg-white rounded-xl border border-surface-border py-16 text-center">
           {tab === 'pendentes' ? (
             <>
               <CheckCircle2 className="w-10 h-10 text-emerald-300 mx-auto mb-3" />
@@ -207,7 +207,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-surface-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px]">
               <thead>
@@ -247,7 +247,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
                           className={cn(
                             'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all mx-auto',
                             emAndamento
-                              ? 'border-gray-200 bg-gray-50 cursor-wait'
+                              ? 'border-surface-border bg-surface-secondary cursor-wait'
                               : r.lancado
                                 ? 'bg-emerald-500 border-emerald-500 hover:bg-emerald-600'
                                 : 'border-gray-300 bg-white hover:border-emerald-400 hover:scale-110'
@@ -324,7 +324,7 @@ export function MetropolitanoPage({ initialRows }: { initialRows: MetropolitanoR
             </table>
           </div>
           {tab === 'realizados' && (
-            <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 flex items-center gap-1.5">
+            <div className="px-4 py-2.5 border-t border-surface-border bg-surface-secondary/50 flex items-center gap-1.5">
               <Undo2 className="w-3 h-3 text-gray-400" />
               <p className="text-[11px] text-gray-500">
                 Desmarque o checkbox para devolver um lançamento à aba de pendentes.

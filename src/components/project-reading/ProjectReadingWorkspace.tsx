@@ -1228,9 +1228,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     <>
     <div className="flex h-full gap-4 min-h-0">
       {/* Viewer */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-surface-border overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-100 bg-gray-50 flex-wrap">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-surface-border bg-surface-secondary flex-wrap">
           {TOOLS.map(t => (
             <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
@@ -1265,7 +1265,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             </button>
             <button onClick={() => setAmbientesDiscretos(v => !v)} title="Ambientes discretos — só o nome em cinza, sem cor nem contorno"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                ambientesDiscretos ? 'bg-gray-500 text-white' : 'text-gray-600 hover:bg-gray-200')}>
+                ambientesDiscretos ? 'bg-surface-secondary0 text-white' : 'text-gray-600 hover:bg-gray-200')}>
               <EyeOff className="w-3.5 h-3.5" /> Ambientes discretos
             </button>
             <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
@@ -1281,7 +1281,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     const n = Number(e.target.value)
                     if (n >= 1 && n <= plan.num_pages) setPageNum(n)
                   }}
-                  className="w-10 text-xs text-center border border-gray-200 rounded px-1 py-1" />
+                  className="w-10 text-xs text-center border border-surface-border rounded px-1 py-1" />
                 <span className="text-xs text-gray-400">/ {plan.num_pages}</span>
                 <button disabled={pageNum >= plan.num_pages} onClick={() => setPageNum(p => p + 1)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
               </>
@@ -1613,8 +1613,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       </div>
 
       {/* Painel lateral — recolhível pra dar mais espaço ao PDF */}
-      <div className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden transition-[width] duration-150', panelOpen ? 'w-96' : 'w-11')}>
-        <div className="flex items-center border-b border-gray-100">
+      <div className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border overflow-hidden transition-[width] duration-150', panelOpen ? 'w-96' : 'w-11')}>
+        <div className="flex items-center border-b border-surface-border">
           {panelOpen && (['ambientes', 'legenda', 'medicoes', 'resultado'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={cn('flex-1 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors',
@@ -1705,7 +1705,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       {pendingSymbol && pendingSymbolAnchor && (
         <div
           style={{ position: 'fixed', left: Math.min(pendingSymbolAnchor.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 260), top: Math.min(pendingSymbolAnchor.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 220), zIndex: 50, width: 248 }}
-          className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden"
+          className="bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden"
         >
           <div className="flex items-center justify-between px-3 pt-2">
             <p className="text-[10px] font-bold text-violet-500 uppercase">Qual símbolo?</p>
@@ -1813,7 +1813,7 @@ function SelectionPopover({
           {legendItems.map(li => (
             <button key={li.id} onClick={() => onChangeSymbolLegend(s.id, li.id)}
               className={cn('w-full flex items-center gap-2 text-left px-2 py-1 rounded-lg border transition-colors',
-                li.id === s.legend_item_id ? 'bg-violet-50 border-violet-300' : 'bg-white border-transparent hover:bg-gray-50')}>
+                li.id === s.legend_item_id ? 'bg-violet-50 border-violet-300' : 'bg-white border-transparent hover:bg-surface-secondary')}>
               <span className={cn('shrink-0 text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center',
                 li.id === s.legend_item_id ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600')}>{li.code}</span>
               <span className="text-xs text-gray-600 truncate">{li.description || 'sem descrição'}</span>
@@ -1822,7 +1822,7 @@ function SelectionPopover({
           {legendItems.length === 0 && <p className="text-xs text-gray-400">Cadastre a legenda primeiro.</p>}
         </div>
         <select value={s.environment_id ?? ''} onChange={e => onChangeSymbolEnv(s.id, e.target.value || null)}
-          className="w-full text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1">
+          className="w-full text-xs text-gray-600 border border-surface-border rounded-md px-2 py-1">
           <option value="">Sem ambiente</option>
           {environments.map(env => <option key={env.id} value={env.id}>{env.name}</option>)}
         </select>
@@ -1909,18 +1909,18 @@ function SelectionPopover({
         {a.kind === 'text' && (
           <>
             <textarea defaultValue={a.data.text} rows={2} onBlur={e => onUpdateAnnotation(a.id, { text: e.target.value })}
-              className="w-full text-sm text-gray-700 border border-gray-200 rounded-md p-1.5 outline-none focus:border-brand-400 resize-none" />
+              className="w-full text-sm text-gray-700 border border-surface-border rounded-md p-1.5 outline-none focus:border-brand-400 resize-none" />
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-gray-500">Tamanho</span>
               <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.max(9, fontSize - 2) })}
-                className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">−</button>
+                className="w-6 h-6 rounded border border-surface-border text-gray-500 hover:bg-surface-secondary">−</button>
               <span className="text-[11px] text-gray-600 w-6 text-center">{fontSize}</span>
               <button onClick={() => onUpdateAnnotation(a.id, { fontSize: Math.min(40, fontSize + 2) })}
-                className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">+</button>
+                className="w-6 h-6 rounded border border-surface-border text-gray-500 hover:bg-surface-secondary">+</button>
             </div>
             <textarea defaultValue={a.data.note ?? ''} rows={2} placeholder="Observação (opcional, não aparece na planta)..."
               onBlur={e => onUpdateAnnotation(a.id, { note: e.target.value })}
-              className="w-full text-xs text-gray-500 border border-gray-100 bg-gray-50 rounded-md p-1.5 outline-none focus:border-brand-300 resize-none" />
+              className="w-full text-xs text-gray-500 border border-surface-border bg-surface-secondary rounded-md p-1.5 outline-none focus:border-brand-300 resize-none" />
             <div className="flex items-center gap-2">
               <button onClick={() => onStartArrow(a.id)} className="text-[11px] font-medium text-brand-600 hover:underline">🎯 {a.data.arrowTo ? 'Reapontar seta' : 'Adicionar seta pra um ponto'}</button>
               {a.data.arrowTo && (
@@ -1937,7 +1937,7 @@ function SelectionPopover({
   if (!content) return null
 
   return (
-    <div style={style} className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+    <div style={style} className="bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden">
       <div className="flex items-center justify-between px-1 pt-1 shrink-0">
         {showHeaderDelete
           ? <button onClick={onDeleteSelected} title="Excluir" className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -1989,8 +1989,8 @@ function AmbientesTab({
         const envMeasurements = measurements.filter(m => m.environment_id === env.id)
         const open = expanded === env.id
         return (
-          <div key={env.id} className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="p-3 cursor-pointer hover:bg-gray-50 transition-colors" title="Ver este ambiente na planta"
+          <div key={env.id} className="border border-surface-border rounded-xl overflow-hidden">
+            <div className="p-3 cursor-pointer hover:bg-surface-secondary transition-colors" title="Ver este ambiente na planta"
               onClick={() => onFocusEnvironment(env)}>
               <div className="flex items-center gap-2">
                 <input defaultValue={env.name} onClick={e => e.stopPropagation()}
@@ -2007,7 +2007,7 @@ function AmbientesTab({
               </button>
             </div>
             {open && (
-              <div className="bg-gray-50 border-t border-gray-100 p-3 space-y-2">
+              <div className="bg-surface-secondary border-t border-surface-border p-3 space-y-2">
                 {Array.from(
                   envSymbols.reduce((map, s) => {
                     const key = s.legend_item_id ?? '__sem_legenda__'
@@ -2020,20 +2020,20 @@ function AmbientesTab({
                   const groupKey = `${env.id}__${legendItemId}`
                   const groupOpen = expandedGroup === groupKey
                   return (
-                    <div key={legendItemId} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    <div key={legendItemId} className="bg-white rounded-lg border border-surface-border overflow-hidden">
                       <button onClick={() => setExpandedGroup(groupOpen ? null : groupKey)}
-                        className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-50">
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-surface-secondary">
                         <span className="shrink-0 text-[10px] font-bold text-white bg-violet-600 rounded-full w-5 h-5 flex items-center justify-center">{li?.code ?? '?'}</span>
                         <span className="text-xs text-gray-600 flex-1 truncate text-left">{li?.description || 'sem descrição'}</span>
                         <span className="text-[11px] font-semibold text-gray-400">{group.length} und</span>
                         <ChevronRight className={cn('w-3 h-3 text-gray-400 transition-transform', groupOpen && 'rotate-90')} />
                       </button>
                       {groupOpen && (
-                        <div className="border-t border-gray-100 divide-y divide-gray-100">
+                        <div className="border-t border-surface-border divide-y divide-surface-border">
                           {group.map(s => (
                             <div key={s.id} className="flex items-center gap-2 px-2.5 py-1.5">
                               <select value={s.legend_item_id ?? ''} onChange={e => onChangeSymbolLegend(s.id, e.target.value || null)}
-                                className="flex-1 text-xs text-gray-600 bg-transparent border border-gray-200 rounded px-1.5 py-1 outline-none">
+                                className="flex-1 text-xs text-gray-600 bg-transparent border border-surface-border rounded px-1.5 py-1 outline-none">
                                 <option value="">Sem legenda</option>
                                 {legendItems.map(x => <option key={x.id} value={x.id}>{x.code} — {x.description || 'sem descrição'}</option>)}
                               </select>
@@ -2197,7 +2197,7 @@ function LegendaTab({ planId, items, onCreate, onUpdate, onDelete, onDuplicate }
       </div>
       <div className="space-y-2">
         {items.map(item => (
-          <div key={item.id} className="border border-gray-200 rounded-lg p-2.5 space-y-1.5">
+          <div key={item.id} className="border border-surface-border rounded-lg p-2.5 space-y-1.5">
             <div className="flex items-start gap-2">
               <span className="w-8 shrink-0 text-sm font-bold text-violet-700 pt-0.5">{item.code}</span>
               <SyncedInput value={item.description ?? ''} onCommit={v => onUpdate(item.id, { description: v || null })}
@@ -2310,7 +2310,7 @@ function MedicoesTab({ measurements, environments, onUpdate, onDelete, onMerge, 
 
   return (
     <div className="space-y-6">
-      <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
+      <p className="text-[11px] text-gray-400 bg-surface-secondary rounded-lg px-2.5 py-2">
         💡 Um trecho em L ou U pode ser medido como uma peça só — clique em cada canto sem apertar Enter,
         e só finalize no último ponto. Se já mediu em partes separadas, use <b>Mesclar</b> no card pra juntar.
         O ambiente de cada medição pode ser trocado direto no card, a qualquer momento.
@@ -2464,7 +2464,7 @@ function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDele
       <div className="flex items-center gap-1 shrink-0 relative">
         {mergeCandidates.length > 0 && (
           <button onClick={() => setMerging(v => !v)} title="Mesclar com outra medição"
-            className="text-[10px] font-semibold text-gray-400 hover:text-brand-600 border border-gray-200 hover:border-brand-300 rounded px-1.5 py-0.5">
+            className="text-[10px] font-semibold text-gray-400 hover:text-brand-600 border border-surface-border hover:border-brand-300 rounded px-1.5 py-0.5">
             Mesclar
           </button>
         )}
@@ -2473,11 +2473,11 @@ function MeasurementHeader({ m, environments, onChangeEnv, onChangeLabel, onDele
         )}
         <button onClick={onDelete} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
         {merging && (
-          <div className="absolute right-0 top-6 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
+          <div className="absolute right-0 top-6 z-10 bg-white border border-surface-border rounded-lg shadow-lg py-1 w-44">
             <p className="text-[10px] text-gray-400 px-2 py-1">Mesclar com:</p>
             {mergeCandidates.map(c => (
               <button key={c.id} onClick={() => { onMerge(c.id); setMerging(false) }}
-                className="w-full text-left px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 truncate">
+                className="w-full text-left px-2 py-1.5 text-xs text-gray-700 hover:bg-surface-secondary truncate">
                 {c.label} ({c.length_m.toFixed(2)}m)
               </button>
             ))}
@@ -2515,7 +2515,7 @@ function ChoiceChips<T extends string | number>({ options, value, onChange }: {
       {options.map(o => (
         <button key={o.value} type="button" onClick={() => onChange(o.value)}
           className={cn('text-[11px] font-semibold px-2 py-1 rounded-md border transition-colors',
-            value === o.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300')}>
+            value === o.value ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-surface-border text-gray-500 hover:border-gray-300')}>
           {o.label}
         </button>
       ))}
@@ -2532,7 +2532,7 @@ function ModelInput({ value, suggestions, onCommit, placeholder, listId }: {
   return (
     <>
       <SyncedInput value={value} onCommit={onCommit} placeholder={placeholder} list={listId}
-        className="w-full text-xs border border-gray-200 rounded-md px-2 py-1 outline-none focus:border-brand-400"
+        className="w-full text-xs border border-surface-border rounded-md px-2 py-1 outline-none focus:border-brand-400"
       />
       <datalist id={listId}>{suggestions.map(s => <option key={s} value={s} />)}</datalist>
     </>
@@ -2545,7 +2545,7 @@ function SimpleMeasurementCard({ m, environments, onChangeEnv, onChangeLabel, on
   mergeCandidates: Measurement[]; onMerge: (otherId: string) => void; pieceBadge?: PieceBadge; linkNote?: string
 }) {
   return (
-    <div className="border border-gray-200 rounded-lg p-2.5">
+    <div className="border border-surface-border rounded-lg p-2.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} />
       <div className="flex items-baseline gap-1 mt-1">
@@ -2574,7 +2574,7 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
   const strands = m.strand_count ?? 1
   const calc = calcularFita(m.length_m * strands, m.power_w_per_m ?? 0)
   return (
-    <div className="border border-gray-200 rounded-lg p-2 space-y-1.5">
+    <div className="border border-surface-border rounded-lg p-2 space-y-1.5">
       <MeasurementHeader m={m} environments={environments} onChangeEnv={onChangeEnv} onChangeLabel={onChangeLabel} onDelete={onDelete}
         mergeCandidates={mergeCandidates} onMerge={onMerge} pieceBadge={pieceBadge} linkNote={linkNote} onDuplicate={onDuplicate} />
       <div className="flex items-baseline gap-1">
@@ -2655,7 +2655,7 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
       )}
       {picking && (
         <div className="flex items-center gap-1.5 bg-sky-50 rounded-md p-1.5 mt-1 flex-wrap">
-          <select value={escolha} onChange={e => setEscolha(Number(e.target.value))} className="text-xs border border-gray-200 rounded px-1 py-0.5">
+          <select value={escolha} onChange={e => setEscolha(Number(e.target.value))} className="text-xs border border-surface-border rounded px-1 py-0.5">
             {CATALOGO_FONTES_12V.filter(w => w >= minimaW).map(w => <option key={w} value={w}>{w}W</option>)}
           </select>
           <button onClick={() => { onStartPlacement(measurementId, escolha); setPicking(false) }}
@@ -2696,7 +2696,7 @@ function PerfilFitaCard({
   const strands = fita.strand_count ?? 1
   const calc = calcularFita(fita.length_m * strands, fita.power_w_per_m ?? 0)
   return (
-    <div className="border border-gray-200 rounded-lg p-2 space-y-1.5">
+    <div className="border border-surface-border rounded-lg p-2 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -2790,7 +2790,7 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
       <p className="text-[11px] text-gray-400">sobra total {plano.sobraTotalM}m · {plano.desperdicioPct}% de desperdício</p>
       <div className="space-y-1">
         {plano.pecas.map(p => (
-          <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-gray-100 flex items-start gap-1.5 text-[11px]">
+          <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-surface-border flex items-start gap-1.5 text-[11px]">
             <span className="shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: PIECE_COLORS[(p.pecaIndex - 1) % PIECE_COLORS.length] }} />
             <span className="text-gray-600">
               <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}</span>{' '}
@@ -2935,7 +2935,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
         <StatBox label="Sem ambiente" value={semAmbiente} warn={semAmbiente > 0} />
       </div>
 
-      <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">
+      <p className="text-[11px] text-gray-400 bg-surface-secondary rounded-lg px-2.5 py-2">
         💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Quando uma barra/rolo é
         compartilhado entre ambientes (sobra reaproveitada), aparece um aviso com botão de copiar.
       </p>
@@ -2989,7 +2989,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
           }
           const subgrupos = Array.from(bySubgrupo.keys()).sort((a, b) => a === 'Geral' ? 1 : b === 'Geral' ? -1 : a.localeCompare(b))
           return (
-            <div key={env.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
+            <div key={env.id} className="border border-surface-border rounded-xl p-3 space-y-2">
               <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
                 className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
               {subgrupos.map(sub => (
@@ -3003,7 +3003,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
                         // longe do item a que se refere) — curta, só o
                         // essencial, com o texto completo a um clique via
                         // "Copiar" pra colar no Master Lojista.
-                        <tr key={i} className={cn('border-t border-gray-100', l.compartilhada && 'bg-amber-50/40')}>
+                        <tr key={i} className={cn('border-t border-surface-border', l.compartilhada && 'bg-amber-50/40')}>
                           <td className="py-1 text-gray-700 align-top">
                             <div>{l.produto}</div>
                             {l.detalhe && (
@@ -3034,7 +3034,7 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
 
 function StatBox({ label, value, warn }: { label: string; value: string | number; warn?: boolean }) {
   return (
-    <div className={cn('rounded-xl p-3 border', warn ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100')}>
+    <div className={cn('rounded-xl p-3 border', warn ? 'bg-amber-50 border-amber-200' : 'bg-surface-secondary border-surface-border')}>
       <p className="text-[11px] text-gray-500 uppercase font-semibold">{label}</p>
       <p className={cn('text-lg font-bold', warn ? 'text-amber-600' : 'text-gray-800')}>{value}</p>
     </div>

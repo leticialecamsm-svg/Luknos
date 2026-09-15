@@ -27,7 +27,7 @@ const statusColors: Record<SiteLead['status'], string> = {
   novo: 'bg-amber-50 text-amber-700 border-amber-200',
   em_contato: 'bg-blue-50 text-blue-700 border-blue-200',
   convertido: 'bg-green-50 text-green-700 border-green-200',
-  descartado: 'bg-gray-100 text-gray-500 border-gray-200',
+  descartado: 'bg-gray-100 text-gray-500 border-surface-border',
 }
 
 function projectLabel(lead: SiteLead) {
@@ -94,7 +94,7 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
               className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                 filter === f
                   ? 'border-brand-600 bg-brand-50 text-brand-700 font-medium'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  : 'border-surface-border text-gray-600 hover:bg-surface-secondary'
               }`}
             >
               {f === 'todos' ? 'Todos' : statusLabels[f]}
@@ -105,19 +105,19 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-surface-border p-4">
           <p className="text-xs text-gray-500 font-semibold uppercase">Total</p>
           <p className="text-3xl font-bold text-gray-900 mt-2">{stats.total}</p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-surface-border p-4">
           <p className="text-xs text-gray-500 font-semibold uppercase">Novos</p>
           <p className="text-3xl font-bold text-amber-600 mt-2">{stats.novo}</p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-surface-border p-4">
           <p className="text-xs text-gray-500 font-semibold uppercase">Em contato</p>
           <p className="text-3xl font-bold text-blue-600 mt-2">{stats.em_contato}</p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-surface-border p-4">
           <p className="text-xs text-gray-500 font-semibold uppercase">Convertidos</p>
           <p className="text-3xl font-bold text-green-600 mt-2">{stats.convertido}</p>
         </div>
@@ -125,15 +125,15 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
 
       {/* Lista */}
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-10 text-center text-gray-400">
+        <div className="bg-white rounded-lg border border-surface-border p-10 text-center text-gray-400">
           Nenhuma solicitação por aqui ainda.
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+                <tr className="border-b border-surface-border bg-surface-secondary">
                   <th className="text-left px-4 py-3 font-semibold text-gray-900">Nome</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-900">Telefone</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-900">Segmento</th>
@@ -146,7 +146,7 @@ export function SiteLeadsView({ initialLeads }: { initialLeads: SiteLead[] }) {
               </thead>
               <tbody>
                 {filtered.map((lead) => (
-                  <tr key={lead.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <tr key={lead.id} className="border-b border-surface-border hover:bg-surface-secondary transition-colors">
                     <td className="px-4 py-3 font-semibold text-gray-900">{lead.name}</td>
                     <td className="px-4 py-3 text-gray-600">{lead.phone}</td>
                     <td className="px-4 py-3">

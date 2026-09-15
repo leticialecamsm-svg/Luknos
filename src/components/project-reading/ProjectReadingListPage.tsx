@@ -72,7 +72,7 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
 
       <div className="space-y-2">
         {plans.map(p => (
-          <div key={p.id} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:border-brand-300 transition-colors">
+          <div key={p.id} className="flex items-center gap-3 bg-white border border-surface-border rounded-xl px-4 py-3 hover:border-brand-300 transition-colors">
             <FileText className="w-5 h-5 text-gray-300 shrink-0" />
             <Link href={`/dashboard/project-reading/${p.id}`} className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>

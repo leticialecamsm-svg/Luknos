@@ -73,7 +73,7 @@ export function ShippingBoard({ initialShipments, filterYear, filterMonth }: Shi
 
               <div className="p-2 space-y-2 flex-1 min-h-[500px]">
                 {cards.length === 0 && (
-                  <div className="h-16 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center">
+                  <div className="h-16 rounded-lg border-2 border-dashed border-surface-border flex items-center justify-center">
                     <p className="text-xs text-gray-300">Arraste expedições aqui</p>
                   </div>
                 )}

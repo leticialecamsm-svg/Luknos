@@ -120,7 +120,7 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
 
   return (
     <div ref={ref} className="relative">
-      <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2 py-1.5 w-fit">
+      <div className="flex items-center gap-1 bg-white border border-surface-border rounded-xl px-2 py-1.5 w-fit">
         <button
           onClick={() => onChange(weekOffset - 1)}
           className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 text-lg leading-none"
@@ -129,7 +129,7 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
         </button>
         <button
           onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-2 px-2 hover:bg-gray-50 rounded-lg py-1 transition-colors"
+          className="flex items-center gap-2 px-2 hover:bg-surface-secondary rounded-lg py-1 transition-colors"
         >
           <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -146,7 +146,7 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
       </div>
 
       {open && (
-        <div className="absolute top-full mt-2 left-0 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 w-72 select-none">
+        <div className="absolute top-full mt-2 left-0 z-50 bg-white rounded-2xl shadow-xl border border-surface-border p-4 w-72 select-none">
           {/* Header */}
           <div className="flex items-center justify-between mb-3">
             <button onClick={prevMonth} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-600 text-lg">‹</button>
@@ -176,7 +176,7 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
 
               const highlighted = isSelected || isHovered
               const bg = isSelected
-                ? isSun || isSat ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-800'
+                ? isSun || isSat ? 'bg-brand-600 text-white' : 'bg-brand-100 text-brand-700'
                 : isHovered
                   ? isSun || isSat ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-700'
                   : ''
@@ -189,11 +189,11 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
                   onMouseLeave={() => setHoverDate(null)}
                   className={`
                     h-8 flex items-center justify-center text-[13px] cursor-pointer transition-colors
-                    ${highlighted ? bg : 'hover:bg-gray-50'}
+                    ${highlighted ? bg : 'hover:bg-surface-secondary'}
                     ${isSun && highlighted ? 'rounded-l-full' : ''}
                     ${isSat && highlighted ? 'rounded-r-full' : ''}
                     ${!cell.inMonth ? 'text-gray-300' : isSelected && !isSun && !isSat ? 'text-blue-800' : isHovered && !isSun && !isSat ? 'text-gray-700' : 'text-gray-700'}
-                    ${isToday && !highlighted ? 'font-bold text-blue-600' : ''}
+                    ${isToday && !highlighted ? 'font-bold text-brand-600' : ''}
                   `}
                 >
                   {cell.date.getDate()}
@@ -206,7 +206,7 @@ export function WeekPickerCalendar({ weekOffset, onChange }: WeekPickerCalendarP
           <div className="mt-3 flex justify-between">
             <button
               onClick={() => { onChange(0); setOpen(false) }}
-              className="text-xs text-blue-600 hover:underline font-medium"
+              className="text-xs text-brand-600 hover:underline font-medium"
             >
               Semana atual
             </button>

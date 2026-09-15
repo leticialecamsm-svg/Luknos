@@ -29,7 +29,7 @@ export function FloatingActionButton({ currentUserId }: { currentUserId: string 
           <div className="flex flex-col items-end gap-2 mb-1">
             <button
               onClick={() => openModal('quote')}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-full text-white text-sm font-medium shadow-lg bg-blue-500 hover:bg-blue-600 transition-all"
+              className="flex items-center gap-3 px-4 py-2.5 rounded-full text-white text-sm font-medium shadow-lg bg-brand-600 hover:bg-brand-700 transition-all"
             >
               <FileText className="w-4 h-4" />
               Novo orçamento
