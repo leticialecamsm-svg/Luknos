@@ -62,7 +62,7 @@ function GoalInput({
       <div className="relative">
         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">R$</span>
         <input
-          className="w-36 pl-7 pr-2 py-1.5 text-sm text-right border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
+          className="w-36 pl-7 pr-2 py-1.5 text-sm text-right border border-surface-border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
           value={value}
           onChange={e => setValue(e.target.value)}
           onBlur={handleBlur}
@@ -144,7 +144,7 @@ export function GoalsPage({
       )}
 
       {/* Seletor de mês */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+      <div className="bg-white border border-surface-border rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-brand-500" />
@@ -157,7 +157,7 @@ export function GoalsPage({
               )}
             </h2>
           </div>
-          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700">
+          <div className="flex items-center gap-1 bg-surface-secondary border border-surface-border rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700">
             <button onClick={() => navigate(-1)} className="hover:text-gray-900 px-1 py-0.5">◀</button>
             <span className="w-32 text-center text-xs">{MONTH_NAMES[month - 1].toUpperCase()} {year}</span>
             <button onClick={() => navigate(1)} className="hover:text-gray-900 px-1 py-0.5">▶</button>
@@ -185,7 +185,7 @@ export function GoalsPage({
         {/* Metas por colaborador */}
         <div className="space-y-2">
           {users.map(u => (
-            <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
+            <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg bg-surface-secondary border border-surface-border">
               {u.avatar_url ? (
                 <img src={u.avatar_url} className="w-8 h-8 rounded-full object-cover shrink-0" alt={u.name} />
               ) : (
@@ -211,7 +211,7 @@ export function GoalsPage({
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Histórico</h2>
 
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+          <div className="bg-white border border-surface-border rounded-xl overflow-hidden divide-y divide-surface-border">
             {history.map(entry => {
               const isSelected = entry.year === year && entry.month === month
               const storeGoal = entry.goals.find((g: any) => g.user_id === null)?.target ?? 0
@@ -224,7 +224,7 @@ export function GoalsPage({
                   onClick={() => router.push(`/admin/goals?year=${entry.year}&month=${entry.month}`)}
                   className={cn(
                     'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
-                    isSelected ? 'bg-brand-50' : 'hover:bg-gray-50'
+                    isSelected ? 'bg-brand-50' : 'hover:bg-surface-secondary'
                   )}
                 >
                   <div className="flex-1">

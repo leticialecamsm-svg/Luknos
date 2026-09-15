@@ -361,7 +361,7 @@ function UserRow({ user: u }: { user: User }) {
   }
 
   return (
-    <div className={`rounded-lg ${u.active ? 'bg-surface' : 'bg-gray-50 opacity-60'}`}>
+    <div className={`rounded-lg ${u.active ? 'bg-surface' : 'bg-surface-secondary opacity-60'}`}>
       <div className="flex items-center gap-3 p-3">
         <label className="relative shrink-0 cursor-pointer group" title="Alterar foto">
           <Avatar user={u} size={32} />

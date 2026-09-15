@@ -81,7 +81,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
     <div className="space-y-8">
       {/* Papéis / tipos de usuário */}
       <div className="card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-brand-600" />
             <h2 className="text-sm font-semibold text-gray-900">Tipos de usuário</h2>
@@ -98,7 +98,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
           />
         )}
 
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-surface-border">
           {roles.map(role => (
             <div key={role.name} className="px-5 py-4">
               <div className="flex items-center justify-between mb-3">
@@ -139,7 +139,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
                         className={cn('px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
                           role.allowed_pages.includes(p.href)
                             ? 'bg-brand-50 text-brand-700 border-brand-200'
-                            : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300')}
+                            : 'bg-white text-gray-400 border-surface-border hover:border-gray-300')}
                       >
                         {p.label}
                       </button>
@@ -158,7 +158,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
 
       {/* Usuários */}
       <div className="card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
           <h2 className="text-sm font-semibold text-gray-900">Usuários</h2>
           <button onClick={() => setShowNewUser(v => !v)} className="btn-primary text-xs py-1.5 flex items-center gap-1.5">
             <UserPlus className="w-3.5 h-3.5" /> Criar usuário
@@ -173,7 +173,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
           />
         )}
 
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-surface-border">
           {users.map(u => (
             <div key={u.id} className={cn('flex items-center gap-3 px-5 py-3', !u.active && 'opacity-50')}>
               <Avatar user={u} size={32} />
@@ -218,17 +218,17 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
                   title={u.role === 'admin' ? 'Admin já acessa todas as páginas' : 'Liberar páginas extras só para este usuário'}
                   className={cn('text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap border transition-colors',
                     u.role === 'admin'
-                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                      ? 'bg-surface-secondary text-gray-300 border-surface-border cursor-not-allowed'
                       : (u.extra_pages?.length ?? 0) > 0
                         ? 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
-                        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50')}
+                        : 'bg-white text-gray-500 border-surface-border hover:bg-surface-secondary')}
                 >
                   + Páginas{(u.extra_pages?.length ?? 0) > 0 ? ` (${u.extra_pages!.length})` : ''}
                 </button>
                 {editandoPaginas === u.id && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setEditandoPaginas(null)} />
-                    <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-20">
+                    <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-surface-border rounded-xl shadow-lg p-3 z-20">
                       <p className="text-xs font-semibold text-gray-700">Páginas extras para {u.name}</p>
                       <p className="text-[11px] text-gray-400 mt-0.5 mb-2">
                         Liberadas só para esta pessoa, além do que o papel dela já dá.
@@ -240,7 +240,7 @@ export function UsersAdminPanel({ initialRoles, initialUsers }: { initialRoles: 
                           return (
                             <label key={pg.href}
                               className={cn('flex items-center gap-2 text-xs rounded-md px-2 py-1.5',
-                                doPapel ? 'text-gray-300' : 'text-gray-700 hover:bg-gray-50 cursor-pointer')}
+                                doPapel ? 'text-gray-300' : 'text-gray-700 hover:bg-surface-secondary cursor-pointer')}
                               title={doPapel ? 'Já liberada pelo papel deste usuário' : undefined}
                             >
                               <input
@@ -324,7 +324,7 @@ function NewRoleForm({ onCreated, onCancel }: { onCreated: (r: Role) => void; on
         {PAGE_CATALOG.map(p => (
           <button key={p.href} onClick={() => togglePage(p.href)}
             className={cn('px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
-              pages.includes(p.href) ? 'bg-brand-100 text-brand-700 border-brand-300' : 'bg-white text-gray-400 border-gray-200')}>
+              pages.includes(p.href) ? 'bg-brand-100 text-brand-700 border-brand-300' : 'bg-white text-gray-400 border-surface-border')}>
             {p.label}
           </button>
         ))}
@@ -368,7 +368,7 @@ function NewUserForm({ roles, onCreated, onCancel }: {
         if (res?.error) { toast.error('Erro', res.error); return }
         onCreated({
           id: crypto.randomUUID(), name, email, role, is_projetista: isProjetista,
-          active: true, avatar_color: '#185FA5',
+          active: true, avatar_color: '#0a1f3b',
         })
         toast.success('Criado', 'Usuário criado. Já pode fazer login com o email e senha definidos.')
       } finally {
