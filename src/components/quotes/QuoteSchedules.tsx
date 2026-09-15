@@ -53,7 +53,7 @@ export function QuoteSchedules({ quoteId, quoteLabel }: { quoteId: string; quote
       ) : (
         <div className="space-y-2">
           {schedules.map(s => {
-            const tc = TYPE_CONFIG[s.type] ?? { label: s.type, bg: 'bg-gray-50', border: 'border-l-gray-400', text: 'text-gray-600' }
+            const tc = TYPE_CONFIG[s.type] ?? { label: s.type, bg: 'bg-surface-secondary', border: 'border-l-gray-400', text: 'text-gray-600' }
             return (
               <div key={s.id} onClick={() => setViewing(s)}
                 className={cn('rounded-lg border-l-4 px-3 py-2 cursor-pointer hover:shadow-sm transition-all', tc.bg, tc.border)}>

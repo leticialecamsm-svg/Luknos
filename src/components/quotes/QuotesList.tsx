@@ -19,7 +19,7 @@ const PRIORITY_GROUPS: { key: QuotePriority; dot: string; bg: string; text: stri
   { key: 'urgent', dot: 'bg-red-500',    bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-l-red-400' },
   { key: 'high',   dot: 'bg-orange-500', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-l-orange-400' },
   { key: 'normal', dot: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-l-blue-400' },
-  { key: 'low',    dot: 'bg-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-600',   border: 'border-l-gray-300' },
+  { key: 'low',    dot: 'bg-gray-400',   bg: 'bg-surface-secondary',   text: 'text-gray-600',   border: 'border-l-gray-300' },
 ]
 
 export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; allQuotes: any[]; isAdmin: boolean }) {
@@ -201,7 +201,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
       {/* Totalizadores / filtros rápidos */}
       <div className="flex gap-2 flex-wrap">
         {([
-          ['queue',       'Na fila',                'bg-gray-50 text-gray-700 border-gray-200',       'bg-gray-700 text-white border-gray-700'],
+          ['queue',       'Na fila',                'bg-surface-secondary text-gray-700 border-surface-border',       'bg-gray-700 text-white border-gray-700'],
           ['in_progress', 'Em andamento',           'bg-amber-50 text-amber-700 border-amber-200',    'bg-amber-600 text-white border-amber-600'],
           ['paused',      'Pausado',                'bg-orange-50 text-orange-700 border-orange-200', 'bg-orange-600 text-white border-orange-600'],
           ['review',      'Revisão',                'bg-violet-50 text-violet-700 border-violet-200', 'bg-violet-600 text-white border-violet-600'],

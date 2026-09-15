@@ -102,7 +102,7 @@ export function QuotesKanban({ initialQuotes }: { initialQuotes: any[] }) {
 
               <div className="p-2 space-y-2 flex-1">
                 {cards.length === 0 && (
-                  <div className="h-16 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center">
+                  <div className="h-16 rounded-lg border-2 border-dashed border-surface-border flex items-center justify-center">
                     <p className="text-xs text-gray-300">Arraste aqui</p>
                   </div>
                 )}
@@ -142,7 +142,7 @@ function QuoteCard({ quote: q, onDragStart, isDragging, onDelete, onEdit }: {
         draggable
         onDragStart={e => onDragStart(e, q.id)}
         className={cn(
-          'bg-white rounded-lg p-3 border border-gray-100 shadow-sm group',
+          'bg-white rounded-lg p-3 border border-surface-border shadow-sm group',
           'hover:shadow-md transition-all cursor-grab active:cursor-grabbing',
           isDragging && 'opacity-50 scale-95'
         )}

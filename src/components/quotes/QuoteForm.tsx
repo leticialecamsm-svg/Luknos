@@ -168,7 +168,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
                             className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                               paidTrafficType === opt.v
                                 ? 'bg-red-50 text-red-700 border-red-300'
-                                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                                : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
                             )}
                           >{opt.label}</button>
                         ))}
@@ -230,7 +230,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
               <div className="flex flex-wrap gap-2 mt-1">
                 <button type="button" onClick={() => setPrimaryOwner(null)}
                   className={cn('px-3 py-1.5 rounded-full text-sm border transition-all',
-                    primaryOwner === null ? 'bg-gray-500 text-white border-gray-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-400')}>
+                    primaryOwner === null ? 'bg-surface-secondary0 text-white border-gray-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-400')}>
                   Nenhum
                 </button>
                 {users.map((u: any) => (

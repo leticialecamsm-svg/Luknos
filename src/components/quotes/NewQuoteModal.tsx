@@ -33,7 +33,7 @@ export function NewQuoteModal({ onClose, onCreated }: { onClose: () => void; onC
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="shrink-0 bg-white border-b border-surface-border px-5 py-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Novo orçamento</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">
             <X className="w-4 h-4" />
           </button>
         </div>

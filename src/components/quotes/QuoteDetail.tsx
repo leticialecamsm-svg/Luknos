@@ -269,7 +269,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                   setProposalDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
                 }
               }}
-              className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium"
+              className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               Nova proposta
@@ -277,7 +277,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
           </div>
 
           {/* Proposta 1 = valor orçado */}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-secondary border border-surface-border">
             <div className="flex-1 min-w-0">
               <span className="text-xs font-bold text-gray-700">Proposta 1</span>
               <span className="text-xs text-gray-500"> (valor orçado) · {formatCurrency(quote.quoted_value)}</span>
@@ -383,8 +383,8 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
 
           {/* Form de nova proposta */}
           {showProposalForm && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
-              <p className="text-sm font-semibold text-blue-800">Proposta {proposals.length + 2}</p>
+            <div className="p-4 bg-brand-50 border border-brand-200 rounded-xl space-y-3">
+              <p className="text-sm font-semibold text-brand-700">Proposta {proposals.length + 2}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Valor (R$) *</label>
@@ -642,7 +642,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
 
         {/* Perdida */}
         {quote.temperature === 'lost' && (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center gap-3">
+          <div className="bg-surface-secondary border border-surface-border rounded-lg p-3 flex items-center gap-3">
             <XCircle className="w-5 h-5 text-gray-500 shrink-0" />
             <div>
               <p className="text-sm font-semibold text-gray-700">
@@ -673,7 +673,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
 
         {/* Modal marcar perdida */}
         {showMarkLost && (
-          <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="mt-4 bg-surface-secondary border border-surface-border rounded-lg p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-700">Motivo da perda</h3>
             <select value={lossReason} onChange={e => setLossReason(e.target.value)} className="select">
               {Object.entries(LOSS_REASON_LABEL).map(([k,v]) => (
@@ -715,7 +715,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                   className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                     selectedProposalId === null
                       ? 'bg-brand-50 text-brand-700 border-brand-300'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                      : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
                   )}
                 >
                   Proposta 1 (orçado) · {formatCurrency(quote.quoted_value)}
@@ -727,7 +727,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
                     className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                       selectedProposalId === p.id
                         ? 'bg-brand-50 text-brand-700 border-brand-300'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                        : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
                     )}
                     title={p.info ?? undefined}
                   >
@@ -821,7 +821,7 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
               <div key={a.id} className={cn('flex gap-3 rounded-xl p-3',
                 isNote ? 'bg-amber-50 border border-amber-100' :
                 isSystem ? 'bg-blue-50 border border-blue-100' :
-                'bg-gray-50 border border-gray-100'
+                'bg-surface-secondary border border-surface-border'
               )}>
                 <div className="mt-0.5 shrink-0">
                   {isSystem ? (
@@ -864,16 +864,16 @@ export function QuoteDetail({ quote, activities, onFlagChange }: { quote: any; a
               <Folder className="w-4 h-4" /> Pasta no Drive
             </h2>
             <a href={quote.drive_link} target="_blank" rel="noopener noreferrer"
-              className="block p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors group">
+              className="block p-3 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors group">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Folder className="w-5 h-5 text-blue-600 group-hover:text-blue-700" />
+                  <Folder className="w-5 h-5 text-brand-600 group-hover:text-brand-700" />
                   <div>
                     <p className="text-sm font-medium text-blue-900">Pasta no Google Drive</p>
-                    <p className="text-xs text-blue-600">Clique para abrir</p>
+                    <p className="text-xs text-brand-600">Clique para abrir</p>
                   </div>
                 </div>
-                <ExternalLink className="w-4 h-4 text-blue-400 group-hover:text-blue-600" />
+                <ExternalLink className="w-4 h-4 text-brand-400 group-hover:text-brand-600" />
               </div>
             </a>
           </div>

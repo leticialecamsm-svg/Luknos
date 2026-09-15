@@ -32,7 +32,7 @@ export function QuoteQuickViewModal({ quoteId, onClose, onFlagChange }: { quoteI
             <a href={`/quotes/${quoteId}`} className="btn-secondary text-xs py-1.5 gap-1.5">
               <ExternalLink className="w-3.5 h-3.5" /> Abrir página
             </a>
-            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">
               <X className="w-4 h-4" />
             </button>
           </div>

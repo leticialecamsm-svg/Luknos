@@ -155,7 +155,7 @@ export function QuoteAttachments({
         onClick={() => inputRef.current?.click()}
         className={cn(
           'flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-4 text-center cursor-pointer transition-colors',
-          dragOver ? 'border-brand-400 bg-brand-50' : 'border-surface-border hover:border-brand-300 hover:bg-gray-50',
+          dragOver ? 'border-brand-400 bg-brand-50' : 'border-surface-border hover:border-brand-300 hover:bg-surface-secondary',
         )}
       >
         {pending ? (

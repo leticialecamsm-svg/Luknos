@@ -130,7 +130,7 @@ export function ContactSearch({
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={cancelCreate}
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-surface-secondary transition-colors">
               Cancelar
             </button>
             <button type="button" onClick={handleCreate} disabled={creating}
@@ -306,7 +306,7 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
           <div className="flex flex-wrap gap-2 mt-1">
             <button type="button" onClick={() => setPrimaryOwner(null)}
               className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
-                primaryOwner === null ? 'bg-gray-500 text-white border-gray-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-400'
+                primaryOwner === null ? 'bg-surface-secondary0 text-white border-gray-500' : 'bg-white text-gray-500 border-surface-border hover:border-gray-400'
               }`}>
               Nenhum
             </button>

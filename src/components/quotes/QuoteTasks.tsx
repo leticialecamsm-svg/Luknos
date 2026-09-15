@@ -90,7 +90,7 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
 
       {/* Form nova tarefa */}
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+        <form onSubmit={handleCreate} className="mb-4 p-3 bg-surface-secondary rounded-xl border border-surface-border space-y-2">
           <input
             autoFocus
             value={title}
@@ -106,7 +106,7 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
                   onClick={() => setPriority(p)}
                   className={cn(
                     'px-2 py-1 rounded text-xs font-semibold transition-colors',
-                    priority === p ? PRIORITY_COLOR[p] : 'bg-white text-gray-400 border border-gray-200'
+                    priority === p ? PRIORITY_COLOR[p] : 'bg-white text-gray-400 border border-surface-border'
                   )}
                 >
                   {PRIORITY_LABEL[p]}
@@ -130,7 +130,7 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
           {[...open, ...done].map(task => (
             <div
               key={task.id}
-              className="flex items-center gap-3 py-2 px-1 rounded-lg hover:bg-gray-50 transition-colors group cursor-pointer"
+              className="flex items-center gap-3 py-2 px-1 rounded-lg hover:bg-surface-secondary transition-colors group cursor-pointer"
               onClick={() => setViewingTask({ ...task, quote: { number: parseInt(quoteLabel.match(/#(\d+)/)?.[1] ?? '0'), client_name: quoteLabel.split('· ')[1] ?? '' } })}
             >
               <button

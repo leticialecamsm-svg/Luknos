@@ -99,7 +99,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
               className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                 baseValue === quotedValue
                   ? 'bg-green-100 text-green-800 border-green-300'
-                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                  : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
               )}
             >
               Proposta 1 (orçado) {quotedValue ? `· R$ ${Number(quotedValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
@@ -112,7 +112,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
                 className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                   baseValue === Number(p.value) && finalValue === String(p.value)
                     ? 'bg-green-100 text-green-800 border-green-300'
-                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                    : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
                 )}
                 title={p.info ?? undefined}
               >
@@ -228,7 +228,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCa
 
           {/* Breakdown por método (só quando há mais de 1) */}
           {splits.filter(s => s.amount > 0).length > 1 && (
-            <div className="space-y-1 pb-2 border-b border-gray-100">
+            <div className="space-y-1 pb-2 border-b border-surface-border">
               {splits.filter(s => s.amount > 0).map((split, i) => {
                 const rate = rates.find(r => r.method_key === split.method_key)
                 if (!rate) return null

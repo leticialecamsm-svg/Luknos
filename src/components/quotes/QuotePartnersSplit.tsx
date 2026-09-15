@@ -83,7 +83,7 @@ export function QuotePartnersSplit({
                 value={p.rate}
                 onChange={e => changeRate(p.id, Number(e.target.value))}
                 onBlur={e => commitRate(p.id, Number(e.target.value))}
-                className="w-16 text-sm text-right border border-gray-200 rounded-md px-1.5 py-0.5"
+                className="w-16 text-sm text-right border border-surface-border rounded-md px-1.5 py-0.5"
               />
               <span className="text-xs text-gray-400">%</span>
             </div>
