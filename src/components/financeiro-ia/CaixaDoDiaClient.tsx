@@ -53,7 +53,7 @@ export function CaixaDoDiaClient({ firstName, panel }: { firstName: string; pane
           </thead>
           <tbody>
             {items.length > 0 ? items.map(i => (
-              <tr key={i.transaction_id} className="border-b border-gray-100 last:border-0">
+              <tr key={i.transaction_id} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-700">{i.description}</td>
                 <td className="px-4 py-2.5 text-gray-700">{i.direction === 'a_pagar' ? 'A pagar' : 'A receber'}</td>
                 <td className="px-4 py-2.5 text-gray-700">{i.category || '—'}</td>

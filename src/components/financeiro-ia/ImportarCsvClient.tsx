@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/Toast'
 import type { CostCenter } from '@/lib/financeiro-ia/actions'
 import { importBoletosCsv, type CsvBoletoRow, type CsvImportSummary, type CsvImportLog } from '@/lib/financeiro-ia/csv-import-actions'
 
-const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
+const inputCls = 'w-full px-2 py-1.5 border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
 const dateFmt = (v: string) => new Date(v).toLocaleDateString('pt-BR')
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -225,7 +225,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
           <>
             <p className="text-xs text-gray-500 mb-2">Pré-visualização das primeiras 5:</p>
             <div className="overflow-x-auto mb-4">
-              <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
+              <table className="w-full text-sm border border-surface-border rounded-lg overflow-hidden">
                 <thead>
                   <tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase">
                     <th className="px-3 py-2">Descrição</th>
@@ -237,7 +237,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
                 </thead>
                 <tbody>
                   {rows.slice(0, 5).map((r, i) => (
-                    <tr key={i} className="border-t border-gray-100">
+                    <tr key={i} className="border-t border-surface-border">
                       <td className="px-3 py-2">{r.descricao || <span className="text-red-500">vazio</span>}</td>
                       <td className="px-3 py-2">{r.documento || '—'}</td>
                       <td className="px-3 py-2">{r.fornecedor || '—'}</td>
@@ -285,7 +285,7 @@ export function ImportarCsvClient({ costCenters, initialImports }: { costCenters
           </thead>
           <tbody>
             {imports.length > 0 ? imports.map(i => (
-              <tr key={i.id} className="border-b border-gray-100 last:border-0">
+              <tr key={i.id} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-700 flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" />{i.file_name}</td>
                 <td className="px-4 py-2.5 text-gray-700">{dateFmt(i.created_at)}</td>
                 <td className="px-4 py-2.5 text-gray-700">{i.rows_total}</td>

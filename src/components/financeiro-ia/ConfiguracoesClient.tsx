@@ -49,7 +49,7 @@ export function ConfiguracoesClient({
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Configurações</h1>
       <p className="text-gray-500 mb-6">Cadastros de apoio do Luknos Financeiro.</p>
 
-      <div className="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
+      <div className="flex gap-1 border-b border-surface-border mb-6 overflow-x-auto">
         {TABS.map(t => (
           <button
             key={t.key}
@@ -96,7 +96,7 @@ function AprovacaoTab({ initialThreshold }: { initialThreshold: number }) {
       </p>
       <div className="flex items-center gap-2">
         <input
-          className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+          className="flex-1 px-2 py-1.5 border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
           placeholder="Ex: 2000,00"
           value={value}
           onChange={e => setValue(e.target.value)}
@@ -179,7 +179,7 @@ function BankAccountsTab({ items, setItems }: { items: BankAccount[]; setItems: 
               </select>
             </EditRow>
           ) : (
-            <tr key={item.id} className="border-b border-gray-100 last:border-0">
+            <tr key={item.id} className="border-b border-surface-border last:border-0">
               <Td>{item.name}</Td>
               <Td>{item.bank_code || '—'}</Td>
               <Td className="capitalize">{item.account_type}</Td>
@@ -270,7 +270,7 @@ function CategoriesTab({ items, setItems }: { items: Category[]; setItems: (v: C
               </select>
             </EditRow>
           ) : (
-            <tr key={item.id} className="border-b border-gray-100 last:border-0">
+            <tr key={item.id} className="border-b border-surface-border last:border-0">
               <Td>{item.name}</Td>
               <Td className="capitalize">{item.kind}</Td>
               <Td><StatusBadge status={item.is_active ? 'ativa' : 'inativa'} /></Td>
@@ -350,7 +350,7 @@ function SuppliersTab({ items, setItems }: { items: Supplier[]; setItems: (v: Su
               </select>
             </EditRow>
           ) : (
-            <tr key={item.id} className="border-b border-gray-100 last:border-0">
+            <tr key={item.id} className="border-b border-surface-border last:border-0">
               <Td>{item.name}</Td>
               <Td>{item.document || '—'}</Td>
               <Td><StatusBadge status={item.is_active ? 'ativa' : 'inativa'} /></Td>
@@ -426,7 +426,7 @@ function CostCentersTab({ items, setItems }: { items: CostCenter[]; setItems: (v
               </select>
             </EditRow>
           ) : (
-            <tr key={item.id} className="border-b border-gray-100 last:border-0">
+            <tr key={item.id} className="border-b border-surface-border last:border-0">
               <Td>{item.name}</Td>
               <Td><StatusBadge status={item.is_active ? 'ativa' : 'inativa'} /></Td>
               <RowActions onEdit={() => startEdit(item)} onDelete={() => remove(item)} />
@@ -451,7 +451,7 @@ function CostCentersTab({ items, setItems }: { items: CostCenter[]; setItems: (v
 
 // ── Bits compartilhados ───────────────────────────────────────────────────
 
-const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
+const inputCls = 'w-full px-2 py-1.5 border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
 
 function Table({ headers, rows, empty }: { headers: string[]; rows: React.ReactNode[]; empty: string }) {
   return (

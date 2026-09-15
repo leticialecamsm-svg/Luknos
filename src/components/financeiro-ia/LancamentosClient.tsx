@@ -11,7 +11,7 @@ import { STATUS_LABEL, STATUS_CLASS, canMarkPaid } from '@/lib/financeiro-ia/sta
 const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dateFmt = (v: string) => new Date(v + 'T00:00:00').toLocaleDateString('pt-BR')
 
-const inputCls = 'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
+const inputCls = 'w-full px-2 py-1.5 border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
 
 export function LancamentosClient({
   direction,
@@ -119,7 +119,7 @@ export function LancamentosClient({
           </thead>
           <tbody>
             {items.length > 0 ? items.map(t => (
-              <tr key={t.id} className="border-b border-gray-100 last:border-0">
+              <tr key={t.id} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-700">{t.description}</td>
                 <td className="px-4 py-2.5 text-gray-700">{dateFmt(t.due_date)}</td>
                 <td className="px-4 py-2.5 text-gray-700">{t.category?.name || '—'}</td>

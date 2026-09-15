@@ -281,7 +281,7 @@ export function FinancePage({ initialEntries, suppliers: initialSuppliers, categ
                 <button key={d.iso} type="button"
                   onClick={() => setSelectedDay(prev => prev === d.iso ? null : d.iso)}
                   className={cn('flex flex-col items-center gap-1 rounded-lg p-1 transition-colors w-full',
-                    isSelected ? 'bg-brand-50 ring-1 ring-brand-300' : 'hover:bg-gray-50'
+                    isSelected ? 'bg-brand-50 ring-1 ring-brand-300' : 'hover:bg-surface-secondary'
                   )}>
                   <div className="w-full h-20 flex items-end">
                     <div className="w-full rounded-t-md transition-all"
@@ -556,7 +556,7 @@ function KpiCard({ label, value, color, alert }: { label: string; value: number;
     indigo: 'text-indigo-700 border-indigo-100 from-indigo-50',
     violet: 'text-violet-700 border-violet-100 from-violet-50',
     red: 'text-red-700 border-red-100 from-red-50',
-    gray: 'text-gray-700 border-gray-200 from-gray-50',
+    gray: 'text-gray-700 border-surface-border from-gray-50',
   }
   return (
     <div className={cn('rounded-xl shadow-card border bg-gradient-to-br to-white p-4', colors[color])}>
@@ -619,7 +619,7 @@ function ComboboxField({ label, value, onChange, options, onCreateNew, placehold
             <p className="px-3 py-2 text-xs text-gray-400">Nenhum resultado</p>
           )}
           {filtered.map(o => (
-            <button key={o.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+            <button key={o.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-surface-secondary"
               onClick={() => { onChange(o.name); setQuery(o.name); setOpen(false) }}>
               <span className="font-medium">{o.name}</span>
               {o.sub && <span className="text-xs text-gray-400 ml-2">{o.sub}</span>}
@@ -756,7 +756,7 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
@@ -846,11 +846,11 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
                     </div>
                   )}
                   {projectedRecurring.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="bg-surface-secondary rounded-lg p-3">
                       <p className="text-xs font-medium text-gray-600 mb-2">{projectedRecurring.length} ocorrência(s) projetada(s)</p>
                       <div className="flex flex-wrap gap-1">
                         {projectedRecurring.slice(0, 6).map((d, i) => (
-                          <span key={i} className="text-[10px] bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">
+                          <span key={i} className="text-[10px] bg-white border border-surface-border rounded px-1.5 py-0.5 text-gray-600">
                             {parseISO(d).toLocaleDateString('pt-BR')}
                           </span>
                         ))}
@@ -881,7 +881,7 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
                     ))}
                   </div>
                   {projectedInstallments.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                    <div className="bg-surface-secondary rounded-lg p-3 space-y-1">
                       <p className="text-xs font-medium text-gray-600 mb-2">Parcelas projetadas · Total: <strong>{formatCurrency(splitAmount ? amt : amt * n)}</strong></p>
                       {projectedInstallments.map((p, i) => (
                         <div key={i} className="flex items-center justify-between text-xs">

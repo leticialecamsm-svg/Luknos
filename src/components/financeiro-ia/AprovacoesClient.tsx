@@ -42,7 +42,7 @@ export function AprovacoesClient({ initialItems }: { initialItems: Transaction[]
           </thead>
           <tbody>
             {items.length > 0 ? items.map(t => (
-              <tr key={t.id} className="border-b border-gray-100 last:border-0">
+              <tr key={t.id} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-700">{t.description}</td>
                 <td className="px-4 py-2.5 text-gray-700">{t.direction === 'a_pagar' ? 'A pagar' : 'A receber'}</td>
                 <td className="px-4 py-2.5 text-gray-700">{dateFmt(t.due_date)}</td>

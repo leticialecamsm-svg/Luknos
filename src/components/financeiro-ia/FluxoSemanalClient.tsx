@@ -32,7 +32,7 @@ export function FluxoSemanalClient({ days }: { days: CashflowDay[] }) {
           </thead>
           <tbody>
             {days.map(d => (
-              <tr key={d.date} className="border-b border-gray-100 last:border-0">
+              <tr key={d.date} className="border-b border-surface-border last:border-0">
                 <td className="px-4 py-2.5 text-gray-700 capitalize">{dateFmt(d.date)}</td>
                 <td className="px-4 py-2.5 text-gray-700">{money(d.opening_balance)}</td>
                 <td className="px-4 py-2.5 text-green-700">{d.expected_in > 0 ? `+${money(d.expected_in)}` : money(0)}</td>
