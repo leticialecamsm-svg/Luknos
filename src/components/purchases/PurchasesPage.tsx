@@ -1002,7 +1002,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         >
           NFs Recebidas
           {pendingCount > 0 && (
-            <span className="bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+            <span className="bg-brand-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
           )}
         </button>
       </div>
