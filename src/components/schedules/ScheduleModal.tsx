@@ -126,7 +126,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, onClose, on
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{isEdit ? 'Editar agendamento' : 'Novo agendamento'}</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -190,7 +190,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, onClose, on
           <div ref={partnerRef}>
             <label className="label">Parceiro</label>
             {partnerId ? (
-              <div className="flex items-center gap-2 bg-gray-50 border border-surface-border rounded-lg px-3 py-2 mt-1">
+              <div className="flex items-center gap-2 bg-surface-secondary border border-surface-border rounded-lg px-3 py-2 mt-1">
                 <span className="text-sm text-gray-700 flex-1">{partnerLabel}</span>
                 <button type="button" onClick={() => { setPartnerId(null); setPartnerLabel(''); setPartnerQuery('') }}>
                   <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
@@ -228,7 +228,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, onClose, on
           <div ref={quoteRef}>
             <label className="label">Orçamento relacionado</label>
             {quoteId ? (
-              <div className="flex items-center gap-2 bg-gray-50 border border-surface-border rounded-lg px-3 py-2 mt-1">
+              <div className="flex items-center gap-2 bg-surface-secondary border border-surface-border rounded-lg px-3 py-2 mt-1">
                 <span className="text-sm text-gray-700 flex-1">{quoteLabel}</span>
                 <button type="button" onClick={() => { setQuoteId(null); setQuoteLabel(''); setQuoteQuery('') }}>
                   <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />

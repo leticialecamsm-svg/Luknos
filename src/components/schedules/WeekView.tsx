@@ -42,8 +42,8 @@ export function WeekView({
   const rangeLabel = `${days[0].getDate()} ${new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(days[0])} – ${days[6].getDate()} ${new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(days[6])}`
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+    <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
         <h2 className="text-sm font-semibold text-gray-900 capitalize">{rangeLabel}</h2>
         <div className="flex items-center gap-1">
           <button onClick={onPrevWeek} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500">
@@ -55,7 +55,7 @@ export function WeekView({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 divide-x divide-gray-100">
+      <div className="grid grid-cols-7 divide-x divide-surface-border">
         {days.map((d, i) => {
           const iso = toISO(d)
           const isToday = iso === todayISO
@@ -64,13 +64,13 @@ export function WeekView({
             .sort((a, b) => (a.scheduled_time ?? '').localeCompare(b.scheduled_time ?? ''))
           return (
             <div key={iso} className="min-h-[420px] flex flex-col">
-              <div className={cn('px-2 py-2 text-center border-b border-gray-100', isToday && 'bg-brand-50')}>
+              <div className={cn('px-2 py-2 text-center border-b border-surface-border', isToday && 'bg-brand-50')}>
                 <p className="text-[10px] font-semibold text-gray-400">{WEEKDAYS_SHORT[i]}</p>
                 <p className={cn('text-sm font-bold', isToday ? 'text-brand-600' : 'text-gray-700')}>{d.getDate()}</p>
               </div>
               <div className="flex-1 p-1.5 space-y-1.5">
                 {daySchedules.map(s => {
-                  const tc = TYPE_CONFIG[s.type] ?? { bg: 'bg-gray-50', border: 'border-l-gray-400', text: 'text-gray-600' }
+                  const tc = TYPE_CONFIG[s.type] ?? { bg: 'bg-surface-secondary', border: 'border-l-gray-400', text: 'text-gray-600' }
                   return (
                     <button key={s.id} onClick={() => onSelectSchedule(s)}
                       className={cn('w-full text-left rounded-md border-l-4 px-2 py-1.5 transition-all hover:shadow-sm', tc.bg, tc.border)}>

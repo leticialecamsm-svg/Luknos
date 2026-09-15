@@ -56,7 +56,7 @@ export function ScheduleCalendar({
   const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(currentMonth)
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <div className="bg-white rounded-lg border border-surface-border p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <button
@@ -103,15 +103,15 @@ export function ScheduleCalendar({
                   onClick={() => handleDayClick(day)}
                   className={`h-10 w-full rounded-lg flex flex-col items-center justify-center relative text-sm font-medium transition-all ${
                     isSelected
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-brand-600 text-white'
                       : isTodayAndCurrentMonth
-                      ? 'bg-blue-50 text-blue-600 border border-blue-200'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? 'bg-brand-50 text-brand-600 border border-brand-200'
+                      : 'text-gray-700 hover:bg-surface-secondary'
                   }`}
                 >
                   <span>{day}</span>
                   {hasSchedules && (
-                    <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-600'}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-brand-600'}`} />
                   )}
                 </button>
               )

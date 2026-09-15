@@ -98,7 +98,7 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
           </div>
 
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-surface-border p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 capitalize">{dateFormatted}</h2>
@@ -118,7 +118,7 @@ export function SchedulesContainer({ initialSchedules }: { initialSchedules: any
                       className="mt-2 text-sm text-brand-600 hover:text-brand-700 font-medium">+ Criar agendamento</button>
                   </div>
                 ) : daySchedules.map(s => {
-                  const tc = TYPE_CONFIG[s.type] ?? { label: s.type, bg: 'bg-gray-50', border: 'border-l-gray-400', text: 'text-gray-600' }
+                  const tc = TYPE_CONFIG[s.type] ?? { label: s.type, bg: 'bg-surface-secondary', border: 'border-l-gray-400', text: 'text-gray-600' }
                   return (
                     <div key={s.id} onClick={() => setViewing(s)}
                       className={cn('rounded-lg border-l-4 p-4 flex items-start justify-between cursor-pointer hover:shadow-sm transition-all group', tc.bg, tc.border)}>

@@ -16,7 +16,7 @@ const TYPE: Record<string, { label: string; tint: string; text: string; bar: str
   reuniao:   { label: 'Reunião',   tint: 'bg-amber-50', text: 'text-amber-700', bar: 'border-l-amber-500', dot: 'bg-amber-500' },
   follow_up: { label: 'Follow-up', tint: 'bg-green-50', text: 'text-green-700', bar: 'border-l-green-500', dot: 'bg-green-500' },
 }
-const FALLBACK = { label: 'Compromisso', tint: 'bg-gray-50', text: 'text-gray-600', bar: 'border-l-gray-400', dot: 'bg-gray-400' }
+const FALLBACK = { label: 'Compromisso', tint: 'bg-surface-secondary', text: 'text-gray-600', bar: 'border-l-gray-400', dot: 'bg-gray-400' }
 const typeOf = (t: string) => TYPE[t] ?? FALLBACK
 
 const HOUR_PX = 56
@@ -274,7 +274,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
         {days.map((d, i) => {
           const isToday = toISO(d) === todayIso
           return (
-            <div key={i} className="text-center pb-3 border-l border-gray-100">
+            <div key={i} className="text-center pb-3 border-l border-surface-border">
               <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">{DOW_WEEK[i]}</p>
               <p className={cn('mt-0.5', compact ? 'text-xs' : 'text-sm', 'font-bold',
                 isToday ? 'inline-flex items-center justify-center rounded-full bg-brand-500 text-white' : 'text-gray-800')}
@@ -301,7 +301,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
           const timed = list.filter(s => s.scheduled_time)
           const untimed = list.filter(s => !s.scheduled_time)
           return (
-            <div key={iso} className="relative border-l border-gray-100" style={{ height: gridH }}>
+            <div key={iso} className="relative border-l border-surface-border" style={{ height: gridH }}>
               {untimed.map((s, i) => {
                 const t = typeOf(s.type)
                 return (
@@ -319,7 +319,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                 const top = (h + m / 60 - hours[0]) * px + untimed.length * 22
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
-                    className={cn('absolute left-1 right-1 bg-white border border-gray-200 border-l-[3px] rounded-lg shadow-sm hover:shadow-md transition-shadow text-left overflow-hidden flex flex-col',
+                    className={cn('absolute left-1 right-1 bg-white border border-surface-border border-l-[3px] rounded-lg shadow-sm hover:shadow-md transition-shadow text-left overflow-hidden flex flex-col',
                       compact ? 'px-1.5 py-1' : 'px-2 py-1.5', t.bar)}
                     style={{ top, height: Math.max(px - 4, compact ? 30 : 38) }}>
                     <span className={cn('font-bold leading-tight truncate w-full', compact ? 'text-[9.5px]' : 'text-[11px]', t.text)}>
@@ -360,7 +360,7 @@ export function AgendaPanel({ schedules, onSelect, onNew }: {
 
   if (collapsed) {
     return (
-      <aside className="w-12 shrink-0 flex flex-col items-center bg-white rounded-2xl border border-gray-200 shadow-xl py-3">
+      <aside className="w-12 shrink-0 flex flex-col items-center bg-white rounded-2xl border border-surface-border shadow-xl py-3">
         <button onClick={() => setCollapsed(false)} title="Abrir agenda"
           className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
           <ChevronLeft className="w-4 h-4" />
@@ -371,9 +371,9 @@ export function AgendaPanel({ schedules, onSelect, onNew }: {
   }
 
   return (
-    <aside className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden transition-[width] duration-200',
+    <aside className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border shadow-xl overflow-hidden transition-[width] duration-200',
       expanded ? 'w-[640px]' : 'w-80')}>
-      <div className="flex items-center gap-1 px-4 py-3 border-b border-gray-100 shrink-0">
+      <div className="flex items-center gap-1 px-4 py-3 border-b border-surface-border shrink-0">
         <Calendar className="w-4 h-4 text-gray-400" />
         <span className="text-sm font-bold text-gray-900 mr-auto">Agenda</span>
         <button onClick={onNew} title="Novo agendamento"
@@ -426,14 +426,14 @@ export function AgendaFull({ schedules, onSelect, onNew }: {
 
   return (
     <div className="flex gap-5 h-full min-h-0">
-      <aside className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <aside className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <MiniCalendar schedules={schedules} selected={selectedDay} onSelect={setSelectedDay} />
           <UpcomingList schedules={schedules} onSelect={onSelect} onNew={onNew} />
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 bg-white rounded-2xl border border-gray-200 overflow-y-auto p-4">
+      <div className="flex-1 min-w-0 bg-white rounded-2xl border border-surface-border overflow-y-auto p-4">
         <AgendaWeek
           schedules={schedules}
           weekStart={weekStart}

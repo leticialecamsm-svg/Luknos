@@ -21,7 +21,7 @@ export function ScheduleViewModal({
   onDelete: () => void
 }) {
   const [quoteModal, setQuoteModal] = useState<string | null>(null)
-  const type = TYPE_CONFIG[schedule.type] ?? { label: schedule.type, bg: 'bg-gray-50', text: 'text-gray-600' }
+  const type = TYPE_CONFIG[schedule.type] ?? { label: schedule.type, bg: 'bg-surface-secondary', text: 'text-gray-600' }
   const dateObj = new Date(schedule.scheduled_date + 'T00:00:00')
   const dateFmt = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(dateObj)
 
@@ -37,13 +37,13 @@ export function ScheduleViewModal({
               <h2 className="text-lg font-semibold text-gray-900 leading-tight">{schedule.title}</h2>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 rounded-lg hover:bg-gray-50" title="Editar">
+              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-500 rounded-lg hover:bg-surface-secondary" title="Editar">
                 <Pencil className="w-4 h-4" />
               </button>
-              <button onClick={onDelete} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-gray-50" title="Excluir">
+              <button onClick={onDelete} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-surface-secondary" title="Excluir">
                 <Trash2 className="w-4 h-4" />
               </button>
-              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50">
+              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -89,7 +89,7 @@ export function ScheduleViewModal({
               <Users className="w-4 h-4 text-gray-400 shrink-0 mt-1" />
               <div className="flex flex-wrap gap-1.5">
                 {schedule.participants.map((p: any) => (
-                  <span key={p.id} className="inline-flex items-center gap-1.5 bg-gray-50 border border-surface-border rounded-full pl-1 pr-2.5 py-0.5">
+                  <span key={p.id} className="inline-flex items-center gap-1.5 bg-surface-secondary border border-surface-border rounded-full pl-1 pr-2.5 py-0.5">
                     <Avatar user={p} size={20} />
                     <span className="text-xs text-gray-700">{p.name.split(' ')[0]}</span>
                   </span>
