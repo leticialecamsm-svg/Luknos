@@ -63,7 +63,13 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   useEffect(() => {
     // 'smooth' aqui as vezes simplesmente não anima (testado ao vivo) e o
     // scroll fica parado no lugar errado -- instantâneo é chato, mas confiável.
-    lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest' })
+    // O rAF é pq, medido ao vivo, chamar na hora (sem esperar o layout do
+    // submenu recem-renderizado assentar) deixava uns 40px do ultimo link
+    // pra fora mesmo com block:'nearest'.
+    const raf = requestAnimationFrame(() => {
+      lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(raf)
   }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
