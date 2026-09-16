@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar, Maximize2,
-  MapPin, FileText, Plus,
+  MapPin, FileText, Plus, CalendarX,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
@@ -78,19 +78,19 @@ export function MiniCalendar({ schedules, selected, onSelect }: {
     <div className="px-4 pt-4 pb-2">
       <div className="flex items-center justify-center gap-3 mb-3">
         <button onClick={() => setCursor(new Date(year, month - 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          className="w-6 h-6 flex items-center justify-center rounded-md text-navy-muted hover:bg-surface-secondary hover:text-navy">
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="text-sm font-semibold text-gray-900 first-letter:uppercase">{monthLabel}</span>
+        <span className="text-sm font-semibold text-navy first-letter:uppercase">{monthLabel}</span>
         <button onClick={() => setCursor(new Date(year, month + 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          className="w-6 h-6 flex items-center justify-center rounded-md text-navy-muted hover:bg-surface-secondary hover:text-navy">
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
       </div>
 
       <div className="grid grid-cols-7">
         {DOW_MINI.map((d, i) => (
-          <div key={i} className="text-[9px] font-bold text-gray-400 text-center pb-1.5 uppercase">{d}</div>
+          <div key={i} className="text-[9px] font-bold text-navy-muted/60 text-center pb-1.5 uppercase">{d}</div>
         ))}
         {cells.map((c, i) => {
           if (!c.iso) return <div key={i} className="aspect-square flex items-center justify-center text-[11px] text-gray-300">{c.day}</div>
@@ -100,9 +100,9 @@ export function MiniCalendar({ schedules, selected, onSelect }: {
           return (
             <button key={i} onClick={() => onSelect(c.iso!)}
               className={cn('relative aspect-square flex items-center justify-center rounded-full text-[11.5px] transition-colors',
-                isToday ? 'bg-brand-500 text-white font-bold'
-                  : isSel ? 'bg-gray-900 text-white font-semibold'
-                  : 'text-gray-700 hover:bg-gray-100')}>
+                isSel ? 'bg-gradient-navy text-white font-bold shadow-[0_4px_10px_-2px_rgba(10,31,59,0.45)]'
+                  : isToday ? 'bg-brand-500 text-white font-bold'
+                  : 'text-navy-muted hover:bg-surface-secondary')}>
               {c.day}
               {types.length > 0 && (
                 <span className="absolute bottom-0.5 flex gap-[2px]">
@@ -124,70 +124,62 @@ export function MiniCalendar({ schedules, selected, onSelect }: {
 // Lista "de hoje em diante"
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function UpcomingList({ schedules, onSelect, onNew }: {
+export function UpcomingList({ schedules, selectedDay, onSelect, onNew }: {
   schedules: any[]
+  /** Dia escolhido no MiniCalendar — a lista mostra os compromissos DESSE dia. */
+  selectedDay: string
   onSelect: (s: any) => void
   onNew?: () => void
 }) {
   const todayIso = toISO(new Date())
   const tomorrowIso = toISO(new Date(Date.now() + 86400000))
 
-  const upcoming = useMemo(() => (
+  const dayItems = useMemo(() => (
     schedules
-      .filter(s => s.scheduled_date >= todayIso)
-      .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date)
-        || String(a.scheduled_time ?? '').localeCompare(String(b.scheduled_time ?? '')))
-  ), [schedules, todayIso])
+      .filter(s => s.scheduled_date === selectedDay)
+      .sort((a, b) => String(a.scheduled_time ?? '').localeCompare(String(b.scheduled_time ?? '')))
+  ), [schedules, selectedDay])
 
-  function label(iso: string) {
-    if (iso === todayIso) return 'Hoje'
-    if (iso === tomorrowIso) return 'Amanhã'
-    return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })
-      .format(parseISO(iso)).replace(/\./g, '').toUpperCase()
-  }
-
-  if (upcoming.length === 0) {
-    return (
-      <div className="px-4 pb-5 pt-2">
-        <p className="text-xs text-gray-400 py-3">Nenhum compromisso de hoje em diante.</p>
-        {onNew && (
-          <button onClick={onNew} className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700">
-            <Plus className="w-3.5 h-3.5" /> Novo agendamento
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  let lastLabel: string | null = null
+  const dayLabel = selectedDay === todayIso ? 'Hoje'
+    : selectedDay === tomorrowIso ? 'Amanhã'
+    : new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
+        .format(parseISO(selectedDay)).replace(/^\w/, c => c.toUpperCase())
 
   return (
     <div className="px-3 pb-5">
-      {upcoming.map(s => {
-        const t = typeOf(s.type)
-        const l = label(s.scheduled_date)
-        const showLabel = l !== lastLabel
-        lastLabel = l
-        return (
-          <div key={s.id}>
-            {showLabel && (
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mt-4 mb-2 first:mt-1">{l}</p>
-            )}
-            <button onClick={() => onSelect(s)}
+      <p className="text-[10px] font-bold text-navy-muted/60 uppercase tracking-wider px-1 mt-4 mb-2">{dayLabel}</p>
+
+      {dayItems.length === 0 ? (
+        <div className="flex flex-col items-center text-center px-2 py-6">
+          <div className="w-9 h-9 rounded-full bg-surface-secondary flex items-center justify-center mb-2">
+            <CalendarX className="w-4 h-4 text-navy-muted/50" />
+          </div>
+          <p className="text-xs text-navy-muted">Nenhum compromisso nesse dia.</p>
+          {onNew && (
+            <button onClick={onNew} className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 mt-2">
+              <Plus className="w-3.5 h-3.5" /> Novo agendamento
+            </button>
+          )}
+        </div>
+      ) : (
+        dayItems.map(s => {
+          const t = typeOf(s.type)
+          return (
+            <button key={s.id} onClick={() => onSelect(s)}
               className={cn('w-full text-left border-l-[3px] rounded-lg px-3 py-2.5 mb-2 transition-all hover:brightness-[0.98]', t.tint, t.bar)}>
               <p className={cn('text-[11.5px] font-bold flex items-center gap-1.5', t.text)}>
                 {hhmm(s.scheduled_time) ?? 'Sem horário'}
                 <span className={cn('w-1 h-1 rounded-full', t.dot)} />
                 {t.label}
               </p>
-              <p className="text-[13px] font-semibold text-gray-900 leading-snug mt-0.5">{s.title}</p>
+              <p className="text-[13px] font-semibold text-navy leading-snug mt-0.5">{s.title}</p>
               {s.location && (
-                <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-1">
+                <p className="text-[11px] text-navy-muted flex items-center gap-1 mt-1">
                   <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{s.location}</span>
                 </p>
               )}
               {s.quote && (
-                <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
+                <p className="text-[11px] text-navy-muted flex items-center gap-1 mt-0.5">
                   <FileText className="w-3 h-3 shrink-0" />
                   <span className="font-semibold text-brand-600">ORC #{s.quote.number}</span>
                   <span className="truncate">· {s.quote.client_name}</span>
@@ -198,7 +190,7 @@ export function UpcomingList({ schedules, onSelect, onNew }: {
                   {s.participants.length === 1 ? (
                     <span className="inline-flex items-center gap-1.5 bg-white border border-surface-border rounded-full pl-0.5 pr-2.5 py-0.5">
                       <Avatar user={s.participants[0]} size={18} />
-                      <span className="text-[11px] font-medium text-gray-600">{s.participants[0].name.split(' ')[0]}</span>
+                      <span className="text-[11px] font-medium text-navy-muted">{s.participants[0].name.split(' ')[0]}</span>
                     </span>
                   ) : (
                     <div className="flex -space-x-1.5">
@@ -210,9 +202,9 @@ export function UpcomingList({ schedules, onSelect, onNew }: {
                 </div>
               )}
             </button>
-          </div>
-        )
-      })}
+          )
+        })
+      )}
     </div>
   )
 }
@@ -257,12 +249,12 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
   return (
     <div className={compact ? 'px-3 pb-4 pt-2' : 'px-1 pb-6'}>
       <div className="flex items-center justify-between px-1 pb-3">
-        <span className="text-sm font-semibold text-gray-900">{rangeLabel}</span>
+        <span className="text-sm font-semibold text-navy">{rangeLabel}</span>
         <div className="flex gap-1">
-          <button onClick={onPrev} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          <button onClick={onPrev} className="w-7 h-7 flex items-center justify-center rounded-lg text-navy-muted hover:bg-surface-secondary hover:text-navy">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button onClick={onNext} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          <button onClick={onNext} className="w-7 h-7 flex items-center justify-center rounded-lg text-navy-muted hover:bg-surface-secondary hover:text-navy">
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -275,9 +267,9 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
           const isToday = toISO(d) === todayIso
           return (
             <div key={i} className="text-center pb-3 border-l border-surface-border">
-              <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">{DOW_WEEK[i]}</p>
+              <p className="text-[9.5px] font-bold text-navy-muted/60 uppercase tracking-wide">{DOW_WEEK[i]}</p>
               <p className={cn('mt-0.5', compact ? 'text-xs' : 'text-sm', 'font-bold',
-                isToday ? 'inline-flex items-center justify-center rounded-full bg-brand-500 text-white' : 'text-gray-800')}
+                isToday ? 'inline-flex items-center justify-center rounded-full bg-gradient-navy text-white' : 'text-navy')}
                 style={isToday ? { width: compact ? 20 : 24, height: compact ? 20 : 24 } : undefined}>
                 {d.getDate()}
               </p>
@@ -288,7 +280,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
         {/* Coluna das horas — só rótulos, sem linhas */}
         <div className="relative" style={{ height: gridH }}>
           {hours.map((h, i) => (
-            <span key={h} className={cn('absolute right-0 left-0 text-right text-gray-400', compact ? 'text-[8.5px] pr-1' : 'text-[9.5px] pr-2')}
+            <span key={h} className={cn('absolute right-0 left-0 text-right text-navy-muted/50', compact ? 'text-[8.5px] pr-1' : 'text-[9.5px] pr-2')}
               style={{ top: i * px - 6 }}>
               {h}h
             </span>
@@ -317,17 +309,19 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                 const h = parseInt(String(s.scheduled_time).slice(0, 2), 10)
                 const m = parseInt(String(s.scheduled_time).slice(3, 5), 10) || 0
                 const top = (h + m / 60 - hours[0]) * px + untimed.length * 22
+                const titleFits = !compact && (Math.max(px - 4, 38)) >= 50
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
-                    className={cn('absolute left-1 right-1 bg-white border border-surface-border border-l-[3px] rounded-lg shadow-sm hover:shadow-md transition-shadow text-left overflow-hidden flex flex-col',
+                    title={[s.title, s.location].filter(Boolean).join(' — ')}
+                    className={cn('absolute left-1 right-1 bg-gradient-card border border-surface-border border-l-[3px] rounded-lg shadow-sm hover:shadow-md transition-shadow text-left overflow-hidden flex flex-col',
                       compact ? 'px-1.5 py-1' : 'px-2 py-1.5', t.bar)}
                     style={{ top, height: Math.max(px - 4, compact ? 30 : 38) }}>
-                    <span className={cn('font-bold leading-tight truncate w-full', compact ? 'text-[9.5px]' : 'text-[11px]', t.text)}>
+                    <span className={cn('shrink-0 font-bold', compact ? 'text-[8px]' : 'text-[9.5px]', t.text)}>{hhmm(s.scheduled_time)}</span>
+                    <span className={cn('shrink-0 font-semibold leading-tight truncate w-full text-navy', compact ? 'text-[9.5px]' : 'text-[11px]')}>
                       {s.title}
                     </span>
-                    <span className={cn('text-gray-400', compact ? 'text-[8px]' : 'text-[9.5px]')}>{hhmm(s.scheduled_time)}</span>
-                    {!compact && s.participants?.length > 0 && (
-                      <div className="flex -space-x-1.5 mt-auto pt-1">
+                    {titleFits && s.participants?.length > 0 && (
+                      <div className="flex -space-x-1.5 mt-auto pt-1 shrink-0">
                         {s.participants.slice(0, 3).map((p: any) => (
                           <Avatar key={p.id} user={p} size={18} className="ring-2 ring-white" />
                         ))}
@@ -360,33 +354,33 @@ export function AgendaPanel({ schedules, onSelect, onNew }: {
 
   if (collapsed) {
     return (
-      <aside className="w-12 shrink-0 flex flex-col items-center bg-white rounded-2xl border border-surface-border shadow-xl py-3">
+      <aside className="w-12 shrink-0 flex flex-col items-center bg-gradient-card rounded-2xl border border-surface-border shadow-card py-3">
         <button onClick={() => setCollapsed(false)} title="Abrir agenda"
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-navy-muted hover:bg-surface-secondary hover:text-navy">
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <Calendar className="w-4 h-4 text-gray-300 mt-3" />
+        <Calendar className="w-4 h-4 text-navy-muted/40 mt-3" />
       </aside>
     )
   }
 
   return (
-    <aside className={cn('shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border shadow-xl overflow-hidden transition-[width] duration-200',
+    <aside className={cn('shrink-0 flex flex-col bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden transition-[width] duration-200',
       expanded ? 'w-[640px]' : 'w-80')}>
       <div className="flex items-center gap-1 px-4 py-3 border-b border-surface-border shrink-0">
-        <Calendar className="w-4 h-4 text-gray-400" />
-        <span className="text-sm font-bold text-gray-900 mr-auto">Agenda</span>
+        <Calendar className="w-4 h-4 text-brand-500" />
+        <span className="text-sm font-bold text-navy mr-auto">Agenda</span>
         <button onClick={onNew} title="Novo agendamento"
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-600">
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-navy-muted hover:bg-surface-secondary hover:text-brand-600">
           <Plus className="w-4 h-4" />
         </button>
         <button onClick={() => setExpanded(v => !v)} title={expanded ? 'Voltar pro mês' : 'Expandir para a semana'}
           className={cn('w-7 h-7 flex items-center justify-center rounded-lg transition-colors',
-            expanded ? 'bg-brand-50 text-brand-600' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700')}>
+            expanded ? 'bg-brand-50 text-brand-600' : 'text-navy-muted hover:bg-surface-secondary hover:text-navy')}>
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
         <button onClick={() => setCollapsed(true)} title="Recolher painel"
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-navy-muted hover:bg-surface-secondary hover:text-navy">
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
@@ -404,7 +398,7 @@ export function AgendaPanel({ schedules, onSelect, onNew }: {
         ) : (
           <>
             <MiniCalendar schedules={schedules} selected={selectedDay} onSelect={setSelectedDay} />
-            <UpcomingList schedules={schedules} onSelect={onSelect} onNew={onNew} />
+            <UpcomingList schedules={schedules} selectedDay={selectedDay} onSelect={onSelect} onNew={onNew} />
           </>
         )}
       </div>
@@ -426,14 +420,14 @@ export function AgendaFull({ schedules, onSelect, onNew }: {
 
   return (
     <div className="flex gap-5 h-full min-h-0">
-      <aside className="w-72 shrink-0 flex flex-col bg-white rounded-2xl border border-surface-border overflow-hidden">
+      <aside className="w-72 shrink-0 flex flex-col bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <MiniCalendar schedules={schedules} selected={selectedDay} onSelect={setSelectedDay} />
-          <UpcomingList schedules={schedules} onSelect={onSelect} onNew={onNew} />
+          <UpcomingList schedules={schedules} selectedDay={selectedDay} onSelect={onSelect} onNew={onNew} />
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 bg-white rounded-2xl border border-surface-border overflow-y-auto p-4">
+      <div className="flex-1 min-w-0 bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-y-auto p-4">
         <AgendaWeek
           schedules={schedules}
           weekStart={weekStart}
