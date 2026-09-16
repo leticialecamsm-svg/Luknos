@@ -71,24 +71,21 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   const navRef = useRef<HTMLElement>(null)
   const lastSubmenuLinkRef = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const nav = navRef.current
-        const target = lastSubmenuLinkRef.current
-        if (!nav || !target) return
-        const navRect = nav.getBoundingClientRect()
-        const targetRect = target.getBoundingClientRect()
-        const overflowBottom = targetRect.bottom - navRect.bottom
-        if (overflowBottom > 0) nav.scrollTop += overflowBottom + 8
-        const overflowTop = navRect.top - targetRect.top
-        if (overflowTop > 0) nav.scrollTop -= overflowTop + 8
-      })
-    })
-    return () => {
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-    }
+    // requestAnimationFrame fica pausado quando a aba não está em primeiro
+    // plano (confirmado -- era a causa real de tudo ter falhado ao testar:
+    // o rAF nunca chegava a disparar). setTimeout não sofre desse problema.
+    const t = setTimeout(() => {
+      const nav = navRef.current
+      const target = lastSubmenuLinkRef.current
+      if (!nav || !target) return
+      const navRect = nav.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const overflowBottom = targetRect.bottom - navRect.bottom
+      if (overflowBottom > 0) nav.scrollTop += overflowBottom + 8
+      const overflowTop = navRect.top - targetRect.top
+      if (overflowTop > 0) nav.scrollTop -= overflowTop + 8
+    }, 50)
+    return () => clearTimeout(t)
   }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
