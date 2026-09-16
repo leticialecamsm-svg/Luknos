@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox } from 'lucide-react'
@@ -53,6 +53,16 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
+
+  // Ao clicar num item que abre submenu (Financeiro/Robô WhatsApp/Admin), os
+  // links novos entram DEPOIS do item clicado — se ele já estava perto do
+  // fim da área visível do menu, o submenu nasce fora da tela e a gestora
+  // precisa rolar por conta própria pra achar. Rola sozinho até o último
+  // link do submenu aberto ficar visível.
+  const lastSubmenuLinkRef = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
   // e como cada seção tem o próprio layout, ele sumia e voltava a cada clique.
@@ -189,7 +199,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                       {isAdminSection && !collapsed && adminOpen && <ChevronRight className="w-3 h-3 opacity-40" />}
                     </Link>
                     {isAdminSection && !collapsed && adminOpen && (
-                      <Link href="/admin/users"
+                      <Link href="/admin/users" ref={lastSubmenuLinkRef}
                         className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-surface-border',
                           pathname.startsWith('/admin/users') ? 'text-navy font-medium' : 'text-navy-muted hover:text-navy'
                         )}>
@@ -222,7 +232,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                           )}>
                           Painel
                         </Link>
-                        <Link href="/bot-notifications"
+                        <Link href="/bot-notifications" ref={lastSubmenuLinkRef}
                           className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-surface-border',
                             pathname.startsWith('/bot-notifications') ? 'text-navy font-medium' : 'text-navy-muted hover:text-navy'
                           )}>
@@ -238,7 +248,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                           )}>
                           Fornecedores
                         </Link>
-                        <Link href="/finance/categories"
+                        <Link href="/finance/categories" ref={lastSubmenuLinkRef}
                           className={cn('flex items-center gap-2 ml-6 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-colors border-l border-surface-border',
                             pathname.startsWith('/finance/categories') ? 'text-navy font-medium' : 'text-navy-muted hover:text-navy'
                           )}>
