@@ -74,7 +74,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     // requestAnimationFrame fica pausado quando a aba não está em primeiro
     // plano (confirmado -- era a causa real de tudo ter falhado ao testar:
     // o rAF nunca chegava a disparar). setTimeout não sofre desse problema.
-    const t = setTimeout(() => {
+    function adjust() {
       const nav = navRef.current
       const target = lastSubmenuLinkRef.current
       if (!nav || !target) return
@@ -84,8 +84,14 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
       if (overflowBottom > 0) nav.scrollTop += overflowBottom + 8
       const overflowTop = navRect.top - targetRect.top
       if (overflowTop > 0) nav.scrollTop -= overflowTop + 8
-    }, 50)
-    return () => clearTimeout(t)
+    }
+    // Medido ao vivo: às vezes a fonte troca (FOUT->fonte final) ou algo
+    // mais reflowa a lista logo depois da primeira medição, deixando uns
+    // 30px pra fora de novo. Uma segunda passada 300ms depois corrige isso
+    // sem custo perceptível (idempotente: se já estava certo, não faz nada).
+    const t1 = setTimeout(adjust, 80)
+    const t2 = setTimeout(adjust, 350)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
