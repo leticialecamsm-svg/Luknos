@@ -61,7 +61,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // link do submenu aberto ficar visível.
   const lastSubmenuLinkRef = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
-    lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    // 'smooth' aqui as vezes simplesmente não anima (testado ao vivo) e o
+    // scroll fica parado no lugar errado -- instantâneo é chato, mas confiável.
+    lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest' })
   }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
