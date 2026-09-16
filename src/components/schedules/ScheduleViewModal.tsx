@@ -10,6 +10,7 @@ const TYPE_CONFIG: Record<string, { label: string; bg: string; text: string }> =
   visita:    { label: 'Visita',    bg: 'bg-blue-400/15',  text: 'text-blue-200' },
   reuniao:   { label: 'Reunião',   bg: 'bg-amber-400/15', text: 'text-amber-200' },
   follow_up: { label: 'Follow-up', bg: 'bg-green-400/15', text: 'text-green-200' },
+  lembrete:  { label: 'Lembrete',  bg: 'bg-violet-400/15', text: 'text-violet-200' },
 }
 
 function Row({ icon: Icon, children }: { icon: typeof Calendar; children: React.ReactNode }) {

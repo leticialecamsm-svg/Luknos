@@ -15,6 +15,7 @@ const TYPE: Record<string, { label: string; tint: string; text: string; textOnNa
   visita:    { label: 'Visita',    tint: 'bg-blue-50',  text: 'text-blue-700',  textOnNavy: 'text-blue-200',  bar: 'border-l-blue-500',  dot: 'bg-blue-500' },
   reuniao:   { label: 'Reunião',   tint: 'bg-amber-50', text: 'text-amber-700', textOnNavy: 'text-amber-200', bar: 'border-l-amber-500', dot: 'bg-amber-500' },
   follow_up: { label: 'Follow-up', tint: 'bg-green-50', text: 'text-green-700', textOnNavy: 'text-green-200', bar: 'border-l-green-500', dot: 'bg-green-500' },
+  lembrete:  { label: 'Lembrete',  tint: 'bg-violet-50', text: 'text-violet-700', textOnNavy: 'text-violet-200', bar: 'border-l-violet-500', dot: 'bg-violet-500' },
 }
 const FALLBACK = { label: 'Compromisso', tint: 'bg-surface-secondary', text: 'text-gray-600', textOnNavy: 'text-white/70', bar: 'border-l-gray-400', dot: 'bg-gray-400' }
 const typeOf = (t: string) => TYPE[t] ?? FALLBACK

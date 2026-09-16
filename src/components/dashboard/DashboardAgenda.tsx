@@ -11,6 +11,7 @@ const TYPE_CONFIG: Record<string, { label: string; bg: string; border: string; t
   visita:    { label: 'Visita',    bg: 'bg-blue-50',  border: 'border-l-blue-500',  text: 'text-blue-700' },
   reuniao:   { label: 'Reunião',   bg: 'bg-amber-50', border: 'border-l-amber-500', text: 'text-amber-700' },
   follow_up: { label: 'Follow-up', bg: 'bg-green-50', border: 'border-l-green-500', text: 'text-green-700' },
+  lembrete:  { label: 'Lembrete',  bg: 'bg-violet-50', border: 'border-l-violet-500', text: 'text-violet-700' },
 }
 
 function isoOf(d: Date) {

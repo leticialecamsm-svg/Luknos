@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { Bell, X, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const TYPE_LABEL: Record<string, string> = { visita: 'Visita', reuniao: 'Reunião', follow_up: 'Follow-up' }
+const TYPE_LABEL: Record<string, string> = { visita: 'Visita', reuniao: 'Reunião', follow_up: 'Follow-up', lembrete: 'Lembrete' }
 
 const OFFSETS = [
   { min: 60, label: 'em 1 hora' },

@@ -1491,7 +1491,7 @@ export async function createUserAdmin(data: {
 // Schedules (Agendamentos)
 interface ScheduleInput {
   title: string
-  type: 'visita' | 'reuniao' | 'follow_up'
+  type: 'visita' | 'reuniao' | 'follow_up' | 'lembrete'
   quote_id?: string | null
   partner_id?: string | null
   scheduled_date: string
@@ -1585,11 +1585,13 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
   return { ok: true }
 }
 
-// Reuniões e visitas são visíveis a todos; follow-ups só para quem criou ou participa.
+// Reuniões e visitas são visíveis a todos; follow-ups e lembretes (mais
+// pessoais por natureza) só para quem criou ou participa.
+const PRIVATE_TYPES = ['follow_up', 'lembrete']
 function filterFollowups(schedules: any[], userId?: string) {
   if (!userId) return schedules
   return schedules.filter((s: any) =>
-    s.type !== 'follow_up' ||
+    !PRIVATE_TYPES.includes(s.type) ||
     s.created_by === userId ||
     (s.team_members ?? []).includes(userId)
   )

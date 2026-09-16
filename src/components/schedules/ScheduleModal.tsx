@@ -11,6 +11,7 @@ const TYPE_OPTIONS = [
   { value: 'visita', label: 'Visita' },
   { value: 'reuniao', label: 'Reunião' },
   { value: 'follow_up', label: 'Follow-up' },
+  { value: 'lembrete', label: 'Lembrete' },
 ] as const
 
 interface ScheduleModalProps {
