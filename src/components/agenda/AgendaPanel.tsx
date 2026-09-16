@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar, Maximize2,
   MapPin, FileText, Plus, CalendarX, Clock, Users,
@@ -280,7 +280,18 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
   const isoDays = days.map(toISO)
   const weekSchedules = schedules.filter(s => isoDays.includes(s.scheduled_date))
 
-  // Faixa de horas que cobre os compromissos da semana (mínimo 8h–18h)
+  // Relógio ao vivo — recalcula a cada 30s, o suficiente pra linha de "agora"
+  // ir descendo suavemente sem custo nenhum (não tem compromisso pra recarregar).
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const nowHours = now.getHours() + now.getMinutes() / 60
+
+  // Faixa de horas que cobre os compromissos da semana (mínimo 8h–18h, e
+  // sempre incluindo a hora atual quando hoje está na semana visível, pra
+  // linha de "agora" nunca ficar escondida fora da grade).
   const hours = useMemo(() => {
     let min = 8, max = 18
     weekSchedules.forEach(s => {
@@ -288,8 +299,14 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
       const h = parseInt(String(s.scheduled_time).slice(0, 2), 10)
       if (!Number.isNaN(h)) { if (h < min) min = h; if (h + 1 > max) max = h + 1 }
     })
+    if (isoDays.includes(todayIso)) {
+      const nh = Math.floor(nowHours)
+      if (nh < min) min = nh
+      if (nh + 1 > max) max = nh + 1
+    }
     return Array.from({ length: max - min + 1 }, (_, i) => min + i)
-  }, [weekSchedules])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekSchedules, isoDays.includes(todayIso), Math.floor(nowHours)])
 
   const px = compact ? 44 : HOUR_PX
   const gridH = hours.length * px
@@ -335,6 +352,12 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
               {h}h
             </span>
           ))}
+          {isoDays.includes(todayIso) && nowHours >= hours[0] && nowHours <= hours[hours.length - 1] + 1 && (
+            <span className={cn('absolute right-0 left-0 text-right font-bold text-red-500', compact ? 'text-[8px] pr-1' : 'text-[9px] pr-2')}
+              style={{ top: (nowHours - hours[0]) * px - 6 }}>
+              {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
 
         {/* Colunas dos dias */}
@@ -390,6 +413,12 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                   </button>
                 )
               })}
+              {iso === todayIso && nowHours >= hours[0] && nowHours <= hours[hours.length - 1] + 1 && (
+                <div className="absolute left-0 right-0 z-10 pointer-events-none flex items-center" style={{ top: (nowHours - hours[0]) * px }}>
+                  <span className="w-2 h-2 -ml-1 rounded-full bg-red-500 shrink-0" />
+                  <span className="flex-1 h-px bg-red-500" />
+                </div>
+              )}
             </div>
           )
         })}
