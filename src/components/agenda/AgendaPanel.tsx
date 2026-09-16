@@ -363,10 +363,14 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                 const h = parseInt(String(s.scheduled_time).slice(0, 2), 10)
                 const m = parseInt(String(s.scheduled_time).slice(3, 5), 10) || 0
                 const top = (h + m / 60 - hours[0]) * px + untimed.length * 22
+                const hasAvatars = !compact && s.participants?.length > 0
+                // Card cresce um pouco (pode sobrepor a hora seguinte) pra caber
+                // horário + título (até 2 linhas) + avatares sem cortar nada.
+                const height = compact ? Math.max(px - 4, 30) : (hasAvatars ? 68 : 44)
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
-                    className="group absolute left-1 right-1 text-left"
-                    style={{ top, height: Math.max(px - 4, compact ? 30 : 38) }}>
+                    className="group absolute left-1 right-1 text-left z-[1] hover:z-20"
+                    style={{ top, height }}>
                     <div className={cn('h-full bg-gradient-card border border-surface-border border-l-[3px] rounded-lg shadow-sm group-hover:shadow-md transition-shadow overflow-hidden flex flex-col',
                         compact ? 'px-1.5 py-1' : 'px-2 py-1.5', t.bar)}>
                       <span className={cn('shrink-0 font-bold', compact ? 'text-[8px]' : 'text-[9.5px]', t.text)}>{hhmm(s.scheduled_time)}</span>
@@ -374,6 +378,13 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                         compact ? 'text-[9.5px] truncate' : 'text-[11px] line-clamp-2')}>
                         {s.title}
                       </span>
+                      {hasAvatars && (
+                        <div className="flex -space-x-1.5 mt-auto pt-1 shrink-0">
+                          {s.participants.slice(0, 4).map((p: any) => (
+                            <Avatar key={p.id} user={p} size={18} className="ring-2 ring-white" />
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <EventPreview schedule={s} openLeft={openLeft} />
                   </button>
