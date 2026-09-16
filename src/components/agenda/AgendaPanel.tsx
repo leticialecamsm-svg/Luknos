@@ -312,6 +312,10 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
   const gridH = hours.length * px
   const fmt = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short' })
   const rangeLabel = `${fmt.format(days[0]).replace('.', '')} – ${fmt.format(days[6]).replace('.', '')}`
+  // Régua de "agora" — uma linha só, comum a todos os dias da semana (não é
+  // por dia), na mesma altura em cada coluna. Só aparece quando a semana
+  // visível contém hoje e a hora atual cai dentro da faixa mostrada.
+  const showNowLine = isoDays.includes(todayIso) && nowHours >= hours[0] && nowHours <= hours[hours.length - 1] + 1
 
   return (
     <div className={compact ? 'px-3 pb-4 pt-2' : 'px-1 pb-6'}>
@@ -343,7 +347,21 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
             </div>
           )
         })}
+      </div>
 
+      {/* Corpo da grade — gutter de horas + colunas dos dias, num wrapper
+          relative só pra poder desenhar a linha de "agora" atravessando
+          TODOS os dias de uma vez, numa única posição vertical (não é uma
+          linha por dia — é uma régua só, comum à semana inteira). */}
+      <div className="relative">
+        {showNowLine && (
+          <div className="absolute z-10 pointer-events-none flex items-center"
+            style={{ top: (nowHours - hours[0]) * px, left: compact ? 30 : 44, right: 0 }}>
+            <span className="w-2 h-2 -ml-1 rounded-full bg-brand-500 shrink-0" />
+            <span className="flex-1 h-px bg-brand-500" />
+          </div>
+        )}
+        <div className="grid" style={{ gridTemplateColumns: `${compact ? 30 : 44}px repeat(7, minmax(0,1fr))` }}>
         {/* Coluna das horas — só rótulos, sem linhas */}
         <div className="relative" style={{ height: gridH }}>
           {hours.map((h, i) => (
@@ -352,8 +370,8 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
               {h}h
             </span>
           ))}
-          {isoDays.includes(todayIso) && nowHours >= hours[0] && nowHours <= hours[hours.length - 1] + 1 && (
-            <span className={cn('absolute right-0 left-0 text-right font-bold text-red-500', compact ? 'text-[8px] pr-1' : 'text-[9px] pr-2')}
+          {showNowLine && (
+            <span className={cn('absolute right-0 left-0 text-right font-bold text-brand-600', compact ? 'text-[8px] pr-1' : 'text-[9px] pr-2')}
               style={{ top: (nowHours - hours[0]) * px - 6 }}>
               {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </span>
@@ -413,15 +431,10 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                   </button>
                 )
               })}
-              {iso === todayIso && nowHours >= hours[0] && nowHours <= hours[hours.length - 1] + 1 && (
-                <div className="absolute left-0 right-0 z-10 pointer-events-none flex items-center" style={{ top: (nowHours - hours[0]) * px }}>
-                  <span className="w-2 h-2 -ml-1 rounded-full bg-red-500 shrink-0" />
-                  <span className="flex-1 h-px bg-red-500" />
-                </div>
-              )}
             </div>
           )
         })}
+        </div>
       </div>
     </div>
   )
