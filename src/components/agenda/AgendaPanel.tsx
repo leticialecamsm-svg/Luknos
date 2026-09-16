@@ -366,7 +366,7 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                 const hasAvatars = !compact && s.participants?.length > 0
                 // Card cresce um pouco (pode sobrepor a hora seguinte) pra caber
                 // horário + título (até 2 linhas) + avatares sem cortar nada.
-                const height = compact ? Math.max(px - 4, 30) : (hasAvatars ? 68 : 44)
+                const height = compact ? Math.max(px - 4, 30) : (hasAvatars ? 88 : 44)
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
                     className="group absolute left-1 right-1 text-left z-[1] hover:z-20"
