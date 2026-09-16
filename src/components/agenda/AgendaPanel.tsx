@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronDown, Calendar, Maximize2,
-  MapPin, FileText, Plus, CalendarX,
+  MapPin, FileText, Plus, CalendarX, Clock, Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
@@ -11,12 +11,12 @@ import { Avatar } from '@/components/ui/Avatar'
 // Mesmos tons do WeekView.tsx / SchedulesContainer.tsx — visita=azul,
 // reunião=âmbar, follow-up=verde. Mantidos aqui pra agenda inteira falar
 // a mesma língua visual do resto do sistema.
-const TYPE: Record<string, { label: string; tint: string; text: string; bar: string; dot: string }> = {
-  visita:    { label: 'Visita',    tint: 'bg-blue-50',  text: 'text-blue-700',  bar: 'border-l-blue-500',  dot: 'bg-blue-500' },
-  reuniao:   { label: 'Reunião',   tint: 'bg-amber-50', text: 'text-amber-700', bar: 'border-l-amber-500', dot: 'bg-amber-500' },
-  follow_up: { label: 'Follow-up', tint: 'bg-green-50', text: 'text-green-700', bar: 'border-l-green-500', dot: 'bg-green-500' },
+const TYPE: Record<string, { label: string; tint: string; text: string; textOnNavy: string; bar: string; dot: string }> = {
+  visita:    { label: 'Visita',    tint: 'bg-blue-50',  text: 'text-blue-700',  textOnNavy: 'text-blue-200',  bar: 'border-l-blue-500',  dot: 'bg-blue-500' },
+  reuniao:   { label: 'Reunião',   tint: 'bg-amber-50', text: 'text-amber-700', textOnNavy: 'text-amber-200', bar: 'border-l-amber-500', dot: 'bg-amber-500' },
+  follow_up: { label: 'Follow-up', tint: 'bg-green-50', text: 'text-green-700', textOnNavy: 'text-green-200', bar: 'border-l-green-500', dot: 'bg-green-500' },
 }
-const FALLBACK = { label: 'Compromisso', tint: 'bg-surface-secondary', text: 'text-gray-600', bar: 'border-l-gray-400', dot: 'bg-gray-400' }
+const FALLBACK = { label: 'Compromisso', tint: 'bg-surface-secondary', text: 'text-gray-600', textOnNavy: 'text-white/70', bar: 'border-l-gray-400', dot: 'bg-gray-400' }
 const typeOf = (t: string) => TYPE[t] ?? FALLBACK
 
 const HOUR_PX = 56
@@ -38,6 +38,56 @@ function startOfWeek(date: Date) {
 function hhmm(time?: string | null) {
   if (!time) return null
   return String(time).slice(0, 5).replace(':', 'h')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preview no hover — igual ao calendário do Viver de IA: passa o mouse em cima
+// de um compromisso "espremido" na grade da semana e vê tudo por completo,
+// sem precisar clicar. Clicar continua abrindo o modal de sempre.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EventPreview({ schedule: s, openLeft }: { schedule: any; openLeft?: boolean }) {
+  const t = typeOf(s.type)
+  return (
+    <div
+      className={cn(
+        'invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity duration-150',
+        'pointer-events-none absolute top-0 z-50 w-56 rounded-xl bg-gradient-navy-mesh shadow-hero p-3.5 text-left',
+        openLeft ? 'right-full mr-2' : 'left-full ml-2'
+      )}
+    >
+      <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide', t.textOnNavy)}>
+        <span className={cn('w-1.5 h-1.5 rounded-full', t.dot)} /> {t.label}
+      </span>
+      <p className="text-sm font-semibold text-white leading-snug mt-1">{s.title}</p>
+
+      <div className="mt-2.5 space-y-1.5">
+        <p className="flex items-center gap-1.5 text-[11px] text-white/70">
+          <Clock className="w-3 h-3 shrink-0" /> {hhmm(s.scheduled_time) ?? 'Sem horário'}
+        </p>
+        {s.location && (
+          <p className="flex items-center gap-1.5 text-[11px] text-white/70">
+            <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{s.location}</span>
+          </p>
+        )}
+        {s.quote && (
+          <p className="flex items-center gap-1.5 text-[11px] text-white/70">
+            <FileText className="w-3 h-3 shrink-0" />
+            <span className="text-brand-400 font-semibold">#{s.quote.number}</span>
+            <span className="truncate">· {s.quote.client_name}</span>
+          </p>
+        )}
+        {s.participants?.length > 0 && (
+          <div className="flex items-start gap-1.5 pt-0.5">
+            <Users className="w-3 h-3 shrink-0 mt-0.5 text-white/70" />
+            <p className="text-[11px] text-white/70 leading-snug">
+              {s.participants.map((p: any) => p.name.split(' ')[0]).join(', ')}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,19 +338,23 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
         </div>
 
         {/* Colunas dos dias */}
-        {isoDays.map(iso => {
+        {isoDays.map((iso, dayIdx) => {
           const list = weekSchedules.filter(s => s.scheduled_date === iso)
           const timed = list.filter(s => s.scheduled_time)
           const untimed = list.filter(s => !s.scheduled_time)
+          const openLeft = dayIdx >= 5 // sáb/dom: preview abre pra esquerda pra não estourar a tela
           return (
             <div key={iso} className="relative border-l border-surface-border" style={{ height: gridH }}>
               {untimed.map((s, i) => {
                 const t = typeOf(s.type)
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
-                    className={cn('absolute left-1 right-1 rounded-md border-l-[3px] px-1.5 py-1 text-left truncate', t.tint, t.bar)}
+                    className="group absolute left-1 right-1 text-left"
                     style={{ top: i * 22 }}>
-                    <span className={cn('text-[9.5px] font-bold', t.text)}>{s.title}</span>
+                    <div className={cn('rounded-md border-l-[3px] px-1.5 py-1 truncate', t.tint, t.bar)}>
+                      <span className={cn('text-[9.5px] font-bold', t.text)}>{s.title}</span>
+                    </div>
+                    <EventPreview schedule={s} openLeft={openLeft} />
                   </button>
                 )
               })}
@@ -309,24 +363,19 @@ export function AgendaWeek({ schedules, weekStart, onPrev, onNext, onSelect, com
                 const h = parseInt(String(s.scheduled_time).slice(0, 2), 10)
                 const m = parseInt(String(s.scheduled_time).slice(3, 5), 10) || 0
                 const top = (h + m / 60 - hours[0]) * px + untimed.length * 22
-                const titleFits = !compact && (Math.max(px - 4, 38)) >= 50
                 return (
                   <button key={s.id} onClick={() => onSelect(s)}
-                    title={[s.title, s.location].filter(Boolean).join(' — ')}
-                    className={cn('absolute left-1 right-1 bg-gradient-card border border-surface-border border-l-[3px] rounded-lg shadow-sm hover:shadow-md transition-shadow text-left overflow-hidden flex flex-col',
-                      compact ? 'px-1.5 py-1' : 'px-2 py-1.5', t.bar)}
+                    className="group absolute left-1 right-1 text-left"
                     style={{ top, height: Math.max(px - 4, compact ? 30 : 38) }}>
-                    <span className={cn('shrink-0 font-bold', compact ? 'text-[8px]' : 'text-[9.5px]', t.text)}>{hhmm(s.scheduled_time)}</span>
-                    <span className={cn('shrink-0 font-semibold leading-tight truncate w-full text-navy', compact ? 'text-[9.5px]' : 'text-[11px]')}>
-                      {s.title}
-                    </span>
-                    {titleFits && s.participants?.length > 0 && (
-                      <div className="flex -space-x-1.5 mt-auto pt-1 shrink-0">
-                        {s.participants.slice(0, 3).map((p: any) => (
-                          <Avatar key={p.id} user={p} size={18} className="ring-2 ring-white" />
-                        ))}
-                      </div>
-                    )}
+                    <div className={cn('h-full bg-gradient-card border border-surface-border border-l-[3px] rounded-lg shadow-sm group-hover:shadow-md transition-shadow overflow-hidden flex flex-col',
+                        compact ? 'px-1.5 py-1' : 'px-2 py-1.5', t.bar)}>
+                      <span className={cn('shrink-0 font-bold', compact ? 'text-[8px]' : 'text-[9.5px]', t.text)}>{hhmm(s.scheduled_time)}</span>
+                      <span className={cn('shrink-0 font-semibold leading-tight w-full text-navy',
+                        compact ? 'text-[9.5px] truncate' : 'text-[11px] line-clamp-2')}>
+                        {s.title}
+                      </span>
+                    </div>
+                    <EventPreview schedule={s} openLeft={openLeft} />
                   </button>
                 )
               })}
