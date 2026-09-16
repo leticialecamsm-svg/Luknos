@@ -59,17 +59,36 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // fim da área visível do menu, o submenu nasce fora da tela e a gestora
   // precisa rolar por conta própria pra achar. Rola sozinho até o último
   // link do submenu aberto ficar visível.
+  //
+  // scrollIntoView (com ou sem 'smooth', com ou sem 1x requestAnimationFrame)
+  // se mostrou nada confiável nos testes ao vivo — ora deixava ~40px pra
+  // fora, ora não rolava nada, provavelmente por causa da transição de rota
+  // do App Router (o pathname muda antes do layout do submenu assentar de
+  // verdade). Em vez de depender da heurística do navegador, calculamos a
+  // conta na mão a partir da geometria real (getBoundingClientRect) e
+  // aplicamos direto no scrollTop, dentro de um duplo requestAnimationFrame
+  // — padrão pra garantir que já rodou depois do primeiro paint do layout novo.
+  const navRef = useRef<HTMLElement>(null)
   const lastSubmenuLinkRef = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
-    // 'smooth' aqui as vezes simplesmente não anima (testado ao vivo) e o
-    // scroll fica parado no lugar errado -- instantâneo é chato, mas confiável.
-    // O rAF é pq, medido ao vivo, chamar na hora (sem esperar o layout do
-    // submenu recem-renderizado assentar) deixava uns 40px do ultimo link
-    // pra fora mesmo com block:'nearest'.
-    const raf = requestAnimationFrame(() => {
-      lastSubmenuLinkRef.current?.scrollIntoView({ block: 'nearest' })
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const nav = navRef.current
+        const target = lastSubmenuLinkRef.current
+        if (!nav || !target) return
+        const navRect = nav.getBoundingClientRect()
+        const targetRect = target.getBoundingClientRect()
+        const overflowBottom = targetRect.bottom - navRect.bottom
+        if (overflowBottom > 0) nav.scrollTop += overflowBottom + 8
+        const overflowTop = navRect.top - targetRect.top
+        if (overflowTop > 0) nav.scrollTop -= overflowTop + 8
+      })
     })
-    return () => cancelAnimationFrame(raf)
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
   }, [pathname])
 
   // Antes o menu inteiro ficava invisível (return null) até ler o localStorage,
@@ -132,7 +151,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
         </div>
 
         {/* Nav */}
-        <nav className={`flex-1 min-h-0 overflow-y-auto space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
+        <nav ref={navRef} className={`flex-1 min-h-0 overflow-y-auto space-y-0.5 ${collapsed ? 'p-1' : 'p-3'}`}>
           {visibleNav.map(item => {
             const active = pathname === item.href || (pathname.startsWith(item.href + '/') && item.href !== '/dashboard')
             const isPartners = item.href === '/partners'
