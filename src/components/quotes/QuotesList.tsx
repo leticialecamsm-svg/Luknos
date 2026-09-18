@@ -38,6 +38,7 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [byPriority, setByPriority] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const quotes = view === 'mine' ? myQuotes : allQuotes
@@ -78,7 +79,10 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
   // Ordena
   const sorted = [...filtered].sort((a, b) => {
-    if (!sortField) return 0
+    if (!sortField) {
+      // Padrão: ordem de cadastro, mais recente primeiro
+      return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+    }
 
     let aVal = a[sortField]
     let bVal = b[sortField]
@@ -104,10 +108,12 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   }, [selected, sorted.length])
 
   // Agrupa por prioridade — igual à tela de tarefas, do mais urgente pro menos urgente
-  const grouped = PRIORITY_GROUPS.map(g => ({
-    ...g,
-    items: sorted.filter(q => (q.priority ?? 'normal') === g.key),
-  })).filter(g => g.items.length > 0)
+  const grouped = byPriority
+    ? PRIORITY_GROUPS.map(g => ({
+        ...g,
+        items: sorted.filter(q => (q.priority ?? 'normal') === g.key),
+      })).filter(g => g.items.length > 0)
+    : [{ key: 'normal' as QuotePriority, dot: '', bg: '', text: '', border: '', items: sorted }]
 
   function toggleGroup(key: string) {
     setCollapsedGroups(prev => {
@@ -281,8 +287,16 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
 
           <p className="text-xs text-gray-400">{sorted.length} orçamento{sorted.length !== 1 ? 's' : ''}</p>
 
+          {/* Ordenação: cadastro (padrão) x prioridade */}
+          <button onClick={() => setByPriority(v => !v)}
+            title={byPriority ? 'Voltar para ordem de cadastro' : 'Agrupar por prioridade'}
+            className={cn('ml-auto px-3 py-2 rounded-lg text-xs font-medium border transition-all whitespace-nowrap',
+              byPriority ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
+            {byPriority ? '✓ Por prioridade' : 'Ver por prioridade'}
+          </button>
+
           {/* Layout toggle */}
-          <div className="ml-auto flex gap-1 bg-surface-secondary rounded-lg p-1">
+          <div className="flex gap-1 bg-surface-secondary rounded-lg p-1">
             <button onClick={() => setLayout('list')}
               title="Lista"
               className={cn('p-1.5 rounded-md transition-all', layout === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600')}>
@@ -364,7 +378,8 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
               <QuoteGroupRows
                 key={group.key}
                 group={group}
-                collapsed={collapsedGroups.has(group.key)}
+                hideHeader={!byPriority}
+                collapsed={byPriority && collapsedGroups.has(group.key)}
                 onToggle={() => toggleGroup(group.key)}
                 router={router}
                 selected={selected}
@@ -407,8 +422,9 @@ export function QuotesList({ myQuotes, allQuotes, isAdmin }: { myQuotes: any[]; 
   )
 }
 
-function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSelectQuote, handleDelete }: {
+function QuoteGroupRows({ group, hideHeader, collapsed, onToggle, router, selected, toggleSelectQuote, handleDelete }: {
   group: { key: QuotePriority; dot: string; bg: string; text: string; border: string; items: any[] }
+  hideHeader: boolean
   collapsed: boolean
   onToggle: () => void
   router: ReturnType<typeof useRouter>
@@ -418,7 +434,7 @@ function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSe
 }) {
   return (
     <>
-      <tr className={cn('border-b border-surface-border cursor-pointer select-none', group.bg)} onClick={onToggle}>
+      {!hideHeader && <tr className={cn('border-b border-surface-border cursor-pointer select-none', group.bg)} onClick={onToggle}>
         <td colSpan={8} className={cn('px-6 py-2.5 border-l-4', group.border)}>
           <div className="flex items-center gap-2">
             <ChevronRight className={cn('w-3.5 h-3.5 text-gray-400 transition-transform', !collapsed && 'rotate-90')} />
@@ -429,7 +445,7 @@ function QuoteGroupRows({ group, collapsed, onToggle, router, selected, toggleSe
             <span className="text-xs text-gray-400">{group.items.length}</span>
           </div>
         </td>
-      </tr>
+      </tr>}
       {!collapsed && group.items.map(q => {
         const overdue = isOverdue(q.deadline) && q.status !== 'done'
 
