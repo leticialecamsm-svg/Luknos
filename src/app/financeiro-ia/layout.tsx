@@ -9,7 +9,7 @@ export default async function FinanceiroIALayout({ children }: { children: React
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
       <FinanceiroNav profile={profile} />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6">{children}</div>
       </main>
     </div>
