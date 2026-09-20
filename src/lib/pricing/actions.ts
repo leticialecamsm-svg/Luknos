@@ -77,6 +77,36 @@ export async function getTaxProfiles(supplierId: string | null, mirrorId: string
   return { profiles: (data ?? []) as TaxProfile[], source: 'any' as const }
 }
 
+export type ReferenceItem = {
+  id: string; descricao: string; tipo: string; uf: string; nota: string | null; date: string | null
+  icms_pct: number; fecoep_pct: number; ipi_pct: number; unit_price: number
+}
+
+// Linhas recentes do mesmo NCM para "copiar o %" como se faz na planilha.
+export async function getReferenceItems(supplierId: string | null, mirrorId: string | null, ncm: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const load = async (id: string | null) => {
+    let q = db.from('purchase_invoice_items')
+      .select('id, descricao, tipo_icms, quantidade, valor_total, valor_icms, valor_fecoep, ipi_percent, purchase_invoices!inner(pricing_supplier_id, numero_nota, data_emissao, uf_origem)')
+      .eq('ncm', ncm).gt('valor_total', 0)
+    if (id) q = q.eq('purchase_invoices.pricing_supplier_id', id)
+    const { data } = await q.order('data_emissao', { referencedTable: 'purchase_invoices', ascending: false, nullsFirst: false }).limit(10)
+    return (data ?? []) as any[]
+  }
+  let rows = supplierId ? await load(supplierId) : []
+  if (!rows.length && mirrorId) rows = await load(mirrorId)
+  if (!rows.length) rows = await load(null)
+  const items: ReferenceItem[] = rows.map(r => ({
+    id: r.id, descricao: r.descricao, tipo: String(r.tipo_icms ?? '').toUpperCase(), uf: r.purchase_invoices?.uf_origem ?? '',
+    nota: r.purchase_invoices?.numero_nota ?? null, date: r.purchase_invoices?.data_emissao ?? null,
+    icms_pct: r.valor_icms / r.valor_total, fecoep_pct: r.valor_fecoep / r.valor_total, ipi_pct: Number(r.ipi_percent),
+    unit_price: r.valor_total / r.quantidade,
+  }))
+  return { items }
+}
+
 export async function createPricingSupplier(name: string, defaultUf?: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }

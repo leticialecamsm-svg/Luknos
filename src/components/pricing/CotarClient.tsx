@@ -6,8 +6,8 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { computeQuote, effectiveValue, brl, pct, type Metric } from '@/lib/pricing/engine'
 import {
-  getTaxProfiles, saveQuote, deleteQuote, createPricingSupplier,
-  type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote,
+  getTaxProfiles, getReferenceItems, saveQuote, deleteQuote, createPricingSupplier,
+  type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote, type ReferenceItem,
 } from '@/lib/pricing/actions'
 
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
@@ -55,6 +55,8 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   const [profiles, setProfiles] = useState<TaxProfile[]>([])
   const [profileSource, setProfileSource] = useState<'own' | 'mirror' | 'any' | null>(null)
   const [activeProfile, setActiveProfile] = useState<TaxProfile | null>(null)
+  const [refs, setRefs] = useState<ReferenceItem[]>([])
+  const [activeRef, setActiveRef] = useState<string | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
   const validNcm = /^\d{8}$/.test(ncm)
@@ -79,6 +81,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   // ── perfil de imposto do fornecedor para o NCM ─────────────────────────────
   const applyProfile = (p: TaxProfile) => {
     setActiveProfile(p)
+    setActiveRef(null)
     if (p.tipo === 'ST' || p.tipo === 'ANT') setTipo(p.tipo)
     if (p.uf) setUf(p.uf)
     setIpi(p.ipi_pct != null ? fmtPct(p.ipi_pct) : '0')
@@ -87,11 +90,14 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   }
 
   useEffect(() => {
-    if (!validNcm) { setProfiles([]); setProfileSource(null); setActiveProfile(null); return }
+    if (!validNcm) { setProfiles([]); setRefs([]); setProfileSource(null); setActiveProfile(null); return }
     let cancelled = false
+    getReferenceItems(isNew ? null : supplierId || null, mirrorId || null, ncm).then(res => {
+      if (!cancelled && !('error' in res)) setRefs(res.items)
+    })
     getTaxProfiles(isNew ? null : supplierId || null, mirrorId || null, ncm).then(res => {
       if (cancelled || 'error' in res) return
-      const list = [...res.profiles].sort((a, b) => b.n - a.n)
+      const list = [...res.profiles].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? '') || b.n - a.n)
       setProfiles(list); setProfileSource(res.source)
       const best = list.find(p => p.tipo === tipo && (!uf || p.uf === uf)) ?? list[0]
       if (best) applyProfile(best)
@@ -103,6 +109,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
 
   // ao trocar ST/ANT ou UF à mão, tenta casar com um perfil existente
   useEffect(() => {
+    if (activeRef) return
     const match = profiles.find(p => p.tipo === tipo && (!uf || p.uf === uf))
     if (match && match !== activeProfile) applyProfile(match)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,6 +119,13 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     if (supplier?.default_uf && !uf) setUf(supplier.default_uf)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supplierId])
+
+  const applyRef = (r: ReferenceItem) => {
+    setActiveRef(r.id)
+    if (r.tipo === 'ST' || r.tipo === 'ANT') setTipo(r.tipo)
+    if (r.uf) setUf(r.uf)
+    setIpi(fmtPct(r.ipi_pct)); setIcms(fmtPct(r.icms_pct)); setFecoep(fmtPct(r.fecoep_pct))
+  }
 
   // ── cálculo ────────────────────────────────────────────────────────────────
   const activeMetrics = useMemo(() => [...metrics], [metrics])
@@ -281,8 +295,23 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
                     Percentuais preenchidos pelo histórico
                     {profileSource === 'mirror' && ' do fornecedor espelho'}
                     {profileSource === 'any' && ' (fornecedor sem histórico com esse NCM — usando outros fornecedores)'}
-                    {activeProfile && <> · mediana de <b>{activeProfile.n}</b> item(ns), última nota em {activeProfile.last_date ? new Date(activeProfile.last_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</>}.
+                    {activeProfile && <> · nota mais recente em {activeProfile.last_date ? new Date(activeProfile.last_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</>}.
                   </span>}
+            </div>
+          )}
+          {refs.length > 0 && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1.5">Copiar percentuais de uma linha recente (como na planilha):</p>
+              <div className="flex flex-col gap-1">
+                {refs.slice(0, 5).map(r => (
+                  <button key={r.id} onClick={() => applyRef(r)}
+                    className={cn('flex items-center justify-between gap-3 text-left text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                      activeRef === r.id ? 'bg-navy text-white border-navy' : 'bg-white border-surface-border text-gray-600 hover:border-gray-400')}>
+                    <span className="truncate">{r.descricao}</span>
+                    <span className="shrink-0 opacity-80">{r.tipo} · {r.uf || '—'} · {pct(r.icms_pct, 2)} · {r.date ? new Date(r.date + 'T00:00:00').toLocaleDateString('pt-BR') : 's/ data'}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {profiles.length > 1 && (
