@@ -12,7 +12,12 @@ import {
 
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-const parseNum = (s: string) => { const n = Number(s.replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+const parseNum = (s: string) => {
+  // com vírgula: pontos são milhar ("1.234,50"); sem vírgula: ponto é decimal ("2.5")
+  const clean = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s
+  const n = Number(clean)
+  return Number.isFinite(n) ? n : 0
+}
 const fmtPct = (f: number) => String(Math.round(f * 100000) / 1000).replace('.', ',')
 const inputCls = 'w-full px-3 py-2 bg-white border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500'
 
@@ -345,8 +350,8 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
                     </p>
                   </div>
                   <div className="relative w-28">
-                    <input className={cn(inputCls, 'text-right pr-8', modified(m) && 'border-amber-300 bg-amber-50/40')} inputMode="decimal"
-                      value={isMoney ? String(val).replace('.', ',') : fmtPct(val)} onChange={e => setMetricValue(m.key, e.target.value, m.kind)} />
+                    <MetricInput className={cn(inputCls, 'text-right pr-8', modified(m) && 'border-amber-300 bg-amber-50/40')}
+                      display={isMoney ? String(val).replace('.', ',') : fmtPct(val)} onChange={v => setMetricValue(m.key, v, m.kind)} />
                     <span className="absolute right-3 top-2 text-xs text-gray-400">{isMoney ? 'R$' : '%'}</span>
                   </div>
                   {isExtra
@@ -435,6 +440,19 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
         </div>
       </div>
     </div>
+  )
+}
+
+// Mantém o texto exatamente como digitado enquanto o campo está em foco
+// (senão "2," vira "2" e o "5" seguinte vira "25"); ao sair, mostra o valor formatado.
+function MetricInput({ display, onChange, className }: { display: string; onChange: (v: string) => void; className: string }) {
+  const [text, setText] = useState(display)
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setText(display) }, [display, focused])
+  return (
+    <input className={className} inputMode="decimal" value={text}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      onChange={e => { setText(e.target.value); onChange(e.target.value) }} />
   )
 }
 
