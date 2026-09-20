@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { syncQuoteAttachmentsToDrive } from '@/lib/google-drive'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Server Actions do módulo Robô de Orçamentos WhatsApp.
@@ -156,10 +157,11 @@ export async function getBotAttachmentSignedUrl(attachmentId: string) {
   const db = createAdminClient()
   const { data: att } = await db
     .from('wa_attachments')
-    .select('storage_path, file_name')
+    .select('storage_path, file_name, drive_web_link')
     .eq('id', attachmentId)
     .maybeSingle()
   if (!att) return { error: 'Anexo não encontrado' }
+  if (att.drive_web_link) return { url: att.drive_web_link, file_name: att.file_name }
   const { data, error } = await db.storage
     .from('wa-attachments')
     .createSignedUrl(att.storage_path, 300, { download: att.file_name })
@@ -441,4 +443,55 @@ function dedupeTags(tags: string[]): string[] {
     out.push(t)
   }
   return out
+}
+
+// ─── Google Drive ────────────────────────────────────────────────────────
+
+export async function getDriveConnection() {
+  const auth = await ensureBotAdmin()
+  if ('error' in auth) return null
+  const db = createAdminClient()
+  const [{ data: conn }, { count }] = await Promise.all([
+    db.from('google_drive_connection').select('account_email, connected_at').maybeSingle(),
+    db
+      .from('wa_attachments')
+      .select('id', { count: 'exact', head: true })
+      .not('system_quote_id', 'is', null)
+      .is('drive_file_id', null),
+  ])
+  return {
+    connected: !!conn,
+    email: conn?.account_email ?? null,
+    connected_at: conn?.connected_at ?? null,
+    pending: count ?? 0,
+  }
+}
+
+// Sincroniza (ou re-tenta) anexos ainda fora do Drive — até 15 orçamentos por clique.
+export async function syncPendingToDrive() {
+  const auth = await ensureBotAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const { data } = await db
+    .from('wa_attachments')
+    .select('system_quote_id')
+    .not('system_quote_id', 'is', null)
+    .is('drive_file_id', null)
+  const numbers = Array.from(new Set((data ?? []).map((r: any) => Number(r.system_quote_id)).filter(Number.isFinite))).slice(0, 15)
+  let synced = 0
+  let failed = 0
+  let firstError: string | null = null
+  for (const n of numbers) {
+    try {
+      const r: any = await syncQuoteAttachmentsToDrive(n)
+      synced += r.synced ?? 0
+      failed += r.failed ?? 0
+      if (r.error && !firstError) firstError = r.error
+    } catch (e: any) {
+      failed++
+      firstError ??= String(e?.message ?? e)
+    }
+  }
+  revalidatePath('/bot-config')
+  return { synced, failed, error: firstError }
 }

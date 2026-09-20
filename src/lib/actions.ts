@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 import { DEFAULT_PAYMENT_RATES, round2 } from '@/lib/payment-rates'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
+import { trashFile } from '@/lib/google-drive'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
 async function enrichOwnersAvatars(quotes: any[]) {
@@ -3667,7 +3668,7 @@ export async function getQuoteAttachments(quoteId: string) {
   if (quote?.number != null) {
     const { data } = await admin
       .from('wa_attachments')
-      .select('id, file_name, mime_type, size_bytes, detected_kind, created_at')
+      .select('id, file_name, mime_type, size_bytes, detected_kind, created_at, drive_file_id')
       .eq('system_quote_id', String(quote.number))
       .order('created_at', { ascending: true })
     robot = data ?? []
@@ -3691,6 +3692,7 @@ export async function getQuoteAttachments(quoteId: string) {
       size_bytes: a.size_bytes,
       detected_kind: a.detected_kind,
       created_at: a.created_at,
+      in_drive: !!a.drive_file_id,
     })),
   }
 }
@@ -3766,11 +3768,14 @@ export async function deleteQuoteAttachment(
   if (source === 'robot') {
     const { data: row } = await admin
       .from('wa_attachments')
-      .select('storage_path')
+      .select('storage_path, drive_file_id, storage_deleted_at')
       .eq('id', id)
       .maybeSingle()
-    if (row?.storage_path) {
+    if (row?.storage_path && !row.storage_deleted_at) {
       await admin.storage.from('wa-attachments').remove([row.storage_path])
+    }
+    if (row?.drive_file_id) {
+      await trashFile(row.drive_file_id).catch((e) => console.error('drive trash falhou', e))
     }
     const { error } = await admin.from('wa_attachments').delete().eq('id', id)
     if (error) return { error: error.message }
@@ -3810,9 +3815,16 @@ export async function getQuoteAttachmentUrl(
 
   const { data: att } = await admin
     .from(table)
-    .select('storage_path, file_name')
+    .select(source === 'robot' ? 'storage_path, file_name, drive_web_link, drive_file_id' : 'storage_path, file_name')
     .eq('id', id)
-    .maybeSingle()
+    .maybeSingle() as { data: any }
+  if (source === 'robot' && att?.drive_file_id) {
+    return {
+      url: mode === 'download'
+        ? `https://drive.google.com/uc?export=download&id=${att.drive_file_id}`
+        : att.drive_web_link,
+    }
+  }
   if (!att?.storage_path) return { error: 'Anexo não encontrado' }
 
   const opts = mode === 'download' ? { download: att.file_name } : undefined

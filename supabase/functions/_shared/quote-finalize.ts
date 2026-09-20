@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { invokeFunction, runBackground } from './internal.ts'
 import { sendWhatsappMessage } from './wa-send.ts'
+import { systemApiFetch } from './system-api.ts'
 
 // Pós-processamento comum de uma gravação de orçamento bem-sucedida.
 // Usado por submit-quote (1ª tentativa) e retry-failed-submissions (recuperação).
@@ -56,6 +57,19 @@ export async function finalizeQuoteSubmission(
     .update({ system_quote_id: systemQuoteId })
     .eq('conversation_id', opts.conversationId)
     .is('system_quote_id', null)
+
+  // Google Drive: cria a pasta do orçamento e sobe os anexos (best-effort, em
+  // segundo plano; falha fica em wa_attachments.drive_error e dá pra re-tentar
+  // pelo painel do robô).
+  if (rb.number) {
+    await runBackground(
+      systemApiFetch('/api/external/drive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quote_number: rb.number }),
+      }).catch((e) => console.error('drive-sync falhou', e)),
+    )
+  }
 
   // notificação (idempotente: uma por conversa)
   let notificationEnqueued = false

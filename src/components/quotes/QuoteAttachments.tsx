@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { cn } from '@/lib/utils'
 import {
-  Paperclip, Upload, FileText, Image as ImageIcon, Box, Trash2, Download, Eye, Loader2, Bot,
+  Paperclip, Upload, FileText, Image as ImageIcon, Box, Trash2, Download, Eye, Loader2, Bot, HardDrive,
 } from 'lucide-react'
 
 type Item = {
@@ -23,6 +23,7 @@ type Item = {
   detected_kind?: string | null
   created_at: string
   uploaded_by_name?: string | null
+  in_drive?: boolean
 }
 
 const MAX_BYTES = 25 * 1024 * 1024
@@ -200,6 +201,7 @@ export function QuoteAttachments({
                   <p className="truncate text-gray-700">{item.file_name}</p>
                   <p className="text-[10px] text-gray-400 flex items-center gap-1">
                     {item.source === 'robot' && <><Bot className="w-3 h-3" /> Robô ·</>}
+                    {item.in_drive && <><HardDrive className="w-3 h-3" /> Drive ·</>}
                     {item.uploaded_by_name && `${item.uploaded_by_name} · `}
                     {humanSize(item.size_bytes)}
                   </p>

@@ -1,16 +1,42 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Plus, X, Save, MessageSquareText } from 'lucide-react'
+import { Loader2, Plus, X, Save, MessageSquareText, HardDrive } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
-import { saveBotConfig, type BotConfigInput } from '@/lib/bot-actions'
+import { saveBotConfig, syncPendingToDrive, type BotConfigInput } from '@/lib/bot-actions'
 
 const PRIORITIES = ['Baixa', 'Média', 'Alta', 'Urgente']
 const DEFAULT_ORIGINS = ['Visita', 'WhatsApp', 'Loja', 'Indicação', 'Outro']
 const DEFAULT_CATEGORIES = ['Iluminação', 'Automação', 'Iluminação + Automação']
 
-export function BotConfigPage({ initialConfig }: { initialConfig: any | null }) {
+const DRIVE_MSG: Record<string, string> = {
+  ok: 'Google Drive conectado!',
+  denied: 'Autorização negada no Google.',
+  invalid_state: 'Sessão de autorização expirou. Tente conectar de novo.',
+  no_refresh_token: 'O Google não devolveu a permissão permanente. Tente conectar de novo.',
+  save_failed: 'Não foi possível salvar a conexão.',
+  error: 'Erro ao conectar com o Google.',
+}
+
+export function BotConfigPage({
+  initialConfig,
+  drive,
+  driveResult,
+}: {
+  initialConfig: any | null
+  drive?: { connected: boolean; email: string | null; connected_at: string | null; pending: number } | null
+  driveResult?: string | null
+}) {
   const toast = useToast()
+  const [syncing, setSyncing] = useState(false)
+
+  async function handleSyncDrive() {
+    setSyncing(true)
+    const r = await syncPendingToDrive()
+    setSyncing(false)
+    if (r.error && !r.synced) toast.error('Não foi possível sincronizar', String(r.error))
+    else toast.success('Sincronização concluída', `${r.synced ?? 0} enviado(s), ${r.failed ?? 0} com falha.`)
+  }
   const isFirstSetup = !initialConfig
 
   const [instance, setInstance] = useState(initialConfig?.evolution_instance_name ?? '')
@@ -63,6 +89,34 @@ export function BotConfigPage({ initialConfig }: { initialConfig: any | null }) 
           conectada e o endpoint do sistema estiver preenchido.
         </div>
       )}
+
+      {/* Google Drive */}
+      <section className="card p-5 space-y-3">
+        <header className="flex items-center gap-2">
+          <HardDrive className="w-4 h-4 text-brand-500" />
+          <h2 className="font-semibold text-gray-900">Google Drive</h2>
+        </header>
+        {driveResult && (
+          <p className={`text-sm ${driveResult === 'ok' ? 'text-green-700' : 'text-red-600'}`}>
+            {DRIVE_MSG[driveResult] ?? 'Retorno desconhecido.'}
+          </p>
+        )}
+        <p className="text-sm text-gray-500">
+          {drive?.connected
+            ? `Conectado${drive.email ? ` como ${drive.email}` : ''}. Os arquivos que o robô recebe vão para uma pasta do cliente dentro de ORÇAMENTOS.`
+            : 'Não conectado. Entre com a conta comercial@luknoseletrica.com.br para o robô guardar os arquivos no Drive.'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a href="/api/google/authorize" className="btn-secondary">
+            {drive?.connected ? 'Reconectar' : 'Conectar Google Drive'}
+          </a>
+          {drive?.connected && (
+            <button type="button" onClick={handleSyncDrive} disabled={syncing} className="btn-secondary">
+              {syncing ? 'Sincronizando…' : `Sincronizar pendentes (${drive.pending})`}
+            </button>
+          )}
+        </div>
+      </section>
 
       {/* Conexão WhatsApp */}
       <section className="card p-5 space-y-4">
