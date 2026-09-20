@@ -20,7 +20,7 @@ export type CourseModule = { title: string; description: string; lessons: Course
 // o texto por um resumo: as aulas foram escritas para leitura autônoma.
 export const LIGHTING_COURSE: { title: string; description: string; emoji: string; target_days: number; modules: CourseModule[] } = {
   title: 'Iluminação na prática',
-  description: 'Trilha de 2 semanas para atender, especificar e orçar iluminação com segurança.',
+  description: 'Trilha de 2 semanas: iluminação, sistema Luknos, vendas e primeiros atendimentos com segurança.',
   emoji: '💡',
   target_days: 14,
   modules: [
@@ -458,7 +458,279 @@ Faça uma proposta com três faixas para uma sala de jantar. Apresente em três 
       ],
     },
     {
-      title: '6. Masterlojista e primeiros atendimentos',
+      title: '6. Conhecendo o sistema Luknos',
+      description: 'Onde cada coisa fica e como registrar o trabalho para a equipe inteira enxergar.',
+      lessons: [
+        {
+          title: 'Primeiro acesso, menu e boas práticas', kind: 'text', duration_min: 10, xp: 15,
+          body: `OBJETIVO DA AULA
+Saber entrar, se localizar no menu e cuidar dos dados dos clientes.
+
+O menu lateral mostra as áreas do sistema. O que você enxerga depende do seu perfil: cada pessoa vê só as áreas liberadas pela liderança. Se precisar de uma tela que não aparece, peça a liberação; não peça o login de outra pessoa.
+
+ÁREAS QUE VOCÊ VAI USAR MAIS
+- Dashboard: visão geral do que está acontecendo.
+- Tarefas e Agenda: suas tarefas, prazos e compromissos da equipe.
+- Projetos: projetos de clientes e arquitetos em andamento.
+- Orçamentos: pedidos de orçamento, do recebimento à entrega da proposta.
+- Leitura de Projeto: ferramenta para medir e contar produtos direto na planta.
+- Negociações: funil de vendas, com a temperatura de cada negociação.
+- Contatos do Site: pessoas que chegaram pelo site.
+- Expedição: separação, entrega e retirada de pedidos.
+- Parceiros: arquitetos, designers e demais parceiros.
+- Treinamento: esta trilha.
+
+BOAS PRÁTICAS
+1. O login é pessoal. Tudo que você registra fica com o seu nome; isso protege você e a equipe.
+2. Dados de clientes (telefone, endereço, plantas) são confidenciais. Não envie print do sistema em grupos pessoais nem para quem não faz parte do atendimento.
+3. Registre no sistema, não só na conversa. Se ficou só no WhatsApp ou na cabeça, os colegas não enxergam e o cliente pode receber respostas diferentes.
+4. Quando a informação mudar, atualize. Um card desatualizado atrapalha a decisão de toda a equipe.
+
+NA PRÁTICA HOJE
+Entre no sistema, abra cada área do seu menu por um minuto e escreva uma frase dizendo para que serve. Se alguma tela não abrir, anote e avise a liderança.`,
+        },
+        {
+          title: 'Orçamentos: lista, prioridade e kanban', kind: 'text', duration_min: 16, xp: 20,
+          body: `OBJETIVO DA AULA
+Cadastrar e acompanhar orçamentos sem deixar nenhum parado ou esquecido.
+
+DUAS FORMAS DE VER
+A lista mostra os orçamentos em ordem de cadastro, do mais recente para o mais antigo. O botão "Ver por prioridade" agrupa por urgência. O kanban mostra colunas por etapa e permite arrastar o cartão de uma coluna para outra.
+
+AS ETAPAS (STATUS)
+- Na fila: recebido, ainda não começou.
+- Em andamento: alguém está trabalhando nele.
+- Revisão: pronto para conferência antes de enviar.
+- Elaborando nova versão: o cliente pediu mudança e o orçamento está sendo refeito.
+- Pausado: aguardando alguma informação ou decisão.
+- Concluído: entregue ao cliente.
+Mover o cartão é a forma de avisar a equipe. Arraste assim que mudar de fase, não no fim do dia.
+
+PRIORIDADE
+Baixa, Média, Alta e Urgente. A prioridade aparece em cada linha. Ela indica o que atacar primeiro; não é enfeite. Se uma prioridade parecer errada, converse com quem a definiu em vez de trocar por conta própria.
+
+CAMPOS DE UM ORÇAMENTO
+Cliente, arquiteto ou parceiro, origem (visita, WhatsApp, loja, indicação ou outra), categoria (iluminação, automação ou as duas), tamanho, prazo, valor orçado, data da solicitação, observações, pasta do Google Drive, responsável primário e colaboradores. O responsável primário responde pelo orçamento; os colaboradores ajudam.
+
+PRAZO
+Prazo vencido aparece em vermelho no cartão. Se não conseguir cumprir, avise antes de vencer e registre o motivo nas observações.
+
+BOAS PRÁTICAS
+- Preencha as observações com tudo que a próxima pessoa precisa saber.
+- Coloque plantas e arquivos na pasta do Drive do cliente e deixe o link no orçamento.
+- Uma pessoa por vez como responsável primário. Se trocar, avise.
+- Nunca exclua um orçamento sem alinhar com a liderança.
+
+NA PRÁTICA HOJE
+Crie um orçamento de treinamento com dados fictícios, mova-o por todas as etapas e volte para "Na fila". Depois peça à liderança para orientar como identificar orçamentos de teste.`,
+        },
+        {
+          title: 'Leitura de Projeto: da planta ao quantitativo', kind: 'text', duration_min: 15, xp: 20,
+          body: `OBJETIVO DA AULA
+Usar a ferramenta como apoio ao quantitativo, mantendo a conferência técnica que você aprendeu no módulo 5.
+
+A Leitura de Projeto permite abrir a planta, medir ambientes e marcar produtos direto sobre o desenho. Ela ajuda a ganhar tempo e reduzir erro de contagem, mas quem responde pelo resultado é você.
+
+O QUE A FERRAMENTA OFERECE
+- Girar a página, ajustar à tela e desfazer ou refazer ações.
+- Marcar ambientes e medidas; corrigir uma medida diretamente quando estiver errada, sem precisar medir de novo.
+- Carimbar produtos na planta e continuar carimbando o mesmo produto.
+- Duplicar itens e mesclar medições.
+- Trabalhar com perfil e fita juntos, além de fontes de 12 V posicionadas.
+- Exportar a visualização em PDF.
+
+COMO TRABALHAR
+1. Confira a escala da planta antes de medir. Medida com escala errada gera quantitativo errado.
+2. Nomeie os ambientes exatamente como na planta.
+3. Leia a legenda antes de carimbar cada produto.
+4. Ao terminar, faça a dupla conferência do módulo 5: contagem por ambiente e por código.
+5. Exporte o PDF e anexe ao orçamento, junto da revisão da planta usada.
+
+ATENÇÃO
+A ferramenta não substitui a leitura da legenda, do memorial e das fichas técnicas. Se um número parecer estranho, volte à planta.
+
+NA PRÁTICA HOJE
+Abra uma planta de treinamento, meça dois ambientes, carimbe três produtos diferentes e exporte o PDF. Compare a contagem da ferramenta com a sua contagem manual.`,
+        },
+        {
+          title: 'Negociações: temperatura, fechamento e perda', kind: 'text', duration_min: 14, xp: 20,
+          body: `OBJETIVO DA AULA
+Manter o funil de vendas real, para que a liderança decida com dados confiáveis.
+
+A tela de Negociações mostra o funil. Cada negociação tem uma temperatura, que indica a chance de fechar.
+
+TEMPERATURAS
+- Sem previsão: ainda não há sinal claro.
+- Frio: pouco interesse ou sem retorno.
+- Morno: interesse real, faltam decisões.
+- Quente: perto de fechar.
+- Venda fechada e Perdida: negociação encerrada.
+Seja honesto ao classificar. Marcar tudo como quente engana a equipe e atrapalha a previsão de vendas.
+
+ATUALIZAÇÃO
+O sistema alerta negociações com um dia ou mais sem atualização. Sempre que falar com o cliente, registre o que foi combinado e mova a temperatura, se mudou.
+
+FECHAR UMA VENDA
+Informe o valor final, a data em que a venda realmente foi fechada (não necessariamente hoje) e a forma de pagamento: PIX, cartão, dinheiro, boleto ou outra. Esses dados alimentam os relatórios e comissões; erro aqui vira erro no financeiro.
+
+REGISTRAR UMA PERDA
+Escolha o motivo: preço, concorrência, desistiu da obra, sem resposta ou outro. Os motivos mostram para a liderança onde a Luknos pode melhorar. Não esconda perdas.
+
+NA PRÁTICA HOJE
+Pegue três negociações de exemplo e classifique a temperatura de cada uma. Para cada uma, escreva qual seria o próximo contato e a data.`,
+        },
+        {
+          title: 'Tarefas, Agenda, Projetos, Expedição e Parceiros', kind: 'text', duration_min: 14, xp: 20,
+          body: `OBJETIVO DA AULA
+Entender como as outras áreas se conectam ao seu orçamento.
+
+TAREFAS E AGENDA
+Registre o que precisa ser feito com data de vencimento, prioridade e, se for grande, checklist ou subtarefas. A agenda mostra também compromissos da equipe. Conclua a tarefa no sistema quando terminar; assim ninguém repete o trabalho.
+
+PROJETOS
+Acompanha projetos de clientes e arquitetos. Consulte antes de pedir uma planta que já foi enviada.
+
+EXPEDIÇÃO
+Depois da venda, o pedido segue para separação e entrega ou retirada. Os status são: na fila, em andamento, concluída, aguardando material e entregue ou retirada. A prioridade pode ser baixa, média ou alta. Quando faltar material, o status "aguardando material" avisa todo mundo; avise também o cliente com prazo real.
+
+PARCEIROS
+Reúne arquitetos, designers, engenheiros, eletricistas e outros profissionais que trazem ou acompanham obras. Cada um tem um tipo de contato. Cadastre com cuidado e associe ao orçamento o parceiro correto. Quem define condições comerciais e comissões é a liderança; não prometa valores.
+
+CONTATOS DO SITE
+Pessoas que pediram contato pelo site. Responda rápido: o primeiro atendimento pesa muito na decisão do cliente. Registre o retorno para o contato não ser atendido duas vezes.
+
+NA PRÁTICA HOJE
+Crie uma tarefa com prazo para amanhã, marque uma prioridade e adicione um checklist de três itens. Depois conclua um item.`,
+        },
+        {
+          title: 'Teste 6: sistema Luknos', kind: 'quiz', duration_min: 10, xp: 25,
+          body: 'Confirme que você sabe registrar o trabalho no sistema do jeito que a equipe precisa.',
+          quiz_data: { passing_score: 70, questions: [
+            { prompt: 'Quando você deve mover um orçamento para outra etapa no kanban?', options: ['Assim que a fase mudar', 'Só no fim do mês', 'Nunca, o sistema faz sozinho', 'Apenas quando o cliente reclamar'], answer: 0, explanation: 'Mover o cartão avisa a equipe em tempo real sobre o andamento.' },
+            { prompt: 'Qual é a ordem padrão da lista de orçamentos?', options: ['Do mais recente cadastrado para o mais antigo', 'Do mais antigo para o mais recente', 'Alfabética por cliente', 'Sempre por valor'], answer: 0, explanation: 'A ordem padrão é por cadastro; o botão Ver por prioridade agrupa por urgência.' },
+            { prompt: 'Ao fechar uma venda, qual data você informa?', options: ['A data em que a venda realmente foi fechada', 'Sempre a data de hoje', 'A data do primeiro contato', 'A data de entrega'], answer: 0, explanation: 'A data real de fechamento mantém relatórios e comissões corretos.' },
+            { prompt: 'Uma negociação sem previsão clara de compra deve ser marcada como:', options: ['Sem previsão ou fria, conforme o caso', 'Quente, para animar a equipe', 'Venda fechada', 'Perdida sem motivo'], answer: 0, explanation: 'Classificar com honestidade permite prever vendas e priorizar esforço.' },
+            { prompt: 'A Leitura de Projeto substitui a conferência da legenda e das fichas técnicas?', options: ['Não; ela apoia a contagem, e a conferência continua sendo sua', 'Sim, em qualquer caso', 'Sim, se a planta for colorida', 'Somente para fitas'], answer: 0, explanation: 'A ferramenta ajuda a medir e contar, mas o resultado precisa ser conferido.' },
+            { prompt: 'Qual atitude é correta com dados de clientes?', options: ['Tratar como confidenciais e usar só no atendimento', 'Enviar prints em grupos pessoais', 'Compartilhar seu login para agilizar', 'Guardar só na memória'], answer: 0, explanation: 'Dados de clientes são confidenciais e o login é pessoal.' },
+          ] },
+        },
+      ],
+    },
+    {
+      title: '7. Vendas, parceiros e pós-venda',
+      description: 'Conduzir a conversa comercial, trabalhar com profissionais da obra e cuidar do cliente depois da venda.',
+      lessons: [
+        {
+          title: 'Objeções: preço, concorrência e prazo', kind: 'text', duration_min: 14, xp: 20,
+          body: `OBJETIVO DA AULA
+Responder objeções sem baixar preço por impulso e sem enganar o cliente.
+
+OBJEÇÃO NÃO É RECUSA
+Quando o cliente diz "está caro", ele quer entender se vale o valor. Pergunte antes de responder: "Caro em relação a quê? Você está comparando com uma proposta com os mesmos itens?"
+
+COMPARE COISAS IGUAIS
+Uma proposta mais barata pode ter fita sem perfil, fonte sem margem, IRC menor, garantia menor ou acessórios fora. Mostre as diferenças com calma e sem falar mal do concorrente. O que você pode dizer com segurança é o que a sua proposta inclui.
+
+DESCONTO
+Não prometa desconto que não foi aprovado. Use a política da Luknos e chame a liderança quando o cliente pedir mais. Uma alternativa melhor que descontar é ajustar a solução: menos pontos decorativos, outra linha de produto ou etapas de compra.
+
+PRAZO
+Nunca prometa prazo sem conferir estoque e prazo do fornecedor. Melhor um prazo realista do que um prazo bonito que será quebrado.
+
+CLIENTE SUMIU
+Retome com valor, não com cobrança: "Separei uma sugestão para a bancada que você comentou. Posso te mostrar?" Registre cada tentativa na negociação. Se não houver resposta após tentativas razoáveis, registre a perda com o motivo "sem resposta".
+
+NA PRÁTICA HOJE
+Treine com um colega a frase "está mais caro que o outro lugar". Faça pelo menos três perguntas antes de citar desconto.`,
+        },
+        {
+          title: 'Trabalhando com arquitetos, eletricistas e outros profissionais', kind: 'text', duration_min: 12, xp: 20,
+          body: `OBJETIVO DA AULA
+Tratar o profissional da obra como parceiro, com clareza e sem quebrar regras da empresa.
+
+QUEM PARTICIPA DA OBRA
+O sistema cadastra clientes, arquitetos, designers, engenheiros, eletricistas, gestores de gesso, carpinteiros e outros. Cada um decide ou influencia uma parte do projeto: o arquiteto define conceito e especificação; o eletricista valida a instalação; o gesseiro e o marceneiro definem recortes e espaços.
+
+COMO ATENDER
+- O projeto do arquiteto é a referência. Não troque produto especificado sem falar com ele; se o item estiver em falta, proponha equivalentes técnicos e peça aprovação.
+- Envie ao eletricista as informações organizadas (tensão, potência, driver, quantidades) e peça a validação por escrito.
+- Avise recorte, profundidade e espaço para os profissionais de gesso e marcenaria antes da compra.
+- Responda no mesmo dia, mesmo que seja para avisar que a resposta virá depois.
+
+CONDIÇÕES COMERCIAIS
+Comissão, desconto especial e condição de parceiro são definidos pela liderança. Você não promete e não compara valores entre parceiros. Se perguntarem, diga que vai confirmar e volte com a resposta.
+
+REGISTRO
+Cadastre o parceiro correto, com o tipo certo, e associe ao orçamento. Isso evita erro em comissões e mostra à liderança quem traz resultado.
+
+NA PRÁTICA HOJE
+Escreva uma mensagem para um eletricista com tudo o que ele precisa conferir em um projeto de fita LED 24 V em marcenaria.`,
+        },
+        {
+          title: 'Da venda à entrega: expedição, troca e garantia', kind: 'text', duration_min: 12, xp: 20,
+          body: `OBJETIVO DA AULA
+Acompanhar o cliente depois do fechamento e resolver problemas sem improviso.
+
+APÓS O FECHAMENTO
+1. Feche a venda no sistema com valor final, data real e forma de pagamento.
+2. Confirme com o cliente o que foi vendido, quantidades, acabamentos e prazo.
+3. Acione a expedição com todos os dados: entrega ou retirada, endereço, contato e prioridade.
+4. Se faltar material, avise o cliente com prazo real e registre.
+
+CONFERÊNCIA NA SEPARAÇÃO
+Confira código, tensão, CCT, acabamento e acessórios de cada item contra o pedido. Confira também se fonte, perfil e conectores estão junto. Erro na separação vira retrabalho, custo e cliente insatisfeito.
+
+QUANDO ALGO DÁ ERRADO
+Produto errado, faltando ou com defeito: registre o problema com fotos, descrição e número do pedido, avise a liderança e responda ao cliente rápido, com o próximo passo. Troca e garantia seguem a política da Luknos e as condições do fabricante; nunca prometa uma solução antes de confirmar.
+
+DEPOIS DA ENTREGA
+Pergunte se deu tudo certo. Um retorno simples ("ficou como você imaginava?") gera confiança, indicações e novas vendas.
+
+NA PRÁTICA HOJE
+Simule uma entrega com item faltando. Escreva a mensagem ao cliente informando o problema, o prazo previsto e o que a Luknos fará.`,
+        },
+        {
+          title: 'Automação: o básico para atender sem prometer demais', kind: 'text', duration_min: 12, xp: 20,
+          body: `OBJETIVO DA AULA
+Reconhecer quando uma venda envolve automação e conduzir a conversa com segurança.
+
+A Luknos atende iluminação, automação ou as duas. Automação inclui controle de cenas, dimerização, acionamento por aplicativo, voz, sensores e integração com outros sistemas. Ela depende da infraestrutura elétrica e do projeto.
+
+PERGUNTAS INICIAIS
+1. O que o cliente quer controlar: só luz ou também cortinas, som, ar-condicionado?
+2. A obra já está executada ou ainda dá para prever infraestrutura?
+3. Como o cliente quer acionar: interruptor, aplicativo, voz, cena única?
+4. Há internet estável e onde ficará o equipamento central?
+5. Quem instala e programa?
+
+PONTOS DE ATENÇÃO
+- Dimerização e automação exigem compatibilidade entre lâmpada, driver, dimmer e sistema.
+- Obra pronta limita opções; obra em andamento permite planejar.
+- Programação e instalação costumam ser etapas à parte. Deixe claro no orçamento o que está incluído.
+- Não prometa integração com uma marca ou aplicativo sem confirmar com a ficha técnica ou com a liderança.
+
+O QUE FAZER QUANDO NÃO SOUBER
+Registre a necessidade, marque o orçamento como categoria automação ou iluminação + automação e chame quem domina o assunto. Levar uma boa lista de requisitos já resolve metade do trabalho.
+
+NA PRÁTICA HOJE
+Monte uma lista de dez perguntas para o primeiro contato com um cliente que quer "automatizar a casa toda".`,
+        },
+        {
+          title: 'Teste 7: vendas e pós-venda', kind: 'quiz', duration_min: 10, xp: 25,
+          body: 'Teste sua postura comercial e o cuidado com o cliente.',
+          quiz_data: { passing_score: 70, questions: [
+            { prompt: 'O cliente diz que outra loja está mais barata. O primeiro passo é:', options: ['Perguntar se a proposta tem os mesmos itens e especificações', 'Baixar o preço imediatamente', 'Criticar o concorrente', 'Encerrar o atendimento'], answer: 0, explanation: 'Comparar propostas equivalentes revela diferenças de acessórios, qualidade e garantia.' },
+            { prompt: 'Você pode prometer desconto especial a um parceiro?', options: ['Não; condições são definidas pela liderança', 'Sim, sempre', 'Sim, se o cliente insistir', 'Somente por mensagem'], answer: 0, explanation: 'Descontos e comissões dependem de política e aprovação.' },
+            { prompt: 'Faltou material para a entrega. O que fazer?', options: ['Avisar o cliente com prazo real e registrar no sistema', 'Esperar o cliente cobrar', 'Prometer o prazo mais curto possível', 'Trocar por outro item sem avisar'], answer: 0, explanation: 'Transparência e registro mantêm confiança e permitem acompanhamento.' },
+            { prompt: 'Quem valida a instalação elétrica de um projeto?', options: ['O eletricista ou responsável técnico', 'O vendedor por telefone', 'O cliente sem informações', 'A embalagem do produto'], answer: 0, explanation: 'Validação elétrica é responsabilidade de profissional habilitado.' },
+            { prompt: 'Um cliente quer automatizar toda a casa e a obra já está pronta. O que é correto?', options: ['Levantar requisitos e confirmar viabilidade com quem domina o assunto', 'Prometer que tudo é possível', 'Dizer que é impossível', 'Vender qualquer dimmer'], answer: 0, explanation: 'Obra pronta limita opções; confirme antes de prometer.' },
+            { prompt: 'Após a entrega, qual atitude ajuda a construir confiança?', options: ['Perguntar se ficou como o cliente esperava', 'Nunca mais falar com o cliente', 'Cobrar indicação no mesmo dia', 'Apagar o histórico'], answer: 0, explanation: 'Acompanhar o resultado gera confiança, indicações e novas vendas.' },
+          ] },
+        },
+      ],
+    },
+    {
+      title: '8. Masterlojista e primeiros atendimentos',
       description: 'Módulo reservado para os vídeos e regras internas da Luknos.',
       lessons: [
         {
