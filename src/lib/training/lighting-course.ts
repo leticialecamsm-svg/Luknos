@@ -150,8 +150,11 @@ Normalmente é percebida como luz quente. Costuma criar sensação acolhedora e 
 4000 K
 É uma faixa neutra para muitas pessoas. Pode ser útil quando se quer boa leitura visual sem aparência muito amarela ou muito azulada. É comum em cozinhas, áreas de trabalho e circulação, mas não é uma regra obrigatória.
 
-5000 K A 6500 K
+ACIMA DE ~5300 K (5000 K A 6500 K)
 É percebida como luz fria. Pode transmitir sensação de atenção e limpeza. Use com intenção, pois em ambientes de longa permanência pode parecer desconfortável para algumas pessoas ou conflitar com acabamentos quentes.
+
+DUAS TEMPERATURAS NO MESMO AMBIENTE
+Nunca misture luz fria com luz quente no mesmo ambiente; combine quente com neutra. Uma solução pouco usada e muito boa: um perfil com duas fitas (por exemplo 3000 K e 4000 K) em comandos separados, quente à noite e neutra de dia. Isso exige duas teclas de interruptor.
 
 O QUE NÃO DIZER
 Não diga que luz fria é “mais forte” ou que luz quente “cansa os olhos”. Kelvin não mede intensidade. Clientes podem preferir outra aparência; a escolha final deve considerar uso, materiais, horário e gosto.
@@ -180,6 +183,32 @@ NA PRÁTICA HOJE
 Mostre a um colega dois fachos diferentes sobre o mesmo objeto. Sem citar graus ou produto, peça que ele descreva o efeito. Depois explique tecnicamente a diferença.`,
         },
         {
+          title: 'Quanta luz o ambiente precisa: lux, norma e fator de potência', kind: 'text', duration_min: 14, xp: 20,
+          body: `OBJETIVO DA AULA
+Entender de onde vem a quantidade de luz de um projeto e ler duas informações que aparecem na ficha técnica: fator de potência e selo Inmetro.
+
+LUX = LÚMENS POR METRO QUADRADO
+Lux é o fluxo luminoso (lúmens) que chega a cada metro quadrado. Para saber se um ambiente está bem iluminado, comparamos o lux desejado para a atividade com o que as luminárias entregam naquela área, considerando facho, altura e cores do ambiente.
+
+O QUE DIZ A NORMA
+A norma brasileira em vigor é a ABNT NBR ISO 8995-1:2013, que substituiu a antiga NBR 5413. A norma nova define níveis de iluminância por tipo de tarefa ou atividade, e não lista todos os ambientes residenciais. A tabela da NBR 5413 ainda circula como referência para residências, mas está descontinuada e não tem validade normativa. Use-a só como orientação e diga isso quando citar valores.
+
+MAIS LUMINÁRIAS NÃO É MAIS LUZ
+Quantidade de luminárias não garante boa iluminação. O que importa é o lúmen entregue, o ângulo de distribuição e o lux que chega ao plano de trabalho.
+
+FATOR DE POTÊNCIA (FP)
+Aparece na ficha técnica, numa escala de 0 a 1. Quanto maior, melhor o aproveitamento da energia. Entre uma lâmpada com FP 0,5 e outra com FP 0,8, a segunda é melhor nesse critério. Potência em watts não mede quanto a lâmpada ilumina; olhe os lúmens.
+
+SELO INMETRO
+Alguns produtos precisam do registro do Inmetro. Ao comparar fornecedores, confira se o produto exigido tem a etiqueta.
+
+OFUSCAMENTO (UGR)
+O UGR é o índice que mede o ofuscamento; a norma define um limite para cada tipo de ambiente ou atividade. Existem o ofuscamento direto (fonte no campo de visão), o indireto e o por reflexão (por exemplo, em vidro ou laca alto brilho). Você percebe o problema quando sente desconforto ao olhar.
+
+NA PRÁTICA HOJE
+Escolha uma sala de 12 m². Sem inventar valores, liste o que você precisaria confirmar (atividade, lux desejado, lúmens da luminária, altura, facho) antes de dizer que ela está bem iluminada.`,
+        },
+        {
           title: 'Teste 2: quantidade e qualidade da luz', kind: 'quiz', duration_min: 10, xp: 25,
           body: 'Aproveite o teste para confirmar que você compara produtos por critérios completos.',
           quiz_data: { passing_score: 70, questions: [
@@ -187,6 +216,7 @@ Mostre a um colega dois fachos diferentes sobre o mesmo objeto. Sem citar graus 
             { prompt: 'O que descreve melhor o lux?', options: ['Luz que chega a uma superfície', 'Cor da lâmpada', 'Tipo de soquete', 'Tempo de garantia'], answer: 0, explanation: 'Lux considera a luz incidente por área.' },
             { prompt: 'Kelvin é usado para falar principalmente sobre:', options: ['Aparência da luz branca', 'Consumo de energia', 'Tamanho do recorte', 'Proteção contra água'], answer: 0, explanation: 'Kelvin indica a temperatura de cor correlata.' },
             { prompt: 'Em qual situação o IRC merece atenção especial?', options: ['Maquiagem e roupas', 'Uma caixa fechada sem uso visual', 'Escolha de disjuntor', 'Medida de cabo'], answer: 0, explanation: 'Nesses usos, a fidelidade das cores é muito relevante.' },
+            { prompt: 'Sobre a tabela da antiga NBR 5413, o que é correto dizer?', options: ['Serve só como referência, pois foi substituída pela NBR ISO 8995-1', 'É a norma em vigor para residências', 'Define o IRC de cada lâmpada', 'Substitui a ficha técnica do fabricante'], answer: 0, explanation: 'A NBR 5413 está descontinuada; a norma em vigor é a NBR ISO 8995-1:2013.' },
             { prompt: 'Um facho mais estreito tende a:', options: ['Concentrar luz em área menor', 'Aumentar automaticamente o IRC', 'Eliminar toda sombra', 'Consumir zero energia'], answer: 0, explanation: 'Abertura menor concentra a distribuição.' },
           ] },
         },
@@ -300,7 +330,7 @@ Classifique estas unidades: V, A, W, kWh, lm, lx, K, IRC e IP. Depois explique e
           body: `OBJETIVO DA AULA
 Distinguir circuito elétrico de comando de iluminação e conversar sobre cenas sem prometer instalação.
 
-Circuito é o caminho elétrico que alimenta equipamentos e possui proteção definida no projeto. Comando é a forma como o usuário liga, desliga ou controla grupos de luz. Um ambiente pode ter vários comandos para criar cenas, mesmo quando a infraestrutura foi planejada de outro modo.
+Circuito é o caminho elétrico que alimenta equipamentos e possui proteção definida no projeto. Em geral, circuitos de iluminação são separados dos de tomadas, para que uma sobrecarga em tomadas não apague as luzes da casa. Comando é a forma como o usuário liga, desliga ou controla grupos de luz. Um ambiente pode ter vários comandos para criar cenas, mesmo quando a infraestrutura foi planejada de outro modo.
 
 EXEMPLO DE CENA
 Em uma sala, o cliente pode ter: comando A para luz geral, B para destaque de estante e C para luz indireta. Para receber visitas, acende A+B+C. Para ver TV, pode usar B ou C em intensidade menor. O valor está na flexibilidade.
