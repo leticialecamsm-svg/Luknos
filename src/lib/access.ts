@@ -67,3 +67,25 @@ export async function requireAnyPageAccess(pagePaths: string[]) {
 
   return { profile, allowedPages, roleLabel }
 }
+
+// Páginas abertas a qualquer usuário logado e ativo (ex: Treinamento — cada
+// colaborador vê só o que foi atribuído a ele, controlado pela própria página).
+export async function requireLogin() {
+  const supabase = createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) redirect('/auth/login')
+
+  const { data: profile } = await supabase.from('users').select('*').eq('id', user.id).single()
+  if (!profile) redirect('/auth/login')
+
+  const admin = createAdminClient()
+  const { data: role } = await admin.from('roles').select('label, allowed_pages').eq('name', profile.role).maybeSingle()
+  const roleLabel = role?.label ?? profile.role
+
+  if (profile.role === 'admin') return { profile, allowedPages: null as string[] | null, roleLabel }
+  const allowedPages: string[] = [
+    ...(role?.allowed_pages ?? []),
+    ...((profile.extra_pages as string[] | null) ?? []),
+  ]
+  return { profile, allowedPages, roleLabel }
+}

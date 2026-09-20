@@ -19,6 +19,7 @@ const NAV = [
   { href: '/shipping',        label: 'Expedição',   icon: Package },
   { href: '/partners',        label: 'Parceiros',   icon: Users2 },
   { href: '/metropolitano',   label: 'Metropolitano', icon: Award },
+  { href: '/treinamento',     label: 'Treinamento', icon: GraduationCap },
 ]
 const ADMIN_NAV = [
   { href: '/reports', label: 'Relatórios', icon: BarChart3 },
@@ -130,7 +131,8 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   const canAccessNav = (href: string) =>
     canAccess(href) || (href === '/dashboard/tasks' && canAccess('/schedules'))
 
-  const visibleNav = isAdmin ? NAV : NAV.filter(item => canAccessNav(item.href))
+  // Treinamento é aberto a todos os logados (cada um vê só as trilhas atribuídas)
+  const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || canAccessNav(item.href))
   const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href))
   // Papéis sem nenhuma página de operação liberada (ex: marketing puro) caem no atalho dedicado
   if (!isAdmin && visibleNav.length === 0 && visibleAdminNav.length === 0 && isMarketing) {
