@@ -23,7 +23,7 @@ export function NewTrackButton() {
 
   if (!open) return <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Nova trilha</button>
   return (
-    <div className="card p-4 w-full max-w-xl space-y-3">
+    <div className="card p-4 basis-full space-y-3">
       <div className="flex gap-3">
         <div className="w-20"><label className="label">Ícone</label><input className="input text-center" value={f.emoji} maxLength={4} onChange={e => setF({ ...f, emoji: e.target.value })} /></div>
         <div className="flex-1"><label className="label">Nome da trilha</label><input className="input" autoFocus placeholder="Ex: Estagiário projetista" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} /></div>
