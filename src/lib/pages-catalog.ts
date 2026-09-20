@@ -14,4 +14,5 @@ export const PAGE_CATALOG: { href: string; label: string }[] = [
   { href: '/finance', label: 'Financeiro' },
   { href: '/hr', label: 'RH' },
   { href: '/purchases', label: 'Notas de Entrada' },
+  { href: '/pricing', label: 'Cotação e Preços' },
 ]
