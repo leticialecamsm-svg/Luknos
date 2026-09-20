@@ -491,7 +491,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
           {result && result.priceCredit != null && (
             <>
               <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
-                <div><p className="text-xs text-gray-400">À vista</p><p className="font-semibold tabular-nums">{brl(result.priceCash)}</p></div>
+                <div><p className="text-xs text-gray-400">À vista</p><p className="font-semibold tabular-nums">{result.priceCash !== result.priceCredit ? brl(result.priceCash) : <span className="text-gray-400 text-xs font-normal">preencha o desconto à vista</span>}</p></div>
                 <div><p className="text-xs text-gray-400">Custo unitário</p><p className="font-semibold tabular-nums">{brl(result.costUnit)}</p></div>
                 <div><p className="text-xs text-gray-400">Sobra sobre o custo</p><p className="font-semibold tabular-nums">{brl(result.marginAmount)}</p></div>
                 <div><p className="text-xs text-gray-400">Fator sobre a compra</p><p className="font-semibold tabular-nums">{(result.priceCredit / (parseNum(unitPrice) || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}×</p></div>

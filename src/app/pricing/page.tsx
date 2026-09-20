@@ -9,13 +9,6 @@ export default async function Page() {
   const data = await getSuppliersOverview()
   if ('error' in data) return <p className="text-sm text-red-600">{data.error}</p>
   return (
-    <div>
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1>
-        <p className="text-sm text-gray-500">Todas as notas e produtos por fornecedor, com data de compra e as cotações feitas em cada um.</p>
-      </div>
-      <PricingNav />
-      <PrecosClient suppliers={data.suppliers} />
-    </div>
+    <PrecosClient suppliers={data.suppliers} nav={<PricingNav />} />
   )
 }

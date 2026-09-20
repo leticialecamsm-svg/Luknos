@@ -78,6 +78,9 @@ export function parseSupplierSheet(name: string, rows: Cell[][]): SheetImport {
     const ncmNum = num(r[2])
     const isItem = ncmNum !== null && String(Math.trunc(ncmNum)).length === 8 && typeof b === 'string' && b.trim() !== ''
 
+    // "Anotações" e "Cotação" ficam abaixo das notas de compra: nada dali entra
+    if (typeof b === 'string' && !isItem && /^\s*(anota[çc][õo]es?|cota[çc][ãa]o)\b/i.test(b)) break
+
     if (b instanceof Date) { pendingDate = isoDate(b); cur = null; continue }
     if (!isItem && typeof b === 'string') {
       const m = b.match(NOTA_RE)

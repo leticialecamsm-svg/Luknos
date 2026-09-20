@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl, pct } from '@/lib/pricing/engine'
+import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import {
   getSupplierSheet, getSupplierQuotes,
   type SupplierOverview, type SheetInvoice, type SavedQuote,
@@ -12,7 +13,15 @@ import {
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 'sem data')
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-export function PrecosClient({ suppliers }: { suppliers: SupplierOverview[] }) {
+function Logo({ name, size }: { name: string; size: number }) {
+  const b = supplierBrand(name)
+  return b.logo
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={b.logo} alt={name} width={size} height={size} className="rounded-md object-contain bg-white shrink-0" style={{ width: size, height: size }} />
+    : <span className="rounded-md flex items-center justify-center font-bold shrink-0" style={{ width: size, height: size, background: b.color, color: onColor(b.color), fontSize: size * 0.4 }}>{name.slice(0, 2).toUpperCase()}</span>
+}
+
+export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]; nav?: React.ReactNode }) {
   // abre no fornecedor com compra mais recente
   const initial = useMemo(() => [...suppliers].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? ''))[0]?.id ?? '', [suppliers])
   const [supplierId, setSupplierId] = useState(initial)
@@ -50,14 +59,32 @@ export function PrecosClient({ suppliers }: { suppliers: SupplierOverview[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {suppliers.map(s => (
-          <button key={s.id} onClick={() => setSupplierId(s.id)}
-            className={cn('shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
-              s.id === supplierId ? 'bg-navy text-white border-navy' : 'bg-white text-gray-600 border-surface-border hover:border-gray-400')}>
-            {s.name}
-          </button>
-        ))}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1>
+          <p className="text-sm text-gray-500">Todas as notas e produtos por fornecedor, com data de compra e as cotações feitas em cada um.</p>
+        </div>
+        {supplier && (
+          <div className="flex items-center gap-3 shrink-0 rounded-xl border bg-white px-3 py-2" style={{ borderColor: supplierBrand(supplier.name).color }}>
+            <Logo name={supplier.name} size={44} />
+            <span className="text-sm font-semibold text-gray-900">{supplier.name}</span>
+          </div>
+        )}
+      </div>
+      {nav}
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {suppliers.map(s => {
+          const b = supplierBrand(s.name)
+          const on = s.id === supplierId
+          return (
+            <button key={s.id} onClick={() => setSupplierId(s.id)}
+              className={cn('shrink-0 flex items-center gap-1.5 pl-1.5 pr-3 py-1 rounded-full text-xs font-semibold border-2 transition-colors', !on && 'bg-white text-gray-700 hover:brightness-95')}
+              style={on ? { background: b.color, borderColor: b.color, color: onColor(b.color) } : { borderColor: b.color }}>
+              <Logo name={s.name} size={20} />
+              {s.name}
+            </button>
+          )
+        })}
       </div>
 
       {supplier && (
