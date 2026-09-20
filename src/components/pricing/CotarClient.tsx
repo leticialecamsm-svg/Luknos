@@ -83,13 +83,13 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     const ownList: Sug[] = []
     const otherList: Sug[] = []
     if (fromSupplier) {
-      const have = new Set(fromSupplier.map(t => `${t.ncm}|${normText(t.name)}`))
+      const ownNcms = new Set(fromSupplier.map(t => t.ncm))
       for (const t of fromSupplier) {
         const m = test(t.name, t.ncm)
         if (m.match) ownList.push({ key: `o${t.ncm}${t.name}`, ncm: t.ncm, name: t.name, count: t.count, via: m.viaSynonym, other: false })
       }
       if (q) for (const t of productTypes) {
-        if (have.has(`${t.ncm}|${normText(t.name)}`)) continue
+        if (ownNcms.has(t.ncm)) continue // NCM que o fornecedor já compra, mesmo com outro nome, usa o histórico dele
         const m = test(t.name, t.ncm)
         if (m.match) otherList.push({ key: `x${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: true })
       }
