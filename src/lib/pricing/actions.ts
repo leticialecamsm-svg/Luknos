@@ -85,7 +85,6 @@ export async function createPricingSupplier(name: string, defaultUf?: string) {
   const { data, error } = await createAdminClient()
     .from('pricing_suppliers').insert({ name: clean, default_uf: defaultUf || null }).select('id, name, region_label, default_uf').single()
   if (error) return { error: error.code === '23505' ? 'Já existe um fornecedor com esse nome' : error.message }
-  revalidatePath('/pricing')
   return { supplier: data as PricingSupplier }
 }
 
@@ -100,7 +99,6 @@ export async function saveQuote(input: {
   const { data, error } = await createAdminClient()
     .from('pricing_quotes').insert({ ...input, created_by: auth.userId }).select('*').single()
   if (error) return { error: error.message }
-  revalidatePath('/pricing')
   return { quote: data as unknown as SavedQuote }
 }
 
@@ -109,7 +107,6 @@ export async function deleteQuote(id: string) {
   if ('error' in auth) return { error: auth.error }
   const { error } = await createAdminClient().from('pricing_quotes').delete().eq('id', id)
   if (error) return { error: error.message }
-  revalidatePath('/pricing')
   return { ok: true }
 }
 
