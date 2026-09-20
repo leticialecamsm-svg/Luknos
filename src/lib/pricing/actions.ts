@@ -90,7 +90,7 @@ export async function getReferenceItems(supplierId: string | null, mirrorId: str
   const load = async (id: string | null) => {
     let q = db.from('purchase_invoice_items')
       .select('id, descricao, tipo_icms, quantidade, valor_total, valor_icms, valor_fecoep, ipi_percent, purchase_invoices!inner(pricing_supplier_id, numero_nota, data_emissao, uf_origem)')
-      .eq('ncm', ncm).gt('valor_total', 0).limit(1000)
+      .eq('ncm', ncm).gt('valor_total', 0).or('valor_icms.gt.0,valor_fecoep.gt.0').limit(1000)
     if (id) q = q.eq('purchase_invoices.pricing_supplier_id', id)
     const { data } = await q
     return (data ?? []) as any[]
