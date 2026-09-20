@@ -1,4 +1,5 @@
 import { ImportarPlanilhaClient } from '@/components/pricing/ImportarPlanilhaClient'
+import { NotasEntradaClient } from '@/components/pricing/NotasEntradaClient'
 import { PricingNav } from '@/components/pricing/PricingNav'
 
 export const dynamic = 'force-dynamic'
@@ -9,6 +10,7 @@ export default function Page() {
     <div>
       <div className="mb-4"><h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1></div>
       <PricingNav />
+      <NotasEntradaClient />
       <ImportarPlanilhaClient />
     </div>
   )

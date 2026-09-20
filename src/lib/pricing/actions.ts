@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Metric } from './engine'
 import { typeName } from './parse-sheet'
+import { expandTerms, normText } from './synonyms'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -344,4 +345,96 @@ export async function seedProductTypes(rows: { ncm: string; name: string; count:
   if (error) return { error: error.message }
   revalidatePath('/pricing')
   return { ok: true }
+}
+
+
+// ── Comparar: o mesmo produto em vários fornecedores ─────────────────────────
+export type CompareRow = {
+  supplier_id: string; supplier: string; descricao: string; ncm: string | null; tipo_icms: string | null
+  date: string | null; nota: string | null; qty: number; custo: number | null; venda: number | null; compras: number
+}
+
+// Cada palavra digitada precisa aparecer na descrição (a 1ª também por sinônimo:
+// "fonte" acha "driver"). Vale a compra mais recente de cada descrição por fornecedor.
+export async function compareProducts(query: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const words = normText(query).split(/\s+/).filter(w => w.length >= 1)
+  if (!words.length) return { rows: [] as CompareRow[] }
+  const groups = words.map(w => (w.length >= 2 ? expandTerms(w) : [w]))
+  const first = groups[0].filter(t => /^[a-z0-9]+$/.test(t))
+  const { data, error } = await createAdminClient().from('purchase_invoice_items')
+    .select('descricao, ncm, tipo_icms, quantidade, custo_unitario, preco_credito, purchase_invoices!inner(numero_nota, data_emissao, pricing_supplier_id, on_hold, pricing_suppliers(name))')
+    .not('purchase_invoices.pricing_supplier_id', 'is', null).eq('purchase_invoices.on_hold', false)
+    .or(first.map(t => `descricao.ilike.%${t}%`).join(',')).limit(3000)
+  if (error) return { error: error.message }
+
+  const best = new Map<string, CompareRow>()
+  for (const r of (data ?? []) as any[]) {
+    const desc = normText(r.descricao ?? '')
+    if (!groups.every(g => g.some(t => desc.includes(t)))) continue
+    const inv = r.purchase_invoices
+    const key = `${inv.pricing_supplier_id}|${desc.replace(/\s+/g, ' ')}`
+    const cur = best.get(key)
+    const row: CompareRow = {
+      supplier_id: inv.pricing_supplier_id, supplier: inv.pricing_suppliers?.name ?? '—', descricao: r.descricao, ncm: r.ncm, tipo_icms: r.tipo_icms,
+      date: inv.data_emissao, nota: inv.numero_nota, qty: Number(r.quantidade), custo: r.custo_unitario != null ? Number(r.custo_unitario) : null,
+      venda: r.preco_credito != null ? Number(r.preco_credito) : null, compras: 1,
+    }
+    if (!cur) best.set(key, row)
+    else {
+      const newer = (row.date ?? '') > (cur.date ?? '')
+      best.set(key, { ...(newer ? row : cur), compras: cur.compras + 1 })
+    }
+  }
+  return { rows: Array.from(best.values()) }
+}
+
+// ── Notas de Entrada → Cotação e Preços ──────────────────────────────────────
+export type PendingNfe = {
+  id: string; numero_nota: string | null; data_emissao: string | null; fornecedor_nome: string | null; fornecedor_cnpj: string | null
+  itens: number; sem_imposto: number; total: number
+}
+
+export async function listPendingNfe() {
+  const auth = await guard(true)
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await createAdminClient().from('purchase_invoices')
+    .select('id, numero_nota, data_emissao, fornecedor_nome, fornecedor_cnpj, purchase_invoice_items(valor_total, tipo_icms, valor_icms, valor_fecoep)')
+    .eq('source', 'nfe').is('pricing_supplier_id', null).order('data_emissao', { ascending: false, nullsFirst: false }).limit(300)
+  if (error) return { error: error.message }
+  const notes: PendingNfe[] = (data ?? []).map((r: any) => {
+    const its = r.purchase_invoice_items ?? []
+    return {
+      id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, fornecedor_nome: r.fornecedor_nome, fornecedor_cnpj: r.fornecedor_cnpj,
+      itens: its.length, total: its.reduce((a: number, i: any) => a + Number(i.valor_total), 0),
+      sem_imposto: its.filter((i: any) => !i.tipo_icms || (Number(i.valor_icms) === 0 && Number(i.valor_fecoep) === 0)).length,
+    }
+  }).filter(n => n.itens > 0)
+  return { notes }
+}
+
+// Vincula notas de entrada a um fornecedor da planilha (ou cria um novo). Notas com
+// item sem imposto preenchido ficam seguradas — não viram referência de preço.
+export async function linkNfeInvoices(input: { invoiceIds: string[]; supplierId?: string; newSupplierName?: string; uf: string | null }) {
+  const auth = await guard(true)
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  let supplierId = input.supplierId
+  if (!supplierId) {
+    const name = (input.newSupplierName ?? '').trim().toUpperCase()
+    if (!name) return { error: 'Escolha o fornecedor' }
+    const { data, error } = await db.from('pricing_suppliers').upsert({ name, default_uf: input.uf }, { onConflict: 'name' }).select('id').single()
+    if (error || !data) return { error: error?.message ?? 'Falha ao criar fornecedor' }
+    supplierId = data.id as string
+  }
+  let linked = 0, held = 0
+  for (const id of input.invoiceIds) {
+    const { data: its } = await db.from('purchase_invoice_items').select('tipo_icms, valor_icms, valor_fecoep').eq('invoice_id', id)
+    const incomplete = !its?.length || its.some(i => !i.tipo_icms || (Number(i.valor_icms) === 0 && Number(i.valor_fecoep) === 0))
+    const { error } = await db.from('purchase_invoices').update({ pricing_supplier_id: supplierId, uf_origem: input.uf, on_hold: incomplete }).eq('id', id).eq('source', 'nfe')
+    if (error) return { error: error.message }
+    linked++; if (incomplete) held++
+  }
+  return { linked, held, supplierId }
 }

@@ -4,11 +4,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
-const TABS = [
+const TABS: { href: string; label: string; exact?: boolean; soon?: boolean }[] = [
   { href: '/pricing', label: 'Preços', exact: true },
   { href: '/pricing/cotar', label: 'Cotar' },
-  { href: '/pricing/comparar', label: 'Comparar', soon: true },
-  { href: '/pricing/importar', label: 'Importar planilha' },
+  { href: '/pricing/comparar', label: 'Comparar' },
+  { href: '/pricing/importar', label: 'Importar' },
 ]
 
 export function PricingNav() {
