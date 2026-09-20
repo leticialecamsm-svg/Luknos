@@ -24,7 +24,11 @@ async function guard(adminOnly = false): Promise<{ userId: string } | { error: s
 }
 
 export type PricingSupplier = { id: string; name: string; region_label: string | null; default_uf: string | null }
-export type PricingProductType = { id: string; name: string; ncm: string; group_name: string | null; sample_count: number }
+export type TypeSupplier = { name: string; count: number }
+export type PricingProductType = {
+  id: string; name: string; ncm: string; group_name: string | null; sample_count: number
+  sample: string; suppliers: TypeSupplier[]
+}
 export type TaxProfile = {
   supplier_id: string; ncm: string; tipo: string; uf: string; n: number
   icms_pct: number | null; fecoep_pct: number | null; ipi_pct: number | null; last_date: string | null
@@ -36,6 +40,34 @@ export type SavedQuote = {
   cost_unit: number; price_credit: number; price_cash: number | null; notes: string | null; created_at: string
 }
 
+// Índice de tipos/NCM em tempo real: o que cada fornecedor já vendeu, com um
+// exemplo de descrição e quantos itens cada fornecedor tem. Notas seguradas ficam fora.
+async function buildTypeIndex(): Promise<PricingProductType[]> {
+  const db = createAdminClient()
+  const idx = new Map<string, { ncm: string; name: string; count: number; sample: string; sampleDate: string; sup: Map<string, number> }>()
+  for (let from = 0; ; from += 1000) {
+    const { data } = await db.from('purchase_invoice_items')
+      .select('ncm, descricao, purchase_invoices!inner(data_emissao, on_hold, pricing_suppliers(name))')
+      .eq('purchase_invoices.on_hold', false).not('ncm', 'is', null).range(from, from + 999)
+    for (const r of (data ?? []) as any[]) {
+      const t = typeName(String(r.descricao ?? '')); if (!t) continue
+      const k = `${r.ncm}|${t}`
+      const date = r.purchase_invoices?.data_emissao ?? ''
+      const sup = r.purchase_invoices?.pricing_suppliers?.name ?? '—'
+      const cur = idx.get(k) ?? { ncm: r.ncm, name: t, count: 0, sample: '', sampleDate: '', sup: new Map<string, number>() }
+      cur.count++
+      cur.sup.set(sup, (cur.sup.get(sup) ?? 0) + 1)
+      if (!cur.sample || date > cur.sampleDate) { cur.sample = String(r.descricao).replace(/\s+/g, ' ').trim(); cur.sampleDate = date }
+      idx.set(k, cur)
+    }
+    if (!data || data.length < 1000) break
+  }
+  return Array.from(idx.entries()).map(([k, v]) => ({
+    id: k, name: v.name, ncm: v.ncm, group_name: null, sample_count: v.count, sample: v.sample,
+    suppliers: Array.from(v.sup.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+  })).filter(t => t.sample_count >= 2).sort((a, b) => b.sample_count - a.sample_count)
+}
+
 export async function getPricingBootstrap() {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
@@ -43,14 +75,14 @@ export async function getPricingBootstrap() {
   const [suppliers, metrics, types] = await Promise.all([
     db.from('pricing_suppliers').select('id, name, region_label, default_uf').eq('is_active', true).order('name'),
     db.from('pricing_metrics').select('key, label, kind, default_value, value_by_tipo, sort_order').eq('is_active', true).order('sort_order'),
-    db.from('pricing_product_types').select('id, name, ncm, group_name, sample_count').order('sample_count', { ascending: false }),
+    buildTypeIndex(),
   ])
   return {
     suppliers: (suppliers.data ?? []) as PricingSupplier[],
     metrics: (metrics.data ?? []).map((m: any) => ({
       key: m.key, label: m.label, kind: m.kind, value: Number(m.default_value), value_by_tipo: m.value_by_tipo,
     })) as Metric[],
-    productTypes: (types.data ?? []) as PricingProductType[],
+    productTypes: types,
   }
 }
 
@@ -90,7 +122,7 @@ export async function getReferenceItems(supplierId: string | null, mirrorId: str
   const load = async (id: string | null) => {
     let q = db.from('purchase_invoice_items')
       .select('id, descricao, tipo_icms, quantidade, valor_total, valor_icms, valor_fecoep, ipi_percent, purchase_invoices!inner(pricing_supplier_id, numero_nota, data_emissao, uf_origem)')
-      .eq('ncm', ncm).gt('valor_total', 0).or('valor_icms.gt.0,valor_fecoep.gt.0').limit(1000)
+      .eq('ncm', ncm).eq('purchase_invoices.on_hold', false).gt('valor_total', 0).or('valor_icms.gt.0,valor_fecoep.gt.0').limit(1000)
     if (id) q = q.eq('purchase_invoices.pricing_supplier_id', id)
     const { data } = await q
     return (data ?? []) as any[]
@@ -119,7 +151,7 @@ export async function getReferenceItems(supplierId: string | null, mirrorId: str
   return { items }
 }
 
-export type SupplierType = { ncm: string; name: string; count: number }
+export type SupplierType = { ncm: string; name: string; count: number; sample: string; last_date: string | null; nota: string | null }
 
 // Tipos (e o NCM de cada um) que ESTE fornecedor já vendeu — o nome é o que
 // aparece nas notas dele, então "Driver" no fornecedor A e "Fonte" no B ficam separados.
@@ -130,16 +162,22 @@ export async function getSupplierTypes(supplierId: string) {
   const counts = new Map<string, SupplierType>()
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db.from('purchase_invoice_items')
-      .select('ncm, descricao, purchase_invoices!inner(pricing_supplier_id)')
-      .eq('purchase_invoices.pricing_supplier_id', supplierId).not('ncm', 'is', null)
+      .select('ncm, descricao, purchase_invoices!inner(pricing_supplier_id, on_hold, data_emissao, numero_nota)')
+      .eq('purchase_invoices.pricing_supplier_id', supplierId).eq('purchase_invoices.on_hold', false).not('ncm', 'is', null)
       .range(from, from + 999)
     if (error) return { error: error.message }
     for (const r of data ?? []) {
       const t = typeName(String((r as any).descricao ?? ''))
       if (!t) continue
       const k = `${(r as any).ncm}|${t}`
+      const inv = (r as any).purchase_invoices
+      const date: string | null = inv?.data_emissao ?? null
       const cur = counts.get(k)
-      if (cur) cur.count++; else counts.set(k, { ncm: (r as any).ncm, name: t, count: 1 })
+      if (!cur) counts.set(k, { ncm: (r as any).ncm, name: t, count: 1, sample: String((r as any).descricao).replace(/\s+/g, ' ').trim(), last_date: date, nota: inv?.numero_nota ?? null })
+      else {
+        cur.count++
+        if (date && (!cur.last_date || date > cur.last_date)) { cur.last_date = date; cur.nota = inv?.numero_nota ?? null; cur.sample = String((r as any).descricao).replace(/\s+/g, ' ').trim() }
+      }
     }
     if (!data || data.length < 1000) break
   }
@@ -198,18 +236,18 @@ export type SheetItem = {
   id: string; quantidade: number; descricao: string; ncm: string | null; valor_total: number; tipo_icms: string | null
   ipi_percent: number; valor_icms: number; valor_fecoep: number; custo_unitario: number | null; preco_credito: number | null
 }
-export type SheetInvoice = { id: string; numero_nota: string | null; data_emissao: string | null; uf_origem: string | null; source: string; items: SheetItem[] }
+export type SheetInvoice = { id: string; numero_nota: string | null; data_emissao: string | null; uf_origem: string | null; source: string; on_hold: boolean; items: SheetItem[] }
 
 // A "aba" de um fornecedor: notas por data, cada uma com seus itens.
 export async function getSupplierSheet(supplierId: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const { data, error } = await createAdminClient().from('purchase_invoices')
-    .select('id, numero_nota, data_emissao, uf_origem, source, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito)')
+    .select('id, numero_nota, data_emissao, uf_origem, source, on_hold, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito)')
     .eq('pricing_supplier_id', supplierId).order('data_emissao', { ascending: false, nullsFirst: false })
   if (error) return { error: error.message }
   const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
-    id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source,
+    id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source, on_hold: !!r.on_hold,
     items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item),
   }))
   return { invoices }
@@ -281,12 +319,16 @@ export async function importSupplierSheet(input: {
       chave_nfe: chave, numero_nota: inv.numero_nota, fornecedor_nome: input.supplier, data_emissao: inv.data_emissao,
       comissao: inv.comissao, lucro: inv.lucro, maquininha: inv.maquininha,
       pricing_supplier_id: sup.id, uf_origem: inv.uf, source: 'planilha',
-    }, { onConflict: 'chave_nfe' }).select('id').single()
+    }, { onConflict: 'chave_nfe' }).select('id, on_hold').single()
     if (error || !row) return { error: `Nota ${inv.numero_nota}: ${error?.message}` }
     await db.from('purchase_invoice_items').delete().eq('invoice_id', row.id)
     if (inv.items.length) {
       const { error: itemErr } = await db.from('purchase_invoice_items').insert(inv.items.map(i => ({ ...i, invoice_id: row.id })))
       if (itemErr) return { error: `Nota ${inv.numero_nota}: ${itemErr.message}` }
+    }
+    // nota segurada volta a valer sozinha quando a planilha passa a trazer todos os impostos
+    if (row.on_hold && inv.items.length && inv.items.every(i => i.tipo_icms && (i.valor_icms > 0 || i.valor_fecoep > 0))) {
+      await db.from('purchase_invoices').update({ on_hold: false }).eq('id', row.id)
     }
     invoices++; items += inv.items.length
   }

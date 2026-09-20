@@ -70,7 +70,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
 
   // ── sugestões de tipo / NCM ────────────────────────────────────────────────
   // Só os tipos/NCMs que o fornecedor escolhido já vendeu; "outros" vêm dos demais (exigem espelho).
-  type Sug = { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean }
+  type Sug = { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean; sample: string; last: string | null; nota: string | null; suppliers: { name: string; count: number }[] }
   const { own, others } = useMemo(() => {
     const q = typeQuery.trim()
     const digits = q.replace(/\D/g, '')
@@ -85,17 +85,17 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
       const ownNcms = new Set(fromSupplier.map(t => t.ncm))
       for (const t of fromSupplier) {
         const m = test(t.name, t.ncm)
-        if (m.match) ownList.push({ key: `o${t.ncm}${t.name}`, ncm: t.ncm, name: t.name, count: t.count, via: m.viaSynonym, other: false })
+        if (m.match) ownList.push({ key: `o${t.ncm}${t.name}`, ncm: t.ncm, name: t.name, count: t.count, via: m.viaSynonym, other: false, sample: t.sample, last: t.last_date, nota: t.nota, suppliers: [] })
       }
       if (q) for (const t of productTypes) {
         if (ownNcms.has(t.ncm)) continue // NCM que o fornecedor já compra, mesmo com outro nome, usa o histórico dele
         const m = test(t.name, t.ncm)
-        if (m.match) otherList.push({ key: `x${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: true })
+        if (m.match) otherList.push({ key: `x${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: true, sample: t.sample, last: null, nota: null, suppliers: t.suppliers })
       }
     } else {
       for (const t of productTypes) {
         const m = q ? test(t.name, t.ncm) : { match: true, viaSynonym: false }
-        if (m.match) ownList.push({ key: `g${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: false })
+        if (m.match) ownList.push({ key: `g${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: false, sample: t.sample, last: null, nota: null, suppliers: t.suppliers })
       }
     }
     return { own: ownList.slice(0, 8), others: otherList.slice(0, 6) }
@@ -532,14 +532,19 @@ function MetricInput({ display, onChange, className }: { display: string; onChan
 }
 
 function SugRow({ t, query, supplierName, onPick }: {
-  t: { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean }
+  t: { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean; sample: string; last: string | null; nota: string | null; suppliers: { name: string; count: number }[] }
   query: string; supplierName?: string; onPick: (t: { name: string; ncm: string }) => void
 }) {
+  const origin = t.other || t.suppliers.length > 0
+    ? `Comprado em: ${t.suppliers.slice(0, 4).map(x => `${x.name} (${x.count})`).join(', ')}${t.suppliers.length > 4 ? '…' : ''}`
+    : t.last ? `Última compra ${new Date(t.last + 'T00:00:00').toLocaleDateString('pt-BR')}${t.nota ? ` · nota ${t.nota}` : ''}` : ''
   return (
     <button onMouseDown={() => onPick(t)}
-      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm rounded-lg hover:bg-surface-secondary text-left">
+      className="w-full flex items-start justify-between gap-4 px-3 py-2 text-sm rounded-lg hover:bg-surface-secondary text-left">
       <span className="min-w-0">
         <span className="font-medium text-gray-800">{t.name}</span>
+        <span className="block text-xs text-gray-600 truncate">{t.sample}</span>
+        {origin && <span className="block text-[11px] text-gray-400 truncate">{origin}</span>}
         {t.via && (
           <span className="block text-[11px] text-brand-700">
             {t.other ? `Outros fornecedores chamam de “${t.name}”` : `${supplierName ?? 'Este fornecedor'} chama “${query.trim()}” de “${t.name}”`}

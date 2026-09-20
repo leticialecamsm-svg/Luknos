@@ -113,6 +113,7 @@ export function PrecosClient({ suppliers }: { suppliers: SupplierOverview[] }) {
                               {fmtDate(inv.data_emissao)}
                               <span className="font-normal text-gray-500">· Nota {inv.numero_nota ?? '—'}{inv.uf_origem ? ` (${inv.uf_origem})` : ''}</span>
                               <span className="font-normal text-gray-400">· {inv.items.length} {inv.items.length === 1 ? 'item' : 'itens'} · {brl(total)}</span>
+                              {inv.on_hold && <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">Aguardando preenchimento — fora das referências</span>}
                             </span>
                           </td>
                         </tr>
