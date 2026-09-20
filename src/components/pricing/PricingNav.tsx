@@ -5,8 +5,8 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { href: '/pricing', label: 'Cotar', exact: true },
-  { href: '/pricing/precos', label: 'Preços', soon: true },
+  { href: '/pricing', label: 'Preços', exact: true },
+  { href: '/pricing/cotar', label: 'Cotar' },
   { href: '/pricing/comparar', label: 'Comparar', soon: true },
   { href: '/pricing/importar', label: 'Importar planilha' },
 ]

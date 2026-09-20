@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { matchType, normText } from '@/lib/pricing/synonyms'
 import { computeQuote, effectiveValue, brl, pct, type Metric } from '@/lib/pricing/engine'
 import {
-  getTaxProfiles, getReferenceItems, getSupplierTypes, getNcmSuppliers, saveQuote, deleteQuote, createPricingSupplier,
+  getTaxProfiles, getReferenceItems, getSupplierQuotes, getSupplierTypes, getNcmSuppliers, saveQuote, deleteQuote, createPricingSupplier,
   type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote, type ReferenceItem, type SupplierType,
 } from '@/lib/pricing/actions'
 
@@ -26,14 +26,13 @@ type Props = {
   suppliers: PricingSupplier[]
   metrics: Metric[]
   productTypes: PricingProductType[]
-  quotes: SavedQuote[]
 }
 
-export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes, quotes: initialQuotes }: Props) {
+export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes }: Props) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [suppliers, setSuppliers] = useState(initialSuppliers)
-  const [quotes, setQuotes] = useState(initialQuotes)
+  const [quotes, setQuotes] = useState<SavedQuote[]>([])
 
   const [supplierId, setSupplierId] = useState('')
   const [newName, setNewName] = useState('')
@@ -125,20 +124,34 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   useEffect(() => {
     if (!validNcm) { setProfiles([]); setRefs([]); setProfileSource(null); setActiveProfile(null); return }
     let cancelled = false
-    getReferenceItems(isNew ? null : supplierId || null, mirrorId || null, ncm).then(res => {
-      if (!cancelled && !('error' in res)) setRefs(res.items)
-    })
-    getTaxProfiles(isNew ? null : supplierId || null, mirrorId || null, ncm).then(res => {
-      if (cancelled || 'error' in res) return
-      const list = [...res.profiles].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? '') || b.n - a.n)
-      setProfiles(list); setProfileSource(res.source)
-      const best = list.find(p => p.tipo === tipo && (!uf || p.uf === uf)) ?? list[0]
-      if (best) applyProfile(best)
-      else setActiveProfile(null)
+    // Preenche sozinho com a compra mais recente; as outras referências ficam só para trocar.
+    Promise.all([
+      getReferenceItems(isNew ? null : supplierId || null, mirrorId || null, ncm),
+      getTaxProfiles(isNew ? null : supplierId || null, mirrorId || null, ncm),
+    ]).then(([refRes, profRes]) => {
+      if (cancelled) return
+      const items = 'error' in refRes ? [] : refRes.items
+      setRefs(items)
+      if (!('error' in profRes)) {
+        const list = [...profRes.profiles].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? '') || b.n - a.n)
+        setProfiles(list); setProfileSource(profRes.source)
+        if (!items.length) {
+          const best = list.find(p => p.tipo === tipo && (!uf || p.uf === uf)) ?? list[0]
+          if (best) applyProfile(best); else setActiveProfile(null)
+        }
+      }
+      if (items.length) applyRef(items[0])
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ncm, supplierId, mirrorId, isNew])
+
+  useEffect(() => {
+    if (!supplierId || isNew) { setQuotes([]); return }
+    let cancelled = false
+    getSupplierQuotes(supplierId, 5).then(res => { if (!cancelled && !('error' in res)) setQuotes(res.quotes) })
+    return () => { cancelled = true }
+  }, [supplierId, isNew])
 
   // ao trocar ST/ANT ou UF à mão, tenta casar com um perfil existente
   useEffect(() => {
@@ -224,7 +237,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
         cost_unit: result.costUnit, price_credit: result.priceCredit!, price_cash: result.priceCash, notes: notes || undefined,
       })
       if ('error' in res) return toast.error('Erro ao salvar a cotação', res.error)
-      setQuotes(prev => [res.quote, ...prev])
+      setQuotes(prev => [res.quote, ...prev].slice(0, 5))
       toast.success(`Cotação #${res.quote.number} salva`)
     })
   }
@@ -355,13 +368,13 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
           )}
           {refs.length > 0 && (
             <div>
-              <p className="text-xs text-gray-500 mb-1.5">Copiar percentuais de uma linha recente (como na planilha):</p>
+              <p className="text-xs text-gray-500 mb-1.5">Já preenchido com a compra mais recente. Se preferir outra referência, clique nela:</p>
               <div className="flex flex-col gap-1">
-                {refs.slice(0, 5).map(r => (
+                {refs.slice(0, 3).map(r => (
                   <button key={r.id} onClick={() => applyRef(r)}
                     className={cn('flex items-center justify-between gap-3 text-left text-xs px-3 py-1.5 rounded-lg border transition-colors',
                       activeRef === r.id ? 'bg-navy text-white border-navy' : 'bg-white border-surface-border text-gray-600 hover:border-gray-400')}>
-                    <span className="truncate">{r.descricao}</span>
+                    <span className="truncate">{activeRef === r.id && '✓ '}{r.descricao}</span>
                     <span className="shrink-0 opacity-80">{r.tipo} · {r.uf || '—'} · {pct(r.icms_pct, 2)} · {r.date ? new Date(r.date + 'T00:00:00').toLocaleDateString('pt-BR') : 's/ data'}</span>
                   </button>
                 ))}
@@ -437,9 +450,9 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
 
         {/* histórico */}
         <div className="card overflow-hidden">
-          <div className="px-5 py-3 border-b border-surface-border"><h2 className="text-sm font-semibold text-gray-800">Cotações salvas</h2></div>
+          <div className="px-5 py-3 border-b border-surface-border"><h2 className="text-sm font-semibold text-gray-800">{supplier ? `Últimas cotações de ${supplier.name}` : 'Últimas cotações do fornecedor'}</h2></div>
           {quotes.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-gray-400 text-center">Nenhuma cotação salva ainda. Monte uma acima e clique em Salvar.</p>
+            <p className="px-5 py-8 text-sm text-gray-400 text-center">{supplier ? 'Nenhuma cotação salva para este fornecedor ainda.' : 'Escolha um fornecedor para ver as cotações dele.'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

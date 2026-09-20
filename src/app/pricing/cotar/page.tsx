@@ -1,21 +1,21 @@
-import { getSuppliersOverview } from '@/lib/pricing/actions'
-import { PrecosClient } from '@/components/pricing/PrecosClient'
+import { getPricingBootstrap } from '@/lib/pricing/actions'
+import { CotarClient } from '@/components/pricing/CotarClient'
 import { PricingNav } from '@/components/pricing/PricingNav'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Cotação e Preços — Luknos' }
 
 export default async function Page() {
-  const data = await getSuppliersOverview()
+  const data = await getPricingBootstrap()
   if ('error' in data) return <p className="text-sm text-red-600">{data.error}</p>
   return (
     <div>
       <div className="mb-4">
         <h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1>
-        <p className="text-sm text-gray-500">Todas as notas e produtos por fornecedor, com data de compra e as cotações feitas em cada um.</p>
+        <p className="text-sm text-gray-500">Escolha o fornecedor e o produto, informe o valor de compra e veja o preço de venda com todas as margens.</p>
       </div>
       <PricingNav />
-      <PrecosClient suppliers={data.suppliers} />
+      <CotarClient suppliers={data.suppliers} metrics={data.metrics} productTypes={data.productTypes} />
     </div>
   )
 }

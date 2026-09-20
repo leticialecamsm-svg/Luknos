@@ -40,11 +40,10 @@ export async function getPricingBootstrap() {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const db = createAdminClient()
-  const [suppliers, metrics, types, quotes] = await Promise.all([
+  const [suppliers, metrics, types] = await Promise.all([
     db.from('pricing_suppliers').select('id, name, region_label, default_uf').eq('is_active', true).order('name'),
     db.from('pricing_metrics').select('key, label, kind, default_value, value_by_tipo, sort_order').eq('is_active', true).order('sort_order'),
     db.from('pricing_product_types').select('id, name, ncm, group_name, sample_count').order('sample_count', { ascending: false }),
-    db.from('pricing_quotes').select('*').order('created_at', { ascending: false }).limit(50),
   ])
   return {
     suppliers: (suppliers.data ?? []) as PricingSupplier[],
@@ -52,7 +51,6 @@ export async function getPricingBootstrap() {
       key: m.key, label: m.label, kind: m.kind, value: Number(m.default_value), value_by_tipo: m.value_by_tipo,
     })) as Metric[],
     productTypes: (types.data ?? []) as PricingProductType[],
-    quotes: (quotes.data ?? []) as unknown as SavedQuote[],
   }
 }
 
@@ -83,28 +81,41 @@ export type ReferenceItem = {
   icms_pct: number; fecoep_pct: number; ipi_pct: number; unit_price: number
 }
 
-// Linhas recentes do mesmo NCM para "copiar o %" como se faz na planilha.
-export async function getReferenceItems(supplierId: string | null, mirrorId: string | null, ncm: string) {
+// Últimas referências do NCM (mais recente primeiro) para preencher e permitir trocar.
+// Junta linhas que repetem a mesma nota/tipo/percentual pra lista ser informativa.
+export async function getReferenceItems(supplierId: string | null, mirrorId: string | null, ncm: string, limit = 3) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const db = createAdminClient()
   const load = async (id: string | null) => {
     let q = db.from('purchase_invoice_items')
       .select('id, descricao, tipo_icms, quantidade, valor_total, valor_icms, valor_fecoep, ipi_percent, purchase_invoices!inner(pricing_supplier_id, numero_nota, data_emissao, uf_origem)')
-      .eq('ncm', ncm).gt('valor_total', 0)
+      .eq('ncm', ncm).gt('valor_total', 0).limit(1000)
     if (id) q = q.eq('purchase_invoices.pricing_supplier_id', id)
-    const { data } = await q.order('data_emissao', { referencedTable: 'purchase_invoices', ascending: false, nullsFirst: false }).limit(10)
+    const { data } = await q
     return (data ?? []) as any[]
   }
   let rows = supplierId ? await load(supplierId) : []
   if (!rows.length && mirrorId) rows = await load(mirrorId)
   if (!rows.length) rows = await load(null)
-  const items: ReferenceItem[] = rows.map(r => ({
-    id: r.id, descricao: r.descricao, tipo: String(r.tipo_icms ?? '').toUpperCase(), uf: r.purchase_invoices?.uf_origem ?? '',
-    nota: r.purchase_invoices?.numero_nota ?? null, date: r.purchase_invoices?.data_emissao ?? null,
-    icms_pct: r.valor_icms / r.valor_total, fecoep_pct: r.valor_fecoep / r.valor_total, ipi_pct: Number(r.ipi_percent),
-    unit_price: r.valor_total / r.quantidade,
-  }))
+
+  rows.sort((a, b) => String(b.purchase_invoices?.data_emissao ?? '').localeCompare(String(a.purchase_invoices?.data_emissao ?? '')))
+  const seen = new Set<string>()
+  const items: ReferenceItem[] = []
+  for (const r of rows) {
+    const inv = r.purchase_invoices
+    const icms = r.valor_icms / r.valor_total
+    const key = `${inv?.data_emissao}|${inv?.numero_nota}|${String(r.tipo_icms ?? '').toUpperCase()}|${Math.round(icms * 10000)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    items.push({
+      id: r.id, descricao: r.descricao, tipo: String(r.tipo_icms ?? '').toUpperCase(), uf: inv?.uf_origem ?? '',
+      nota: inv?.numero_nota ?? null, date: inv?.data_emissao ?? null,
+      icms_pct: icms, fecoep_pct: r.valor_fecoep / r.valor_total, ipi_pct: Number(r.ipi_percent),
+      unit_price: r.valor_total / r.quantidade,
+    })
+    if (items.length >= limit) break
+  }
   return { items }
 }
 
@@ -153,6 +164,55 @@ export async function getNcmSuppliers(ncm: string) {
   const { data: sups } = await db.from('pricing_suppliers').select('id, name').in('id', ids)
   const list = (sups ?? []).map(s => ({ id: s.id, name: s.name, ...agg.get(s.id)! })).sort((a, b) => b.n - a.n)
   return { suppliers: list }
+}
+
+export async function getSupplierQuotes(supplierId: string, limit = 5) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const { data } = await createAdminClient().from('pricing_quotes').select('*')
+    .eq('supplier_id', supplierId).order('created_at', { ascending: false }).limit(limit)
+  return { quotes: (data ?? []) as unknown as SavedQuote[] }
+}
+
+export type SupplierOverview = { id: string; name: string; default_uf: string | null; notas: number; itens: number; last_date: string | null }
+
+export async function getSuppliersOverview() {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const { data: sups } = await db.from('pricing_suppliers').select('id, name, default_uf').eq('is_active', true).order('name')
+  const { data: inv } = await db.from('purchase_invoices').select('pricing_supplier_id, data_emissao, purchase_invoice_items(count)').not('pricing_supplier_id', 'is', null).limit(5000)
+  const agg = new Map<string, { notas: number; itens: number; last: string | null }>()
+  for (const r of (inv ?? []) as any[]) {
+    const cur = agg.get(r.pricing_supplier_id) ?? { notas: 0, itens: 0, last: null }
+    cur.notas++; cur.itens += r.purchase_invoice_items?.[0]?.count ?? 0
+    if (r.data_emissao && (!cur.last || r.data_emissao > cur.last)) cur.last = r.data_emissao
+    agg.set(r.pricing_supplier_id, cur)
+  }
+  const list: SupplierOverview[] = (sups ?? []).map(s => ({ ...s, ...(agg.get(s.id) ?? { notas: 0, itens: 0, last: null }), last_date: agg.get(s.id)?.last ?? null }))
+    .map(({ last, ...rest }: any) => rest)
+  return { suppliers: list }
+}
+
+export type SheetItem = {
+  id: string; quantidade: number; descricao: string; ncm: string | null; valor_total: number; tipo_icms: string | null
+  ipi_percent: number; valor_icms: number; valor_fecoep: number; custo_unitario: number | null; preco_credito: number | null
+}
+export type SheetInvoice = { id: string; numero_nota: string | null; data_emissao: string | null; uf_origem: string | null; source: string; items: SheetItem[] }
+
+// A "aba" de um fornecedor: notas por data, cada uma com seus itens.
+export async function getSupplierSheet(supplierId: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await createAdminClient().from('purchase_invoices')
+    .select('id, numero_nota, data_emissao, uf_origem, source, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito)')
+    .eq('pricing_supplier_id', supplierId).order('data_emissao', { ascending: false, nullsFirst: false })
+  if (error) return { error: error.message }
+  const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
+    id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source,
+    items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item),
+  }))
+  return { invoices }
 }
 
 export async function createPricingSupplier(name: string, defaultUf?: string) {
