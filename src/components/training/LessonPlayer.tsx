@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Check, ExternalLink, Zap, Undo2 } from 'lucide-react'
-import { setLessonDone, type LessonView, type CompleteResult } from '@/lib/training/actions'
+import { setLessonDone, submitQuiz, type LessonView, type CompleteResult, type QuizResult } from '@/lib/training/actions'
 import { useToast } from '@/components/ui/Toast'
 import { KIND_ICON, fmtMin } from './ui'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,8 @@ export function LessonPlayer({ view }: { view: LessonView }) {
   const [pending, start] = useTransition()
   const [done, setDone] = useState(view.done)
   const [result, setResult] = useState<CompleteResult | null>(null)
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({})
+  const [quizResult, setQuizResult] = useState<QuizResult | null>(null)
   const l = view.lesson
   const Icon = KIND_ICON[l.kind] ?? KIND_ICON.text
   const backHref = `/treinamento/${view.trackId}`
@@ -34,6 +36,19 @@ export function LessonPlayer({ view }: { view: LessonView }) {
       const res = await setLessonDone(l.id, false)
       if (res.error) return toast.error('Não foi possível desfazer', res.error)
       setDone(false); setResult(null); router.refresh()
+    })
+  }
+
+  function sendQuiz() {
+    start(async () => {
+      const res = await submitQuiz(l.id, quizAnswers)
+      if (res.error) return toast.error('Não foi possível enviar o teste', res.error)
+      setQuizResult(res)
+      if (res.passed) {
+        setDone(true)
+        setResult(res.complete ?? { xpGained: l.xp })
+        toast.success(`Teste aprovado com ${res.score}%`)
+      }
     })
   }
 
@@ -91,15 +106,44 @@ export function LessonPlayer({ view }: { view: LessonView }) {
             {l.body}
           </div>
         )}
+
+        {view.quiz && (
+          <div className="p-6 space-y-7">
+            <p className="text-sm text-gray-600">Você precisa acertar pelo menos {view.quiz.passScore}% para concluir. Sua melhor nota até agora: {view.quiz.bestScore ?? 'ainda não há tentativa'}.</p>
+            {view.quiz.questions.map((question, qi) => (
+              <fieldset key={question.id} className="space-y-3">
+                <legend className="font-medium text-gray-900">{qi + 1}. {question.question}</legend>
+                <div className="grid gap-2">
+                  {question.options.map((option, oi) => (
+                    <label key={oi} className="flex items-start gap-3 rounded-xl border border-surface-border px-3 py-2.5 cursor-pointer hover:bg-surface-secondary">
+                      <input type="radio" name={`quiz-${l.id}-${question.id}`} value={oi} checked={quizAnswers[question.id] === oi}
+                        onChange={() => setQuizAnswers(prev => ({ ...prev, [question.id]: oi }))}
+                        disabled={pending || done} className="mt-0.5" />
+                      <span className="text-sm text-gray-700">{option}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            {!done && <button onClick={sendQuiz} disabled={pending || Object.keys(quizAnswers).length !== view.quiz.questions.length} className="btn-primary">Enviar respostas</button>}
+            {quizResult && (
+              <div className={cn('rounded-card border p-4 text-sm', quizResult.passed ? 'bg-green-50 border-green-200 text-green-900' : 'bg-amber-50 border-amber-200 text-amber-900')}>
+                <p className="font-semibold">{quizResult.passed ? 'Teste aprovado!' : 'Ainda não atingiu a nota mínima.'} {quizResult.score}% - {quizResult.correct} de {quizResult.total} acertos.</p>
+                {!quizResult.passed && <p className="mt-1">A nota mínima é {view.quiz.passScore}%. Revise a aula e tente novamente.</p>}
+                {!!quizResult.review?.length && <div className="mt-3 space-y-2 text-gray-700">{quizResult.review.map((item, index) => <p key={item.questionId}>{item.right ? '✓' : '•'} Questão {index + 1}: {item.explanation ?? (item.right ? 'Correta.' : 'Revise este ponto da aula.')}</p>)}</div>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Ações */}
       <div className="flex flex-wrap items-center gap-3">
-        {!done ? (
+        {!done && !view.quiz ? (
           <button onClick={complete} disabled={pending} className="btn-primary">
             <Check className="w-4 h-4" /> Concluir aula (+{l.xp} XP)
           </button>
-        ) : (
+        ) : done ? (
           <>
             <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-700 bg-green-50 rounded-pill px-4 py-2">
               <Check className="w-4 h-4" /> Aula concluída
@@ -109,7 +153,7 @@ export function LessonPlayer({ view }: { view: LessonView }) {
             </Link>
             <button onClick={undo} disabled={pending} className="btn-ghost"><Undo2 className="w-3.5 h-3.5" /> Desfazer</button>
           </>
-        )}
+        ) : null}
         {view.prevId && <Link href={`/treinamento/${view.trackId}/aula/${view.prevId}`} className="btn-ghost ml-auto"><ArrowLeft className="w-3.5 h-3.5" /> Anterior</Link>}
       </div>
 

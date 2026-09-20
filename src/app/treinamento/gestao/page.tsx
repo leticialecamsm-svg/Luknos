@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, Flame, Layers, Users, GraduationCap } from 'lucide-react'
+import { ArrowLeft, Flame, Layers, Users, GraduationCap, Eye } from 'lucide-react'
 import { listAdminTracks, getTeamOverview } from '@/lib/training/actions'
 import { NewTrackButton } from '@/components/training/NewTrackButton'
 import { ProgressBar, DeadlineChip, fmtDate } from '@/components/training/ui'
@@ -20,7 +20,10 @@ export default async function GestaoPage() {
           <Link href="/treinamento" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-2"><ArrowLeft className="w-4 h-4" /> Treinamento</Link>
           <h1 className="text-xl font-semibold text-gray-900">Gestão de treinamentos</h1>
         </div>
-        <NewTrackButton />
+        <div className="flex gap-2">
+          <Link href="/treinamento/preview/iluminacao" className="btn-secondary"><Eye className="w-4 h-4" /> Ver prévia do curso</Link>
+          <NewTrackButton />
+        </div>
       </div>
 
       <section className="space-y-3">

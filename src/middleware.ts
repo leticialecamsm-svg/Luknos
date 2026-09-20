@@ -11,8 +11,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // O Supabase fragmenta sessões longas em cookies como
+  // `sb-<project>-auth-token.0` e `.1`. A checagem anterior aceitava apenas
+  // o cookie sem fragmento e redirecionava um usuário autenticado de volta ao login.
   const hasSession = request.cookies.getAll()
-    .some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
+    .some(c => /^sb-.+-auth-token(?:\.\d+)?$/.test(c.name))
 
   if (!hasSession) {
     return NextResponse.redirect(new URL('/auth/login', request.url))

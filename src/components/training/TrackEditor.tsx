@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowUp, ArrowDown, Plus, Pencil, Trash2, Eye, EyeOff, Upload, UserPlus, X, Check } from 'lucide-react'
 import {
-  saveTrack, setTrackPublished, deleteTrack, saveModule, deleteModule, moveModule, moveLesson, saveLesson, deleteLesson,
-  assignUsers, updateAssignment, removeAssignment, type AdminTrackDetail, type AdminAssignment,
+  saveTrack, setTrackPublished, deleteTrack, saveModule, deleteModule, moveModule, moveLesson, saveLesson, saveQuiz, deleteLesson,
+  assignUsers, updateAssignment, removeAssignment, type AdminTrackDetail, type AdminAssignment, type QuizQuestionInput,
 } from '@/lib/training/actions'
 import { uploadTrainingFile } from '@/lib/training/upload'
 import { LESSON_KIND_LABEL } from '@/lib/training/embed'
@@ -169,6 +169,7 @@ function LessonForm({ trackId, moduleId, lesson, onDone, onCancel }: { trackId: 
     file_path: lesson?.file_path ?? null as string | null, file_name: lesson?.file_name ?? null as string | null,
     duration: String(lesson?.duration_min ?? 5), xp: String(lesson?.xp ?? 10),
   })
+  const [quiz, setQuiz] = useState<QuizQuestionInput[]>(lesson?.quiz ?? [])
   const needsFile = f.kind === 'pdf' || f.kind === 'image'
   const needsUrl = f.kind === 'youtube' || f.kind === 'drive' || f.kind === 'link'
 
@@ -188,6 +189,8 @@ function LessonForm({ trackId, moduleId, lesson, onDone, onCancel }: { trackId: 
         duration_min: Number(f.duration) || 5, xp: Number(f.xp) || 0,
       })
       if (res.error) return toast.error('Não foi possível salvar a aula', res.error)
+      const qr = await saveQuiz(res.id!, quiz)
+      if (qr.error) return toast.error('Aula salva, mas o quiz não', qr.error)
       toast.success(lesson ? 'Aula atualizada' : 'Aula criada')
       onDone()
     })
@@ -241,10 +244,44 @@ function LessonForm({ trackId, moduleId, lesson, onDone, onCancel }: { trackId: 
         <textarea className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" rows={f.kind === 'text' ? 8 : 3} value={f.body} onChange={e => setF({ ...f, body: e.target.value })} />
       </div>
 
+      <QuizEditor quiz={quiz} setQuiz={setQuiz} />
+
       <div className="flex gap-2">
         <button className="btn-primary" disabled={pending || uploading} onClick={submit}>{lesson ? 'Salvar aula' : 'Criar aula'}</button>
         <button className="btn-ghost" onClick={onCancel}>Cancelar</button>
       </div>
+    </div>
+  )
+}
+
+function QuizEditor({ quiz, setQuiz }: { quiz: QuizQuestionInput[]; setQuiz: (q: QuizQuestionInput[]) => void }) {
+  const upd = (i: number, patch: Partial<QuizQuestionInput>) => setQuiz(quiz.map((q, j) => (j === i ? { ...q, ...patch } : q)))
+  return (
+    <div className="border-t border-surface-border pt-3 space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-700">Quiz da aula <span className="font-normal text-gray-400">(opcional)</span></p>
+        <p className="text-xs text-gray-400">Com perguntas, o colaborador só conclui a aula acertando 70% ou mais. Marque a alternativa correta.</p>
+      </div>
+      {quiz.map((q, i) => (
+        <div key={i} className="bg-white border border-surface-border rounded-xl p-3 space-y-2">
+          <div className="flex gap-2">
+            <input className="input flex-1" placeholder={`Pergunta ${i + 1}`} value={q.question} onChange={e => upd(i, { question: e.target.value })} />
+            <IconBtn title="Remover pergunta" danger onClick={() => setQuiz(quiz.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></IconBtn>
+          </div>
+          {q.options.map((o, oi) => (
+            <div key={oi} className="flex items-center gap-2">
+              <input type="radio" name={`correct-${i}`} checked={q.correct_index === oi} onChange={() => upd(i, { correct_index: oi })} title="Alternativa correta" />
+              <input className="input flex-1" placeholder={`Alternativa ${oi + 1}`} value={o} onChange={e => upd(i, { options: q.options.map((x, k) => (k === oi ? e.target.value : x)) })} />
+              {q.options.length > 2 && (
+                <IconBtn title="Remover alternativa" onClick={() => upd(i, { options: q.options.filter((_, k) => k !== oi), correct_index: q.correct_index === oi ? 0 : q.correct_index > oi ? q.correct_index - 1 : q.correct_index })}><X className="w-3.5 h-3.5" /></IconBtn>
+              )}
+            </div>
+          ))}
+          {q.options.length < 6 && <button type="button" className="text-xs text-brand-600 font-medium" onClick={() => upd(i, { options: [...q.options, ''] })}>+ alternativa</button>}
+          <input className="input" placeholder="Explicação da resposta (opcional)" value={q.explanation ?? ''} onChange={e => upd(i, { explanation: e.target.value })} />
+        </div>
+      ))}
+      <button type="button" className="btn-secondary" onClick={() => setQuiz([...quiz, { question: '', options: ['', '', '', ''], correct_index: 0, explanation: '' }])}><Plus className="w-4 h-4" /> Pergunta</button>
     </div>
   )
 }

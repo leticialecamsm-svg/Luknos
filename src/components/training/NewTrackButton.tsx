@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus } from 'lucide-react'
-import { saveTrack } from '@/lib/training/actions'
+import { Plus, Lightbulb } from 'lucide-react'
+import { installLightingCourse, saveTrack } from '@/lib/training/actions'
 import { useToast } from '@/components/ui/Toast'
 
 export function NewTrackButton() {
@@ -21,7 +21,21 @@ export function NewTrackButton() {
     })
   }
 
-  if (!open) return <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Nova trilha</button>
+  function installLighting() {
+    start(async () => {
+      const res = await installLightingCourse()
+      if (res.error) return toast.error('Não foi possível instalar o curso', res.error)
+      toast.success('Curso de iluminação pronto para revisão')
+      router.push(`/treinamento/gestao/${res.id}`)
+    })
+  }
+
+  if (!open) return (
+    <div className="flex gap-2">
+      <button onClick={installLighting} disabled={pending} className="btn-secondary"><Lightbulb className="w-4 h-4" /> Instalar curso de iluminação</button>
+      <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Nova trilha</button>
+    </div>
+  )
   return (
     <div className="card p-4 basis-full space-y-3">
       <div className="flex gap-3">
