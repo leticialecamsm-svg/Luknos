@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { Save, Plus, Trash2, RotateCcw, Tag, Info } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
+import { matchType, normText } from '@/lib/pricing/synonyms'
 import { computeQuote, effectiveValue, brl, pct, type Metric } from '@/lib/pricing/engine'
 import {
-  getTaxProfiles, getReferenceItems, saveQuote, deleteQuote, createPricingSupplier,
-  type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote, type ReferenceItem,
+  getTaxProfiles, getReferenceItems, getSupplierTypes, getNcmSuppliers, saveQuote, deleteQuote, createPricingSupplier,
+  type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote, type ReferenceItem, type SupplierType,
 } from '@/lib/pricing/actions'
 
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
@@ -61,22 +62,49 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   const [profileSource, setProfileSource] = useState<'own' | 'mirror' | 'any' | null>(null)
   const [activeProfile, setActiveProfile] = useState<TaxProfile | null>(null)
   const [refs, setRefs] = useState<ReferenceItem[]>([])
+  const [supplierTypes, setSupplierTypes] = useState<SupplierType[] | null>(null)
+  const [ncmSuppliers, setNcmSuppliers] = useState<{ id: string; name: string; n: number; last: string | null }[]>([])
   const [activeRef, setActiveRef] = useState<string | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
   const validNcm = /^\d{8}$/.test(ncm)
 
   // ── sugestões de tipo / NCM ────────────────────────────────────────────────
-  const suggestions = useMemo(() => {
-    const q = norm(typeQuery.trim())
-    if (!q) return productTypes.slice(0, 8)
+  // Só os tipos/NCMs que o fornecedor escolhido já vendeu; "outros" vêm dos demais (exigem espelho).
+  type Sug = { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean }
+  const { own, others } = useMemo(() => {
+    const q = typeQuery.trim()
     const digits = q.replace(/\D/g, '')
-    return productTypes.filter(t => (digits.length >= 3 && t.ncm.startsWith(digits)) || norm(t.name).includes(q)).slice(0, 8)
-  }, [typeQuery, productTypes])
+    const test = (name: string, n: string) => {
+      if (digits.length >= 3 && n.startsWith(digits)) return { match: true, viaSynonym: false }
+      return matchType(name, q)
+    }
+    const fromSupplier = supplierTypes
+    const ownList: Sug[] = []
+    const otherList: Sug[] = []
+    if (fromSupplier) {
+      const have = new Set(fromSupplier.map(t => `${t.ncm}|${normText(t.name)}`))
+      for (const t of fromSupplier) {
+        const m = test(t.name, t.ncm)
+        if (m.match) ownList.push({ key: `o${t.ncm}${t.name}`, ncm: t.ncm, name: t.name, count: t.count, via: m.viaSynonym, other: false })
+      }
+      if (q) for (const t of productTypes) {
+        if (have.has(`${t.ncm}|${normText(t.name)}`)) continue
+        const m = test(t.name, t.ncm)
+        if (m.match) otherList.push({ key: `x${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: true })
+      }
+    } else {
+      for (const t of productTypes) {
+        const m = q ? test(t.name, t.ncm) : { match: true, viaSynonym: false }
+        if (m.match) ownList.push({ key: `g${t.id}`, ncm: t.ncm, name: t.name, count: t.sample_count, via: m.viaSynonym, other: false })
+      }
+    }
+    return { own: ownList.slice(0, 8), others: otherList.slice(0, 6) }
+  }, [typeQuery, productTypes, supplierTypes])
 
   const typesForNcm = useMemo(() => productTypes.filter(t => t.ncm === ncm), [productTypes, ncm])
 
-  const pickType = (t: PricingProductType) => { setTypeName(t.name); setNcm(t.ncm); setTypeQuery(t.name); setShowSuggest(false) }
+  const pickType = (t: { name: string; ncm: string }) => { setTypeName(t.name); setNcm(t.ncm); setTypeQuery(t.name); setShowSuggest(false); setMirrorId('') }
   const onTypeInput = (v: string) => {
     setTypeQuery(v); setShowSuggest(true)
     const digits = v.replace(/\D/g, '')
@@ -119,6 +147,21 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     if (match && match !== activeProfile) applyProfile(match)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo, uf])
+
+  useEffect(() => {
+    if (!supplierId || isNew) { setSupplierTypes(null); return }
+    let cancelled = false
+    setSupplierTypes(null)
+    getSupplierTypes(supplierId).then(res => { if (!cancelled && !('error' in res)) setSupplierTypes(res.types) })
+    return () => { cancelled = true }
+  }, [supplierId, isNew])
+
+  useEffect(() => {
+    if (!validNcm) { setNcmSuppliers([]); return }
+    let cancelled = false
+    getNcmSuppliers(ncm).then(res => { if (!cancelled && !('error' in res)) setNcmSuppliers(res.suppliers) })
+    return () => { cancelled = true }
+  }, [ncm, validNcm])
 
   useEffect(() => {
     if (supplier?.default_uf && !uf) setUf(supplier.default_uf)
@@ -243,15 +286,21 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
             <input className={inputCls} placeholder="Digite o tipo (ex.: arandela, fita, driver) ou o NCM de 8 dígitos"
               value={typeQuery} onChange={e => onTypeInput(e.target.value)} onFocus={() => setShowSuggest(true)}
               onBlur={() => setTimeout(() => setShowSuggest(false), 150)} />
-            {showSuggest && suggestions.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full card p-1 max-h-72 overflow-y-auto">
-                {suggestions.map(t => (
-                  <button key={t.id} onMouseDown={() => pickType(t)}
-                    className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm rounded-lg hover:bg-surface-secondary text-left">
-                    <span className="font-medium text-gray-800">{t.name}</span>
-                    <span className="text-xs text-gray-500 font-mono">{t.ncm}</span>
-                  </button>
-                ))}
+            {showSuggest && (own.length > 0 || others.length > 0 || (supplierTypes && typeQuery.trim())) && (
+              <div className="absolute z-20 mt-1 w-full card p-1 max-h-80 overflow-y-auto">
+                {supplier && supplierTypes && <p className="px-3 pt-1.5 pb-1 text-[11px] uppercase tracking-wide text-gray-400 font-semibold">Comprados em {supplier.name}</p>}
+                {own.length === 0 && supplierTypes && (
+                  <p className="px-3 py-2 text-sm text-gray-500">Nada parecido com “{typeQuery}” nas notas de {supplier?.name}.</p>
+                )}
+                {own.map(t => <SugRow key={t.key} t={t} query={typeQuery} supplierName={supplier?.name} onPick={pickType} />)}
+                {others.length > 0 && (
+                  <>
+                    <p className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-amber-600 font-semibold border-t border-surface-border mt-1">
+                      Nunca comprado em {supplier?.name} — vai pedir um fornecedor espelho
+                    </p>
+                    {others.map(t => <SugRow key={t.key} t={t} query={typeQuery} supplierName={supplier?.name} onPick={pickType} />)}
+                  </>
+                )}
               </div>
             )}
             {validNcm && (
@@ -317,6 +366,19 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {supplier && validNcm && profileSource !== null && profileSource !== 'own' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <p className="text-xs text-amber-800 mb-2">
+                {supplier.name} nunca comprou o NCM {ncm}. Escolha de qual fornecedor espelhar as taxas (IPI, ICMS, FECOEP):
+              </p>
+              <select className={inputCls} value={mirrorId} onChange={e => setMirrorId(e.target.value)}>
+                <option value="">Escolha o fornecedor espelho…</option>
+                {ncmSuppliers.map(m => (
+                  <option key={m.id} value={m.id}>{m.name} — {m.n} item(ns){m.last ? `, última nota ${new Date(m.last + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>
+                ))}
+              </select>
             </div>
           )}
           {profiles.length > 1 && (
@@ -453,6 +515,29 @@ function MetricInput({ display, onChange, className }: { display: string; onChan
     <input className={className} inputMode="decimal" value={text}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onChange={e => { setText(e.target.value); onChange(e.target.value) }} />
+  )
+}
+
+function SugRow({ t, query, supplierName, onPick }: {
+  t: { key: string; ncm: string; name: string; count: number; via: boolean; other: boolean }
+  query: string; supplierName?: string; onPick: (t: { name: string; ncm: string }) => void
+}) {
+  return (
+    <button onMouseDown={() => onPick(t)}
+      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm rounded-lg hover:bg-surface-secondary text-left">
+      <span className="min-w-0">
+        <span className="font-medium text-gray-800">{t.name}</span>
+        {t.via && (
+          <span className="block text-[11px] text-brand-700">
+            {t.other ? `Outros fornecedores chamam de “${t.name}”` : `${supplierName ?? 'Este fornecedor'} chama “${query.trim()}” de “${t.name}”`}
+          </span>
+        )}
+      </span>
+      <span className="shrink-0 text-right">
+        <span className="block text-xs text-gray-500 font-mono">{t.ncm}</span>
+        <span className="block text-[10px] text-gray-400">{t.count} {t.count === 1 ? 'item' : 'itens'}</span>
+      </span>
+    </button>
   )
 }
 

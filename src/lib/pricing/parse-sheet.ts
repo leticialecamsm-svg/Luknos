@@ -47,7 +47,7 @@ export type SheetImport = {
   report: { items: number; skipped: number; divergent: number; withoutTipo: number }
 }
 
-function typeName(desc: string): string | null {
+export function typeName(desc: string): string | null {
   const first = desc.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().split(/[\s,\-/(]+/).find(w => w.length >= 3 && !/\d/.test(w))
   return first ? first.charAt(0) + first.slice(1).toLowerCase() : null
 }

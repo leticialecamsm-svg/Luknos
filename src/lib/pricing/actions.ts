@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Metric } from './engine'
+import { typeName } from './parse-sheet'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -105,6 +106,53 @@ export async function getReferenceItems(supplierId: string | null, mirrorId: str
     unit_price: r.valor_total / r.quantidade,
   }))
   return { items }
+}
+
+export type SupplierType = { ncm: string; name: string; count: number }
+
+// Tipos (e o NCM de cada um) que ESTE fornecedor já vendeu — o nome é o que
+// aparece nas notas dele, então "Driver" no fornecedor A e "Fonte" no B ficam separados.
+export async function getSupplierTypes(supplierId: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const counts = new Map<string, SupplierType>()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('purchase_invoice_items')
+      .select('ncm, descricao, purchase_invoices!inner(pricing_supplier_id)')
+      .eq('purchase_invoices.pricing_supplier_id', supplierId).not('ncm', 'is', null)
+      .range(from, from + 999)
+    if (error) return { error: error.message }
+    for (const r of data ?? []) {
+      const t = typeName(String((r as any).descricao ?? ''))
+      if (!t) continue
+      const k = `${(r as any).ncm}|${t}`
+      const cur = counts.get(k)
+      if (cur) cur.count++; else counts.set(k, { ncm: (r as any).ncm, name: t, count: 1 })
+    }
+    if (!data || data.length < 1000) break
+  }
+  return { types: Array.from(counts.values()).sort((a, b) => b.count - a.count) }
+}
+
+// Fornecedores que já compraram o NCM — candidatos a "espelho".
+export async function getNcmSuppliers(ncm: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const db = createAdminClient()
+  const { data } = await db.from('pricing_tax_profiles').select('supplier_id, n, last_date').eq('ncm', ncm)
+  const agg = new Map<string, { n: number; last: string | null }>()
+  for (const r of data ?? []) {
+    const cur = agg.get(r.supplier_id) ?? { n: 0, last: null }
+    cur.n += r.n
+    if (r.last_date && (!cur.last || r.last_date > cur.last)) cur.last = r.last_date
+    agg.set(r.supplier_id, cur)
+  }
+  const ids = Array.from(agg.keys())
+  if (!ids.length) return { suppliers: [] as { id: string; name: string; n: number; last: string | null }[] }
+  const { data: sups } = await db.from('pricing_suppliers').select('id, name').in('id', ids)
+  const list = (sups ?? []).map(s => ({ id: s.id, name: s.name, ...agg.get(s.id)! })).sort((a, b) => b.n - a.n)
+  return { suppliers: list }
 }
 
 export async function createPricingSupplier(name: string, defaultUf?: string) {
