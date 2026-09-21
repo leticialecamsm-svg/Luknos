@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Check, ExternalLink, Zap, Undo2 } from 'lucide-react'
 import { setLessonDone, submitQuiz, type LessonView, type CompleteResult, type QuizResult } from '@/lib/training/actions'
 import { useToast } from '@/components/ui/Toast'
-import { KIND_ICON, fmtMin } from './ui'
+import { KIND_ICON, fmtMin, ProgressBar } from './ui'
+import { RichBody } from './RichBody'
+import { LessonVisual } from './visuals'
 import { cn } from '@/lib/utils'
 
 const CONFETTI = ['🎉', '✨', '⭐', '🎊', '🏆', '💛']
@@ -55,7 +57,7 @@ export function LessonPlayer({ view }: { view: LessonView }) {
   const celebrate = !!(result && (result.trackCompleted || result.moduleCompleted || result.levelUp))
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-center justify-between gap-3">
         <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 min-w-0">
           <ArrowLeft className="w-4 h-4 shrink-0" /> <span className="truncate">{view.trackTitle}</span>
@@ -63,16 +65,22 @@ export function LessonPlayer({ view }: { view: LessonView }) {
         <span className="text-xs text-gray-400 shrink-0">Aula {view.position} de {view.total}</span>
       </div>
 
-      <div>
+      <ProgressBar pct={(view.position / view.total) * 100} className="h-1.5" />
+
+      <div className="pt-1">
         <p className="eyebrow">{view.moduleTitle}</p>
-        <h1 className="text-xl font-semibold text-gray-900 mt-1">{l.title}</h1>
-        <p className="text-xs text-gray-400 mt-1 flex items-center gap-3">
-          <span className="inline-flex items-center gap-1"><Icon className="w-3.5 h-3.5" /> ~{fmtMin(l.duration_min)}</span>
-          <span className="inline-flex items-center gap-1 text-brand-600 font-semibold"><Zap className="w-3.5 h-3.5" /> +{l.xp} XP</span>
-        </p>
+        <h1 className="text-2xl sm:text-3xl font-heading font-semibold text-navy mt-2 leading-tight">{l.title}</h1>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="badge bg-surface-secondary text-gray-600 gap-1"><Icon className="w-3.5 h-3.5" /> ~{fmtMin(l.duration_min)} de leitura</span>
+          <span className="badge bg-brand-50 text-brand-700 gap-1 font-semibold"><Zap className="w-3.5 h-3.5" /> +{l.xp} XP</span>
+        </div>
       </div>
 
-      <div className="card overflow-hidden">
+      {l.kind === 'text' && <LessonVisual title={l.title} />}
+
+      {l.kind === 'text' && l.body && <RichBody body={l.body} />}
+
+      <div className={cn('card overflow-hidden', l.kind === 'text' && !view.quiz && 'hidden')}>
         {(l.kind === 'youtube' || (l.kind === 'drive' && view.embedUrl)) && view.embedUrl && (
           <div className="aspect-video bg-black">
             <iframe src={view.embedUrl} title={l.title} className="w-full h-full" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
@@ -101,10 +109,8 @@ export function LessonPlayer({ view }: { view: LessonView }) {
 
         {l.kind === 'link' && l.url && <LinkBlock url={l.url} label="Abrir conteúdo" />}
 
-        {l.body && (
-          <div className={cn('p-6 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap', l.kind !== 'text' && 'border-t border-surface-border')}>
-            {l.body}
-          </div>
+        {l.body && l.kind !== 'text' && (
+          <div className="p-5 border-t border-surface-border"><RichBody body={l.body} /></div>
         )}
 
         {view.quiz && (
