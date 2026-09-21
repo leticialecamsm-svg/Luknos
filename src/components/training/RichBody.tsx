@@ -71,7 +71,15 @@ function parse(body: string): Section[] {
     para.push(line)
   })
   flush()
-  return sections.filter(s => s.title || s.blocks.length)
+  // O cartão de objetivo leva só o 1º parágrafo; a introdução que vem depois
+  // (sem título) vira uma seção própria.
+  const out: Section[] = []
+  for (const s of sections) {
+    if (s.title && toneOf(s.title) === 'goal' && s.blocks.length > 1) {
+      out.push({ title: s.title, blocks: s.blocks.slice(0, 1) }, { title: null, blocks: s.blocks.slice(1) })
+    } else out.push(s)
+  }
+  return out.filter(s => s.title || s.blocks.length)
 }
 
 type Tone = 'plain' | 'goal' | 'practice' | 'warn' | 'rule' | 'say'
@@ -155,7 +163,7 @@ function Blocks({ blocks, invert }: { blocks: Block[]; invert?: boolean }) {
               return (
                 <li key={j} className={cn('rounded-xl border p-3.5', invert ? 'border-white/15 bg-white/5' : 'border-surface-border bg-surface-secondary')}>
                   <p className={cn('text-sm font-semibold', invert ? 'text-brand-200' : 'text-navy')}>{label}</p>
-                  <p className={cn('text-sm leading-6 mt-0.5', invert ? 'text-white/80' : 'text-gray-600')}>{rest.join(': ')}</p>
+                  <p className={cn('text-sm leading-6 mt-0.5', invert ? 'text-white/80' : 'text-gray-600')}>{(() => { const t = rest.join(': '); return t.charAt(0).toUpperCase() + t.slice(1) })()}</p>
                 </li>
               )
             })}
