@@ -1,5 +1,7 @@
 'use client'
 
+import { SupplierLogo } from './SupplierLogo'
+import { supplierBrand } from '@/lib/pricing/supplier-brand'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { Save, Plus, Trash2, RotateCcw, Tag, Info } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
@@ -272,6 +274,12 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="block">
               <span className="text-xs text-gray-500">Fabricante / fornecedor</span>
+              {(() => { const sel = suppliers.find(s => s.id === supplierId); return sel ? (
+                <span className="mt-1 mb-1.5 flex items-center gap-2.5 rounded-xl border-2 bg-white px-2.5 py-1.5" style={{ borderColor: supplierBrand(sel.name).color }}>
+                  <SupplierLogo name={sel.name} size={36} />
+                  <span className="text-sm font-semibold text-gray-900">{sel.name}</span>
+                </span>
+              ) : null })()}
               <select className={inputCls} value={supplierId} onChange={e => setSupplierId(e.target.value)}>
                 <option value="">Escolha…</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}

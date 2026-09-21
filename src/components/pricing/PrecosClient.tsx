@@ -5,6 +5,7 @@ import { Search, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl, pct } from '@/lib/pricing/engine'
 import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
+import { SupplierLogo } from './SupplierLogo'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
 import {
   getSupplierSheet, getSupplierQuotes,
@@ -14,13 +15,7 @@ import {
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 'sem data')
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-function Logo({ name, size }: { name: string; size: number }) {
-  const b = supplierBrand(name)
-  return b.logo
-    // eslint-disable-next-line @next/next/no-img-element
-    ? <img src={b.logo} alt={name} width={size} height={size} className="rounded-md object-contain bg-white shrink-0" style={{ width: size, height: size }} />
-    : <span className="rounded-md flex items-center justify-center font-bold shrink-0" style={{ width: size, height: size, background: b.color, color: onColor(b.color), fontSize: size * 0.4 }}>{name.slice(0, 2).toUpperCase()}</span>
-}
+const Logo = SupplierLogo
 
 export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]; nav?: React.ReactNode }) {
   // abre no fornecedor com compra mais recente
