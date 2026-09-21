@@ -16,7 +16,7 @@ import {
 
 type Item = {
   id: string
-  source: 'manual' | 'robot'
+  source: 'manual' | 'robot' | 'drive'
   file_name: string
   mime_type: string | null
   size_bytes: number | null
@@ -24,6 +24,8 @@ type Item = {
   created_at: string
   uploaded_by_name?: string | null
   in_drive?: boolean
+  from_robot?: boolean
+  is_folder?: boolean
 }
 
 const MAX_BYTES = 25 * 1024 * 1024
@@ -69,7 +71,7 @@ export function QuoteAttachments({
     if (!quoteId) return
     setLoading(true)
     getQuoteAttachments(quoteId)
-      .then((r) => setItems([...r.robot, ...r.manual] as Item[]))
+      .then((r) => setItems([...r.drive, ...r.robot, ...r.manual] as Item[]))
       .finally(() => setLoading(false))
   }, [quoteId])
 
@@ -111,6 +113,10 @@ export function QuoteAttachments({
   }
 
   async function open(item: Item, mode: 'view' | 'download') {
+    if (item.is_folder) {
+      window.open(`https://drive.google.com/drive/folders/${item.id}`, '_blank', 'noopener,noreferrer')
+      return
+    }
     setBusyId(item.id)
     try {
       const res = await getQuoteAttachmentUrl(item.id, item.source, mode)
@@ -126,11 +132,13 @@ export function QuoteAttachments({
 
   async function remove(item: Item) {
     if (!quoteId) return
-    const extra = item.source === 'robot'
+    const extra = item.source === 'drive'
+      ? ' (ele também vai para a lixeira do Drive)'
+      : item.source === 'robot'
       ? ' (veio pelo robô — some também do painel do robô)'
       : ''
     const yes = await confirm(
-      `Remover "${item.file_name}"?${extra} O arquivo será apagado permanentemente.`,
+      `Remover "${item.file_name}"?${extra} ${item.source === 'drive' ? '' : 'O arquivo será apagado permanentemente.'}`,
       'Remover',
     )
     if (!yes) return
@@ -200,7 +208,7 @@ export function QuoteAttachments({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-gray-700">{item.file_name}</p>
                   <p className="text-[10px] text-gray-400 flex items-center gap-1">
-                    {item.source === 'robot' && <><Bot className="w-3 h-3" /> Robô ·</>}
+                    {(item.source === 'robot' || item.from_robot) && <><Bot className="w-3 h-3" /> Robô ·</>}
                     {item.in_drive && <><HardDrive className="w-3 h-3" /> Drive ·</>}
                     {item.uploaded_by_name && `${item.uploaded_by_name} · `}
                     {humanSize(item.size_bytes)}
@@ -217,7 +225,7 @@ export function QuoteAttachments({
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <Eye className="w-4 h-4" />}
                 </button>
-                <button
+                {!item.is_folder && <button
                   type="button"
                   onClick={() => open(item, 'download')}
                   disabled={busyId === item.id}
@@ -225,7 +233,7 @@ export function QuoteAttachments({
                   title="Baixar"
                 >
                   <Download className="w-4 h-4" />
-                </button>
+                </button>}
                 {quoteId && (
                   <button
                     type="button"

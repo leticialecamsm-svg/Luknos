@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 import { DEFAULT_PAYMENT_RATES, round2 } from '@/lib/payment-rates'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
-import { trashFile } from '@/lib/google-drive'
+import { trashFile, listFolderFiles, folderIdFromLink, syncQuoteFilesToDrive, isDriveConnected } from '@/lib/google-drive'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
 async function enrichOwnersAvatars(quotes: any[]) {
@@ -3655,26 +3655,61 @@ const QUOTE_ATTACH_MAX_BYTES = 25 * 1024 * 1024 // 25 MB
 export async function getQuoteAttachments(quoteId: string) {
   const admin = createAdminClient()
 
-  const [{ data: manual }, { data: quote }] = await Promise.all([
+  const { data: quote } = await admin
+    .from('quotes')
+    .select('number, drive_link')
+    .eq('id', quoteId)
+    .maybeSingle()
+
+  // Arquivos que ainda estão só no Supabase (Drive não conectado, upload que falhou…)
+  const [{ data: manual }, { data: robotRows }] = await Promise.all([
     admin
       .from('quote_attachments')
       .select('id, file_name, mime_type, size_bytes, created_at, uploaded_by, users:uploaded_by(name)')
       .eq('quote_id', quoteId)
+      .is('drive_file_id', null)
       .order('created_at', { ascending: true }),
-    admin.from('quotes').select('number').eq('id', quoteId).maybeSingle(),
+    quote?.number != null
+      ? admin
+          .from('wa_attachments')
+          .select('id, file_name, mime_type, size_bytes, detected_kind, created_at')
+          .eq('system_quote_id', String(quote.number))
+          .is('drive_file_id', null)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] as any[] }),
   ])
 
-  let robot: any[] = []
-  if (quote?.number != null) {
-    const { data } = await admin
-      .from('wa_attachments')
-      .select('id, file_name, mime_type, size_bytes, detected_kind, created_at, drive_file_id')
-      .eq('system_quote_id', String(quote.number))
-      .order('created_at', { ascending: true })
-    robot = data ?? []
+  // Espelho da pasta do Drive do orçamento
+  let drive: any[] = []
+  let driveError: string | null = null
+  const folderId = folderIdFromLink(quote?.drive_link)
+  if (folderId) {
+    try {
+      const files = await listFolderFiles(folderId)
+      const ids = files.map((f) => f.id)
+      const { data: fromBot } = ids.length
+        ? await admin.from('wa_attachments').select('drive_file_id').in('drive_file_id', ids)
+        : { data: [] as any[] }
+      const botIds = new Set((fromBot ?? []).map((r: any) => r.drive_file_id))
+      drive = files.map((f) => ({
+        id: f.id,
+        source: 'drive' as const,
+        file_name: f.name,
+        mime_type: f.isFolder ? 'folder' : f.mimeType,
+        size_bytes: f.size,
+        created_at: f.createdTime,
+        in_drive: true,
+        from_robot: botIds.has(f.id),
+        is_folder: f.isFolder,
+      }))
+    } catch (e: any) {
+      driveError = String(e?.message ?? e)
+    }
   }
 
   return {
+    drive,
+    driveError,
     manual: (manual ?? []).map((a: any) => ({
       id: a.id,
       source: 'manual' as const,
@@ -3684,7 +3719,7 @@ export async function getQuoteAttachments(quoteId: string) {
       created_at: a.created_at,
       uploaded_by_name: a.users?.name ?? null,
     })),
-    robot: robot.map((a: any) => ({
+    robot: (robotRows ?? []).map((a: any) => ({
       id: a.id,
       source: 'robot' as const,
       file_name: a.file_name,
@@ -3692,7 +3727,6 @@ export async function getQuoteAttachments(quoteId: string) {
       size_bytes: a.size_bytes,
       detected_kind: a.detected_kind,
       created_at: a.created_at,
-      in_drive: !!a.drive_file_id,
     })),
   }
 }
@@ -3751,6 +3785,12 @@ export async function confirmQuoteAttachment(input: {
     return { error: error.message }
   }
 
+  // Manda pro Drive (pasta do orçamento). Se falhar, o arquivo segue local e
+  // aparece na lista; dá pra re-tentar em /bot-config.
+  if (await isDriveConnected().catch(() => false)) {
+    await syncQuoteFilesToDrive(input.quoteId).catch((e) => console.error('drive sync falhou', e))
+  }
+
   revalidatePath(`/quotes/${input.quoteId}`)
   return { ok: true }
 }
@@ -3758,12 +3798,24 @@ export async function confirmQuoteAttachment(input: {
 export async function deleteQuoteAttachment(
   id: string,
   quoteId: string,
-  source: 'manual' | 'robot' = 'manual',
+  source: 'manual' | 'robot' | 'drive' = 'manual',
 ) {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
   const admin = createAdminClient()
+
+  if (source === 'drive') {
+    try {
+      await trashFile(id)
+    } catch (e: any) {
+      return { error: String(e?.message ?? e) }
+    }
+    await admin.from('wa_attachments').delete().eq('drive_file_id', id)
+    await admin.from('quote_attachments').delete().eq('drive_file_id', id)
+    revalidatePath(`/quotes/${quoteId}`)
+    return { ok: true }
+  }
 
   if (source === 'robot') {
     const { data: row } = await admin
@@ -3803,11 +3855,19 @@ export async function deleteQuoteAttachment(
 // mode 'download' força baixar.
 export async function getQuoteAttachmentUrl(
   id: string,
-  source: 'manual' | 'robot',
+  source: 'manual' | 'robot' | 'drive',
   mode: 'view' | 'download' = 'view',
 ) {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
+
+  if (source === 'drive') {
+    return {
+      url: mode === 'download'
+        ? `https://drive.google.com/uc?export=download&id=${id}`
+        : `https://drive.google.com/file/d/${id}/view`,
+    }
+  }
 
   const admin = createAdminClient()
   const bucket = source === 'robot' ? 'wa-attachments' : 'quote-attachments'

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { syncQuoteAttachmentsToDrive } from '@/lib/google-drive'
+import { syncQuoteFilesToDrive } from '@/lib/google-drive'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Server Actions do módulo Robô de Orçamentos WhatsApp.
@@ -447,24 +447,41 @@ function dedupeTags(tags: string[]): string[] {
 
 // ─── Google Drive ────────────────────────────────────────────────────────
 
+async function pendingDriveQuoteIds(db: ReturnType<typeof createAdminClient>) {
+  const [{ data: robot }, { data: manual }] = await Promise.all([
+    db
+      .from('wa_attachments')
+      .select('system_quote_id')
+      .not('system_quote_id', 'is', null)
+      .is('drive_file_id', null)
+      .or('drive_error.is.null,drive_error.neq.quote_not_found'),
+    db.from('quote_attachments').select('quote_id').is('drive_file_id', null),
+  ])
+  const numbers = Array.from(new Set((robot ?? []).map((r: any) => Number(r.system_quote_id)).filter(Number.isFinite)))
+  const ids = new Set<string>((manual ?? []).map((r: any) => r.quote_id))
+  let missing: number[] = []
+  if (numbers.length) {
+    const { data: q } = await db.from('quotes').select('id, number').in('number', numbers)
+    const found = new Set<number>()
+    for (const r of q ?? []) { ids.add(r.id); found.add(r.number) }
+    missing = numbers.filter((n) => !found.has(n))
+  }
+  return { ids: Array.from(ids), missing, robotRows: (robot ?? []).length, manualRows: (manual ?? []).length }
+}
+
 export async function getDriveConnection() {
   const auth = await ensureBotAdmin()
   if ('error' in auth) return null
   const db = createAdminClient()
-  const [{ data: conn }, { count }] = await Promise.all([
+  const [{ data: conn }, p] = await Promise.all([
     db.from('google_drive_connection').select('account_email, connected_at').maybeSingle(),
-    db
-      .from('wa_attachments')
-      .select('id', { count: 'exact', head: true })
-      .not('system_quote_id', 'is', null)
-      .is('drive_file_id', null)
-      .or('drive_error.is.null,drive_error.neq.quote_not_found'),
+    pendingDriveQuoteIds(db),
   ])
   return {
     connected: !!conn,
     email: conn?.account_email ?? null,
     connected_at: conn?.connected_at ?? null,
-    pending: count ?? 0,
+    pending: p.robotRows + p.manualRows,
   }
 }
 
@@ -473,22 +490,22 @@ export async function syncPendingToDrive() {
   const auth = await ensureBotAdmin()
   if ('error' in auth) return { error: auth.error }
   const db = createAdminClient()
-  const { data } = await db
-    .from('wa_attachments')
-    .select('system_quote_id')
-    .not('system_quote_id', 'is', null)
-    .is('drive_file_id', null)
-    .or('drive_error.is.null,drive_error.neq.quote_not_found')
-  const numbers = Array.from(new Set((data ?? []).map((r: any) => Number(r.system_quote_id)).filter(Number.isFinite))).slice(0, 15)
+  const p = await pendingDriveQuoteIds(db)
+  if (p.missing.length) {
+    await db
+      .from('wa_attachments')
+      .update({ drive_error: 'quote_not_found' })
+      .in('system_quote_id', p.missing.map(String))
+      .is('drive_file_id', null)
+  }
   let synced = 0
   let failed = 0
   let firstError: string | null = null
-  for (const n of numbers) {
+  for (const id of p.ids.slice(0, 15)) {
     try {
-      const r: any = await syncQuoteAttachmentsToDrive(n)
+      const r: any = await syncQuoteFilesToDrive(id)
       synced += r.synced ?? 0
       failed += r.failed ?? 0
-      if (r.error && !firstError) firstError = r.error
     } catch (e: any) {
       failed++
       firstError ??= String(e?.message ?? e)

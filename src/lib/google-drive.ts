@@ -152,39 +152,83 @@ export async function trashFile(fileId: string): Promise<void> {
 
 const FOLDER_ILLEGAL = /[\\/:*?"<>|]+/g
 
-// Copia os anexos do robô de um orçamento para a pasta dele no Drive.
-export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
+export interface DriveFileItem {
+  id: string
+  name: string
+  mimeType: string
+  size: number | null
+  createdTime: string
+  webViewLink: string
+  isFolder: boolean
+}
+
+// Conteúdo da pasta do orçamento (espelho exibido na aba Anexos).
+export async function listFolderFiles(folderId: string): Promise<DriveFileItem[]> {
+  const params = new URLSearchParams({
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: 'files(id,name,mimeType,size,createdTime,webViewLink)',
+    orderBy: 'createdTime',
+    pageSize: '200',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+  })
+  const json = await (await gfetch(`${DRIVE}/files?${params}`)).json()
+  return (json.files ?? []).map((f: any) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    size: f.size ? Number(f.size) : null,
+    createdTime: f.createdTime,
+    webViewLink: f.webViewLink,
+    isFolder: f.mimeType === 'application/vnd.google-apps.folder',
+  }))
+}
+
+export async function isDriveConnected(): Promise<boolean> {
+  const { data } = await createAdminClient().from('google_drive_connection').select('id').maybeSingle()
+  return !!data
+}
+
+// Sobe para a pasta do orçamento no Drive tudo que ainda está só no Supabase
+// (anexos do robô e anexos manuais). Cria a pasta (nome do cliente, dentro de
+// ORÇAMENTOS) se o orçamento ainda não tem uma. A cópia do Supabase só é apagada
+// depois do upload confirmado.
+export async function syncQuoteFilesToDrive(quoteId: string) {
   const db = createAdminClient()
   const { data: quote } = await db
     .from('quotes')
     .select('id, number, drive_link, client_id')
-    .eq('number', quoteNumber)
+    .eq('id', quoteId)
     .maybeSingle()
-  if (!quote) {
-    // orçamento que não existe mais (ex.: teste apagado): não fica como pendente
-    await db
-      .from('wa_attachments')
-      .update({ drive_error: 'quote_not_found' })
-      .eq('system_quote_id', String(quoteNumber))
-      .is('drive_file_id', null)
-    return { ok: true, synced: 0, failed: 0, skipped: true }
-  }
-  const { data: client } = quote.client_id
-    ? await db.from('contacts').select('name').eq('id', quote.client_id).maybeSingle()
-    : { data: null }
+  if (!quote) return { ok: true, synced: 0, failed: 0, skipped: true }
 
-  const { data: files } = await db
-    .from('wa_attachments')
-    .select('id, storage_path, file_name, mime_type')
-    .eq('system_quote_id', String(quoteNumber))
-    .is('drive_file_id', null)
-  if (!files?.length) return { ok: true, synced: 0, failed: 0 }
+  const [{ data: robot }, { data: manual }] = await Promise.all([
+    db
+      .from('wa_attachments')
+      .select('id, storage_path, file_name, mime_type')
+      .eq('system_quote_id', String(quote.number))
+      .is('drive_file_id', null),
+    db
+      .from('quote_attachments')
+      .select('id, storage_path, file_name, mime_type')
+      .eq('quote_id', quote.id)
+      .is('drive_file_id', null),
+  ])
+  const jobs = [
+    ...(robot ?? []).map((f: any) => ({ ...f, table: 'wa_attachments', bucket: 'wa-attachments' })),
+    ...(manual ?? []).map((f: any) => ({ ...f, table: 'quote_attachments', bucket: 'quote-attachments' })),
+  ]
+  if (!jobs.length) return { ok: true, synced: 0, failed: 0 }
 
   let folderId = folderIdFromLink(quote.drive_link)
   if (!folderId) {
+    // link preenchido que não é pasta do Drive: não mexe, fica local
+    if (quote.drive_link?.trim()) return { ok: true, synced: 0, failed: 0, skipped: true }
+    const { data: client } = quote.client_id
+      ? await db.from('contacts').select('name').eq('id', quote.client_id).maybeSingle()
+      : { data: null }
     const clientName = String(client?.name ?? '').replace(FOLDER_ILLEGAL, ' ').trim()
-    const folderName = clientName || `Orçamento ${quoteNumber}`
-    const folder = await findOrCreateFolder(folderName, driveRootFolderId())
+    const folder = await findOrCreateFolder(clientName || `Orçamento ${quote.number}`, driveRootFolderId())
     folderId = folder.id
     await db
       .from('quotes')
@@ -194,9 +238,9 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
 
   let synced = 0
   let failed = 0
-  for (const f of files) {
+  for (const f of jobs) {
     try {
-      const { data: blob, error } = await db.storage.from('wa-attachments').download(f.storage_path)
+      const { data: blob, error } = await db.storage.from(f.bucket).download(f.storage_path)
       if (error || !blob) throw new Error(error?.message ?? 'arquivo não encontrado no storage')
       const up = await uploadFile({
         folderId,
@@ -205,7 +249,7 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
         data: new Uint8Array(await blob.arrayBuffer()),
       })
       await db
-        .from('wa_attachments')
+        .from(f.table)
         .update({
           drive_file_id: up.id,
           drive_web_link: up.webViewLink,
@@ -214,12 +258,25 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
           storage_deleted_at: new Date().toISOString(),
         })
         .eq('id', f.id)
-      await db.storage.from('wa-attachments').remove([f.storage_path])
+      await db.storage.from(f.bucket).remove([f.storage_path])
       synced++
     } catch (e: any) {
       failed++
-      await db.from('wa_attachments').update({ drive_error: String(e?.message ?? e).slice(0, 500) }).eq('id', f.id)
+      await db.from(f.table).update({ drive_error: String(e?.message ?? e).slice(0, 500) }).eq('id', f.id)
     }
   }
   return { ok: failed === 0, synced, failed, folder_id: folderId }
+}
+
+export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
+  const { data } = await createAdminClient().from('quotes').select('id').eq('number', quoteNumber).maybeSingle()
+  if (!data) {
+    await createAdminClient()
+      .from('wa_attachments')
+      .update({ drive_error: 'quote_not_found' })
+      .eq('system_quote_id', String(quoteNumber))
+      .is('drive_file_id', null)
+    return { ok: true, synced: 0, failed: 0, skipped: true }
+  }
+  return syncQuoteFilesToDrive(data.id)
 }
