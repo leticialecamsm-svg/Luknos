@@ -24,15 +24,23 @@ function isHeading(line: string) {
   return base.length >= 2 && base.length <= 64 && !/[.:;!?]$/.test(base) && /^[A-ZÀ-Ý0-9][A-ZÀ-Ý0-9 ,.\-–\/°+×ºª&~]*$/.test(base)
 }
 
+const PROPER: Record<string, string> = { INMETRO: 'Inmetro', MASTERLOJISTA: 'Masterlojista', LUKNOS: 'Luknos', GOOGLE: 'Google', DRIVE: 'Drive', WHATSAPP: 'WhatsApp' }
+
 function pretty(title: string) {
-  const m = title.match(/^(.*?)(\s*\(.*\))?$/)
-  const main = (m?.[1] ?? title).split(' ').map((w, i) => {
-    if (ACRONYMS.has(w) && !(w === 'A' && i > 0)) return w
-    if (/^\d/.test(w) || /^[A-Z]{1,4}-?\d+$/.test(w) || /^~/.test(w)) return w
-    const lower = w.toLowerCase()
-    return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower
+  return title.split(' ').map((w, i) => {
+    if (/[a-z]/.test(w)) return w // já misto (ex.: "(kWh)", "(lm/W)")
+    const m = w.match(/^(\(?)([^()]*)(\)?)$/)
+    if (!m) return w
+    const [, open, core, close] = m
+    const wrapped = !!(open || close)
+    if (PROPER[core]) return open + PROPER[core] + close
+    if (/^\d/.test(core) || /^~/.test(core) || /^[A-Z]{1,4}-?\d+$/.test(core)) return w
+    if (core === 'A' && i > 0 && !wrapped) return 'a'
+    if (ACRONYMS.has(core) && (core !== 'A' || wrapped || i === 0)) return w
+    if (wrapped && core.length <= 4) return w
+    const lower = core.toLowerCase()
+    return open + (i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower) + close
   }).join(' ')
-  return main + (m?.[2] ?? '')
 }
 
 function parse(body: string): Section[] {

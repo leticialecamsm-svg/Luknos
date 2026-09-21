@@ -564,6 +564,66 @@ function Temps() {
   )
 }
 
+const projectReading = () => (
+  <Figure title="Fluxo da Leitura de Projeto" caption="A ferramenta agiliza a contagem, mas a conferência técnica continua sendo sua.">
+    <Flow steps={[
+      { icon: FileText, title: 'Abrir a planta', text: 'Confira a revisão' }, { icon: Ruler, title: 'Conferir a escala', text: 'Escala errada = medida errada' },
+      { icon: Home, title: 'Nomear ambientes', text: 'Como na planta' }, { icon: ScanSearch, title: 'Carimbar produtos', text: 'Depois de ler a legenda' },
+      { icon: CheckSquare, title: 'Conferir', text: 'Por ambiente e por código' }, { icon: FileText, title: 'Exportar PDF', text: 'Anexar ao orçamento' },
+    ]} />
+  </Figure>
+)
+
+const areasMap = () => (
+  <Figure title="Como as áreas se conectam ao orçamento" caption="Cada área deixa um registro. Quem vem depois de você precisa encontrar tudo no sistema.">
+    <Tiles cols="sm:grid-cols-5" items={[
+      { icon: CheckSquare, title: 'Tarefas e Agenda', text: 'Prazo, prioridade e checklist' }, { icon: Layout, title: 'Projetos', text: 'Consulte antes de pedir a planta' },
+      { icon: Package, title: 'Expedição', text: 'Na fila → entregue ou retirada' }, { icon: Users2, title: 'Parceiros', text: 'Cadastre com o tipo certo' },
+      { icon: Inbox, title: 'Contatos do site', text: 'Responda rápido e registre' },
+    ]} />
+  </Figure>
+)
+
+const objections = () => (
+  <Figure title="Diante de “está caro”" caption="Objeção não é recusa: é o cliente pedindo para entender o valor.">
+    <Flow steps={[
+      { icon: HelpCircle, title: 'Pergunte', text: 'Caro em relação a quê?' }, { icon: Layers, title: 'Compare iguais', text: 'Mesmos itens e especificação' },
+      { icon: Heart, title: 'Mostre o valor', text: 'Benefício e garantia' }, { icon: Users, title: 'Desconto?', text: 'Só com aprovação da liderança' },
+      { icon: ClipboardList, title: 'Registre', text: 'Na negociação' },
+    ]} />
+  </Figure>
+)
+
+const whoInWork = () => (
+  <Figure title="Quem decide o quê na obra" caption="Trate cada profissional como parceiro e mande as informações organizadas.">
+    <Tiles cols="sm:grid-cols-4" items={[
+      { icon: Palette, title: 'Arquiteto ou designer', text: 'Conceito e especificação. Não troque produto sem falar com ele.' },
+      { icon: Zap, title: 'Eletricista', text: 'Valida a instalação. Peça a confirmação por escrito.' },
+      { icon: Layers, title: 'Gesso', text: 'Recorte, profundidade e espaço no forro.' },
+      { icon: Wrench, title: 'Marcenaria', text: 'Espaços, perfis e acesso à fonte.' },
+    ]} />
+  </Figure>
+)
+
+const automation = () => (
+  <Figure title="Cinco perguntas para começar" caption="Obra pronta limita as opções; obra em andamento permite planejar a infraestrutura.">
+    <Flow steps={[
+      { icon: Lightbulb, title: 'O que controlar?', text: 'Só luz ou mais?' }, { icon: Home, title: 'Obra pronta?', text: 'Ou ainda em planejamento' },
+      { icon: Activity, title: 'Como acionar?', text: 'Tecla, app, voz, cena' }, { icon: Cable, title: 'Internet e central', text: 'Onde ficará?' },
+      { icon: Wrench, title: 'Quem instala?', text: 'E quem programa?' },
+    ]} />
+  </Figure>
+)
+
+const doubleCheck = () => (
+  <Figure title="Duas conferências, sempre" caption="O sistema achar o produto não dispensa nenhuma delas.">
+    <div className="grid sm:grid-cols-2 gap-2.5">
+      <div className="rounded-xl border border-surface-border bg-white p-4"><span className="badge bg-navy text-white mb-2">Técnica</span><p className="text-sm text-gray-600 leading-6">Produto, descrição, quantidade, tensão, CCT, acabamento, fonte/driver e acessórios.</p></div>
+      <div className="rounded-xl border border-surface-border bg-white p-4"><span className="badge bg-brand-500 text-white mb-2">Comercial</span><p className="text-sm text-gray-600 leading-6">Cliente, preço, desconto aprovado, prazo, estoque, frete, pagamento, validade e observações.</p></div>
+    </div>
+  </Figure>
+)
+
 const VISUALS: Record<string, () => JSX.Element> = {
   'A luz não serve apenas para clarear': Layers5,
   'Direta, indireta e difusa: o caminho da luz': Paths3,
@@ -582,6 +642,12 @@ const VISUALS: Record<string, () => JSX.Element> = {
   'Quantitativo: a ponte entre planta e pedido': () => quantitative(),
   'Atendimento consultivo e orçamento técnico': () => consultative(),
   'Primeiro acesso, menu e boas práticas': () => menuMap(),
+  'Leitura de Projeto: da planta ao quantitativo': () => projectReading(),
+  'Tarefas, Agenda, Projetos, Expedição e Parceiros': () => areasMap(),
+  'Objeções: preço, concorrência e prazo': () => objections(),
+  'Trabalhando com arquitetos, eletricistas e outros profissionais': () => whoInWork(),
+  'Automação: o básico para atender sem prometer demais': () => automation(),
+  'Como estudar o Masterlojista': () => doubleCheck(),
   'Orçamentos: lista, prioridade e kanban': Kanban,
   'Negociações: temperatura, fechamento e perda': Temps,
   'Da venda à entrega: expedição, troca e garantia': () => saleToDelivery(),
