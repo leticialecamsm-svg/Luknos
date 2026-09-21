@@ -118,7 +118,7 @@ export function parseSupplierSheet(name: string, rows: Cell[][]): SheetImport {
       ncm: String(Math.trunc(ncmNum!)),
       quantidade: qty, valor_total: total, ipi_percent: ipi, tipo_icms: tipo,
       valor_icms: icms, valor_fecoep: fecoep,
-      custo_unitario: custo, preco_credito: venda, imposto_ant_percent: imp,
+      custo_unitario: custo, preco_credito: venda, imposto_ant_percent: imp, maquininha: maq, comissao: com, lucro: luc,
     }
     cur!.items.push(item)
     if (maq != null) cur!._m.push(maq)

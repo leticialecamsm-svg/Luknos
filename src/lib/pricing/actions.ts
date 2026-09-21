@@ -236,6 +236,7 @@ export async function getSuppliersOverview() {
 export type SheetItem = {
   id: string; quantidade: number; descricao: string; ncm: string | null; valor_total: number; tipo_icms: string | null
   ipi_percent: number; valor_icms: number; valor_fecoep: number; custo_unitario: number | null; preco_credito: number | null
+  imposto_ant_percent: number | null; maquininha: number; comissao: number; lucro: number
 }
 export type SheetInvoice = { id: string; numero_nota: string | null; data_emissao: string | null; uf_origem: string | null; source: string; on_hold: boolean; items: SheetItem[] }
 
@@ -244,14 +245,32 @@ export async function getSupplierSheet(supplierId: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const { data, error } = await createAdminClient().from('purchase_invoices')
-    .select('id, numero_nota, data_emissao, uf_origem, source, on_hold, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito)')
+    .select('id, numero_nota, data_emissao, uf_origem, source, on_hold, maquininha, comissao, lucro, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito, imposto_ant_percent, maquininha, comissao, lucro)')
     .eq('pricing_supplier_id', supplierId).order('data_emissao', { ascending: false, nullsFirst: false })
   if (error) return { error: error.message }
   const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
     id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source, on_hold: !!r.on_hold,
-    items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item),
+    items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item).map((i: any) => ({
+      ...i, quantidade: Number(i.quantidade), valor_total: Number(i.valor_total), ipi_percent: Number(i.ipi_percent),
+      valor_icms: Number(i.valor_icms), valor_fecoep: Number(i.valor_fecoep),
+      custo_unitario: i.custo_unitario == null ? null : Number(i.custo_unitario), preco_credito: i.preco_credito == null ? null : Number(i.preco_credito),
+      imposto_ant_percent: i.imposto_ant_percent == null ? null : Number(i.imposto_ant_percent),
+      maquininha: Number(i.maquininha ?? r.maquininha), comissao: Number(i.comissao ?? r.comissao), lucro: Number(i.lucro ?? r.lucro),
+    })),
   }))
   return { invoices }
+}
+
+// Salva as alterações feitas no modal de simulação (só admin).
+export async function updateSheetItem(id: string, v: {
+  quantidade: number; valor_total: number; tipo_icms: string | null; ipi_percent: number; valor_icms: number; valor_fecoep: number
+  imposto_ant_percent: number; maquininha: number; comissao: number; lucro: number; custo_unitario: number; preco_credito: number
+}) {
+  const auth = await guard(true)
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient().from('purchase_invoice_items').update(v).eq('id', id)
+  if (error) return { error: error.message }
+  return { ok: true }
 }
 
 export async function createPricingSupplier(name: string, defaultUf?: string) {
@@ -293,6 +312,7 @@ export type ImportItem = {
   numero_item: number; descricao: string; ncm: string; quantidade: number; valor_total: number
   ipi_percent: number; tipo_icms: string | null; valor_icms: number; valor_fecoep: number
   custo_unitario: number | null; preco_credito: number | null; imposto_ant_percent: number | null
+  maquininha?: number | null; comissao?: number | null; lucro?: number | null
 }
 export type ImportInvoice = {
   key: string; numero_nota: string; data_emissao: string | null; uf: string | null

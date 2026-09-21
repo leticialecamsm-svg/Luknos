@@ -5,9 +5,10 @@ import { Search, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl, pct } from '@/lib/pricing/engine'
 import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
+import { ItemSimulatorModal } from './ItemSimulatorModal'
 import {
   getSupplierSheet, getSupplierQuotes,
-  type SupplierOverview, type SheetInvoice, type SavedQuote,
+  type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
 } from '@/lib/pricing/actions'
 
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 'sem data')
@@ -30,6 +31,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   const [quotes, setQuotes] = useState<SavedQuote[] | null>(null)
   const [search, setSearch] = useState('')
   const [closed, setClosed] = useState<Set<string>>(new Set())
+  const [editing, setEditing] = useState<SheetItem | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
 
@@ -120,13 +122,8 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="px-3 py-2.5 text-right">Qtd</th><th className="px-3 py-2.5">Produto</th><th className="px-3 py-2.5">NCM</th>
-                    <th className="px-3 py-2.5 text-right">Valor total</th><th className="px-3 py-2.5">ICMS</th><th className="px-3 py-2.5 text-right">IPI</th>
-                    <th className="px-3 py-2.5 text-right">% ICMS</th><th className="px-3 py-2.5 text-right">% FECOEP</th>
-                    <th className="px-3 py-2.5 text-right">Custo un.</th><th className="px-3 py-2.5 text-right">Venda (crédito)</th>
-                  </tr>
-                </thead>
+<tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide"><th className="px-3 py-2.5 text-right whitespace-nowrap">Qtd</th><th className="px-3 py-2.5 whitespace-nowrap">Produto</th><th className="px-3 py-2.5 whitespace-nowrap">NCM</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Valor total</th><th className="px-3 py-2.5 whitespace-nowrap">ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">IPI</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">% ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr FECOEP</th><th className="px-3 py-2.5 text-right whitespace-nowrap">% FECOEP</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Custo un.</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Maquininha</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Imposto</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Comissão</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Lucro</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Venda (crédito)</th></tr>
+</thead>
                 <tbody>
                   {filtered.map(inv => {
                     const open = !closed.has(inv.id)
@@ -134,7 +131,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
                     return (
                       <FragmentRows key={inv.id}>
                         <tr onClick={() => toggle(inv.id)} className="bg-brand-50/50 border-t border-surface-border cursor-pointer select-none">
-                          <td colSpan={10} className="px-3 py-2">
+                          <td colSpan={16} className="px-3 py-2">
                             <span className="flex items-center gap-2 text-xs font-semibold text-gray-700">
                               {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                               {fmtDate(inv.data_emissao)}
@@ -145,16 +142,22 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
                           </td>
                         </tr>
                         {open && inv.items.map(i => (
-                          <tr key={i.id} className="border-t border-surface-border hover:bg-surface-secondary/50">
+                          <tr key={i.id} onClick={() => setEditing(i)} className="border-t border-surface-border hover:bg-surface-secondary/50 cursor-pointer">
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{i.quantidade}</td>
                             <td className="px-3 py-2 text-gray-800 min-w-[280px]">{i.descricao}</td>
                             <td className="px-3 py-2 font-mono text-xs text-gray-500">{i.ncm}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{brl(i.valor_total)}</td>
                             <td className="px-3 py-2"><span className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded', i.tipo_icms?.toUpperCase() === 'ANT' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700')}>{i.tipo_icms ?? '—'}</span></td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.ipi_percent, 2)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{brl(i.valor_icms)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.valor_icms / i.valor_total, 2)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{brl(i.valor_fecoep)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.valor_fecoep / i.valor_total, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{brl(i.custo_unitario)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.maquininha, 2)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.imposto_ant_percent, 2)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.comissao, 2)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.lucro, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700">{brl(i.preco_credito)}</td>
                           </tr>
                         ))}
@@ -166,6 +169,11 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
             </div>
           )}
         </div>
+      )}
+
+      {editing && (
+        <ItemSimulatorModal item={editing} onClose={() => setEditing(null)}
+          onSaved={u => { setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) }))); setEditing(null) }} />
       )}
 
       {view === 'cotacoes' && (
