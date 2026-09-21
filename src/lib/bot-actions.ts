@@ -457,7 +457,8 @@ export async function getDriveConnection() {
       .from('wa_attachments')
       .select('id', { count: 'exact', head: true })
       .not('system_quote_id', 'is', null)
-      .is('drive_file_id', null),
+      .is('drive_file_id', null)
+      .or('drive_error.is.null,drive_error.neq.quote_not_found'),
   ])
   return {
     connected: !!conn,
@@ -477,6 +478,7 @@ export async function syncPendingToDrive() {
     .select('system_quote_id')
     .not('system_quote_id', 'is', null)
     .is('drive_file_id', null)
+    .or('drive_error.is.null,drive_error.neq.quote_not_found')
   const numbers = Array.from(new Set((data ?? []).map((r: any) => Number(r.system_quote_id)).filter(Number.isFinite))).slice(0, 15)
   let synced = 0
   let failed = 0

@@ -157,10 +157,21 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
   const db = createAdminClient()
   const { data: quote } = await db
     .from('quotes')
-    .select('id, number, drive_link, contacts:client_id(name)')
+    .select('id, number, drive_link, client_id')
     .eq('number', quoteNumber)
     .maybeSingle()
-  if (!quote) return { ok: false, error: 'quote_not_found' }
+  if (!quote) {
+    // orçamento que não existe mais (ex.: teste apagado): não fica como pendente
+    await db
+      .from('wa_attachments')
+      .update({ drive_error: 'quote_not_found' })
+      .eq('system_quote_id', String(quoteNumber))
+      .is('drive_file_id', null)
+    return { ok: true, synced: 0, failed: 0, skipped: true }
+  }
+  const { data: client } = quote.client_id
+    ? await db.from('contacts').select('name').eq('id', quote.client_id).maybeSingle()
+    : { data: null }
 
   const { data: files } = await db
     .from('wa_attachments')
@@ -171,7 +182,7 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
 
   let folderId = folderIdFromLink(quote.drive_link)
   if (!folderId) {
-    const clientName = String((quote as any).contacts?.name ?? '').replace(FOLDER_ILLEGAL, ' ').trim()
+    const clientName = String(client?.name ?? '').replace(FOLDER_ILLEGAL, ' ').trim()
     const folderName = clientName || `Orçamento ${quoteNumber}`
     const folder = await findOrCreateFolder(folderName, driveRootFolderId())
     folderId = folder.id
