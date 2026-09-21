@@ -319,10 +319,17 @@ export async function installLightingCourse(): Promise<{ error?: string; id?: st
       }).select('id').single()
       if (lessonError || !savedLesson) return { error: lessonError?.message ?? 'Não foi possível criar uma aula' }
       if (lesson.quiz_data) {
-        const questions = lesson.quiz_data.questions.map((question, questionIndex) => ({
-          lesson_id: savedLesson.id, question: question.prompt, options: question.options,
-          correct_index: question.answer, explanation: question.explanation, position: questionIndex + 1,
-        }))
+        // No conteúdo-fonte a resposta certa é sempre a 1ª; gira as alternativas
+        // para o gabarito não ficar previsível.
+        const questions = lesson.quiz_data.questions.map((question, questionIndex) => {
+          const n = question.options.length
+          const shift = (questionIndex * 2 + lessonIndex + moduleIndex) % n
+          const options = question.options.map((_, i) => question.options[(i - shift + n) % n])
+          return {
+            lesson_id: savedLesson.id, question: question.prompt, options,
+            correct_index: (question.answer + shift) % n, explanation: question.explanation, position: questionIndex + 1,
+          }
+        })
         const { error: questionsError } = await db.from('training_quiz_questions').insert(questions)
         if (questionsError) return { error: questionsError.message }
       }
