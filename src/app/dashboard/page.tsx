@@ -174,7 +174,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
   return (
     <>
-      {isAdmin && <ViewAsBanner options={viewAsOptions} activeId={viewAsTarget?.id ?? null} />}
+      {isAdmin && !effectiveIsAdmin && <ViewAsBanner options={viewAsOptions} activeId={viewAsTarget?.id ?? null} />}
       {effectiveIsAdmin ? (
         <AdminDashboardV2
           quotes={allQuotes}
@@ -191,6 +191,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           selectedMonth={month}
           goalsFallbackLabel={isFallback ? fallbackLabel : undefined}
           collaboratorRoles={collaboratorRoles}
+          viewAsSlot={isAdmin ? <ViewAsBanner compact options={viewAsOptions} activeId={null} /> : undefined}
         />
       ) : (
         <VendorDashboard

@@ -8,7 +8,7 @@ interface Option {
 
 // Menu (quando ninguém está sendo visualizado) ou barra de retorno (quando está).
 // Só é renderizado quando o usuário real é admin — ver checagem em dashboard/page.tsx.
-export function ViewAsBanner({ options, activeId }: { options: Option[]; activeId: string | null }) {
+export function ViewAsBanner({ options, activeId, compact = false }: { options: Option[]; activeId: string | null; compact?: boolean }) {
   if (activeId) {
     const active = options.find(o => o.id === activeId)
     return (
@@ -30,11 +30,11 @@ export function ViewAsBanner({ options, activeId }: { options: Option[]; activeI
   if (options.length === 0) return null
 
   return (
-    <div className="mb-4 flex justify-end">
+    <div className={compact ? '' : 'mb-4 flex justify-end'}>
       <div className="relative group inline-block">
-        <button className="flex items-center gap-2 px-4 py-2 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-lg text-sm font-medium text-pink-700 transition-colors">
+        <button title="Visualização dos colaboradores" className="h-9 flex items-center gap-2 px-3 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-lg text-sm font-medium text-pink-700 transition-colors">
           <Users className="w-4 h-4" />
-          Visualização dos colaboradores
+          {compact ? 'Ver como colaborador' : 'Visualização dos colaboradores'}
           <ChevronDown className="w-3.5 h-3.5" />
         </button>
         <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-surface-border rounded-xl shadow-lg py-1.5 z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">

@@ -7,6 +7,8 @@ import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
 import { TrendingUp, AlertCircle, Calendar, Maximize2, X } from 'lucide-react'
 import { QuickLinksMenu } from './QuickLinksMenu'
+import { MonthNavigator } from './MonthNavigator'
+import { ValuesToggle } from './ValuesMask'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { WorkingDaysCard } from './WorkingDaysCard'
 import { DashboardAgenda } from './DashboardAgenda'
@@ -131,12 +133,9 @@ export function VendorDashboard({
           <h1 className="text-2xl font-bold text-gray-900">Olá, {userName.split(' ')[0]} 👋</h1>
           <p className="text-sm text-gray-500 mt-1">{monthName.charAt(0).toUpperCase() + monthName.slice(1)} · {todayDate.charAt(0).toUpperCase() + todayDate.slice(1)}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
-            <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
-            <span className="w-32 text-center">{monthName.toUpperCase()}</span>
-            <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ValuesToggle />
+          <MonthNavigator year={currentMonth.getFullYear()} month={currentMonth.getMonth() + 1} />
           <QuickLinksMenu />
           <NewQuoteButton className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
             + Novo orçamento

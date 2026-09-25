@@ -27,7 +27,7 @@ export function QuickLinksMenu() {
   return (
     <div className="relative group">
       <button
-        className="px-3 py-2 rounded-pill bg-surface-secondary hover:bg-[rgba(10,31,59,0.06)] transition-colors flex items-center gap-2 text-navy text-sm font-medium"
+        className="h-9 px-3 rounded-lg border border-surface-border bg-white hover:bg-surface-secondary transition-colors flex items-center gap-2 text-navy text-sm font-medium"
         title="Links rápidos"
       >
         <Link2 className="w-4 h-4" />

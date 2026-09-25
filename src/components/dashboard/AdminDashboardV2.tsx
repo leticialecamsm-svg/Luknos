@@ -8,6 +8,8 @@ import { WorkingDaysCard } from './WorkingDaysCard'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { QuickLinksMenu } from './QuickLinksMenu'
+import { MonthNavigator } from './MonthNavigator'
+import { ValuesToggle } from './ValuesMask'
 import { TasksCardDashboard } from '../tasks/TasksCardDashboard'
 import { DashboardAgenda } from './DashboardAgenda'
 import { SalesSuggestions } from './SalesSuggestions'
@@ -30,6 +32,7 @@ export function AdminDashboardV2({
   selectedYear,
   selectedMonth,
   goalsFallbackLabel,
+  viewAsSlot,
   collaboratorRoles = ['admin', 'seller'],
 }: {
   quotes: any[]
@@ -46,6 +49,7 @@ export function AdminDashboardV2({
   selectedYear?: number
   selectedMonth?: number
   goalsFallbackLabel?: string
+  viewAsSlot?: React.ReactNode
 }) {
   const router = useRouter()
   const now = new Date()
@@ -291,14 +295,12 @@ export function AdminDashboardV2({
           <h1 className="text-2xl font-bold text-gray-900">Dashboard da Loja</h1>
           <p className="text-sm text-gray-500 mt-1">Visão gerencial · Luknos Iluminação</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-3 py-2 text-sm font-medium text-gray-700">
-            <button onClick={() => navigateMonth(-1)} className="hover:text-gray-900">◀</button>
-            <span className="w-32 text-center">{currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
-            <button onClick={() => navigateMonth(1)} className="hover:text-gray-900">▶</button>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ValuesToggle />
+          {viewAsSlot}
+          <MonthNavigator year={currentMonth.getFullYear()} month={currentMonth.getMonth() + 1} />
           <QuickLinksMenu />
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-border rounded-lg text-sm font-medium text-gray-700 hover:bg-surface-secondary">
+          <button className="h-9 flex items-center gap-2 px-3 bg-white border border-surface-border rounded-lg text-sm font-medium text-gray-700 hover:bg-surface-secondary">
             <Download className="w-4 h-4" /> Exportar
           </button>
         </div>

@@ -1,7 +1,27 @@
 'use client'
 
-import { useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+
+type Chrome = { hidden: boolean; toggle: () => void; setPending: (v: boolean) => void; claimToggle: () => void }
+const ChromeCtx = createContext<Chrome | null>(null)
+
+// Botão de olho para usar dentro do cabeçalho do dashboard (mesma linha dos demais controles).
+export function ValuesToggle() {
+  const c = useContext(ChromeCtx)
+  useLayoutEffect(() => { c?.claimToggle() }, [c])
+  if (!c) return null
+  return (
+    <button type="button" onClick={c.toggle} title={c.hidden ? 'Mostrar valores' : 'Esconder valores'}
+      className="h-9 flex items-center gap-1.5 px-3 rounded-lg text-sm font-medium border border-surface-border bg-white text-gray-600 hover:text-gray-900 hover:bg-surface-secondary transition-colors">
+      {c.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+      {c.hidden ? 'Mostrar valores' : 'Esconder valores'}
+    </button>
+  )
+}
+
+// Permite que o passador de mês sinalize "carregando" e o painel inteiro escureça.
+export function useDashboardPending() { return useContext(ChromeCtx)?.setPending }
 
 const MASK_CLASS = 'values-masked'
 const MONEY = /R\$/
@@ -14,6 +34,8 @@ const MONEY = /R\$/
 export function ValuesMask({ children }: { children: React.ReactNode }) {
   const [hidden, setHidden] = useState(true)
   const [ready, setReady] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [hasToggle, setHasToggle] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   // Layout effect: marca antes do navegador pintar, e o conteúdo só aparece
@@ -42,9 +64,12 @@ export function ValuesMask({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect()
   }, [hidden])
 
+  const chrome: Chrome = { hidden, toggle: () => setHidden(h => !h), setPending, claimToggle: () => setHasToggle(true) }
+
   return (
+    <ChromeCtx.Provider value={chrome}>
     <div ref={ref}>
-      <div className="flex justify-end mb-2">
+      {!hasToggle && <div className="flex justify-end mb-2">
         <button
           type="button"
           onClick={() => setHidden(h => !h)}
@@ -54,8 +79,10 @@ export function ValuesMask({ children }: { children: React.ReactNode }) {
           {hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           {hidden ? 'Mostrar valores' : 'Esconder valores'}
         </button>
-      </div>
-      <div style={ready ? undefined : { visibility: 'hidden' }}>{children}</div>
+      </div>}
+      <div style={ready ? undefined : { visibility: 'hidden' }}
+        className={pending ? 'opacity-50 pointer-events-none transition-opacity duration-150' : 'transition-opacity duration-150'} aria-busy={pending}>{children}</div>
     </div>
+    </ChromeCtx.Provider>
   )
 }
