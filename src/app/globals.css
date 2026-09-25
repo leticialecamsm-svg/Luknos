@@ -104,3 +104,9 @@
 @media (prefers-reduced-motion: reduce) {
   .luk-shimmer, .luk-mark, .luk-mark .luk-star-gold { animation: none; }
 }
+
+/* Dashboard: valores escondidos pelo botão de olho (ValuesMask) */
+.values-masked {
+  filter: blur(7px);
+  user-select: none;
+}

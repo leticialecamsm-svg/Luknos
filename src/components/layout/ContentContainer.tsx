@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import { ValuesMask } from '@/components/dashboard/ValuesMask'
 
 // A maioria das páginas quer o conteúdo centralizado com largura máxima
 // (max-w-7xl) — é o comportamento de sempre. Mas telas de "workspace" full
@@ -17,6 +18,9 @@ export function ContentContainer({ children }: { children: React.ReactNode }) {
 
   if (isFullWidth) {
     return <div className="h-full min-w-0 p-6">{children}</div>
+  }
+  if (pathname === '/dashboard') {
+    return <div className="max-w-7xl mx-auto p-6"><ValuesMask>{children}</ValuesMask></div>
   }
   return <div className="max-w-7xl mx-auto p-6">{children}</div>
 }
