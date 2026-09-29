@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Save, ShieldCheck, ShieldAlert } from 'lucide-react'
+import Link from 'next/link'
+import { Loader2, Save, ShieldCheck, ShieldAlert, FlaskConical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { updateFiscalConfig, getFiscalConfig, type FiscalConfig } from '@/lib/fiscal/actions'
 
@@ -43,6 +44,10 @@ export function FiscalConfigClient({ initial }: { initial: FiscalConfig }) {
         <h1 className="text-xl font-semibold text-gray-900">Configurações Fiscais</h1>
         <p className="text-sm text-gray-500">Dados da empresa e credenciais da Focus NFe para emissão de NF-e e NFC-e.</p>
       </div>
+
+      <Link href="/fiscal/teste" className="inline-flex items-center gap-2 text-sm font-medium text-brand-600 hover:underline">
+        <FlaskConical className="w-4 h-4" /> Ir para a tela de teste de emissão
+      </Link>
 
       <div className={cn('flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium',
         homolog ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-red-50 border-red-200 text-red-800')}>
