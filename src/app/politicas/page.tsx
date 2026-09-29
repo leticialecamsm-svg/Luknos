@@ -1,17 +1,22 @@
 import Link from 'next/link'
-import { getMyPolicies } from '@/lib/policies/actions'
-import { FileCheck2, CheckCircle2, Clock, ChevronRight } from 'lucide-react'
+import { getMyPolicies, amIAdmin } from '@/lib/policies/actions'
+import { FileCheck2, CheckCircle2, Clock, ChevronRight, Settings } from 'lucide-react'
 import { ProgressBar } from '@/components/training/ui'
 
 export default async function PoliticasPage() {
-  const policies = await getMyPolicies()
+  const [policies, isAdmin] = await Promise.all([getMyPolicies(), amIAdmin()])
 
   return (
     <div className="space-y-6">
-      <div className="rounded-card bg-gradient-navy shadow-hero px-6 py-5">
-        <p className="eyebrow text-white/50 mb-1">Políticas internas</p>
-        <h1 className="text-2xl font-bold text-white">Leitura e ciência</h1>
-        <p className="text-white/60 mt-1 text-sm">Leia cada tópico até o final e confirme que está de acordo.</p>
+      <div className="rounded-card bg-gradient-navy shadow-hero px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="eyebrow text-white/50 mb-1">Políticas internas</p>
+          <h1 className="text-2xl font-bold text-white">Leitura e ciência</h1>
+          <p className="text-white/60 mt-1 text-sm">Leia cada tópico até o final e confirme que está de acordo.</p>
+        </div>
+        {isAdmin && (
+          <Link href="/politicas/gestao" className="btn-secondary shrink-0"><Settings className="w-4 h-4" /> Gerir políticas</Link>
+        )}
       </div>
 
       {!policies?.length ? (

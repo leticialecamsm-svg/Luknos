@@ -26,6 +26,11 @@ async function requireAdmin(): Promise<Me | null> {
   return me && me.role === 'admin' ? me : null
 }
 
+export async function amIAdmin(): Promise<boolean> {
+  const me = await currentUser()
+  return me?.role === 'admin'
+}
+
 function refresh() {
   revalidatePath('/politicas')
   revalidatePath('/politicas/gestao')
