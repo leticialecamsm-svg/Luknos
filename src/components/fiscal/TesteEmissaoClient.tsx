@@ -34,12 +34,20 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
   })
   const [busy, setBusy] = useState<'nfe' | 'nfce' | 'cancel' | 'consultar' | null>(null)
   const [docs, setDocs] = useState<FiscalDocRow[] | null>(null)
+  const [consultingRef, setConsultingRef] = useState<string | null>(null)
 
   async function loadDocs() {
     const r = await listarUltimosDocumentos()
     if (!('error' in r)) setDocs(r.docs)
   }
   useEffect(() => { loadDocs() }, [])
+
+  async function consultarLinha(d: FiscalDocRow) {
+    setConsultingRef(d.ref)
+    await consultarTeste(d.tipo === 55 ? 'nfe' : 'nfce', d.ref)
+    setConsultingRef(null)
+    loadDocs()
+  }
   const [result, setResult] = useState<Result | null>(null)
   const [cancelJust, setCancelJust] = useState('')
 
@@ -252,6 +260,12 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
                 <span className="w-14 shrink-0 text-gray-500">{d.tipo === 55 ? 'NF-e' : 'NFC-e'}</span>
                 <span className="flex-1 truncate text-gray-600">{d.numero ? `nº ${d.numero}` : d.ref}</span>
                 <span className="shrink-0 text-xs text-gray-400">{fmtDateTime(d.created_at)}</span>
+                {d.status === 'processando_autorizacao' && (
+                  <button onClick={() => consultarLinha(d)} disabled={consultingRef === d.ref}
+                    className="shrink-0 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40">
+                    {consultingRef === d.ref ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Consultar
+                  </button>
+                )}
                 {d.pdf_url && (
                   <a href={`https://homologacao.focusnfe.com.br${d.pdf_url}`} target="_blank" rel="noopener noreferrer" className="shrink-0 text-brand-600 hover:underline">
                     <ExternalLink className="w-3.5 h-3.5" />
