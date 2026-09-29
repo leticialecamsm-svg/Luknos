@@ -7,7 +7,16 @@ import { Loader2, Plus, Trash2, FileText, Receipt, ExternalLink, XCircle, Refres
 import { cn } from '@/lib/utils'
 import { brl } from '@/lib/pricing/engine'
 import { getSupplierSheet, type SupplierOverview, type SheetItem } from '@/lib/pricing/actions'
-import { emitirNfeTeste, emitirNfceTeste, consultarTeste, cancelarTeste, type TestItem, type TestEndereco } from '@/lib/fiscal/teste-actions'
+import { emitirNfeTeste, emitirNfceTeste, consultarTeste, cancelarTeste, listarUltimosDocumentos, type TestItem, type TestEndereco, type FiscalDocRow } from '@/lib/fiscal/teste-actions'
+
+const fmtDateTime = (s: string) => new Date(s).toLocaleString('pt-BR')
+const STATUS_LABEL: Record<string, string> = {
+  autorizado: 'Autorizado', cancelado: 'Cancelado', erro_autorizacao: 'Rejeitado', erro_cancelamento: 'Erro ao cancelar', processando_autorizacao: 'Processando',
+}
+const STATUS_COLOR: Record<string, string> = {
+  autorizado: 'bg-emerald-50 text-emerald-700', cancelado: 'bg-gray-100 text-gray-600', erro_autorizacao: 'bg-red-50 text-red-700',
+  erro_cancelamento: 'bg-red-50 text-red-700', processando_autorizacao: 'bg-amber-50 text-amber-700',
+}
 
 type Picked = TestItem & { id: string }
 type Result = { ok?: boolean; error?: string; ref?: string; tipo?: 'nfe' | 'nfce'; status?: string; numero?: string; chave_nfe?: string; mensagem_sefaz?: string; caminho_danfe?: string; qrcode_url?: string }
@@ -24,6 +33,13 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
     logradouro: 'Avenida Menino Marcelo', numero: '7737', bairro: 'Serraria', municipio: 'Maceió', uf: 'AL', cep: '57073470',
   })
   const [busy, setBusy] = useState<'nfe' | 'nfce' | 'cancel' | 'consultar' | null>(null)
+  const [docs, setDocs] = useState<FiscalDocRow[] | null>(null)
+
+  async function loadDocs() {
+    const r = await listarUltimosDocumentos()
+    if (!('error' in r)) setDocs(r.docs)
+  }
+  useEffect(() => { loadDocs() }, [])
   const [result, setResult] = useState<Result | null>(null)
   const [cancelJust, setCancelJust] = useState('')
 
@@ -51,6 +67,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
       : await emitirNfceTeste({ destinatarioCpf: destDoc || undefined, items })
     setBusy(null)
     setResult({ tipo, ...r })
+    loadDocs()
   }
 
   async function cancelar() {
@@ -60,6 +77,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
     setBusy(null)
     if ('error' in r) { setResult(prev => prev && ({ ...prev, error: r.error })); return }
     setResult(prev => prev && ({ ...prev, status: r.status as string }))
+    loadDocs()
   }
 
   async function consultar() {
@@ -69,6 +87,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
     setBusy(null)
     if ('error' in r) { setResult(prev => prev && ({ ...prev, error: r.error })); return }
     setResult(prev => prev && ({ ...prev, error: undefined, ...r }))
+    loadDocs()
   }
 
   // a NF-e é assíncrona: fica "processando_autorizacao" por alguns segundos.
@@ -210,6 +229,39 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
           )}
         </div>
       )}
+
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-700">Últimas emissões</h2>
+          <button onClick={loadDocs} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800">
+            <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">Fica salvo mesmo se você atualizar a página — não é preciso reemitir para ver o status de novo.</p>
+        {docs === null ? (
+          <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>
+        ) : docs.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhuma emissão ainda.</p>
+        ) : (
+          <div className="divide-y divide-surface-border">
+            {docs.map(d => (
+              <div key={d.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className={cn('shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full', STATUS_COLOR[d.status] ?? 'bg-gray-100 text-gray-600')}>
+                  {STATUS_LABEL[d.status] ?? d.status}
+                </span>
+                <span className="w-14 shrink-0 text-gray-500">{d.tipo === 55 ? 'NF-e' : 'NFC-e'}</span>
+                <span className="flex-1 truncate text-gray-600">{d.numero ? `nº ${d.numero}` : d.ref}</span>
+                <span className="shrink-0 text-xs text-gray-400">{fmtDateTime(d.created_at)}</span>
+                {d.pdf_url && (
+                  <a href={`https://homologacao.focusnfe.com.br${d.pdf_url}`} target="_blank" rel="noopener noreferrer" className="shrink-0 text-brand-600 hover:underline">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -147,6 +147,23 @@ export async function emitirNfceTeste(input: { destinatarioCpf?: string; items: 
   return { ok: true, ref, ...r.data }
 }
 
+export type FiscalDocRow = {
+  id: string; tipo: number; ambiente: string; ref: string; status: string
+  numero: string | null; chave_nfe: string | null; pdf_url: string | null; created_at: string
+}
+
+// Lista as últimas emissões (de qualquer origem, teste ou não) — sobrevive a
+// atualizar a página, já que o resultado na tela é só estado local.
+export async function listarUltimosDocumentos(limit = 15) {
+  const auth = await guardAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await createAdminClient().from('fiscal_documents')
+    .select('id, tipo, ambiente, ref, status, numero, chave_nfe, pdf_url, created_at')
+    .order('created_at', { ascending: false }).limit(limit)
+  if (error) return { error: error.message }
+  return { docs: (data ?? []) as FiscalDocRow[] }
+}
+
 export async function consultarTeste(tipo: 'nfe' | 'nfce', ref: string) {
   const auth = await guardAdmin()
   if ('error' in auth) return { error: auth.error }
