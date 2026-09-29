@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/partners',        label: 'Parceiros',   icon: Users2 },
   { href: '/metropolitano',   label: 'Metropolitano', icon: Award },
   { href: '/treinamento',     label: 'Treinamento', icon: GraduationCap },
+  { href: '/politicas',       label: 'Políticas',   icon: FileCheck2 },
 ]
 const ADMIN_NAV = [
   { href: '/reports', label: 'Relatórios', icon: BarChart3 },
@@ -132,7 +133,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
     canAccess(href) || (href === '/dashboard/tasks' && canAccess('/schedules'))
 
   // Treinamento é aberto a todos os logados (cada um vê só as trilhas atribuídas)
-  const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || canAccessNav(item.href))
+  const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || item.href === '/politicas' || canAccessNav(item.href))
   const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href))
   // Papéis sem nenhuma página de operação liberada (ex: marketing puro) caem no atalho dedicado
   if (!isAdmin && visibleNav.length === 0 && visibleAdminNav.length === 0 && isMarketing) {
