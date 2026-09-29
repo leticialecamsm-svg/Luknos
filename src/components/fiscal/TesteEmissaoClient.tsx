@@ -1,13 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { Loader2, Plus, Trash2, FileText, Receipt, ExternalLink, XCircle } from 'lucide-react'
+import { Loader2, Plus, Trash2, FileText, Receipt, ExternalLink, XCircle, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl } from '@/lib/pricing/engine'
 import { getSupplierSheet, type SupplierOverview, type SheetItem } from '@/lib/pricing/actions'
-import { emitirNfeTeste, emitirNfceTeste, cancelarTeste, type TestItem, type TestEndereco } from '@/lib/fiscal/teste-actions'
+import { emitirNfeTeste, emitirNfceTeste, consultarTeste, cancelarTeste, type TestItem, type TestEndereco } from '@/lib/fiscal/teste-actions'
 
 type Picked = TestItem & { id: string }
 type Result = { ok?: boolean; error?: string; ref?: string; tipo?: 'nfe' | 'nfce'; status?: string; numero?: string; chave_nfe?: string; mensagem_sefaz?: string; caminho_danfe?: string; qrcode_url?: string }
@@ -23,7 +23,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
   const [endereco, setEndereco] = useState<TestEndereco>({
     logradouro: 'Avenida Menino Marcelo', numero: '7737', bairro: 'Serraria', municipio: 'Maceió', uf: 'AL', cep: '57073470',
   })
-  const [busy, setBusy] = useState<'nfe' | 'nfce' | 'cancel' | null>(null)
+  const [busy, setBusy] = useState<'nfe' | 'nfce' | 'cancel' | 'consultar' | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [cancelJust, setCancelJust] = useState('')
 
@@ -61,6 +61,27 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
     if ('error' in r) { setResult(prev => prev && ({ ...prev, error: r.error })); return }
     setResult(prev => prev && ({ ...prev, status: r.status as string }))
   }
+
+  async function consultar() {
+    if (!result?.ref || !result.tipo) return
+    setBusy('consultar')
+    const r = await consultarTeste(result.tipo, result.ref)
+    setBusy(null)
+    if ('error' in r) { setResult(prev => prev && ({ ...prev, error: r.error })); return }
+    setResult(prev => prev && ({ ...prev, error: undefined, ...r }))
+  }
+
+  // a NF-e é assíncrona: fica "processando_autorizacao" por alguns segundos.
+  // Consulta sozinha a cada 4s, até 6 vezes, enquanto o status não fechar.
+  const pending = result?.tipo === 'nfe' && !result.error && result.status === 'processando_autorizacao'
+  const pollRef = useRef(0)
+  useEffect(() => {
+    if (!pending) { pollRef.current = 0; return }
+    if (pollRef.current >= 6) return
+    const t = setTimeout(() => { pollRef.current++; consultar() }, 4000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, result?.status])
 
   return (
     <div className="space-y-6">
@@ -153,13 +174,20 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
       </div>
 
       {result && (
-        <div className={cn('card p-5 space-y-3 border-l-4', result.error ? 'border-l-red-500' : 'border-l-emerald-500')}>
-          <h2 className="text-sm font-semibold text-gray-700">Resultado ({result.tipo === 'nfe' ? 'NF-e' : 'NFC-e'})</h2>
+        <div className={cn('card p-5 space-y-3 border-l-4', result.error ? 'border-l-red-500' : pending ? 'border-l-amber-400' : 'border-l-emerald-500')}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-700">Resultado ({result.tipo === 'nfe' ? 'NF-e' : 'NFC-e'})</h2>
+            {result.ref && (
+              <button onClick={consultar} disabled={busy === 'consultar'} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40">
+                {busy === 'consultar' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Consultar de novo
+              </button>
+            )}
+          </div>
           {result.error ? (
             <p className="text-sm text-red-600 whitespace-pre-line">{result.error}</p>
           ) : (
             <div className="text-sm space-y-1 text-gray-700">
-              <p>Status: <strong>{result.status}</strong></p>
+              <p>Status: <strong>{result.status}</strong>{pending && <span className="text-amber-600 font-normal"> — aguardando a SEFAZ, consultando sozinho a cada poucos segundos…</span>}</p>
               {result.numero && <p>Número: {result.numero}</p>}
               {result.chave_nfe && <p className="font-mono text-xs">{result.chave_nfe}</p>}
               {result.mensagem_sefaz && <p className="text-gray-500">{result.mensagem_sefaz}</p>}
