@@ -132,7 +132,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
         <div className={cn('card p-5 space-y-3 border-l-4', result.error ? 'border-l-red-500' : 'border-l-emerald-500')}>
           <h2 className="text-sm font-semibold text-gray-700">Resultado ({result.tipo === 'nfe' ? 'NF-e' : 'NFC-e'})</h2>
           {result.error ? (
-            <p className="text-sm text-red-600">{result.error}</p>
+            <p className="text-sm text-red-600 whitespace-pre-line">{result.error}</p>
           ) : (
             <div className="text-sm space-y-1 text-gray-700">
               <p>Status: <strong>{result.status}</strong></p>

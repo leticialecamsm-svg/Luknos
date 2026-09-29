@@ -32,7 +32,11 @@ async function call(ambiente: FocusAmbiente, token: string, method: string, path
   try { data = text ? JSON.parse(text) : null } catch { data = text }
 
   if (!res.ok) {
-    const msg = data?.mensagem ?? data?.erros?.[0]?.mensagem ?? data?.codigo ?? text ?? `HTTP ${res.status}`
+    const base = data?.mensagem ?? data?.codigo ?? text ?? `HTTP ${res.status}`
+    const detalhes: string[] = Array.isArray(data?.erros)
+      ? data.erros.map((e: any) => e?.campo ? `${e.campo}: ${e.mensagem}` : e?.mensagem).filter(Boolean)
+      : []
+    const msg = detalhes.length ? `${base}\n${detalhes.join('\n')}` : base
     return { ok: false, status: res.status, error: String(msg), data }
   }
   return { ok: true, status: res.status, data }
