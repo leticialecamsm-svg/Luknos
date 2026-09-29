@@ -15,4 +15,5 @@ export const PAGE_CATALOG: { href: string; label: string }[] = [
   { href: '/hr', label: 'RH' },
   { href: '/purchases', label: 'Notas de Entrada' },
   { href: '/pricing', label: 'Cotação e Preços' },
+  { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)' },
 ]

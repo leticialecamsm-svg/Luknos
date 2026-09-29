@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2 } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -29,6 +29,7 @@ const ADMIN_NAV = [
   { href: '/hr', label: 'RH', icon: UserCog },
   { href: '/purchases', label: 'Notas de Entrada', icon: ShoppingBag },
   { href: '/pricing', label: 'Cotação e Preços', icon: Calculator },
+  { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)', icon: Receipt },
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
