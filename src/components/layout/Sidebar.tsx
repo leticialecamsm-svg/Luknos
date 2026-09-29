@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -12,6 +12,7 @@ const NAV = [
   // Tarefas e Agenda viraram uma página só (a Agenda é uma aba lá dentro).
   { href: '/dashboard/tasks', label: 'Tarefas e Agenda', icon: CheckSquare },
   { href: '/design-projects', label: 'Projetos',    icon: FileBox },
+  { href: '/solicitacoes',    label: 'Solicitações', icon: ClipboardList },
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
