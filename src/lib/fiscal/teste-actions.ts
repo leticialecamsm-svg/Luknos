@@ -49,8 +49,9 @@ function buildItems(items: TestItem[]) {
     unidade_tributavel: 'UN',
     icms_origem: '0',
     icms_situacao_tributaria: '102', // CSOSN — Simples Nacional sem crédito, o padrão visto nas notas reais da loja
-    pis_situacao_tributaria: '99', pis_valor_base_calculo: 0, pis_aliquota_percentual: 0, pis_valor: 0,
-    cofins_situacao_tributaria: '99', cofins_valor_base_calculo: 0, cofins_aliquota_percentual: 0, cofins_valor: 0,
+    pis_situacao_tributaria: '99', // CST 99 só exige este campo do grupo de PIS
+    cofins_situacao_tributaria: '99', // idem, grupo de COFINS
+    ipi_situacao_tributaria: '99', ipi_codigo_enquadramento_legal: 999, // 999 = não aplicável, igual às notas reais da loja
   }))
 }
 
