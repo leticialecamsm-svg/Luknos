@@ -7,7 +7,7 @@ import { Loader2, Plus, Trash2, FileText, Receipt, ExternalLink, XCircle } from 
 import { cn } from '@/lib/utils'
 import { brl } from '@/lib/pricing/engine'
 import { getSupplierSheet, type SupplierOverview, type SheetItem } from '@/lib/pricing/actions'
-import { emitirNfeTeste, emitirNfceTeste, cancelarTeste, type TestItem } from '@/lib/fiscal/teste-actions'
+import { emitirNfeTeste, emitirNfceTeste, cancelarTeste, type TestItem, type TestEndereco } from '@/lib/fiscal/teste-actions'
 
 type Picked = TestItem & { id: string }
 type Result = { ok?: boolean; error?: string; ref?: string; tipo?: 'nfe' | 'nfce'; status?: string; numero?: string; chave_nfe?: string; mensagem_sefaz?: string; caminho_danfe?: string; qrcode_url?: string }
@@ -20,6 +20,9 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
   const [picked, setPicked] = useState<Picked[]>([])
   const [destNome, setDestNome] = useState('Cliente de Teste Homologação')
   const [destDoc, setDestDoc] = useState('') // CPF ou CNPJ, opcional
+  const [endereco, setEndereco] = useState<TestEndereco>({
+    logradouro: 'Avenida Menino Marcelo', numero: '7737', bairro: 'Serraria', municipio: 'Maceió', uf: 'AL', cep: '57073470',
+  })
   const [busy, setBusy] = useState<'nfe' | 'nfce' | 'cancel' | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [cancelJust, setCancelJust] = useState('')
@@ -44,7 +47,7 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
   async function emitir(tipo: 'nfe' | 'nfce') {
     setBusy(tipo); setResult(null); setCancelJust('')
     const r = tipo === 'nfe'
-      ? await emitirNfeTeste({ destinatarioNome: destNome, ...(destDoc.replace(/\D/g, '').length > 11 ? { destinatarioCnpj: destDoc } : destDoc ? { destinatarioCpf: destDoc } : {}), items })
+      ? await emitirNfeTeste({ destinatarioNome: destNome, ...(destDoc.replace(/\D/g, '').length > 11 ? { destinatarioCnpj: destDoc } : destDoc ? { destinatarioCpf: destDoc } : {}), endereco, items })
       : await emitirNfceTeste({ destinatarioCpf: destDoc || undefined, items })
     setBusy(null)
     setResult({ tipo, ...r })
@@ -113,6 +116,27 @@ export function TesteEmissaoClient({ suppliers }: { suppliers: SupplierOverview[
           </label>
           <label className="block text-xs text-gray-500">CPF ou CNPJ (opcional — em branco vira consumidor não identificado)
             <input className={inputCls} value={destDoc} onChange={e => setDestDoc(e.target.value)} placeholder="somente números" />
+          </label>
+        </div>
+        <p className="text-xs text-gray-500 pt-2">Endereço (obrigatório na NF-e; a NFC-e não usa isto). Vem pré-preenchido, pode editar.</p>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <label className="block text-xs text-gray-500 sm:col-span-2">Logradouro
+            <input className={inputCls} value={endereco.logradouro} onChange={e => setEndereco(v => ({ ...v, logradouro: e.target.value }))} />
+          </label>
+          <label className="block text-xs text-gray-500">Número
+            <input className={inputCls} value={endereco.numero} onChange={e => setEndereco(v => ({ ...v, numero: e.target.value }))} />
+          </label>
+          <label className="block text-xs text-gray-500">Bairro
+            <input className={inputCls} value={endereco.bairro} onChange={e => setEndereco(v => ({ ...v, bairro: e.target.value }))} />
+          </label>
+          <label className="block text-xs text-gray-500">Município
+            <input className={inputCls} value={endereco.municipio} onChange={e => setEndereco(v => ({ ...v, municipio: e.target.value }))} />
+          </label>
+          <label className="block text-xs text-gray-500">UF
+            <input className={inputCls} value={endereco.uf} onChange={e => setEndereco(v => ({ ...v, uf: e.target.value.toUpperCase().slice(0, 2) }))} />
+          </label>
+          <label className="block text-xs text-gray-500">CEP
+            <input className={inputCls} value={endereco.cep} onChange={e => setEndereco(v => ({ ...v, cep: e.target.value }))} />
           </label>
         </div>
       </div>

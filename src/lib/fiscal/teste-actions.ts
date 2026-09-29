@@ -57,7 +57,9 @@ async function saveDocument(row: Record<string, unknown>) {
 }
 
 // ── NF-e de teste (cliente com CNPJ/CPF, sem venda associada) ───────────────
-export async function emitirNfeTeste(input: { destinatarioNome: string; destinatarioCnpj?: string; destinatarioCpf?: string; items: TestItem[] }) {
+export type TestEndereco = { logradouro: string; numero: string; bairro: string; municipio: string; uf: string; cep: string }
+
+export async function emitirNfeTeste(input: { destinatarioNome: string; destinatarioCnpj?: string; destinatarioCpf?: string; endereco: TestEndereco; items: TestItem[] }) {
   const auth = await guardAdmin()
   if ('error' in auth) return { error: auth.error }
   const cfg = await loadConfig()
@@ -81,6 +83,14 @@ export async function emitirNfeTeste(input: { destinatarioNome: string; destinat
     local_destino: 1,
     consumidor_final: 1,
     nome_destinatario: input.destinatarioNome,
+    logradouro_destinatario: input.endereco.logradouro,
+    numero_destinatario: input.endereco.numero,
+    bairro_destinatario: input.endereco.bairro,
+    municipio_destinatario: input.endereco.municipio,
+    uf_destinatario: input.endereco.uf,
+    cep_destinatario: input.endereco.cep.replace(/\D/g, ''),
+    pais_destinatario: 'BRASIL',
+    indicador_inscricao_estadual_destinatario: 9, // 9 = não contribuinte, o caso comum de teste
     items: buildItems(input.items),
   }
   if (input.destinatarioCnpj) payload.cnpj_destinatario = input.destinatarioCnpj.replace(/\D/g, '')
