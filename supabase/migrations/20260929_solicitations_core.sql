@@ -129,3 +129,12 @@ create table if not exists post_sale_followups (
 );
 
 create index if not exists idx_post_sale_followups_solicitation on post_sale_followups (solicitation_id);
+
+-- ── RLS (sem policy) — mesmo padrão de training_*/policy_* ───────────────
+-- Bloqueia por padrão qualquer acesso via API pública (PostgREST
+-- anon/authenticated); todo acesso real passa pelo admin client do
+-- servidor nas server actions, igual o resto do sistema.
+alter table solicitations enable row level security;
+alter table purchase_checklist_items enable row level security;
+alter table installation_trackings enable row level security;
+alter table post_sale_followups enable row level security;

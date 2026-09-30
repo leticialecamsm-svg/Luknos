@@ -12,28 +12,29 @@
 
 -- ── Passo 1: uma solicitation por orçamento existente ───────────────────
 -- quotes.solicitation_id ainda é null para todo orçamento pré-feature.
-insert into solicitations (client_id, architect_id, created_by, created_at)
-select q.client_id, q.architect_id, q.created_by, q.created_at
+-- NOTA: quotes NÃO tem coluna created_by (conferido no schema real antes de
+-- aplicar) — solicitations.created_by fica null para solicitations nascidas
+-- de um quote pré-existente; created_by só é preenchido para Solicitações
+-- criadas de agora em diante pela tela nova.
+insert into solicitations (client_id, architect_id, created_at)
+select q.client_id, q.architect_id, q.created_at
 from quotes q
 where q.solicitation_id is null;
 
 -- Linka cada quote recém-processado à solicitation que acabou de nascer
--- pra ele. O join por (client_id, architect_id, created_at, created_by) é
--- seguro aqui porque a inserção acima criou exatamente 1 linha nova por
--- quote, na mesma ordem/valores — mas usamos created_at + client_id como
--- chave prática já que solicitations não guarda quote_id diretamente.
--- Para evitar ambiguidade em quotes "gêmeos" (mesmo client/created_at),
--- casamos pelo id da solicitation mais recente ainda não usada por outro
--- quote, via row_number.
+-- pra ele. Conferido no schema real: não há dois quotes com o mesmo
+-- (client_id, architect_id, created_at), então esse trio já identifica a
+-- linha sem ambiguidade — mesmo assim usamos row_number como cinto de
+-- segurança caso isso mude no futuro.
 with novas as (
-  select id, client_id, architect_id, created_by, created_at,
-         row_number() over (partition by client_id, architect_id, created_by, created_at order by id) as rn
+  select id, client_id, architect_id, created_at,
+         row_number() over (partition by client_id, architect_id, created_at order by id) as rn
   from solicitations
   where id not in (select solicitation_id from quotes where solicitation_id is not null)
 ),
 alvo as (
-  select q.id as quote_id, q.client_id, q.architect_id, q.created_by, q.created_at,
-         row_number() over (partition by q.client_id, q.architect_id, q.created_by, q.created_at order by q.id) as rn
+  select q.id as quote_id, q.client_id, q.architect_id, q.created_at,
+         row_number() over (partition by q.client_id, q.architect_id, q.created_at order by q.id) as rn
   from quotes q
   where q.solicitation_id is null
 )
@@ -43,7 +44,6 @@ from novas n, alvo a
 where a.quote_id = q.id
   and a.client_id = n.client_id
   and coalesce(a.architect_id::text, '') = coalesce(n.architect_id::text, '')
-  and coalesce(a.created_by::text, '') = coalesce(n.created_by::text, '')
   and a.created_at = n.created_at
   and a.rn = n.rn;
 
