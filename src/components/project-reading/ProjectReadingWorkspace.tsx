@@ -151,6 +151,12 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // canvas — usado pra saber quando dá pra capturar em alta resolução na
   // exportação (aguardar o zoom temporário terminar de desenhar).
   const renderVersionRef = useRef(0)
+  // Task de render do pdf.js em andamento — chamar page.render() de novo
+  // em cima de uma que ainda não terminou (ex: vários "ticks" da rodinha
+  // do mouse em sequência) trava o pdf.js pra sempre, então a task
+  // anterior precisa ser cancelada antes de começar a próxima.
+  const renderTaskRef = useRef<any>(null)
+  const zoomingRef = useRef(false)
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
   const [legendItems, setLegendItems] = useState<LegendItem[]>(initLegend)
@@ -651,20 +657,31 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     if (!pdfDoc) return
     let cancelled = false
     setRendering(true)
+    // Uma render anterior ainda em andamento (ex: zoom na rodinha disparando
+    // vários "ticks" seguidos) precisa ser cancelada antes de começar outra
+    // no mesmo canvas — o pdf.js trava pra sempre se não cancelar.
+    renderTaskRef.current?.cancel()
     pdfDoc.getPage(pageNum).then((page: any) => {
+      if (cancelled) return
       const viewport = page.getViewport({ scale: renderScale, rotation: totalRotation(page) })
       const canvas = canvasRef.current
       if (!canvas || cancelled) return
       canvas.width = viewport.width
       canvas.height = viewport.height
       const ctx = canvas.getContext('2d')!
-      page.render({ canvasContext: ctx, viewport }).promise.then(() => {
+      const task = page.render({ canvasContext: ctx, viewport })
+      renderTaskRef.current = task
+      task.promise.then(() => {
         if (!cancelled) {
           viewportRef.current = viewport
           setPageSize({ width: viewport.width, height: viewport.height })
           setRendering(false)
           renderVersionRef.current++
         }
+      }).catch((err: any) => {
+        // Cancelamento esperado (nova render começou antes dessa acabar) —
+        // não é erro de verdade, só ignora.
+        if (err?.name !== 'RenderingCancelledException') console.error(err)
       })
     })
     return () => { cancelled = true }
@@ -695,8 +712,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     const nextScale = Math.min(4, Math.max(0.3, prevScale * factor))
     if (nextScale === prevScale) return
     const ratio = nextScale / prevScale
-    const v0 = renderVersionRef.current
     setRenderScale(nextScale)
+    // Se o usuário girar a rodinha rápido, vários "ticks" chamam essa
+    // função quase juntos — só o primeiro espera a render terminar pra
+    // ajustar o scroll; os outros só atualizam a escala e saem, pra não
+    // empilhar várias esperas concorrentes brigando pelo mesmo scroll.
+    if (zoomingRef.current) return
+    zoomingRef.current = true
+    const v0 = renderVersionRef.current
     // Só ajusta o scroll depois que o pdf.js terminar de re-renderizar
     // nessa escala — senão o ponto sob o cursor "pula" no meio do caminho.
     await new Promise<void>(resolve => {
@@ -706,6 +729,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     })
     container.scrollLeft = cursorX * ratio - (clientX - rect.left)
     container.scrollTop = cursorY * ratio - (clientY - rect.top)
+    zoomingRef.current = false
   }
 
   // Clicar num ambiente na aba lateral centraliza e dá zoom nele na planta,
