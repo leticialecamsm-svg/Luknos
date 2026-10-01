@@ -54,10 +54,15 @@ export async function sendTextMessage(
       console.error('sendText falhou', res.status, body)
       return { sent: false, error: `evolution_${res.status}` }
     }
-    const parsed = (await res.json().catch(() => null)) as
-      | { key?: { id?: string }; messageId?: string }
-      | null
-    return { sent: true, providerMessageId: parsed?.key?.id ?? parsed?.messageId ?? undefined }
+    // Loga a resposta crua mesmo em sucesso (2xx) — é a única forma de ver
+    // se a Evolution realmente aceitou a mensagem ou só respondeu "ok" sem
+    // um id de verdade (foi o que pareceu acontecer com o áudio).
+    const rawText = await res.text()
+    console.log('sendText resposta da Evolution:', rawText.slice(0, 500))
+    const parsed = JSON.parse(rawText || '{}') as { key?: { id?: string }; messageId?: string } | null
+    const providerMessageId = parsed?.key?.id ?? parsed?.messageId ?? undefined
+    if (!providerMessageId) console.warn('sendText: Evolution respondeu 2xx sem message id')
+    return { sent: true, providerMessageId }
   } catch (e) {
     console.error('sendText erro', e)
     return { sent: false, error: String((e as Error)?.message ?? e) }
@@ -98,10 +103,12 @@ export async function sendMediaMessage(
       console.error('sendMedia falhou', res.status, body)
       return { sent: false, error: `evolution_${res.status}` }
     }
-    const parsed = (await res.json().catch(() => null)) as
-      | { key?: { id?: string }; messageId?: string }
-      | null
-    return { sent: true, providerMessageId: parsed?.key?.id ?? parsed?.messageId ?? undefined }
+    const rawText = await res.text()
+    console.log('sendMedia resposta da Evolution:', rawText.slice(0, 500))
+    const parsed = JSON.parse(rawText || '{}') as { key?: { id?: string }; messageId?: string } | null
+    const providerMessageId = parsed?.key?.id ?? parsed?.messageId ?? undefined
+    if (!providerMessageId) console.warn('sendMedia: Evolution respondeu 2xx sem message id')
+    return { sent: true, providerMessageId }
   } catch (e) {
     console.error('sendMedia erro', e)
     return { sent: false, error: String((e as Error)?.message ?? e) }

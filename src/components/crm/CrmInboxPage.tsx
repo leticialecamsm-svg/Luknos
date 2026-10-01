@@ -7,6 +7,7 @@ import {
   getCrmMessages,
   reassignConversation,
   linkConversationContact,
+  setConversationDisplayName,
   searchContactsForCrm,
   sendCrmMessage,
   getCrmAttachmentUrl,
@@ -17,7 +18,7 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2,
+  Mic, Trash2, Square,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all'
@@ -59,6 +60,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const [sendingVoice, setSendingVoice] = useState(false)
+  const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
   const recordStreamRef = useRef<MediaStream | null>(null)
@@ -176,10 +178,11 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     setRecording(false)
   }
 
+  // Para de gravar e abre a prévia (ouvir antes de enviar) — não envia
+  // nada ainda, só monta o arquivo localmente.
   function finishRecording() {
     const recorder = mediaRecorderRef.current
-    if (!recorder || !selectedId) { setRecording(false); return }
-    const convId = selectedId
+    if (!recorder) { setRecording(false); return }
     recorder.onstop = () => {
       stopRecordingTracks()
       const mimeType = recorder.mimeType || 'audio/webm'
@@ -187,27 +190,43 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       recordedChunksRef.current = []
       const ext = mimeType.includes('mp4') ? 'm4a' : 'webm'
       const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: mimeType })
-      setSendingVoice(true)
-      uploadCrmFile(convId, file).then(async (up) => {
-        if (up.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', up.error); setSendingVoice(false); return }
-        const res = await sendCrmMessage({
-          conversationId: convId,
-          storagePath: up.storagePath,
-          fileName: file.name,
-          mimeType: file.type,
-          isVoiceNote: true,
-        })
-        setSendingVoice(false)
-        if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
-        else refreshThread(convId)
-      })
+      setPreviewAudio({ file, url: URL.createObjectURL(blob) })
     }
     recorder.stop()
     mediaRecorderRef.current = null
     setRecording(false)
   }
 
-  useEffect(() => () => { mediaRecorderRef.current?.stop(); stopRecordingTracks() }, [])
+  function discardPreviewAudio() {
+    if (previewAudio) URL.revokeObjectURL(previewAudio.url)
+    setPreviewAudio(null)
+  }
+
+  async function sendPreviewAudio() {
+    if (!previewAudio || !selectedId) return
+    const { file } = previewAudio
+    discardPreviewAudio()
+    setSendingVoice(true)
+    const up = await uploadCrmFile(selectedId, file)
+    if (up.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', up.error); setSendingVoice(false); return }
+    const res = await sendCrmMessage({
+      conversationId: selectedId,
+      storagePath: up.storagePath,
+      fileName: file.name,
+      mimeType: file.type,
+      isVoiceNote: true,
+    })
+    setSendingVoice(false)
+    if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
+    else refreshThread(selectedId)
+  }
+
+  useEffect(() => () => {
+    mediaRecorderRef.current?.stop()
+    stopRecordingTracks()
+    if (previewAudio) URL.revokeObjectURL(previewAudio.url)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function openAttachment(path: string) {
     const res = await getCrmAttachmentUrl(path)
@@ -229,6 +248,14 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     setShowLinkContact(false)
     if (res.error) toast.error('OCORREU UM ERRO', res.error)
     else { toast.success('VINCULADO!', 'Contato atualizado.'); refreshList() }
+  }
+
+  async function handleRenameConversation(name: string) {
+    if (!selectedId) return
+    const res = await setConversationDisplayName(selectedId, name)
+    setShowLinkContact(false)
+    if (res.error) toast.error('OCORREU UM ERRO', res.error)
+    else { toast.success('SALVO!', 'Nome atualizado.'); refreshList() }
   }
 
   useEffect(() => {
@@ -336,8 +363,24 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
                 <button type="button" onClick={cancelRecording} className="p-2 text-gray-400 hover:text-red-600" title="Cancelar">
                   <Trash2 className="w-5 h-5" />
                 </button>
-                <button type="button" onClick={finishRecording} className="btn-primary px-3 py-2" title="Enviar áudio">
-                  <Send className="w-4 h-4" />
+                <button type="button" onClick={finishRecording} className="btn-primary px-3 py-2" title="Parar e ouvir">
+                  <Square className="w-4 h-4" />
+                </button>
+              </div>
+            ) : previewAudio ? (
+              <div className="p-3 border-t border-surface-border flex items-center gap-3">
+                <audio controls src={previewAudio.url} className="h-9 flex-1" />
+                <button type="button" onClick={discardPreviewAudio} className="p-2 text-gray-400 hover:text-red-600" title="Descartar">
+                  <Trash2 className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={sendPreviewAudio}
+                  disabled={sendingVoice}
+                  className="btn-primary px-3 py-2"
+                  title="Enviar áudio"
+                >
+                  {sendingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </div>
             ) : (
@@ -407,14 +450,14 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
 
       {showLinkContact && selected && (
         <Modal onClose={() => setShowLinkContact(false)} title="Vincular contato">
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="relative">
               <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" />
               <input
                 autoFocus
                 value={contactQuery}
                 onChange={(e) => setContactQuery(e.target.value)}
-                placeholder="Buscar por nome…"
+                placeholder="Buscar contato já cadastrado…"
                 className="input pl-8"
               />
             </div>
@@ -423,7 +466,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
                 Desvincular contato atual
               </button>
             )}
-            <div className="space-y-1 max-h-64 overflow-y-auto">
+            <div className="space-y-1 max-h-48 overflow-y-auto">
               {contactResults.map((c) => (
                 <button
                   key={c.id}
@@ -433,6 +476,16 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
                   {c.name} <span className="text-xs text-gray-400">({c.type})</span>
                 </button>
               ))}
+            </div>
+
+            <div className="border-t border-surface-border pt-3">
+              <p className="text-xs text-gray-500 mb-1.5">
+                Ou só dar um nome pra essa conversa (sem vincular a um contato do sistema):
+              </p>
+              <NameOnlyForm
+                initial={selected.contact_id ? '' : (selected.contact_name ?? '')}
+                onSave={handleRenameConversation}
+              />
             </div>
           </div>
         </Modal>
@@ -482,6 +535,28 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
           {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
+    </div>
+  )
+}
+
+function NameOnlyForm({ initial, onSave }: { initial: string; onSave: (name: string) => void }) {
+  const [name, setName] = useState(initial)
+  return (
+    <div className="flex gap-2">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="ex.: Marido da Michelline"
+        className="input flex-1"
+      />
+      <button
+        type="button"
+        onClick={() => onSave(name)}
+        disabled={!name.trim()}
+        className="btn-secondary text-sm px-3"
+      >
+        Salvar
+      </button>
     </div>
   )
 }

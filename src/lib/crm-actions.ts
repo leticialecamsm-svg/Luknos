@@ -256,7 +256,25 @@ export async function linkConversationContact(conversationId: string, contactId:
   if ('error' in auth) return { error: auth.error }
   const { error } = await createAdminClient()
     .from('crm_conversations')
-    .update({ contact_id: contactId })
+    // vincular a um contato de verdade limpa o apelido manual (contact_id
+    // manda no nome exibido, via join em getCrmConversations).
+    .update({ contact_id: contactId, contact_name_cache: null })
+    .eq('id', conversationId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Dar um nome pra conversa sem vincular a um contato formal do sistema —
+// pra quando quem manda mensagem não é (e não precisa virar) um cadastro.
+export async function setConversationDisplayName(conversationId: string, name: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Nome vazio' }
+  const { error } = await createAdminClient()
+    .from('crm_conversations')
+    .update({ contact_id: null, contact_name_cache: trimmed })
     .eq('id', conversationId)
   if (error) return { error: error.message }
   revalidatePath('/crm')
