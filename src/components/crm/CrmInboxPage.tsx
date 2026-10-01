@@ -156,9 +156,18 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       recordStreamRef.current = stream
       recordedChunksRef.current = []
-      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
         .find((t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(t)) ?? ''
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      let recorder: MediaRecorder
+      try {
+        // força um mimeType de áudio explícito sempre que possível — sem
+        // isso, alguns Chrome relatam o gravador como "video/webm" mesmo
+        // pra um stream só de áudio, e o WhatsApp nunca entrega a mensagem
+        // (fica "pendente" pra sempre, sem erro nenhum pra avisar).
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      } catch {
+        recorder = new MediaRecorder(stream)
+      }
       recorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
       recorder.start()
       mediaRecorderRef.current = recorder
@@ -185,7 +194,13 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     if (!recorder) { setRecording(false); return }
     recorder.onstop = () => {
       stopRecordingTracks()
-      const mimeType = recorder.mimeType || 'audio/webm'
+      // o container (webm/mp4) é real; só o rótulo "video/..." às vezes vem
+      // errado pra um stream que só tem áudio — troca pelo "audio/..."
+      // equivalente antes de subir, senão o WhatsApp nunca entrega.
+      let mimeType = recorder.mimeType || 'audio/webm'
+      if (!mimeType.startsWith('audio/')) {
+        mimeType = mimeType.includes('mp4') ? 'audio/mp4' : 'audio/webm'
+      }
       const blob = new Blob(recordedChunksRef.current, { type: mimeType })
       recordedChunksRef.current = []
       const ext = mimeType.includes('mp4') ? 'm4a' : 'webm'
