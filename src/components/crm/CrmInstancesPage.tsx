@@ -188,30 +188,44 @@ function ConnectModal({ row, onClose }: { row: InstanceRow; onClose: () => void 
   const [qr, setQr] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const stateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const qrTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    connectCrmInstance(row.instance_name).then((res) => {
+
+    // O QR Code do WhatsApp/Baileys expira sozinho a cada ~20-25s — se
+    // ficar parado na tela, dá exatamente esse erro de "não é possível
+    // conectar". Por isso buscamos um novo periodicamente, não só uma vez.
+    async function fetchFreshQr() {
+      const res = await connectCrmInstance(row.instance_name)
       if (cancelled) return
       setLoading(false)
       if (res.error) { setError(res.error); return }
+      setError(null)
       if (res.alreadyConnected) { setConnected(true); return }
-      if (res.qrcodeBase64) {
-        setQr(res.qrcodeBase64)
-        // confere a cada 4s se o celular já escaneou
-        pollRef.current = setInterval(async () => {
-          const st = await getCrmInstanceConnectionState(row.instance_name)
-          if (st.state === 'open') {
-            setConnected(true)
-            if (pollRef.current) clearInterval(pollRef.current)
-            toast.success('CONECTADO!', `${row.label} está pronto pra usar.`)
-          }
-        }, 4000)
+      if (res.qrcodeBase64) setQr(res.qrcodeBase64)
+    }
+
+    fetchFreshQr()
+    qrTimerRef.current = setInterval(fetchFreshQr, 20000)
+
+    // confere a cada 4s se o celular já escaneou
+    stateTimerRef.current = setInterval(async () => {
+      const st = await getCrmInstanceConnectionState(row.instance_name)
+      if (st.state === 'open') {
+        setConnected(true)
+        if (stateTimerRef.current) clearInterval(stateTimerRef.current)
+        if (qrTimerRef.current) clearInterval(qrTimerRef.current)
+        toast.success('CONECTADO!', `${row.label} está pronto pra usar.`)
       }
-    })
-    return () => { cancelled = true; if (pollRef.current) clearInterval(pollRef.current) }
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      if (stateTimerRef.current) clearInterval(stateTimerRef.current)
+      if (qrTimerRef.current) clearInterval(qrTimerRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.instance_name])
 
@@ -245,7 +259,8 @@ function ConnectModal({ row, onClose }: { row: InstanceRow; onClose: () => void 
             <img src={`data:image/png;base64,${qr.replace(/^data:image\/\w+;base64,/, '')}`} alt="QR Code" className="w-56 h-56 mx-auto rounded-lg border border-surface-border" />
             <p className="text-xs text-gray-500">
               No celular desse número: WhatsApp → Aparelhos conectados → Conectar um aparelho, e aponte pra esse QR Code.
-              A tela atualiza sozinha assim que conectar.
+              O QR Code se renova sozinho a cada 20s — se demorar pra escanear, é só esperar o próximo aparecer.
+              A tela também detecta sozinha assim que conectar.
             </p>
           </>
         )}
