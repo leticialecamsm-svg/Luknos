@@ -18,6 +18,7 @@ import { useEffect, useState, useTransition } from 'react'
 import {
   ChevronLeft, Truck, MapPin, Calendar, ExternalLink, Check, CalendarDays, Ruler,
   ShoppingCart, Wrench, HeartHandshake, Pencil, Star, Trash2, Plus, Loader2, UploadCloud, CloudOff,
+  FileText, Image as ImageIcon, Box, Paperclip,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
@@ -37,8 +38,10 @@ import {
   updateShipmentForSolicitation, updateVisitForSolicitation,
   updateDesignProjectKindForSolicitation, updateDesignProjectDescriptionForSolicitation,
   updateDesignProjectStatusForSolicitation, uploadStageFileForSolicitation, checkDriveConnected,
+  listStageFilesForSolicitation, deleteVisitForSolicitation, deleteDesignProjectForSolicitation,
 } from '@/lib/solicitations/actions'
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-gray-400 italic py-6 text-center">{children}</div>
@@ -48,8 +51,8 @@ function Empty({ children }: { children: React.ReactNode }) {
 // surface-border, sombra em camadas, raio generoso) — mesma recipe usada em
 // QuoteDetail/NegotiationSection, em vez do bare `border + rounded-lg` que
 // as abas novas tinham antes.
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('card p-4', className)}>{children}</div>
+function Card({ children, className, style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
+  return <div className={cn('card p-4', className)} style={style}>{children}</div>
 }
 
 // Cabeçalho padrão dos formulários "Nova etapa" das abas leves — ícone
@@ -93,10 +96,18 @@ const VISIT_STATUS_COLOR: Record<string, { bg: string; text: string; accent: str
   not_needed: { bg: 'bg-gray-100', text: 'text-gray-500', accent: '#d1d5db' },
 }
 const PROJECT_STATUS_LABEL: Record<string, string> = { fila: 'Na fila', em_andamento: 'Em andamento', concluido: 'Concluído' }
-const PROJECT_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  fila: { bg: 'bg-gray-100', text: 'text-gray-600' },
-  em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700' },
-  concluido: { bg: 'bg-green-50', text: 'text-green-700' },
+// `accent` adicionado (rodada 4, "quero o detalhe da cor igual visita"): a
+// tarja esquerda do card de Projeto passa a seguir o STATUS (workflow:
+// fila/em_andamento/concluido), não o kind (elaboração/alocação de pontos).
+// Decisão: o accent da Visita já é guiado pelo status daquele registro
+// (VISIT_STATUS_COLOR), então a leitura mais consistente entre as duas abas
+// é "a cor da tarja = onde o registro está no fluxo", não a categoria fixa
+// dele — kind continua tendo seu próprio badge colorido (PROJECT_KIND_COLOR),
+// só não dirige mais a tarja.
+const PROJECT_STATUS_COLOR: Record<string, { bg: string; text: string; accent: string }> = {
+  fila: { bg: 'bg-gray-100', text: 'text-gray-600', accent: '#d1d5db' },
+  em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700', accent: '#f59e0b' },
+  concluido: { bg: 'bg-green-50', text: 'text-green-700', accent: '#22c55e' },
 }
 // design_projects.kind (enum já existente: 'elaboracao' | 'alocacao_pontos' —
 // ver 20260929_solicitations_core.sql) agora vira select colorido + badge em
@@ -114,7 +125,7 @@ const PROJECT_KIND_COLOR: Record<string, { bg: string; text: string; tint: strin
 // enquanto sobe, estado de sucesso/erro, e mensagem amigável no lugar do
 // botão quando o Drive não está conectado — só que aqui é um botão simples
 // (sem lista de arquivos já enviados, que ficaria pro Lote 2).
-function StageFileUpload({ solicitationId, stage }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao' }) {
+function StageFileUpload({ solicitationId, stage, onUploaded }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao'; onUploaded?: () => void }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
   // Progresso agregado ("3 de 5 enviados") em vez de um único resultado —
@@ -155,6 +166,7 @@ function StageFileUpload({ solicitationId, stage }: { solicitationId: string; st
     setLastOkNames(okNames)
     setErrors(errMsgs)
     setUploading(false)
+    if (okNames.length > 0) onUploaded?.()
   }
 
   if (connected === false) {
@@ -197,6 +209,58 @@ function StageFileUpload({ solicitationId, stage }: { solicitationId: string; st
         </div>
       )}
     </div>
+  )
+}
+
+// ── Lista de arquivos já enviados por etapa (Bug #1) ──────────────────────
+// "o arquivo até subiu... mas onde consigo visualizar nessa tela?" — chama
+// listStageFilesForSolicitation (mesma resolução de pasta do upload) e
+// mostra cada arquivo como uma linha compacta (ícone por mime, nome, link
+// que abre o webViewLink numa aba nova). `refreshKey` muda a cada upload bem
+// sucedido em StageFileUpload pra forçar o refetch sem precisar de
+// router.refresh() (mantém a lista local da etapa, sem recarregar a página
+// toda).
+function stageFileIcon(name: string, mime: string) {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  if (ext === 'pdf' || mime === 'application/pdf') return FileText
+  if (['dwg', 'skp', 'skb'].includes(ext) || mime.includes('sketchup') || mime.includes('acad')) return Box
+  if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'tif', 'tiff'].includes(ext)) return ImageIcon
+  return FileText
+}
+
+function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao'; refreshKey: number }) {
+  const [files, setFiles] = useState<{ id: string; name: string; mimeType: string; webViewLink: string }[] | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    listStageFilesForSolicitation(solicitationId, stage)
+      .then(r => { if (!cancelled) setFiles(r.files) })
+      .catch(() => { if (!cancelled) setFiles([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [solicitationId, stage, refreshKey])
+
+  if (loading) {
+    return <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando arquivos…</p>
+  }
+  if (!files || files.length === 0) return null
+
+  return (
+    <ul className="mt-2 space-y-1">
+      {files.map(f => {
+        const Icon = stageFileIcon(f.name, f.mimeType)
+        return (
+          <li key={f.id} className="flex items-center gap-2 rounded-card border border-surface-border bg-white px-2.5 py-1.5 text-sm">
+            <Icon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <a href={f.webViewLink} target="_blank" rel="noreferrer" className="truncate text-brand-700 hover:underline flex-1 min-w-0">
+              {f.name}
+            </a>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -421,7 +485,15 @@ function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: s
   const [address, setAddress] = useState(v.address ?? '')
   const [status, setStatus] = useState(v.status ?? 'to_schedule')
   const [pending, startTransition] = useTransition()
+  const [fileRefreshKey, setFileRefreshKey] = useState(0)
+  const { confirm, ConfirmDialog } = useConfirm()
   const color = VISIT_STATUS_COLOR[v.status] ?? VISIT_STATUS_COLOR.to_schedule
+
+  async function handleDelete() {
+    const yes = await confirm(`Excluir a visita "${v.title || 'Visita'}"? Essa ação não pode ser desfeita.`, 'Excluir')
+    if (!yes) return
+    startTransition(async () => { await deleteVisitForSolicitation(v.id, solicitationId) })
+  }
 
   function save() {
     startTransition(async () => {
@@ -462,6 +534,9 @@ function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: s
               <Pencil className="w-3.5 h-3.5" /> Editar
             </button>
           )}
+          <button type="button" onClick={handleDelete} disabled={pending} className="text-gray-400 hover:text-red-500 p-1" title="Excluir visita">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -493,9 +568,11 @@ function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: s
           label em PT desse mesmo valor). */}
       {v.status === 'done' && (
         <div className="mt-2.5 pt-2.5 border-t border-black/5">
-          <StageFileUpload solicitationId={solicitationId} stage="visita" />
+          <StageFileUpload solicitationId={solicitationId} stage="visita" onUploaded={() => setFileRefreshKey(k => k + 1)} />
+          <StageFileList solicitationId={solicitationId} stage="visita" refreshKey={fileRefreshKey} />
         </div>
       )}
+      {ConfirmDialog}
     </div>
   )
 }
@@ -562,7 +639,12 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
   const [editingDescription, setEditingDescription] = useState(false)
   const [description, setDescription] = useState(p.description ?? '')
   const [pending, startTransition] = useTransition()
+  const [fileRefreshKey, setFileRefreshKey] = useState(0)
+  const { confirm, ConfirmDialog } = useConfirm()
   const kindColor = PROJECT_KIND_COLOR[p.kind] ?? PROJECT_KIND_COLOR.elaboracao
+  // Tarja esquerda pelo status do projeto (ver nota em PROJECT_STATUS_COLOR
+  // acima) — mesma convenção da Visita, em vez do kind.
+  const statusAccent = (PROJECT_STATUS_COLOR[p.status] ?? PROJECT_STATUS_COLOR.fila).accent
 
   function changeKind(kind: string) {
     startTransition(async () => { await updateDesignProjectKindForSolicitation(p.id, solicitationId, kind as any) })
@@ -576,9 +658,20 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
       setEditingDescription(false)
     })
   }
+  // Persiste o toggle de checkbox feito na view somente-leitura (Bug #3: "o
+  // check volta a ficar deselecionado") — fire-and-forget, mesmo padrão das
+  // outras edições inline desta tela.
+  function persistCheckToggle(html: string) {
+    startTransition(async () => { await updateDesignProjectDescriptionForSolicitation(p.id, solicitationId, html) })
+  }
+  async function handleDelete() {
+    const yes = await confirm(`Excluir o projeto "${p.title}"? Essa ação não pode ser desfeita.`, 'Excluir')
+    if (!yes) return
+    startTransition(async () => { await deleteDesignProjectForSolicitation(p.id, solicitationId) })
+  }
 
   return (
-    <Card className={cn(kindColor.tint, 'border-0')}>
+    <Card className={cn(kindColor.tint, 'border-0')} style={{ borderLeftWidth: 4, borderLeftColor: statusAccent, borderLeftStyle: 'solid' }}>
       <div className="flex items-start justify-between gap-2 flex-wrap mb-2">
         <div className="flex items-center gap-2">
           <Ruler className="w-4 h-4 text-brand-500 shrink-0" />
@@ -601,6 +694,9 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
           >
             {Object.entries(PROJECT_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          <button type="button" onClick={handleDelete} disabled={pending} className="text-gray-400 hover:text-red-500 p-1" title="Excluir projeto">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -615,7 +711,7 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
           </div>
         ) : (
           <div>
-            {p.description ? <RichTextView html={p.description} /> : <span className="text-sm text-gray-400 italic">Sem notas ainda.</span>}
+            {p.description ? <RichTextView html={p.description} onCheckToggle={persistCheckToggle} /> : <span className="text-sm text-gray-400 italic">Sem notas ainda.</span>}
             <button type="button" onClick={() => setEditingDescription(true)} className="btn-ghost text-xs mt-1.5">
               <Pencil className="w-3.5 h-3.5" /> Editar
             </button>
@@ -624,8 +720,10 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
       </div>
 
       <div className="mt-2.5 pt-2.5 border-t border-black/5">
-        <StageFileUpload solicitationId={solicitationId} stage="projeto" />
+        <StageFileUpload solicitationId={solicitationId} stage="projeto" onUploaded={() => setFileRefreshKey(k => k + 1)} />
+        <StageFileList solicitationId={solicitationId} stage="projeto" refreshKey={fileRefreshKey} />
       </div>
+      {ConfirmDialog}
     </Card>
   )
 }
@@ -633,10 +731,12 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
 // ── Compra de material ─────────────────────────────────────────────────
 
 const PURCHASE_STATUS_LABEL: Record<string, string> = { a_pedir: 'A pedir', pedido: 'Pedido', recebido: 'Recebido' }
-const PURCHASE_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  a_pedir: { bg: 'bg-gray-100', text: 'text-gray-600' },
-  pedido: { bg: 'bg-amber-50', text: 'text-amber-700' },
-  recebido: { bg: 'bg-green-50', text: 'text-green-700' },
+// `accent` seguindo o mesmo padrão de tarja esquerda das demais etapas
+// (consistência pedida na rodada 4 — "teste e analise todas as etapas").
+const PURCHASE_STATUS_COLOR: Record<string, { bg: string; text: string; accent: string }> = {
+  a_pedir: { bg: 'bg-gray-100', text: 'text-gray-600', accent: '#d1d5db' },
+  pedido: { bg: 'bg-amber-50', text: 'text-amber-700', accent: '#f59e0b' },
+  recebido: { bg: 'bg-green-50', text: 'text-green-700', accent: '#22c55e' },
 }
 
 function PurchaseChecklistTab({ solicitationId, items, suppliers }: { solicitationId: string; items: any[]; suppliers: { id: string; name: string }[] }) {
@@ -677,7 +777,7 @@ function PurchaseChecklistTab({ solicitationId, items, suppliers }: { solicitati
       </Card>
       {items.length === 0 && <Empty>Nenhum item de compra ainda.</Empty>}
       {items.map(item => (
-        <Card key={item.id}>
+        <Card key={item.id} style={{ borderLeftWidth: 4, borderLeftColor: (PURCHASE_STATUS_COLOR[item.status] ?? PURCHASE_STATUS_COLOR.a_pedir).accent, borderLeftStyle: 'solid' }}>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div>
               <div className="font-medium">{item.description}</div>
@@ -716,6 +816,21 @@ function PurchaseChecklistTab({ solicitationId, items, suppliers }: { solicitati
 // só que inline na aba em vez de modal — reaproveita o padrão visual sem
 // tocar nos componentes de /shipping.
 
+// Tarja esquerda da Separação pelo separation_status — mesma convenção de
+// Visita/Projeto (accent hex por status), reaproveitando as cores já
+// definidas em SHIPMENT_STATUS_COLOR (src/types) só que resolvendo o hex a
+// partir das classes bg-*/text-* existentes não é direto, então mapeamos um
+// hex equivalente aqui pra consistência visual sem tocar em src/types
+// (guardrail: não mexer nas rotas/telas de /shipping que também usam esse
+// arquivo de cores).
+const SHIPMENT_STATUS_ACCENT: Record<string, string> = {
+  queued: '#d1d5db',
+  in_progress: '#f59e0b',
+  awaiting_material: '#f59e0b',
+  completed: '#22c55e',
+  delivered: '#22c55e',
+}
+
 function ShipmentCard({ shipment: s }: { shipment: any }) {
   const [editing, setEditing] = useState(false)
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>(s.delivery_type ?? 'delivery')
@@ -723,7 +838,9 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
   const [status, setStatus] = useState<string>(s.separation_status ?? 'queued')
   const [priority, setPriority] = useState<string>(s.priority ?? 'mid')
   const [pending, startTransition] = useTransition()
+  const [fileRefreshKey, setFileRefreshKey] = useState(0)
   const statusColor = SHIPMENT_STATUS_COLOR[s.separation_status as keyof typeof SHIPMENT_STATUS_COLOR]
+  const statusAccent = SHIPMENT_STATUS_ACCENT[s.separation_status as string] ?? SHIPMENT_STATUS_ACCENT.queued
   const priorityColor = SHIPMENT_PRIORITY_COLOR[s.priority as keyof typeof SHIPMENT_PRIORITY_COLOR]
   // Cores dos selects de edição seguem o valor sendo editado (não o salvo),
   // pra dar feedback imediato ao trocar — mesmo padrão colorido do select de
@@ -752,7 +869,7 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
   }
 
   return (
-    <Card>
+    <Card style={{ borderLeftWidth: 4, borderLeftColor: statusAccent, borderLeftStyle: 'solid' }}>
       <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
         <div className="flex items-center gap-2 text-brand-700">
           <Truck className="w-4 h-4" />
@@ -850,7 +967,8 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
       )}
 
       <div className="mt-2.5 pt-2.5 border-t border-surface-border">
-        <StageFileUpload solicitationId={s.solicitation_id} stage="expedicao" />
+        <StageFileUpload solicitationId={s.solicitation_id} stage="expedicao" onUploaded={() => setFileRefreshKey(k => k + 1)} />
+        <StageFileList solicitationId={s.solicitation_id} stage="expedicao" refreshKey={fileRefreshKey} />
       </div>
     </Card>
   )
@@ -864,11 +982,11 @@ const INSTALLATION_STATUS_LABEL: Record<string, string> = {
 // Mesma lógica de cor dos outros status pills do app (agendada=azul,
 // em_andamento=âmbar, concluida=verde, com_pendencia=vermelho — pedido
 // explícito da Letícia pra ficar consistente com o resto do sistema).
-const INSTALLATION_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  agendada: { bg: 'bg-blue-50', text: 'text-blue-700' },
-  em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700' },
-  concluida: { bg: 'bg-green-50', text: 'text-green-700' },
-  com_pendencia: { bg: 'bg-red-50', text: 'text-red-700' },
+const INSTALLATION_STATUS_COLOR: Record<string, { bg: string; text: string; accent: string }> = {
+  agendada: { bg: 'bg-blue-50', text: 'text-blue-700', accent: '#3b82f6' },
+  em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700', accent: '#f59e0b' },
+  concluida: { bg: 'bg-green-50', text: 'text-green-700', accent: '#22c55e' },
+  com_pendencia: { bg: 'bg-red-50', text: 'text-red-700', accent: '#ef4444' },
 }
 
 function InstallationTab({ solicitationId, items }: { solicitationId: string; items: any[] }) {
@@ -920,7 +1038,7 @@ function InstallationTab({ solicitationId, items }: { solicitationId: string; it
       {items.map(item => {
         const color = INSTALLATION_STATUS_COLOR[item.status] ?? INSTALLATION_STATUS_COLOR.agendada
         return (
-          <Card key={item.id}>
+          <Card key={item.id} style={{ borderLeftWidth: 4, borderLeftColor: color.accent, borderLeftStyle: 'solid' }}>
             <div className="flex items-start justify-between gap-2 flex-wrap">
               <div>
                 <div className="font-medium flex items-center gap-1.5">
@@ -1022,8 +1140,13 @@ function PostSaleTab({ solicitationId, items }: { solicitationId: string; items:
       {items.length === 0 && <Empty>Nenhum contato de pós-venda registrado ainda.</Empty>}
       {items.map(item => {
         const stars = Number(item.satisfaction)
+        // Pós-venda não tem um enum de status próprio (só satisfação/
+        // problema/resolução) — pra manter a mesma convenção de tarja
+        // colorida das outras etapas, usamos "tem resolução registrada" como
+        // o sinal de desfecho (mesma regra de isStageDone pra esta aba).
+        const accent = item.resolution ? '#22c55e' : item.issue_reported ? '#f59e0b' : '#d1d5db'
         return (
-          <Card key={item.id}>
+          <Card key={item.id} style={{ borderLeftWidth: 4, borderLeftColor: accent, borderLeftStyle: 'solid' }}>
             <div className="flex items-start justify-between gap-2 flex-wrap">
               <div className="text-sm text-gray-500">{item.contacted_at ? formatDate(item.contacted_at) : ''}</div>
               {Number.isFinite(stars) && stars > 0 ? (

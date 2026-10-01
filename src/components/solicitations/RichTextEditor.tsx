@@ -52,14 +52,33 @@ function checklistRowHtml(text = ''): string {
 }
 
 // Visualização somente-leitura (fora de edição) — mesmo sanitizador. O
-// checkbox continua clicável (muda o visual na hora), mas não persiste
-// sozinho — quem quiser salvar a mudança reabre o editor.
-export function RichTextView({ html, className }: { html: string; className?: string }) {
+// checkbox é clicável e, quando `onCheckToggle` é passado (pedido Letícia:
+// "o check volta a ficar deselecionado" ao trocar de etapa/recarregar),
+// serializa o HTML atual do container (já com o novo estado marcado/
+// desmarcado) e devolve pra quem chamou persistir — sem isso o toggle era só
+// uma classe CSS na hora, nunca gravada em design_projects.description.
+export function RichTextView({
+  html,
+  className,
+  onCheckToggle,
+}: {
+  html: string
+  className?: string
+  onCheckToggle?: (html: string) => void
+}) {
+  function handleClick(e: React.SyntheticEvent) {
+    handleCheckToggle(e)
+    const target = e.target as HTMLElement
+    if (onCheckToggle && target?.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      const container = e.currentTarget as HTMLElement
+      onCheckToggle(sanitizeRichText(container.innerHTML))
+    }
+  }
   return (
     <div
       className={cn('rich-text-view text-sm text-gray-700', className)}
       dangerouslySetInnerHTML={{ __html: sanitizeRichText(html) }}
-      onClick={handleCheckToggle}
+      onClick={handleClick}
     />
   )
 }

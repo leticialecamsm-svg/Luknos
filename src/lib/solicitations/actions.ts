@@ -19,6 +19,7 @@ import { updateShipment } from '@/lib/actions'
 import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
 import {
   findOrCreateFolder, uploadFile, isDriveConnected, driveRootFolderId, folderIdFromLink,
+  listFolderFiles, type DriveFileItem,
 } from '@/lib/google-drive'
 
 type R = { error?: string; ok?: boolean; id?: string }
@@ -493,6 +494,20 @@ async function resolveSolicitationDriveFolderId(db: ReturnType<typeof createAdmi
   return folder.id
 }
 
+// Resolução da subpasta de uma etapa (Visita/Projeto/Separação) — fatorada
+// aqui pra ser reaproveitada tanto pelo upload quanto pela listagem, em vez
+// de duplicar a lógica de "acha a pasta raiz da Solicitação, depois acha/cria
+// a subpasta da etapa dentro dela" (pedido explícito: não duplicar).
+async function resolveStageFolderId(
+  db: ReturnType<typeof createAdminClient>,
+  solicitationId: string,
+  stage: 'visita' | 'projeto' | 'expedicao'
+): Promise<string> {
+  const rootFolderId = await resolveSolicitationDriveFolderId(db, solicitationId)
+  const stageFolder = await findOrCreateFolder(STAGE_FOLDER_NAME[stage] ?? stage, rootFolderId)
+  return stageFolder.id
+}
+
 // Wrapper client-callable pra isDriveConnected (google-drive.ts é server-only
 // e usa o admin client) — mesma checagem que QuoteAttachments faz pra
 // esconder/trocar o botão de upload quando o Drive não está conectado.
@@ -513,10 +528,9 @@ export async function uploadStageFileForSolicitation(
 
   try {
     const db = createAdminClient()
-    const rootFolderId = await resolveSolicitationDriveFolderId(db, solicitationId)
-    const stageFolder = await findOrCreateFolder(STAGE_FOLDER_NAME[stage] ?? stage, rootFolderId)
+    const stageFolderId = await resolveStageFolderId(db, solicitationId, stage)
     const up = await uploadFile({
-      folderId: stageFolder.id,
+      folderId: stageFolderId,
       name: file.name,
       mimeType: file.type || 'application/octet-stream',
       data: new Uint8Array(await file.arrayBuffer()),
@@ -529,4 +543,50 @@ export async function uploadStageFileForSolicitation(
     console.error('[uploadStageFileForSolicitation] falha ao enviar pro Drive:', e)
     return { error: 'Não foi possível enviar o arquivo. Tente novamente ou avise o suporte.' }
   }
+}
+
+// ── Listagem de arquivos já enviados por etapa (Bug #1) ──────────────────
+// Mesma resolução de pasta do upload (resolveStageFolderId, fatorada acima)
+// + listFolderFiles (já usado pela aba Anexos do Orçamento) — assim cada
+// card de Visita/Projeto/Separação consegue mostrar os arquivos já enviados
+// sem reimplementar a chamada à API do Drive.
+export async function listStageFilesForSolicitation(
+  solicitationId: string,
+  stage: 'visita' | 'projeto' | 'expedicao'
+): Promise<{ files: DriveFileItem[]; error?: string }> {
+  const user = await requireUser()
+  if (!user) return { files: [], error: 'Não autenticado' }
+  if (!(await isDriveConnected())) return { files: [] }
+  try {
+    const db = createAdminClient()
+    const stageFolderId = await resolveStageFolderId(db, solicitationId, stage)
+    const files = await listFolderFiles(stageFolderId)
+    return { files }
+  } catch (e: any) {
+    console.error('[listStageFilesForSolicitation] falha ao listar arquivos do Drive:', e)
+    return { files: [], error: 'Não foi possível carregar os arquivos.' }
+  }
+}
+
+// ── Excluir Visita / Projeto a partir da Solicitação ──────────────────────
+// Mesmo padrão de deletePurchaseChecklistItem/deleteInstallationTracking/
+// deletePostSaleFollowup acima: admin client, guard de login, revalidatePath.
+// Nenhuma das duas tinha delete ainda neste arquivo (só update/create).
+
+export async function deleteVisitForSolicitation(id: string, solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('visits').delete().eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+export async function deleteDesignProjectForSolicitation(id: string, solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('design_projects').delete().eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
 }
