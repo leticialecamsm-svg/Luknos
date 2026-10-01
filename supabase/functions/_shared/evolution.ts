@@ -30,6 +30,74 @@ export async function evolutionFetch(path: string, init: RequestInit = {}): Prom
   })
 }
 
+export interface EvolutionSendResult {
+  sent: boolean
+  providerMessageId?: string
+  error?: string
+}
+
+// Envio genérico por instância — usado pelo CRM multiatendente (várias
+// instâncias). O robô de orçamentos continua usando _shared/wa-send.ts
+// (que resolve a instância única de wa_bot_config e já loga em wa_messages).
+export async function sendTextMessage(
+  instanceName: string,
+  number: string,
+  text: string,
+): Promise<EvolutionSendResult> {
+  try {
+    const res = await evolutionFetch(`/message/sendText/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, text }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.error('sendText falhou', res.status, body)
+      return { sent: false, error: `evolution_${res.status}` }
+    }
+    const parsed = (await res.json().catch(() => null)) as
+      | { key?: { id?: string }; messageId?: string }
+      | null
+    return { sent: true, providerMessageId: parsed?.key?.id ?? parsed?.messageId ?? undefined }
+  } catch (e) {
+    console.error('sendText erro', e)
+    return { sent: false, error: String((e as Error)?.message ?? e) }
+  }
+}
+
+// Evolution v2: POST /message/sendMedia/{instance} — media em base64 (sem
+// prefixo data:), mediatype 'image' | 'document'.
+export async function sendMediaMessage(
+  instanceName: string,
+  number: string,
+  opts: { mediatype: 'image' | 'document'; base64: string; fileName: string; mimetype: string; caption?: string },
+): Promise<EvolutionSendResult> {
+  try {
+    const res = await evolutionFetch(`/message/sendMedia/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number,
+        mediatype: opts.mediatype,
+        mimetype: opts.mimetype,
+        media: opts.base64,
+        fileName: opts.fileName,
+        caption: opts.caption,
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.error('sendMedia falhou', res.status, body)
+      return { sent: false, error: `evolution_${res.status}` }
+    }
+    const parsed = (await res.json().catch(() => null)) as
+      | { key?: { id?: string }; messageId?: string }
+      | null
+    return { sent: true, providerMessageId: parsed?.key?.id ?? parsed?.messageId ?? undefined }
+  } catch (e) {
+    console.error('sendMedia erro', e)
+    return { sent: false, error: String((e as Error)?.message ?? e) }
+  }
+}
+
 export interface EvolutionMedia {
   base64?: string
   mimetype?: string
