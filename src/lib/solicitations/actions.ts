@@ -16,6 +16,10 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { updateShipment } from '@/lib/actions'
+import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
+import {
+  findOrCreateFolder, uploadFile, isDriveConnected, driveRootFolderId, folderIdFromLink,
+} from '@/lib/google-drive'
 
 type R = { error?: string; ok?: boolean; id?: string }
 
@@ -361,4 +365,163 @@ export async function createDesignProjectForSolicitation(input: {
   if (error) return { error: error.message }
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
+}
+
+// ── Editar visita a partir da Solicitação (pedido Letícia, rodada 2) ─────
+// Mesmo padrão de updateShipmentForSolicitation: admin client + guard de
+// login + revalidatePath, só que escrevendo direto em `visits` (não existe
+// uma updateVisit genérica em design-projects-actions.ts pra reaproveitar —
+// só updateVisitStatus, que troca status isolado).
+
+export async function updateVisitForSolicitation(
+  id: string,
+  solicitationId: string,
+  updates: {
+    title?: string
+    scheduledAt?: string | null
+    address?: string | null
+    status?: 'to_schedule' | 'scheduled' | 'done' | 'not_needed'
+  }
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const db = createAdminClient()
+  const payload: Record<string, any> = {}
+  if (updates.title !== undefined) payload.title = updates.title.trim() || null
+  if (updates.scheduledAt !== undefined) payload.scheduled_at = updates.scheduledAt || null
+  if (updates.address !== undefined) payload.address = updates.address || null
+  if (updates.status !== undefined) payload.status = updates.status
+  const { error } = await db.from('visits').update(payload).eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Editar categoria (kind) de um projeto a partir da Solicitação ────────
+
+export async function updateDesignProjectKindForSolicitation(
+  id: string,
+  solicitationId: string,
+  kind: 'elaboracao' | 'alocacao_pontos'
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('design_projects').update({ kind }).eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Editar o conteúdo rico (HTML) do Projeto a partir da Solicitação ─────
+// Reaproveita a coluna design_projects.description (já existe desde
+// 20260913_design_projects_and_standalone_visits.sql, usada antes como texto
+// livre) pra guardar o HTML do editor rico — sem coluna nova.
+
+export async function updateDesignProjectDescriptionForSolicitation(
+  id: string,
+  solicitationId: string,
+  descriptionHtml: string
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('design_projects').update({ description: descriptionHtml }).eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Status (workflow) do Projeto a partir da Solicitação ─────────────────
+// Fino wrapper sobre a updateDesignProjectStatus já exportada de
+// design-projects-actions.ts (não duplica a escrita) — só adiciona o
+// revalidatePath da Solicitação, que aquela action não conhece.
+
+export async function updateDesignProjectStatusForSolicitation(
+  id: string,
+  solicitationId: string,
+  status: 'fila' | 'em_andamento' | 'concluido'
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const res = await updateDesignProjectStatus(id, status)
+  if ((res as any)?.error) return { error: (res as any).error }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Upload de arquivo pro Drive por etapa (Visita/Projeto/Expedição) ─────
+// Mesmo padrão de pasta usado por syncQuoteFilesToDrive em google-drive.ts:
+// resolve/cria a pasta raiz da Solicitação (reaproveitando o drive_link do
+// orçamento vinculado quando existe, pra cair na MESMA pasta que o usuário
+// já conhece pela aba Orçamento) e, dentro dela, acha/cria uma subpasta com
+// o nome da etapa, aí sobe o arquivo com uploadFile.
+
+const STAGE_FOLDER_NAME: Record<string, string> = {
+  visita: 'Visita',
+  projeto: 'Projeto',
+  expedicao: 'Separação e entrega',
+}
+
+const FOLDER_ILLEGAL = /[\\/:*?"<>|]+/g
+
+async function resolveSolicitationDriveFolderId(db: ReturnType<typeof createAdminClient>, solicitationId: string): Promise<string> {
+  // 1) Já existe algum orçamento vinculado a esta Solicitação com
+  // drive_link preenchido? usa a mesma pasta (nome cliente/orçamento) que o
+  // usuário já vê na aba Orçamento.
+  const { data: quotes } = await db
+    .from('quotes')
+    .select('id, drive_link, client_id')
+    .eq('solicitation_id', solicitationId)
+    .order('created_at', { ascending: false })
+  const withLink = (quotes ?? []).find((q: any) => folderIdFromLink(q.drive_link))
+  if (withLink) {
+    const folderId = folderIdFromLink(withLink.drive_link)
+    if (folderId) return folderId
+  }
+
+  // 2) Sem orçamento com pasta ainda: cria/acha uma pasta com o nome do
+  // cliente da Solicitação, direto na raiz do Drive (mesmo padrão de nome
+  // usado por syncQuoteFilesToDrive quando não há cliente linkável).
+  const { data: solicitation } = await db
+    .from('solicitations')
+    .select('id, number, client_id, client:client_id(name)')
+    .eq('id', solicitationId)
+    .maybeSingle()
+  const clientName = String((solicitation as any)?.client?.name ?? '').replace(FOLDER_ILLEGAL, ' ').trim()
+  const folder = await findOrCreateFolder(clientName || `Solicitação ${solicitation?.number ?? solicitationId}`, driveRootFolderId())
+  return folder.id
+}
+
+// Wrapper client-callable pra isDriveConnected (google-drive.ts é server-only
+// e usa o admin client) — mesma checagem que QuoteAttachments faz pra
+// esconder/trocar o botão de upload quando o Drive não está conectado.
+export async function checkDriveConnected(): Promise<boolean> {
+  return isDriveConnected()
+}
+
+export async function uploadStageFileForSolicitation(
+  solicitationId: string,
+  stage: 'visita' | 'projeto' | 'expedicao',
+  formData: FormData
+): Promise<R & { webViewLink?: string }> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const file = formData.get('file')
+  if (!(file instanceof File)) return { error: 'Nenhum arquivo enviado' }
+  if (!(await isDriveConnected())) return { error: 'Google Drive não conectado' }
+
+  try {
+    const db = createAdminClient()
+    const rootFolderId = await resolveSolicitationDriveFolderId(db, solicitationId)
+    const stageFolder = await findOrCreateFolder(STAGE_FOLDER_NAME[stage] ?? stage, rootFolderId)
+    const up = await uploadFile({
+      folderId: stageFolder.id,
+      name: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      data: new Uint8Array(await file.arrayBuffer()),
+    })
+    refresh(solicitationId)
+    return { ok: true, id: up.id, webViewLink: up.webViewLink }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Falha ao enviar arquivo pro Drive' }
+  }
 }
