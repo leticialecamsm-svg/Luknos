@@ -228,9 +228,65 @@ function stageFileIcon(name: string, mime: string) {
   return FileText
 }
 
+function isImageFile(name: string, mime: string) {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  return mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'tif', 'tiff'].includes(ext)
+}
+
+function isPdfFile(name: string, mime: string) {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  return mime === 'application/pdf' || ext === 'pdf'
+}
+
+// ── Modal de pré-visualização (Bug "precisei logar no Drive") ─────────────
+// Abre em cima da própria tela — imagem em tamanho real, PDF num iframe (o
+// navegador já sabe renderizar PDF nativamente), qualquer outro tipo cai no
+// fallback de "baixar" (ainda via proxy same-origin, então também não exige
+// login no Google). Segue o mesmo padrão visual de backdrop do ConfirmModal.
+function FilePreviewModal({ file, onClose }: { file: { id: string; name: string; mimeType: string }; onClose: () => void }) {
+  const url = `/api/solicitacoes/drive-file/${file.id}`
+  const isImage = isImageFile(file.name, file.mimeType)
+  const isPdf = isPdfFile(file.name, file.mimeType)
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[9998] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-surface-border">
+          <p className="text-sm font-medium truncate" title={file.name}>{file.name}</p>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-1" aria-label="Fechar">
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 flex items-center justify-center min-h-[200px]">
+          {isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={file.name} className="max-w-full max-h-[70vh] object-contain" />
+          ) : isPdf ? (
+            <iframe src={url} title={file.name} className="w-full h-[70vh] border-0" />
+          ) : (
+            <div className="text-center text-sm text-gray-500 space-y-3">
+              <p>Não é possível pré-visualizar este tipo de arquivo.</p>
+              <a href={url} target="_blank" rel="noreferrer" className="inline-block text-brand-700 hover:underline font-medium">
+                Baixar arquivo
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao'; refreshKey: number }) {
   const [files, setFiles] = useState<{ id: string; name: string; mimeType: string; webViewLink: string }[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [preview, setPreview] = useState<{ id: string; name: string; mimeType: string } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -248,19 +304,41 @@ function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: 
   if (!files || files.length === 0) return null
 
   return (
-    <ul className="mt-2 space-y-1">
-      {files.map(f => {
-        const Icon = stageFileIcon(f.name, f.mimeType)
-        return (
-          <li key={f.id} className="flex items-center gap-2 rounded-card border border-surface-border bg-white px-2.5 py-1.5 text-sm">
-            <Icon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <a href={f.webViewLink} target="_blank" rel="noreferrer" className="truncate text-brand-700 hover:underline flex-1 min-w-0">
-              {f.name}
-            </a>
-          </li>
-        )
-      })}
-    </ul>
+    <>
+      {/* flex-wrap em vez de lista vertical — "podem ter muitos na mesma
+          linha" (pedido da Letícia), tiles pequenos de ~72px. */}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {files.map(f => {
+          const Icon = stageFileIcon(f.name, f.mimeType)
+          const image = isImageFile(f.name, f.mimeType)
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setPreview(f)}
+              title={f.name}
+              className="w-[72px] flex flex-col items-center gap-1 rounded-card border border-surface-border bg-white p-1.5 hover:border-brand-300 hover:shadow-sm transition-shadow text-left"
+            >
+              {image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/solicitacoes/drive-file/${f.id}?thumb=1`}
+                  alt={f.name}
+                  loading="lazy"
+                  className="w-full h-14 object-cover rounded"
+                />
+              ) : (
+                <div className="w-full h-14 flex items-center justify-center rounded bg-gray-50">
+                  <Icon className="w-6 h-6 text-gray-400" />
+                </div>
+              )}
+              <span className="w-full truncate text-[10px] text-gray-500 text-center">{f.name}</span>
+            </button>
+          )
+        })}
+      </div>
+      {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+    </>
   )
 }
 
