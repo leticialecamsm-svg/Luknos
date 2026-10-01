@@ -181,6 +181,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [draggingCotaOffset, setDraggingCotaOffset] = useState<{ measurementId: string } | null>(null)
   const [draggingFonte, setDraggingFonte] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   const [draggingSymbol, setDraggingSymbol] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  const [panning, setPanning] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null)
   // Empilha badges (Peça/Rolo) que caem perto do mesmo pontinho na planta —
   // sem isso, duas medições que terminam próximas uma da outra (comum em
   // ambientes pequenos) desenhavam os badges um em cima do outro.
@@ -510,7 +511,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // "Mover" é um apelido de "Selecionar" com foco em arrastar — mesma
   // mecânica de clique/arraste já usada em todo canto, só muda o cursor e
   // o atalho de teclado (M liga, S volta pra seleção normal).
-  function canSelectShape() { return (tool === 'select' || tool === 'mover') && !pendingFontePlacement }
+  function canSelectShape() { return tool === 'select' && !pendingFontePlacement }
 
   function selectShape(kind: EntityKind, id: string, e: React.MouseEvent) {
     if (!canSelectShape()) return
@@ -847,7 +848,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       setPendingArrowFor(null)
       return
     }
-    if (tool === 'select' || tool === 'mover') { setSelection(null); return }
+    if (tool === 'select') { setSelection(null); return }
     const p = toBase(e)
     if (tool === 'ambiente' || MEASURE_TOOLS.includes(tool) || tool === 'calibrar') {
       setDraftPoints(prev => [...prev, p])
@@ -976,17 +977,31 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
 
+  // "Mover" é um pan da visualização (arrasta a planta pra qualquer lado),
+  // não um arrastar de marcação — pro caso de trechos muito grandes onde a
+  // barra de rolagem não ajuda. Funciona com a ferramenta Mover ativa (ou
+  // segurando o botão do meio do mouse, em qualquer ferramenta).
   function handleMouseDown(e: React.MouseEvent) {
-    // Botão do meio (roda do mouse) liga a ferramenta "Mover" na hora —
-    // igual o atalho do SketchUp/AutoCAD — e evita o autoscroll padrão do
-    // navegador nesse clique.
-    if (e.button === 1) { e.preventDefault(); setTool('mover'); return }
-    if (tool === 'select' || tool === 'mover') return
+    if (e.button === 1 || tool === 'mover') {
+      e.preventDefault()
+      const container = canvasRef.current?.parentElement?.parentElement
+      if (container) setPanning({ x: e.clientX, y: e.clientY, scrollLeft: container.scrollLeft, scrollTop: container.scrollTop })
+      return
+    }
+    if (tool === 'select') return
     const p = toBase(e)
     if (tool === 'anot-retangulo') { setRectStart(p); setRectCur(p) }
     if (tool === 'anot-livre') { setDrawingFreehand(true); setDraftFreehand([p]) }
   }
   function handleMouseMove(e: React.MouseEvent) {
+    if (panning) {
+      const container = canvasRef.current?.parentElement?.parentElement
+      if (container) {
+        container.scrollLeft = panning.scrollLeft - (e.clientX - panning.x)
+        container.scrollTop = panning.scrollTop - (e.clientY - panning.y)
+      }
+      return
+    }
     const p = toBase(e)
     if (tool === 'anot-retangulo' && rectStart) setRectCur(p)
     if (tool === 'anot-livre' && drawingFreehand) setDraftFreehand(prev => [...prev, p])
@@ -1024,6 +1039,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
   async function handleMouseUp() {
+    if (panning) { setPanning(null); return }
     if (draggingAnnotation) {
       const a = annotations.find(x => x.id === draggingAnnotation.id)
       setDraggingAnnotation(null)
@@ -1306,7 +1322,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
-            {tool === 'mover' && 'Clique e arraste qualquer marcação pra reposicionar (Esc ou "S" volta pra seleção normal).'}
+            {tool === 'mover' && 'Clique e arraste em qualquer lugar da planta pra deslocar a visualização (Esc ou "S" volta pra seleção normal). Funciona também segurando o botão do meio do mouse em qualquer ferramenta.'}
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
             {isMeasuring && `Clique em cada ponto do trecho — inclusive nos cantos de um L ou U, sem parar — e aperte Enter só no final pra salvar tudo como uma peça só (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
@@ -1347,7 +1363,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <svg
               width={pageSize.width} height={pageSize.height}
               className="absolute inset-0"
-              style={{ cursor: (tool === 'select' || tool === 'mover') ? 'default' : 'crosshair' }}
+              style={{ cursor: panning ? 'grabbing' : tool === 'mover' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
               onClick={handleCanvasClick}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
@@ -1371,7 +1387,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     {!ambientesDiscretos && <polygon points={pts} fill={color + '18'} stroke="white" strokeWidth={selected ? 7 : 5.5} />}
                     <polygon points={pts} fill="transparent" stroke={ambientesDiscretos ? 'transparent' : color}
                       strokeWidth={selected ? 3.5 : 2.5} strokeDasharray={ambientesDiscretos ? undefined : '7 4'}
-                      style={{ cursor: (tool === 'select' || tool === 'mover') ? 'pointer' : undefined }}
+                      style={{ cursor: tool === 'select' ? 'pointer' : undefined }}
                       onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('environment', env.id, e) }} />
                   </g>
                 )
@@ -1444,7 +1460,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         badges,
                         badgeYOffset: badgeStackIndex * 20,
                         cotaOffset: m.cota_offset ?? 16,
-                        onOffsetDragStart: (tool === 'select' || tool === 'mover') ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
+                        onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
                       })}
                       {!reaproveitamentoView && !fontesView && m.label && (m.kind === 'perfil' || (m.kind === 'fita' && !m.linked_measurement_id)) && (() => {
@@ -1468,7 +1484,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         )
                       })()}
                       {/* Alças pra arrastar a ponta e redimensionar — só na medição selecionada */}
-                      {selected && (tool === 'select' || tool === 'mover') && m.points.map((pt, i) => {
+                      {selected && tool === 'select' && m.points.map((pt, i) => {
                         const [sx, sy] = toScreen(pt)
                         return (
                           <circle key={i} cx={sx} cy={sy} r={6} fill="white" stroke={color} strokeWidth={2.5}
@@ -1507,7 +1523,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   <g key={ps.id}>
                     {cable}
                     <g
-                      style={{ cursor: (tool === 'select' || tool === 'mover') ? (draggingFonte?.id === ps.id ? 'grabbing' : 'grab') : undefined }}
+                      style={{ cursor: tool === 'select' ? (draggingFonte?.id === ps.id ? 'grabbing' : 'grab') : undefined }}
                       onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('powerSupply', ps.id, e) }}
                       onMouseDown={e => {
                         if (!canSelectShape()) return
@@ -1540,7 +1556,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 const ah1 = arrowAngle + Math.PI * 0.85, ah2 = arrowAngle - Math.PI * 0.85
                 const arrowHead = `${tipX},${tipY} ${tipX + 5 * Math.cos(ah1)},${tipY + 5 * Math.sin(ah1)} ${tipX + 5 * Math.cos(ah2)},${tipY + 5 * Math.sin(ah2)}`
                 return (
-                  <g key={s.id} style={{ cursor: (tool === 'select' || tool === 'mover') ? (draggingSymbol?.id === s.id ? 'grabbing' : 'grab') : undefined }}
+                  <g key={s.id} style={{ cursor: tool === 'select' ? (draggingSymbol?.id === s.id ? 'grabbing' : 'grab') : undefined }}
                     onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); selectShape('symbol', s.id, e) }}
                     onMouseDown={e => {
                       if (!canSelectShape()) return
@@ -1573,7 +1589,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     <g key={a.id}>
                       <rect x={sx} y={sy} width={w} height={h} fill="transparent" stroke="white" strokeWidth={(selected ? 3 : 2) + 3} />
                       <rect x={sx} y={sy} width={w} height={h} fill="transparent" stroke={ANOT_COLOR} strokeWidth={selected ? 3 : 2}
-                        style={{ cursor: (tool === 'select' || tool === 'mover') ? 'pointer' : undefined }} onClick={onSel} />
+                        style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
                     </g>
                   )
                 }
@@ -1583,7 +1599,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                     <g key={a.id}>
                       <polyline points={pts} fill="none" stroke="white" strokeWidth={(selected ? 3.5 : 2) + 3} strokeLinecap="round" strokeLinejoin="round" />
                       <polyline points={pts} fill="none" stroke={ANOT_COLOR} strokeWidth={selected ? 3.5 : 2} strokeLinecap="round" strokeLinejoin="round" />
-                      <polyline points={pts} fill="none" stroke="transparent" strokeWidth={14} style={{ cursor: (tool === 'select' || tool === 'mover') ? 'pointer' : undefined }} onClick={onSel} />
+                      <polyline points={pts} fill="none" stroke="transparent" strokeWidth={14} style={{ cursor: tool === 'select' ? 'pointer' : undefined }} onClick={onSel} />
                     </g>
                   )
                 }
@@ -1601,7 +1617,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         )
                       })()}
                       <text x={sx} y={sy} fontSize={a.data.fontSize ?? 13} fontWeight={700} fill={ANOT_COLOR}
-                        style={{ cursor: (tool === 'select' || tool === 'mover') ? (draggingAnnotation?.id === a.id ? 'grabbing' : 'grab') : undefined }}
+                        style={{ cursor: tool === 'select' ? (draggingAnnotation?.id === a.id ? 'grabbing' : 'grab') : undefined }}
                         onClick={onSel}
                         onMouseDown={e => {
                           if (!canSelectShape()) return
