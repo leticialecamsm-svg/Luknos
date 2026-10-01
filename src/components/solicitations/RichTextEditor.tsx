@@ -42,6 +42,15 @@ function handleCheckToggle(e: React.SyntheticEvent) {
   }
 }
 
+// Snippet de uma linha de checklist, compartilhado entre o clique na
+// toolbar (insertChecklistItem) e o Enter dentro de uma linha existente
+// (handleKeyDown) — align-items:center (não flex-start) pra o checkbox ficar
+// alinhado ao meio do texto, não "flutuando" acima dele.
+function checklistRowHtml(text = ''): string {
+  const content = text ? text : '<br>'
+  return `<div data-check-row="1" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" contenteditable="false" /><span>${content}</span></div>`
+}
+
 // Visualização somente-leitura (fora de edição) — mesmo sanitizador. O
 // checkbox continua clicável (muda o visual na hora), mas não persiste
 // sozinho — quem quiser salvar a mudança reabre o editor.
@@ -95,14 +104,30 @@ export function RichTextEditor({
 
   function insertChecklistItem() {
     ref.current?.focus()
-    const html = '<div data-check-row="1" style="display:flex;align-items:flex-start;gap:6px;"><input type="checkbox" contenteditable="false" /><span>Novo item</span></div>'
-    document.execCommand('insertHTML', false, html)
+    document.execCommand('insertHTML', false, checklistRowHtml('Novo item'))
     emit()
   }
 
   function applyHighlight(color: string) {
     exec('hiliteColor', color)
     setSwatchesOpen(false)
+  }
+
+  // Enter dentro de uma linha de checklist deve continuar a lista (mesmo
+  // comportamento nativo que a lista com marcadores já tem via
+  // insertUnorderedList) em vez de quebrar pra um parágrafo solto — mesma
+  // ideia de insertChecklistItem(), mas disparada pelo teclado e com o texto
+  // vazio, pronto pra digitar.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'Enter' || e.shiftKey) return
+    const sel = window.getSelection()
+    const node = sel?.anchorNode
+    const el = node instanceof Element ? node : node?.parentElement
+    const row = el?.closest('[data-check-row]')
+    if (!row) return
+    e.preventDefault()
+    document.execCommand('insertHTML', false, checklistRowHtml())
+    emit()
   }
 
   return (
@@ -143,6 +168,7 @@ export function RichTextEditor({
         suppressContentEditableWarning
         onInput={emit}
         onBlur={emit}
+        onKeyDown={handleKeyDown}
         onClick={(e) => { handleCheckToggle(e); emit() }}
         data-placeholder={placeholder}
         className="rich-text-editable min-h-[90px] px-3 py-2 text-sm text-gray-700 focus:outline-none"

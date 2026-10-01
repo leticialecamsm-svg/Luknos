@@ -124,7 +124,29 @@
   list-style: disc;
   padding-left: 1.25rem;
 }
-.rt-checked {
+/* Linha de checklist: checkbox e texto alinhados ao centro (em vez de
+   flex-start, que deixava o checkbox "flutuando" acima do texto) e um
+   respiro vertical mínimo entre itens consecutivos. */
+.rich-text-editable [data-check-row],
+.rich-text-view [data-check-row] {
+  align-items: center;
+  min-height: 22px;
+}
+.rich-text-editable [data-check-row] input[type='checkbox'],
+.rich-text-view [data-check-row] input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #CBA455;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.rich-text-editable [data-check-row] span,
+.rich-text-view [data-check-row] span {
+  flex: 1;
+  min-width: 1px;
+}
+.rt-checked span {
   text-decoration: line-through;
   color: #9ca3af;
 }
