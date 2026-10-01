@@ -65,11 +65,11 @@ export async function sendTextMessage(
 }
 
 // Evolution v2: POST /message/sendMedia/{instance} — media em base64 (sem
-// prefixo data:), mediatype 'image' | 'document'.
+// prefixo data:), mediatype 'image' | 'document' | 'audio' | 'video'.
 export async function sendMediaMessage(
   instanceName: string,
   number: string,
-  opts: { mediatype: 'image' | 'document'; base64: string; fileName: string; mimetype: string; caption?: string },
+  opts: { mediatype: 'image' | 'document' | 'audio' | 'video'; base64: string; fileName: string; mimetype: string; caption?: string },
 ): Promise<EvolutionSendResult> {
   try {
     const res = await evolutionFetch(`/message/sendMedia/${instanceName}`, {

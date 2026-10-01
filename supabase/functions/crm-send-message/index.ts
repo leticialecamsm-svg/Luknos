@@ -90,10 +90,16 @@ async function send(payload: {
     if (error || !blob) return { sent: false, error: error?.message ?? 'arquivo não encontrado' }
     const base64 = bytesToBase64(new Uint8Array(await blob.arrayBuffer()))
     const mimeType = payload.mime_type || 'application/octet-stream'
-    messageType = mimeType.startsWith('image/') ? 'image' : 'document'
+    messageType = mimeType.startsWith('image/')
+      ? 'image'
+      : mimeType.startsWith('audio/')
+        ? 'audio'
+        : mimeType.startsWith('video/')
+          ? 'video'
+          : 'document'
     const caption = text ? `*${senderName}:*\n${text}` : `*${senderName}:*`
     result = await sendMediaMessage(instanceName, number, {
-      mediatype: messageType === 'image' ? 'image' : 'document',
+      mediatype: messageType as 'image' | 'document' | 'audio' | 'video',
       base64,
       fileName: payload.file_name || 'arquivo',
       mimetype: mimeType,

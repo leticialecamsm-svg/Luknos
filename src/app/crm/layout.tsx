@@ -1,6 +1,5 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { AppHeader } from '@/components/layout/AppHeader'
-import { FloatingActionButton } from '@/components/ui/FloatingActionButton'
 import { requirePageAccess } from '@/lib/access'
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +17,6 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           </div>
         </main>
       </div>
-      <FloatingActionButton currentUserId={profile.id} />
     </div>
   )
 }

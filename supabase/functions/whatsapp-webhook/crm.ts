@@ -13,6 +13,7 @@
 // mandou nesse caso (b): fica sender_user_id = default_user_id da instância.
 
 import { getMediaBase64 } from '../_shared/evolution.ts'
+import { samePhone } from '../_shared/phone.ts'
 import {
   base64ToBytes,
   extractBody,
@@ -72,7 +73,7 @@ export async function handleCrmMessage(
       .from('contacts')
       .select('id, name, phone')
       .not('phone', 'is', null)
-    const contact = (contactMatch ?? []).find((c: any) => phoneDigitsMatch(c.phone, senderDigits))
+    const contact = (contactMatch ?? []).find((c: any) => samePhone(c.phone, senderDigits))
 
     const { data: created, error } = await db
       .from('crm_conversations')
@@ -118,7 +119,7 @@ export async function handleCrmMessage(
     throw msgErr
   }
 
-  if (messageType === 'document' || messageType === 'image') {
+  if (messageType === 'document' || messageType === 'image' || messageType === 'audio') {
     try {
       await saveCrmAttachment(db, conversation.id, msg.id, crmInstance.instance_name, data)
     } catch (e) {
@@ -127,16 +128,6 @@ export async function handleCrmMessage(
   }
 
   return { handled: true, conversation_id: conversation.id, message_id: msg.id }
-}
-
-function phoneDigitsMatch(phone: string, senderDigits: string): boolean {
-  const a = (phone ?? '').replace(/\D/g, '')
-  const b = senderDigits.replace(/\D/g, '')
-  if (!a || !b) return false
-  if (a === b) return true
-  // tolera diferença do nono dígito (mesma lógica de _shared/phone.ts)
-  const tail = (s: string) => s.slice(-8)
-  return tail(a) === tail(b)
 }
 
 async function saveCrmAttachment(

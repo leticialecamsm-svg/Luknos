@@ -54,23 +54,34 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const refreshList = useCallback(() => {
-    setLoadingList(true)
+  const refreshList = useCallback((silent = false) => {
+    if (!silent) setLoadingList(true)
     getCrmConversations(scope)
       .then((r) => setConversations(r.items ?? []))
-      .finally(() => setLoadingList(false))
+      .finally(() => { if (!silent) setLoadingList(false) })
   }, [scope])
 
-  const refreshThread = useCallback((id: string) => {
-    setLoadingThread(true)
+  const refreshThread = useCallback((id: string, silent = false) => {
+    if (!silent) setLoadingThread(true)
     getCrmMessages(id)
       .then((r) => setMessages((r.items as Msg[]) ?? []))
-      .finally(() => setLoadingThread(false))
+      .finally(() => { if (!silent) setLoadingThread(false) })
   }, [])
 
   useEffect(() => { refreshList() }, [refreshList])
   useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  // Rede de segurança: além do tempo real abaixo, confere sozinho a cada 6s
+  // (silencioso, sem piscar "Carregando…") — assim a tela nunca fica presa
+  // esperando o Realtime, mesmo se ele falhar por algum motivo.
+  useEffect(() => {
+    const t = setInterval(() => {
+      refreshList(true)
+      if (selectedId) refreshThread(selectedId, true)
+    }, 6000)
+    return () => clearInterval(t)
+  }, [selectedId, refreshList, refreshThread])
 
   // Realtime: nova mensagem em qualquer conversa -> atualiza lista; se for a
   // conversa aberta, atualiza a thread também.
@@ -80,11 +91,11 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       .channel('crm-messages-feed')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_messages' }, (payload) => {
         const row = payload.new as any
-        refreshList()
-        if (selectedId && row.conversation_id === selectedId) refreshThread(selectedId)
+        refreshList(true)
+        if (selectedId && row.conversation_id === selectedId) refreshThread(selectedId, true)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'crm_conversations' }, () => {
-        refreshList()
+        refreshList(true)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
