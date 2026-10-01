@@ -144,7 +144,8 @@ export async function unzipDoc(b64: string): Promise<string> {
 
 // Consulta a NF-e completa por chave via DistDFe (consChNFe).
 // ATENÇÃO: limitado a 20 consultas/hora por CNPJ pela SEFAZ. Use com parcimônia.
-export async function consultarNFeCompleta(chave: string): Promise<{ ok: boolean; cStat: string; xMotivo: string; nfe?: NFeParsed }> {
+// xml = nfeProc (NF-e + protocolo de autorização), usado pra gerar o DANFE.
+export async function consultarNFeCompleta(chave: string): Promise<{ ok: boolean; cStat: string; xMotivo: string; nfe?: NFeParsed; xml?: string }> {
   const soap = buildDistChaveSoap(chave)
   const xml = await soapPost(DIST_URL, soap, {
     'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
@@ -157,11 +158,12 @@ export async function consultarNFeCompleta(chave: string): Promise<{ ok: boolean
     const docZip = xml.match(/<docZip[^>]*>([A-Za-z0-9+/=\s]+)<\/docZip>/)?.[1]
     if (docZip) {
       const inner = await unzipDoc(docZip)
+      const nfeProc = inner.match(/<nfeProc[\s>][\s\S]*?<\/nfeProc>/)?.[0]
       const nfeBlock = inner.match(/<nfeProc[\s>][\s\S]*?<\/nfeProc>/)?.[0]
         ?? inner.match(/<NFe[\s>][\s\S]*?<\/NFe>/)?.[0]
         ?? inner
       const nfe = parseNFeXML(nfeBlock)
-      if (nfe.items.length > 0) return { ok: true, cStat, xMotivo, nfe }
+      if (nfe.items.length > 0) return { ok: true, cStat, xMotivo, nfe, xml: nfeProc }
     }
   }
 

@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck } from 'lucide-react'
+import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck, FileSearch } from 'lucide-react'
 import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
@@ -663,11 +663,41 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
     setError(null)
     try {
       const r = await fetch(`/api/purchases/nfe-detail?chave=${clean}&fetch=1`)
-      applyResult(await r.json())
+      const d = await r.json()
+      applyResult(d)
+      if (d._fonte === 'sefaz') onUpdated(nfe.chave_nfe, { tem_xml_danfe: true })
     } catch (e: any) {
       setError(e.message)
     } finally {
       setFetching(false)
+    }
+  }
+
+  const [danfeLoading, setDanfeLoading] = useState(false)
+  const [danfeError, setDanfeError] = useState<string | null>(null)
+
+  // Abre a aba já no clique (senão o bloqueador de pop-up barra, porque o
+  // window.open viria depois do await) e só troca pro PDF quando ele chega.
+  async function visualizarDanfe() {
+    setDanfeError(null)
+    setDanfeLoading(true)
+    const win = window.open('', '_blank')
+    win?.document.write('<p style="font-family:sans-serif;padding:24px;color:#666">Gerando DANFE...</p>')
+    try {
+      const r = await fetch(`/api/purchases/danfe?chave=${clean}`)
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.error ?? `Erro ${r.status}`)
+      }
+      const url = URL.createObjectURL(await r.blob())
+      if (win) win.location.href = url
+      else window.open(url, '_blank')
+      if (!nfe.tem_xml_danfe) onUpdated(nfe.chave_nfe, { tem_xml_danfe: true, tem_xml_completo: true })
+    } catch (e: any) {
+      win?.close()
+      setDanfeError(e.message)
+    } finally {
+      setDanfeLoading(false)
     }
   }
 
@@ -771,8 +801,24 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-surface-border flex justify-between items-center">
-          <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
+        <div className="px-6 py-4 border-t border-surface-border flex justify-between items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
+            <button
+              onClick={visualizarDanfe}
+              disabled={danfeLoading}
+              title={nfe.tem_xml_danfe ? undefined : 'O XML desta nota ainda não foi baixado: gerar o DANFE consome 1 das 20 consultas/hora da SEFAZ.'}
+              className="btn-secondary flex items-center gap-2 px-5 disabled:opacity-60"
+            >
+              {danfeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSearch className="w-4 h-4" />}
+              {danfeLoading ? 'Gerando DANFE...' : 'Visualizar DANFE'}
+            </button>
+            {danfeError && (
+              <span className="flex items-center gap-1.5 text-xs text-red-600 min-w-0">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {danfeError}
+              </span>
+            )}
+          </div>
           {nfe.status !== 'added' && (
             <button onClick={onAdd} className="btn-primary flex items-center gap-2 px-6">
               <Plus className="w-4 h-4" /> Adicionar ao sistema
@@ -803,6 +849,7 @@ interface NFeRecebida {
   ultima_passagem_data?: string | null
   ultima_passagem_desc?: string | null
   entregue?: boolean
+  tem_xml_danfe?: boolean
 }
 
 export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] }) {

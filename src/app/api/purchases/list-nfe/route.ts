@@ -76,6 +76,7 @@ interface NFeResumida {
   transportadoraCnpj: string
   transportadoraNome: string
   items: NFeItem[] | null // preenchido só quando há XML completo (nfeProc)
+  xml: string | null      // nfeProc bruto, guardado pra gerar o DANFE
 }
 
 interface EventoPassagem {
@@ -115,7 +116,7 @@ function parseResNFe(xml: string, nsu: string, schema: string): NFeResumida {
   const xNome = get(xml, 'xNome')
   const vNF = parseFloat(get(xml, 'vNF') || get(xml, 'vNFe') || '0') || 0
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '', items: null }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '', items: null, xml: null }
 }
 
 function parseItems(xml: string): NFeItem[] {
@@ -154,8 +155,9 @@ function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
   const transportadoraCnpj = get(transpBlock, 'CNPJ') || get(transpBlock, 'CPF')
   const transportadoraNome = get(transpBlock, 'xNome')
   const items = parseItems(xml)
+  const proc = xml.match(/<nfeProc[\s>][\s\S]*?<\/nfeProc>/)?.[0] ?? null
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null, xml: proc }
 }
 
 // A SEFAZ exige esperar 1h depois de uma resposta "sem documentos novos" (cStat 137)
@@ -264,6 +266,7 @@ export async function POST() {
         transportadora_cnpj: d.transportadoraCnpj || null,
         transportadora_nome: d.transportadoraNome || null,
         items_json: d.items,
+        xml_nfe: d.xml,
         tem_xml_completo: !!d.items,
         xml_fetched_at: d.items ? new Date().toISOString() : null,
         nsu: d.nsu,
@@ -319,8 +322,10 @@ export async function GET() {
       .select('chave_nfe')
     const chavesLancadas = new Set((lancadas ?? []).map(l => l.chave_nfe))
 
-    const nfes = (data ?? []).map(n => ({
+    // xml_nfe fica só no servidor (pesado); o front só precisa saber se existe
+    const nfes = (data ?? []).map(({ xml_nfe, ...n }) => ({
       ...n,
+      tem_xml_danfe: !!xml_nfe,
       status: chavesLancadas.has(n.chave_nfe) ? 'added' : n.status,
     }))
 

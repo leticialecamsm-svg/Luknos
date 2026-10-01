@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
         .from('nfe_received')
         .update({
           items_json: res.nfe.items,
+          ...(res.xml ? { xml_nfe: res.xml } : {}),
           tem_xml_completo: true,
           xml_fetched_at: new Date().toISOString(),
           transportadora_cnpj: res.nfe.transportadoraCnpj || row?.transportadora_cnpj || null,
