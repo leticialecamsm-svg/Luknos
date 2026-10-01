@@ -14,7 +14,7 @@ import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, c
 import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
-  ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
+  ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, ChevronDown, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
   RotateCw, X, Layers, Download, Zap, EyeOff, Locate, Copy, Move,
 } from 'lucide-react'
@@ -28,7 +28,7 @@ if (typeof window !== 'undefined') {
 
 // ── Tipos ─────────────────────────────────────────────────────────────────
 
-type Tool = 'select' | 'mover' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
+type Tool = 'select' | 'mover' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'medir-perfil-vertical' | 'medir-fita-vertical' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
 type MeasureKind = 'perfil' | 'fita' | 'medida'
 type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation' | 'powerSupply'
 
@@ -134,6 +134,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 }) {
   const [tab, setTab] = useState<'ambientes' | 'legenda' | 'medicoes' | 'resultado'>('ambientes')
   const [panelOpen, setPanelOpen] = useState(true)
+  const [measureDropdown, setMeasureDropdown] = useState<'perfil' | 'fita' | null>(null)
   const [tool, setTool] = useState<Tool>('select')
   // Abre direto na última página que o consultor deixou selecionada — útil
   // pra PDF de várias páginas onde só uma é a planta luminotécnica.
@@ -203,6 +204,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // "Carimbo" — depois de escolher um produto uma vez, continua marcando
   // esse mesmo produto em cada clique, sem abrir o seletor de novo.
   const [stampLegendItemId, setStampLegendItemId] = useState<string | null>(null)
+  // Medida vertical: clique único (sem traço) + comprimento digitado.
+  const [pendingVerticalMeasure, setPendingVerticalMeasure] = useState<{ point: Point; kind: 'perfil' | 'fita' } | null>(null)
+  const [pendingVerticalAnchor, setPendingVerticalAnchor] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
 
@@ -874,7 +878,11 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   // ── Interações do canvas ──────────────────────────────────────────────────
 
-  function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null); setPendingSymbolAnchor(null) }
+  function resetDrafts() {
+    setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null)
+    setPendingSymbol(null); setPendingSymbolAnchor(null)
+    setPendingVerticalMeasure(null); setPendingVerticalAnchor(null)
+  }
 
   useEffect(() => { resetDrafts(); setSelection(null); setStampLegendItemId(null) }, [tool])
 
@@ -901,6 +909,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
     if (tool === 'select') { setSelection(null); return }
     const p = toBase(e)
+    // Trecho vertical (sobe/desce uma parede, dentro de um forro...) não dá
+    // pra traçar na planta baixa — ela só mostra a vista de cima. Em vez de
+    // dois pontos, clica uma vez só pra marcar onde fica e digita o
+    // comprimento direto.
+    if (tool === 'medir-perfil-vertical' || tool === 'medir-fita-vertical') {
+      setPendingVerticalMeasure({ point: p, kind: tool === 'medir-perfil-vertical' ? 'perfil' : 'fita' })
+      setPendingVerticalAnchor({ x: e.clientX, y: e.clientY })
+      return
+    }
     if (tool === 'ambiente' || MEASURE_TOOLS.includes(tool) || tool === 'calibrar') {
       setDraftPoints(prev => [...prev, p])
       return
@@ -1026,6 +1043,56 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       resetDrafts()
       return
     }
+  }
+
+  // Medida vertical: comprimento digitado direto (não dá pra traçar uma
+  // subida de parede ou um trecho dentro do forro numa planta baixa, que só
+  // mostra a vista de cima) — ainda assim precisa contar no quantitativo
+  // igual qualquer outro perfil/fita. Os pontos armazenados são só um
+  // traço curto sintético (pro mesmo desenho de cota/badge funcionar sem
+  // precisar de um caminho especial de renderização).
+  async function confirmVerticalMeasure(lengthStr: string) {
+    if (!pendingVerticalMeasure) return
+    const lengthM = Number(lengthStr.replace(',', '.'))
+    if (!(lengthM > 0)) { window.alert('Digite um comprimento válido, em metros.'); return }
+    const { point, kind } = pendingVerticalMeasure
+    const points: Point[] = [point, [point[0], point[1] + 24]]
+    const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(point, env.polygon))
+    const countSameKind = measurements.filter(m => m.kind === kind).length
+    const lastSameKind = [...measurements].reverse().find(m => m.kind === kind)
+    setBusy(true)
+    const res = await createMeasurement(plan.id, {
+      page: pageNum, kind, label: `${MEASURE_LABEL[kind]} vertical ${countSameKind + 1}`,
+      points, length_m: round2(lengthM), environment_id: envMatch?.id ?? null,
+      power_w_per_m: kind === 'fita' ? (lastSameKind?.power_w_per_m ?? 0) : undefined,
+      bar_size: kind === 'perfil' ? (lastSameKind?.bar_size ?? 3) : undefined,
+      packaging: kind === 'fita' ? (lastSameKind?.packaging ?? 'rolo_5m') : undefined,
+      product_model: lastSameKind?.product_model ?? undefined,
+      mount_type: kind === 'perfil' ? (lastSameKind?.mount_type ?? undefined) : undefined,
+      voltage: kind === 'fita' ? (lastSameKind?.voltage ?? undefined) : undefined,
+      color_temp_k: kind === 'fita' ? (lastSameKind?.color_temp_k ?? undefined) : undefined,
+      strand_count: kind === 'fita' ? (lastSameKind?.strand_count ?? undefined) : undefined,
+    })
+    if (res?.data) {
+      setMeasurements(prev => [...prev, res.data])
+      pushCreateHistory('measurement', res.data)
+      if (kind === 'perfil') {
+        const countFitas = measurements.filter(m => m.kind === 'fita').length
+        const lastFita = [...measurements].reverse().find(m => m.kind === 'fita')
+        const resFita = await createMeasurement(plan.id, {
+          page: pageNum, kind: 'fita', label: `Fita vertical ${countFitas + 1} (do ${res.data.label})`,
+          points, length_m: round2(lengthM), environment_id: envMatch?.id ?? null,
+          power_w_per_m: lastFita?.power_w_per_m ?? 0, linked_measurement_id: res.data.id,
+          packaging: lastFita?.packaging ?? 'rolo_5m',
+          product_model: lastFita?.product_model ?? undefined, voltage: lastFita?.voltage ?? undefined,
+          color_temp_k: lastFita?.color_temp_k ?? undefined, strand_count: lastFita?.strand_count ?? undefined,
+        })
+        if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
+      }
+    }
+    setBusy(false)
+    setPendingVerticalMeasure(null)
+    setPendingVerticalAnchor(null)
   }
 
   // "Mover" é um pan da visualização (arrasta a planta pra qualquer lado),
@@ -1313,13 +1380,51 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       <div className="flex-1 flex flex-col min-w-0 bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center gap-1 px-3 py-2 border-b border-surface-border bg-surface-secondary flex-wrap">
-          {TOOLS.map(t => (
-            <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
-              className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                tool === t.id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
-              <t.icon className="w-3.5 h-3.5" /> {t.label}
-            </button>
-          ))}
+          {TOOLS.map(t => {
+            // "Medir perfil"/"Medir fita" escondem uma segunda opção —
+            // trecho vertical, que não dá pra traçar numa planta baixa (só
+            // mostra vista de cima) e por isso usa clique único + comprimento
+            // digitado em vez do traço normal.
+            if (t.id === 'medir-perfil' || t.id === 'medir-fita') {
+              const kind = t.id === 'medir-perfil' ? 'perfil' : 'fita'
+              const verticalTool: Tool = t.id === 'medir-perfil' ? 'medir-perfil-vertical' : 'medir-fita-vertical'
+              const active = tool === t.id || tool === verticalTool
+              const open = measureDropdown === kind
+              return (
+                <div key={t.id} className="relative flex items-stretch">
+                  <button onClick={() => { setTool(t.id); setMeasureDropdown(null) }} title={t.label}
+                    className={cn('flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-l-lg text-xs font-medium transition-colors',
+                      active ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
+                    <t.icon className="w-3.5 h-3.5" /> {tool === verticalTool ? `${t.label} (vertical)` : t.label}
+                  </button>
+                  <button onClick={() => setMeasureDropdown(open ? null : kind)} title="Mais opções"
+                    className={cn('flex items-center px-1 rounded-r-lg border-l transition-colors',
+                      active ? 'bg-brand-600 text-white border-brand-500' : 'text-navy-muted hover:bg-surface-secondary border-transparent')}>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {open && (
+                    <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
+                      <button onClick={() => { setTool(t.id); setMeasureDropdown(null) }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                        <Ruler className="w-3 h-3 inline mr-1.5" /> Horizontal (traço)
+                      </button>
+                      <button onClick={() => { setTool(verticalTool); setMeasureDropdown(null) }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                        ↕ Vertical (digitado)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
+                className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  tool === t.id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
+                <t.icon className="w-3.5 h-3.5" /> {t.label}
+              </button>
+            )
+          })}
           <div className="ml-auto flex items-center gap-1">
             <button onClick={undo} disabled={undoStack.length === 0} title="Desfazer (Cmd+Z)"
               className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30 disabled:hover:bg-transparent">
@@ -1374,6 +1479,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
             {tool === 'mover' && 'Clique e arraste em qualquer lugar da planta pra deslocar a visualização (Esc ou "S" volta pra seleção normal). Funciona também segurando o botão do meio do mouse em qualquer ferramenta.'}
+            {(tool === 'medir-perfil-vertical' || tool === 'medir-fita-vertical') && 'Clique no ponto da planta onde fica o trecho vertical e digite o comprimento direto (Esc cancela).'}
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
             {isMeasuring && `Clique em cada ponto do trecho — inclusive nos cantos de um L ou U, sem parar — e aperte Enter só no final pra salvar tudo como uma peça só (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
@@ -1817,6 +1923,26 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               )
             })}
           </div>
+        </div>
+      )}
+
+      {pendingVerticalMeasure && pendingVerticalAnchor && (
+        <div
+          style={{ position: 'fixed', left: Math.min(pendingVerticalAnchor.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 240), top: Math.min(pendingVerticalAnchor.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 140), zIndex: 50, width: 228 }}
+          className="bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-3 pt-2">
+            <p className="text-[10px] font-bold text-violet-500 uppercase">↕ {MEASURE_LABEL[pendingVerticalMeasure.kind]} vertical</p>
+            <button onClick={() => { setPendingVerticalMeasure(null); setPendingVerticalAnchor(null) }} className="p-1 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          <form className="p-2.5 pt-1 space-y-2" onSubmit={e => { e.preventDefault(); confirmVerticalMeasure((e.currentTarget.elements.namedItem('len') as HTMLInputElement).value) }}>
+            <div className="flex items-center gap-1.5">
+              <input name="len" type="text" inputMode="decimal" autoFocus placeholder="0.00"
+                className="w-full text-sm border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-brand-400" />
+              <span className="text-xs text-gray-400 shrink-0">m</span>
+            </div>
+            <button type="submit" className="btn-primary text-xs w-full justify-center !py-1.5">Confirmar</button>
+          </form>
         </div>
       )}
     </>
