@@ -681,6 +681,33 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     })
   }
 
+  // Zoom com a rodinha do mouse — centrado no cursor, não no canto da
+  // tela, senão o ponto que a pessoa está olhando "foge" a cada scroll.
+  async function handleWheelZoom(e: React.WheelEvent) {
+    e.preventDefault()
+    const container = e.currentTarget
+    const rect = container.getBoundingClientRect()
+    const clientX = e.clientX, clientY = e.clientY
+    const cursorX = clientX - rect.left + container.scrollLeft
+    const cursorY = clientY - rect.top + container.scrollTop
+    const prevScale = renderScale
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+    const nextScale = Math.min(4, Math.max(0.3, prevScale * factor))
+    if (nextScale === prevScale) return
+    const ratio = nextScale / prevScale
+    const v0 = renderVersionRef.current
+    setRenderScale(nextScale)
+    // Só ajusta o scroll depois que o pdf.js terminar de re-renderizar
+    // nessa escala — senão o ponto sob o cursor "pula" no meio do caminho.
+    await new Promise<void>(resolve => {
+      const iv = setInterval(() => {
+        if (renderVersionRef.current > v0) { clearInterval(iv); resolve() }
+      }, 15)
+    })
+    container.scrollLeft = cursorX * ratio - (clientX - rect.left)
+    container.scrollTop = cursorY * ratio - (clientY - rect.top)
+  }
+
   // Clicar num ambiente na aba lateral centraliza e dá zoom nele na planta,
   // pra conferir aquele cômodo específico sem precisar procurar na mão.
   async function focusOnEnvironment(env: Environment) {
@@ -1352,7 +1379,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         )}
 
         {/* Canvas + overlay */}
-        <div className="flex-1 overflow-auto bg-gray-100 p-4">
+        <div className="flex-1 overflow-auto bg-gray-100 p-4" onWheel={handleWheelZoom}>
           <div className="relative inline-block" style={{ width: pageSize.width, height: pageSize.height }}>
             <canvas ref={canvasRef} className="block shadow-md" />
             {rendering && (
