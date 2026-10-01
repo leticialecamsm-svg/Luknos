@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
           ...(res.xml ? { xml_nfe: res.xml } : {}),
           tem_xml_completo: true,
           xml_fetched_at: new Date().toISOString(),
+          fornecedor_nome: res.nfe.fornecedorNome || row?.fornecedor_nome || null,
           transportadora_cnpj: res.nfe.transportadoraCnpj || row?.transportadora_cnpj || null,
           transportadora_nome: res.nfe.transportadoraNome || row?.transportadora_nome || null,
         })

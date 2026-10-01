@@ -150,7 +150,7 @@ function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
   const dhEmi = (get(xml, 'dhEmi') || get(xml, 'dEmi')).slice(0, 10)
   const emitBlock = xml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
   const fornecedorCnpj = get(emitBlock, 'CNPJ')
-  const fornecedorNome = get(emitBlock, 'xFant') || get(emitBlock, 'xNome')
+  const fornecedorNome = get(emitBlock, 'xNome') || get(emitBlock, 'xFant')
   const vNF = parseFloat(get(xml, 'vNF') || get(xml, 'vNFe') || '0') || 0
   const transpBlock = xml.match(/<transporta>([\s\S]*?)<\/transporta>/)?.[1] ?? ''
   const transportadoraCnpj = get(transpBlock, 'CNPJ') || get(transpBlock, 'CPF')

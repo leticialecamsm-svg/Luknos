@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     }
     const { data: row } = await supabase
       .from('nfe_received')
-      .select('numero_nota, xml_nfe, danfe_meudanfe, transportadora_cnpj, transportadora_nome, tem_xml_completo, ciencia_em')
+      .select('numero_nota, fornecedor_nome, xml_nfe, danfe_meudanfe, transportadora_cnpj, transportadora_nome, tem_xml_completo, ciencia_em')
       .eq('chave_nfe', chave)
       .single()
 
@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
             items_json: res.nfe!.items,
             tem_xml_completo: true,
             xml_fetched_at: new Date().toISOString(),
+            fornecedor_nome: res.nfe!.fornecedorNome || row?.fornecedor_nome || null,
             transportadora_cnpj: res.nfe!.transportadoraCnpj || row?.transportadora_cnpj || null,
             transportadora_nome: res.nfe!.transportadoraNome || row?.transportadora_nome || null,
           })

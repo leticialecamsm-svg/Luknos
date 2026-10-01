@@ -99,7 +99,7 @@ export function parseNFeXML(nfeXml: string): NFeParsed {
 
   const emitBlock = nfeXml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
   const fornecedorCnpj = tag(emitBlock, 'CNPJ')
-  const fornecedorNome = tag(emitBlock, 'xFant') || tag(emitBlock, 'xNome')
+  const fornecedorNome = tag(emitBlock, 'xNome') || tag(emitBlock, 'xFant')
 
   const transpBlock = nfeXml.match(/<transporta>([\s\S]*?)<\/transporta>/)?.[1] ?? ''
   const transportadoraCnpj = tag(transpBlock, 'CNPJ') || tag(transpBlock, 'CPF')

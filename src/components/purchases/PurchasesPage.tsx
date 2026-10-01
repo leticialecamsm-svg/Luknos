@@ -59,7 +59,7 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
     const numeroNota = get(doc, 'ide nNF')
     const dataEmissao = get(doc, 'ide dhEmi') || get(doc, 'ide dEmi')
     const fornecedorCnpj = get(doc, 'emit CNPJ')
-    const fornecedorNome = get(doc, 'emit xFant') || get(doc, 'emit xNome')
+    const fornecedorNome = get(doc, 'emit xNome') || get(doc, 'emit xFant')
 
     const detElements = doc.querySelectorAll('det')
     const items: NFeItem[] = Array.from(detElements).map(det => {

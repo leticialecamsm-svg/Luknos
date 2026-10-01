@@ -60,7 +60,7 @@ function parseNFeXML(nfeXml: string) {
 
   const emitBlock = nfeXml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
   const fornecedorCnpj = get(emitBlock, 'CNPJ')
-  const fornecedorNome = get(emitBlock, 'xFant') || get(emitBlock, 'xNome')
+  const fornecedorNome = get(emitBlock, 'xNome') || get(emitBlock, 'xFant')
 
   const detBlocks = nfeXml.match(/<det\s[^>]*>[\s\S]*?<\/det>/g) ?? []
   const items = detBlocks.map(det => {
