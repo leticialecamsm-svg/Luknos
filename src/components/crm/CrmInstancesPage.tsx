@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, X, Save, Smartphone, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Plus, X, Save, Smartphone, Loader2, QrCode, CheckCircle2 } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import {
-  createCrmInstance, updateCrmInstance, setCrmInstanceActive, type CrmInstanceInput,
+  createCrmInstance, updateCrmInstance, setCrmInstanceActive,
+  connectCrmInstance, getCrmInstanceConnectionState,
+  type CrmInstanceInput,
 } from '@/lib/crm-actions'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +25,7 @@ export function CrmInstancesPage({ initial, users }: { initial: InstanceRow[]; u
   const toast = useToast()
   const [items, setItems] = useState(initial)
   const [editing, setEditing] = useState<InstanceRow | 'new' | null>(null)
+  const [connecting, setConnecting] = useState<InstanceRow | null>(null)
 
   function refresh() {
     // página é server component acima; forçamos reload simples do client.
@@ -65,6 +68,9 @@ export function CrmInstancesPage({ initial, users }: { initial: InstanceRow[]; u
             <button onClick={() => toggleActive(row)} className={cn('text-xs px-2 py-1 rounded-full font-medium', row.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
               {row.is_active ? 'Ativo' : 'Inativo'}
             </button>
+            <button onClick={() => setConnecting(row)} className="btn-secondary text-xs px-2 py-1.5 flex items-center gap-1">
+              <QrCode className="w-3.5 h-3.5" /> Conectar WhatsApp
+            </button>
             <button onClick={() => setEditing(row)} className="btn-secondary text-xs px-2 py-1.5">Editar</button>
           </div>
         ))}
@@ -76,15 +82,26 @@ export function CrmInstancesPage({ initial, users }: { initial: InstanceRow[]; u
           users={users}
           onClose={() => setEditing(null)}
           onSaved={refresh}
+          onCreated={(row) => setConnecting(row)}
         />
+      )}
+
+      {connecting && (
+        <ConnectModal row={connecting} onClose={() => setConnecting(null)} />
       )}
     </div>
   )
 }
 
 function InstanceForm({
-  row, users, onClose, onSaved,
-}: { row: InstanceRow | null; users: SystemUser[]; onClose: () => void; onSaved: () => void }) {
+  row, users, onClose, onSaved, onCreated,
+}: {
+  row: InstanceRow | null
+  users: SystemUser[]
+  onClose: () => void
+  onSaved: () => void
+  onCreated: (row: InstanceRow) => void
+}) {
   const toast = useToast()
   const [instanceName, setInstanceName] = useState(row?.instance_name ?? '')
   const [label, setLabel] = useState(row?.label ?? '')
@@ -104,8 +121,17 @@ function InstanceForm({
     setSaving(false)
     if (res.error) { toast.error('NÃO FOI POSSÍVEL SALVAR', res.error); return }
     toast.success('SALVO!', 'Número configurado.')
-    onSaved()
     onClose()
+    if (!row) {
+      // número novo: já manda pra tela de conectar (QR Code) em vez de só
+      // recarregar — poupa o clique extra.
+      onCreated({
+        id: 'pending', instance_name: instanceName, label, phone_e164: phone || null,
+        default_user_id: userId || null, is_active: true, users: null,
+      })
+    } else {
+      onSaved()
+    }
   }
 
   return (
@@ -130,7 +156,8 @@ function InstanceForm({
             disabled={!!row}
           />
           <p className="text-xs text-gray-400 mt-1">
-            Precisa existir na Evolution (instance/create) e o webhook apontando pra mesma função do robô.
+            Um identificador só seu, sem espaço nem acento (ex.: vendas-jennifer). Depois de salvar, a gente já cria essa
+            instância na Evolution e mostra o QR Code pra parear.
             {row && ' Não dá pra mudar depois de criado.'}
           </p>
         </div>
@@ -150,6 +177,78 @@ function InstanceForm({
         <button onClick={handleSave} disabled={saving || !label.trim() || !instanceName.trim()} className="btn-primary w-full flex items-center justify-center gap-2">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar
         </button>
+      </div>
+    </div>
+  )
+}
+
+function ConnectModal({ row, onClose }: { row: InstanceRow; onClose: () => void }) {
+  const toast = useToast()
+  const [loading, setLoading] = useState(true)
+  const [qr, setQr] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [connected, setConnected] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    connectCrmInstance(row.instance_name).then((res) => {
+      if (cancelled) return
+      setLoading(false)
+      if (res.error) { setError(res.error); return }
+      if (res.alreadyConnected) { setConnected(true); return }
+      if (res.qrcodeBase64) {
+        setQr(res.qrcodeBase64)
+        // confere a cada 4s se o celular já escaneou
+        pollRef.current = setInterval(async () => {
+          const st = await getCrmInstanceConnectionState(row.instance_name)
+          if (st.state === 'open') {
+            setConnected(true)
+            if (pollRef.current) clearInterval(pollRef.current)
+            toast.success('CONECTADO!', `${row.label} está pronto pra usar.`)
+          }
+        }, 4000)
+      }
+    })
+    return () => { cancelled = true; if (pollRef.current) clearInterval(pollRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.instance_name])
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="card p-5 w-full max-w-sm space-y-4 text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900">Conectar {row.label}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+
+        {loading && (
+          <p className="text-sm text-gray-500 flex items-center justify-center gap-2 py-8">
+            <Loader2 className="w-4 h-4 animate-spin" /> Preparando a instância na Evolution…
+          </p>
+        )}
+
+        {!loading && error && (
+          <p className="text-sm text-red-600">{error}</p>
+        )}
+
+        {!loading && connected && (
+          <div className="py-6 flex flex-col items-center gap-2 text-green-600">
+            <CheckCircle2 className="w-10 h-10" />
+            <p className="text-sm font-medium">WhatsApp conectado!</p>
+          </div>
+        )}
+
+        {!loading && !error && !connected && qr && (
+          <>
+            <img src={`data:image/png;base64,${qr.replace(/^data:image\/\w+;base64,/, '')}`} alt="QR Code" className="w-56 h-56 mx-auto rounded-lg border border-surface-border" />
+            <p className="text-xs text-gray-500">
+              No celular desse número: WhatsApp → Aparelhos conectados → Conectar um aparelho, e aponte pra esse QR Code.
+              A tela atualiza sozinha assim que conectar.
+            </p>
+          </>
+        )}
       </div>
     </div>
   )

@@ -95,6 +95,39 @@ export async function setCrmInstanceActive(id: string, is_active: boolean) {
   return { ok: true }
 }
 
+// Fala com a Evolution (via crm-evolution-setup, service role) pra criar a
+// instância, apontar o webhook e devolver o QR Code — a chave da Evolution
+// nunca sai do servidor.
+async function callEvolutionSetup(body: Record<string, unknown>) {
+  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-evolution-setup`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'x-internal-call': '1',
+    },
+    body: JSON.stringify(body),
+  })
+  return res.json().catch(() => ({}))
+}
+
+export async function connectCrmInstance(instanceName: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const r = await callEvolutionSetup({ action: 'connect', instance_name: instanceName })
+  if (r.error) return { error: r.error }
+  if (r.already_connected) return { alreadyConnected: true }
+  return { qrcodeBase64: r.qrcode_base64 as string | undefined, pairingCode: r.pairing_code as string | null }
+}
+
+export async function getCrmInstanceConnectionState(instanceName: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { state: 'unknown' }
+  const r = await callEvolutionSetup({ action: 'status', instance_name: instanceName })
+  return { state: (r.state as string) ?? 'unknown' }
+}
+
 export async function getSystemUsersForCrm() {
   const auth = await ensureStaff()
   if ('error' in auth) return []
