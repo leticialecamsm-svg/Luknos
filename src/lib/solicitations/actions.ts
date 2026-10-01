@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { updateShipment } from '@/lib/actions'
 
 type R = { error?: string; ok?: boolean; id?: string }
 
@@ -272,6 +273,31 @@ export async function deletePostSaleFollowup(id: string, solicitationId: string)
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('post_sale_followups').delete().eq('id', id)
   if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Editar expedição a partir da Solicitação (Bug #2) ─────────────────────
+// Reaproveita a mesma updateShipment de src/lib/actions.ts (usada por
+// /shipping) em vez de inventar uma escrita paralela na tabela shipments —
+// só adiciona o revalidatePath da Solicitação, que aquela action não
+// conhece, pra tela de detalhe refletir a edição na hora.
+
+export async function updateShipmentForSolicitation(
+  id: string,
+  solicitationId: string,
+  updates: {
+    delivery_type?: 'delivery' | 'pickup'
+    delivery_date?: string
+  }
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  try {
+    await updateShipment(id, updates)
+  } catch (e: any) {
+    return { error: e?.message ?? 'Erro ao atualizar expedição' }
+  }
   refresh(solicitationId)
   return { ok: true }
 }
