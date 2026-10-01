@@ -3,6 +3,7 @@ import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { registrarCiencia } from '@/lib/nfe-manifestacao'
 import { logSefazDistCall } from '@/lib/sefaz-quota'
 import { getAgent } from '@/lib/nfe'
 
@@ -301,7 +302,27 @@ export async function POST() {
       if (!maxNSU || ultNSU >= maxNSU || docs.length === 0) break
     }
 
-    return NextResponse.json({ ok: true, novasNFs: newCount, ultimoStatusSefaz: lastStat })
+    // Ciência da Operação automática nas notas que só vieram em resumo: a SEFAZ
+    // libera o XML completo depois, e ele chega numa próxima sincronização.
+    // Não usa a cota do DistDFe; falha aqui não derruba a sincronização.
+    let ciencias = 0
+    let cienciaErro: string | undefined
+    try {
+      const { data: pendentes } = await supabase
+        .from('nfe_received')
+        .select('chave_nfe')
+        .is('ciencia_em', null)
+        .is('ciencia_cstat', null)
+        .or('tem_xml_completo.is.null,tem_xml_completo.eq.false')
+        .limit(100)
+      const res = await registrarCiencia(supabase, (pendentes ?? []).map(p => p.chave_nfe))
+      ciencias = res.filter(r => r.ok).length
+    } catch (e: any) {
+      cienciaErro = e.message
+      console.warn(`[list-nfe] ciência da operação: ${e.message}`)
+    }
+
+    return NextResponse.json({ ok: true, novasNFs: newCount, ultimoStatusSefaz: lastStat, ciencias, cienciaErro })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }

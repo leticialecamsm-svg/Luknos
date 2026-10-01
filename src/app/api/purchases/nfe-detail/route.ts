@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { consultarNFeCompleta } from '@/lib/nfe'
+import { garantirCiencia } from '@/lib/nfe-manifestacao'
 
 // Retorna os itens de uma NF recebida.
 // Lê do banco (items_json) para NÃO gastar consulta à SEFAZ (limite de 20/hora).
@@ -36,6 +37,10 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // Sem ciência a SEFAZ só devolve o resumo — registra antes de gastar consulta
+    const aviso = await garantirCiencia(supabase, chave, row)
+    if (aviso) return NextResponse.json({ items: [], _semItens: true, _motivo: aviso })
+
     // Consulta a SEFAZ uma única vez e guarda
     const res = await consultarNFeCompleta(chave)
     if (res.ok && res.nfe) {
@@ -61,7 +66,9 @@ export async function GET(req: NextRequest) {
     // SEFAZ não retornou itens (limite atingido, só resumo, etc.)
     const msg = res.cStat === '656'
       ? 'Limite de consultas da SEFAZ atingido (20/hora). Tente novamente mais tarde ou manifieste ciência da nota.'
-      : `Itens ainda não disponíveis nesta nota (${res.xMotivo || 'sem XML completo'}).`
+      : row?.ciencia_em
+        ? 'A Ciência da Operação já foi registrada, mas a SEFAZ ainda não liberou o XML completo. Tente novamente em alguns minutos.'
+        : `Itens ainda não disponíveis nesta nota (${res.xMotivo || 'sem XML completo'}).`
     return NextResponse.json({ items: [], _semItens: true, _motivo: msg })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })

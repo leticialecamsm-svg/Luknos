@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { consultarNFeCompleta } from '@/lib/nfe'
+import { garantirCiencia } from '@/lib/nfe-manifestacao'
 
 // Gera o DANFE (PDF) de uma NF recebida pela API do Meu Danfe (grátis).
 // 1ª vez: envia o XML guardado (ou busca na SEFAZ, gastando 1 das 20/hora) pra
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
     }
     const { data: row } = await supabase
       .from('nfe_received')
-      .select('numero_nota, xml_nfe, danfe_meudanfe, transportadora_cnpj, transportadora_nome')
+      .select('numero_nota, xml_nfe, danfe_meudanfe, transportadora_cnpj, transportadora_nome, tem_xml_completo, ciencia_em')
       .eq('chave_nfe', chave)
       .single()
 
@@ -55,11 +56,17 @@ export async function GET(req: NextRequest) {
     if (!pdf) {
       let xml = row?.xml_nfe as string | null
       if (!xml) {
+        // Sem ciência a SEFAZ só devolve o resumo — registra antes de gastar consulta
+        const aviso = await garantirCiencia(supabase, chave, row)
+        if (aviso) return NextResponse.json({ error: aviso }, { status: 409 })
+
         const res = await consultarNFeCompleta(chave)
         if (!res.ok || !res.xml) {
           const msg = res.cStat === '656'
             ? 'Limite de consultas da SEFAZ atingido (20/hora). Tente novamente mais tarde.'
-            : `XML completo desta nota ainda não disponível na SEFAZ (${res.xMotivo || 'sem retorno'}).`
+            : row?.ciencia_em
+              ? `A Ciência da Operação foi registrada às ${new Date(row.ciencia_em).toLocaleTimeString('pt-BR', { timeZone: 'America/Maceio', hour: '2-digit', minute: '2-digit' })}, mas a SEFAZ ainda não liberou o XML completo. Tente novamente em alguns minutos.`
+              : `XML completo desta nota ainda não disponível na SEFAZ (${res.xMotivo || 'sem retorno'}).`
           return NextResponse.json({ error: msg }, { status: 400 })
         }
         xml = res.xml

@@ -674,7 +674,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
   }
 
   const [danfeLoading, setDanfeLoading] = useState(false)
-  const [danfeError, setDanfeError] = useState<string | null>(null)
+  const [danfeError, setDanfeError] = useState<{ text: string; aviso: boolean } | null>(null)
 
   // Abre a aba já no clique (senão o bloqueador de pop-up barra, porque o
   // window.open viria depois do await) e só troca pro PDF quando ele chega.
@@ -687,7 +687,8 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
       const r = await fetch(`/api/purchases/danfe?chave=${clean}`)
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
-        throw new Error(d.error ?? `Erro ${r.status}`)
+        // 409 = ciência acabou de ser registrada: não é erro, é "aguarde"
+        throw Object.assign(new Error(d.error ?? `Erro ${r.status}`), { aviso: r.status === 409 })
       }
       const url = URL.createObjectURL(await r.blob())
       if (win) win.location.href = url
@@ -695,7 +696,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
       if (!nfe.tem_xml_danfe) onUpdated(nfe.chave_nfe, { tem_xml_danfe: true, tem_xml_completo: true })
     } catch (e: any) {
       win?.close()
-      setDanfeError(e.message)
+      setDanfeError({ text: e.message, aviso: !!e.aviso })
     } finally {
       setDanfeLoading(false)
     }
@@ -814,8 +815,8 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
               {danfeLoading ? 'Gerando DANFE...' : 'Visualizar DANFE'}
             </button>
             {danfeError && (
-              <span className="flex items-center gap-1.5 text-xs text-red-600 min-w-0">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {danfeError}
+              <span className={cn('flex items-center gap-1.5 text-xs min-w-0', danfeError.aviso ? 'text-amber-700' : 'text-red-600')}>
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {danfeError.text}
               </span>
             )}
           </div>
