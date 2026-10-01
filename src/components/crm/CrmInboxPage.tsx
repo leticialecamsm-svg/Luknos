@@ -17,6 +17,7 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Mic, Trash2,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all'
@@ -53,6 +54,15 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   const [contactResults, setContactResults] = useState<any[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Gravação de áudio (segurar/clicar no microfone, como no WhatsApp).
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
+  const [sendingVoice, setSendingVoice] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<Blob[]>([])
+  const recordStreamRef = useRef<MediaStream | null>(null)
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refreshList = useCallback((silent = false) => {
     if (!silent) setLoadingList(true)
@@ -130,6 +140,74 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       else { setText(''); refreshThread(selectedId) }
     })
   }
+
+  function stopRecordingTracks() {
+    recordStreamRef.current?.getTracks().forEach((t) => t.stop())
+    recordStreamRef.current = null
+    if (recordTimerRef.current) clearInterval(recordTimerRef.current)
+    recordTimerRef.current = null
+  }
+
+  async function startRecording() {
+    if (!selectedId) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      recordStreamRef.current = stream
+      recordedChunksRef.current = []
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+        .find((t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(t)) ?? ''
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setRecordSeconds(0)
+      setRecording(true)
+      recordTimerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000)
+    } catch {
+      toast.error('MICROFONE INDISPONÍVEL', 'Autorize o acesso ao microfone no navegador e tente de novo.')
+    }
+  }
+
+  function cancelRecording() {
+    mediaRecorderRef.current?.stop()
+    stopRecordingTracks()
+    mediaRecorderRef.current = null
+    recordedChunksRef.current = []
+    setRecording(false)
+  }
+
+  function finishRecording() {
+    const recorder = mediaRecorderRef.current
+    if (!recorder || !selectedId) { setRecording(false); return }
+    const convId = selectedId
+    recorder.onstop = () => {
+      stopRecordingTracks()
+      const mimeType = recorder.mimeType || 'audio/webm'
+      const blob = new Blob(recordedChunksRef.current, { type: mimeType })
+      recordedChunksRef.current = []
+      const ext = mimeType.includes('mp4') ? 'm4a' : 'webm'
+      const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: mimeType })
+      setSendingVoice(true)
+      uploadCrmFile(convId, file).then(async (up) => {
+        if (up.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', up.error); setSendingVoice(false); return }
+        const res = await sendCrmMessage({
+          conversationId: convId,
+          storagePath: up.storagePath,
+          fileName: file.name,
+          mimeType: file.type,
+          isVoiceNote: true,
+        })
+        setSendingVoice(false)
+        if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
+        else refreshThread(convId)
+      })
+    }
+    recorder.stop()
+    mediaRecorderRef.current = null
+    setRecording(false)
+  }
+
+  useEffect(() => () => { mediaRecorderRef.current?.stop(); stopRecordingTracks() }, [])
 
   async function openAttachment(path: string) {
     const res = await getCrmAttachmentUrl(path)
@@ -246,34 +324,64 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
               <div ref={bottomRef} />
             </div>
 
-            <div className="p-3 border-t border-surface-border flex items-end gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={pending}
-                className="p-2 text-gray-400 hover:text-brand-600"
-                title="Anexar arquivo"
-              >
-                {pending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => { handleFile(e.target.files); e.target.value = '' }}
-              />
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                placeholder="Escreva uma mensagem…"
-                rows={1}
-                className="input flex-1 resize-none"
-              />
-              <button onClick={handleSend} disabled={!text.trim()} className="btn-primary px-3 py-2">
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
+            {recording ? (
+              <div className="p-3 border-t border-surface-border flex items-center gap-3">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+                <span className="text-sm text-gray-600 flex-1">
+                  Gravando… {String(Math.floor(recordSeconds / 60)).padStart(2, '0')}:{String(recordSeconds % 60).padStart(2, '0')}
+                </span>
+                <button type="button" onClick={cancelRecording} className="p-2 text-gray-400 hover:text-red-600" title="Cancelar">
+                  <Trash2 className="w-5 h-5" />
+                </button>
+                <button type="button" onClick={finishRecording} className="btn-primary px-3 py-2" title="Enviar áudio">
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="p-3 border-t border-surface-border flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={pending || sendingVoice}
+                  className="p-2 text-gray-400 hover:text-brand-600"
+                  title="Anexar arquivo"
+                >
+                  {pending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => { handleFile(e.target.files); e.target.value = '' }}
+                />
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  placeholder="Escreva uma mensagem…"
+                  rows={1}
+                  className="input flex-1 resize-none"
+                />
+                {text.trim() ? (
+                  <button onClick={handleSend} className="btn-primary px-3 py-2">
+                    <Send className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={sendingVoice}
+                    className="btn-primary px-3 py-2"
+                    title="Gravar áudio"
+                  >
+                    {sendingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -334,6 +442,15 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
 }
 
 function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: (path: string) => void }) {
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (msg.message_type === 'audio' && msg.storage_path) {
+      getCrmAttachmentUrl(msg.storage_path).then((r) => { if (r.url) setAudioUrl(r.url) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msg.storage_path, msg.message_type])
+
   if (msg.is_system) {
     return <p className="text-center text-[11px] text-gray-400 py-1">{msg.body}</p>
   }
@@ -347,7 +464,12 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
         {mine && msg.sender_name && (
           <p className="text-[11px] font-semibold opacity-80 mb-0.5">{msg.sender_name}</p>
         )}
-        {msg.storage_path && (
+        {msg.storage_path && msg.message_type === 'audio' && (
+          audioUrl
+            ? <audio controls src={audioUrl} className="h-9 max-w-[220px] mb-1" />
+            : <p className="text-xs opacity-70 mb-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> áudio…</p>
+        )}
+        {msg.storage_path && msg.message_type !== 'audio' && (
           <button
             onClick={() => onOpenAttachment(msg.storage_path!)}
             className={cn('flex items-center gap-1.5 text-xs underline mb-1', mine ? 'text-white' : 'text-brand-600')}

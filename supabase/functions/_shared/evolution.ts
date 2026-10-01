@@ -69,7 +69,16 @@ export async function sendTextMessage(
 export async function sendMediaMessage(
   instanceName: string,
   number: string,
-  opts: { mediatype: 'image' | 'document' | 'audio' | 'video'; base64: string; fileName: string; mimetype: string; caption?: string },
+  opts: {
+    mediatype: 'image' | 'document' | 'audio' | 'video'
+    base64: string
+    fileName: string
+    mimetype: string
+    caption?: string
+    // Voice note gravado na hora (mic do painel) — pede pra renderizar como
+    // PTT (com forminha de onda e play), não como anexo de áudio genérico.
+    ptt?: boolean
+  },
 ): Promise<EvolutionSendResult> {
   try {
     const res = await evolutionFetch(`/message/sendMedia/${instanceName}`, {
@@ -81,6 +90,7 @@ export async function sendMediaMessage(
         media: opts.base64,
         fileName: opts.fileName,
         caption: opts.caption,
+        ptt: opts.ptt,
       }),
     })
     if (!res.ok) {

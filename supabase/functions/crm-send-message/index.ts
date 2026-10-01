@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
     storage_path?: string
     file_name?: string
     mime_type?: string
+    is_voice_note?: boolean
   }
   try {
     payload = await req.json()
@@ -63,6 +64,7 @@ async function send(payload: {
   storage_path?: string
   file_name?: string
   mime_type?: string
+  is_voice_note?: boolean
 }) {
   const db = createServiceClient()
 
@@ -97,13 +99,17 @@ async function send(payload: {
         : mimeType.startsWith('video/')
           ? 'video'
           : 'document'
-    const caption = text ? `*${senderName}:*\n${text}` : `*${senderName}:*`
+    // voice note gravado na hora: sem assinatura em texto (ela já fica no
+    // cabeçalho da mensagem pra quem olha o painel; no WhatsApp, a voz é a
+    // própria assinatura) e pede o visual de PTT.
+    const caption = payload.is_voice_note ? undefined : (text ? `*${senderName}:*\n${text}` : `*${senderName}:*`)
     result = await sendMediaMessage(instanceName, number, {
       mediatype: messageType as 'image' | 'document' | 'audio' | 'video',
       base64,
       fileName: payload.file_name || 'arquivo',
       mimetype: mimeType,
       caption,
+      ptt: !!payload.is_voice_note,
     })
   } else {
     messageType = 'text'

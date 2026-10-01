@@ -299,6 +299,7 @@ export async function sendCrmMessage(input: {
   storagePath?: string
   fileName?: string
   mimeType?: string
+  isVoiceNote?: boolean
 }) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
@@ -320,6 +321,7 @@ export async function sendCrmMessage(input: {
         storage_path: input.storagePath ?? null,
         file_name: input.fileName ?? null,
         mime_type: input.mimeType ?? null,
+        is_voice_note: input.isVoiceNote ?? false,
       }),
     })
     const body = await res.json().catch(() => ({}))
