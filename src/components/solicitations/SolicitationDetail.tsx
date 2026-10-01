@@ -81,11 +81,16 @@ const VISIT_STATUS_LABEL: Record<string, string> = {
 // Cores pedidas pela Letícia pro card de Visita (rodada 2): agendada=azul,
 // realizada(done)=verde, cancelada/não necessária=cinza — mesma paleta das
 // outras pills do app.
-const VISIT_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  to_schedule: { bg: 'bg-gray-100', text: 'text-gray-600' },
-  scheduled: { bg: 'bg-blue-50', text: 'text-blue-700' },
-  done: { bg: 'bg-green-50', text: 'text-green-700' },
-  not_needed: { bg: 'bg-gray-100', text: 'text-gray-500' },
+// `accent` = cor (hex, aplicada via style inline pra não depender da ordem
+// de geração das classes Tailwind) da tarja esquerda do card (pedido
+// Letícia, rodada 3): tinta mais suave que o fundo cheio anterior, mesmo
+// peso visual de um "accent strip" comum, pra distinguir várias visitas sem
+// competir com o conteúdo.
+const VISIT_STATUS_COLOR: Record<string, { bg: string; text: string; accent: string }> = {
+  to_schedule: { bg: 'bg-gray-100', text: 'text-gray-600', accent: '#d1d5db' },
+  scheduled: { bg: 'bg-blue-50', text: 'text-blue-700', accent: '#3b82f6' },
+  done: { bg: 'bg-green-50', text: 'text-green-700', accent: '#22c55e' },
+  not_needed: { bg: 'bg-gray-100', text: 'text-gray-500', accent: '#d1d5db' },
 }
 const PROJECT_STATUS_LABEL: Record<string, string> = { fila: 'Na fila', em_andamento: 'Em andamento', concluido: 'Concluído' }
 const PROJECT_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
@@ -112,27 +117,44 @@ const PROJECT_KIND_COLOR: Record<string, { bg: string; text: string; tint: strin
 function StageFileUpload({ solicitationId, stage }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao' }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<{ ok?: boolean; error?: string; name?: string } | null>(null)
+  // Progresso agregado ("3 de 5 enviados") em vez de um único resultado —
+  // suporta múltiplos arquivos selecionados/arrastados de uma vez (pedido
+  // Letícia: só aceitava 1 arquivo por vez).
+  const [progress, setProgress] = useState<{ total: number; done: number } | null>(null)
+  const [errors, setErrors] = useState<string[]>([])
+  const [lastOkNames, setLastOkNames] = useState<string[]>([])
 
   useEffect(() => {
     checkDriveConnected().then(setConnected).catch(() => setConnected(false))
   }, [])
 
-  async function handleFile(file: File | undefined) {
-    if (!file) return
+  async function handleFiles(fileList: FileList | File[] | undefined) {
+    const files = Array.from(fileList ?? [])
+    if (files.length === 0) return
     setUploading(true)
-    setResult(null)
-    try {
-      const fd = new FormData()
-      fd.set('file', file)
-      const res = await uploadStageFileForSolicitation(solicitationId, stage, fd)
-      if (res.error) setResult({ error: res.error })
-      else setResult({ ok: true, name: file.name })
-    } catch (e: any) {
-      setResult({ error: e?.message ?? 'Falha ao enviar arquivo' })
-    } finally {
-      setUploading(false)
+    setErrors([])
+    setLastOkNames([])
+    setProgress({ total: files.length, done: 0 })
+    const okNames: string[] = []
+    const errMsgs: string[] = []
+    // Sequencial (não Promise.all) de propósito: evita sobrecarregar a API
+    // do Drive com N uploads simultâneos e permite mostrar "X de N" real.
+    for (const file of files) {
+      try {
+        const fd = new FormData()
+        fd.set('file', file)
+        const res = await uploadStageFileForSolicitation(solicitationId, stage, fd)
+        if (res.error) errMsgs.push(`${file.name}: ${res.error}`)
+        else okNames.push(file.name)
+      } catch (e: any) {
+        errMsgs.push(`${file.name}: ${e?.message ?? 'Falha ao enviar arquivo'}`)
+      } finally {
+        setProgress(p => (p ? { ...p, done: p.done + 1 } : p))
+      }
     }
+    setLastOkNames(okNames)
+    setErrors(errMsgs)
+    setUploading(false)
   }
 
   if (connected === false) {
@@ -144,19 +166,36 @@ function StageFileUpload({ solicitationId, stage }: { solicitationId: string; st
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
-        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-        Enviar arquivo
-        <input
-          type="file"
-          className="hidden"
-          disabled={uploading || connected !== true}
-          onChange={(e) => { const f = e.target.files?.[0]; handleFile(f); e.target.value = '' }}
-        />
-      </label>
-      {result?.ok && <span className="text-xs text-green-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> "{result.name}" enviado ao Drive.</span>}
-      {result?.error && <span className="text-xs text-red-600">{result.error}</span>}
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
+          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+          {uploading && progress ? `Enviando ${progress.done} de ${progress.total}…` : 'Enviar arquivo(s)'}
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            disabled={uploading || connected !== true}
+            onChange={(e) => { handleFiles(e.target.files ?? undefined); e.target.value = '' }}
+          />
+        </label>
+        {!uploading && progress && errors.length === 0 && lastOkNames.length > 0 && (
+          <span className="text-xs text-green-600 flex items-center gap-1">
+            <Check className="w-3.5 h-3.5" />
+            {progress.total} de {progress.total} enviados.
+          </span>
+        )}
+        {!uploading && progress && errors.length > 0 && (
+          <span className="text-xs text-amber-600 flex items-center gap-1">
+            {lastOkNames.length} de {progress.total} enviados.
+          </span>
+        )}
+      </div>
+      {errors.length > 0 && (
+        <div className="text-xs text-red-600 space-y-0.5">
+          {errors.map((err, i) => <div key={i}>{err}</div>)}
+        </div>
+      )}
     </div>
   )
 }
@@ -393,8 +432,18 @@ function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: s
     })
   }
 
+  // Select de status com o MESMO padrão já aprovado em Compra de
+  // material/Instalação: classes de `badge` coloridas pela cor do status
+  // atual direto no `<select>`, sem `appearance-none` (classe `.select`) —
+  // é isso que deixa a setinha nativa do navegador visível por cima do
+  // fundo colorido, em vez do select "pelado" que tinha antes aqui.
+  const statusColor = VISIT_STATUS_COLOR[status] ?? VISIT_STATUS_COLOR.to_schedule
+
   return (
-    <div className={cn('rounded-card border px-3 py-2.5 transition-colors', color.bg, 'border-transparent')}>
+    <div
+      className="rounded-card border border-surface-border bg-white px-3 py-2.5 transition-colors"
+      style={{ borderLeftWidth: 4, borderLeftColor: color.accent }}
+    >
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <Calendar className={cn('w-4 h-4 shrink-0', color.text)} />
@@ -417,12 +466,16 @@ function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: s
       </div>
 
       {editing && (
-        <div className="space-y-2 bg-white/70 rounded-card p-3 mt-2">
+        <div className="space-y-2 bg-surface-secondary/60 rounded-card p-3 mt-2">
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título da visita" className="input" />
           <div className="flex flex-wrap gap-2">
             <input type="date" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className="input w-auto" />
             <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Endereço" className="input flex-1 min-w-[160px]" />
-            <select value={status} onChange={e => setStatus(e.target.value)} className="select w-auto">
+            <select
+              value={status}
+              onChange={e => setStatus(e.target.value)}
+              className={cn('badge font-semibold border-0 cursor-pointer', statusColor.bg, statusColor.text)}
+            >
               {Object.entries(VISIT_STATUS_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </select>
           </div>
@@ -529,7 +582,7 @@ function ProjectCard({ project: p, solicitationId }: { project: any; solicitatio
       <div className="flex items-start justify-between gap-2 flex-wrap mb-2">
         <div className="flex items-center gap-2">
           <Ruler className="w-4 h-4 text-brand-500 shrink-0" />
-          <div className="font-medium">#{p.number} · {p.title}</div>
+          <div className="font-medium">{p.title}</div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select
@@ -667,39 +720,43 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
   const [editing, setEditing] = useState(false)
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>(s.delivery_type ?? 'delivery')
   const [deliveryDate, setDeliveryDate] = useState(s.delivery_date ?? '')
+  const [status, setStatus] = useState<string>(s.separation_status ?? 'queued')
+  const [priority, setPriority] = useState<string>(s.priority ?? 'mid')
   const [pending, startTransition] = useTransition()
   const statusColor = SHIPMENT_STATUS_COLOR[s.separation_status as keyof typeof SHIPMENT_STATUS_COLOR]
   const priorityColor = SHIPMENT_PRIORITY_COLOR[s.priority as keyof typeof SHIPMENT_PRIORITY_COLOR]
+  // Cores dos selects de edição seguem o valor sendo editado (não o salvo),
+  // pra dar feedback imediato ao trocar — mesmo padrão colorido do select de
+  // status/categoria do Projeto.
+  const editStatusColor = SHIPMENT_STATUS_COLOR[status as keyof typeof SHIPMENT_STATUS_COLOR]
+  const editPriorityColor = SHIPMENT_PRIORITY_COLOR[priority as keyof typeof SHIPMENT_PRIORITY_COLOR]
 
   function save() {
     startTransition(async () => {
       await updateShipmentForSolicitation(s.id, s.solicitation_id, {
         delivery_type: deliveryType,
+        separation_status: status as any,
+        priority: priority as any,
         ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
       })
       setEditing(false)
     })
   }
 
+  function cancel() {
+    setDeliveryType(s.delivery_type ?? 'delivery')
+    setDeliveryDate(s.delivery_date ?? '')
+    setStatus(s.separation_status ?? 'queued')
+    setPriority(s.priority ?? 'mid')
+    setEditing(false)
+  }
+
   return (
     <Card>
       <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          {statusColor && (
-            <span className={cn('badge text-xs font-semibold', statusColor.bg, statusColor.text)}>
-              {SHIPMENT_STATUS_LABEL[s.separation_status as keyof typeof SHIPMENT_STATUS_LABEL] ?? s.separation_status}
-            </span>
-          )}
-          {priorityColor && (
-            <span className={cn('badge text-xs font-semibold', priorityColor.bg, priorityColor.text)}>
-              {SHIPMENT_PRIORITY_LABEL[s.priority as keyof typeof SHIPMENT_PRIORITY_LABEL] ?? s.priority}
-            </span>
-          )}
-          {s.is_completed && (
-            <span className="inline-flex items-center gap-1 badge text-xs font-semibold bg-emerald-50 text-emerald-700">
-              <Check className="w-3 h-3" /> Entregue
-            </span>
-          )}
+        <div className="flex items-center gap-2 text-brand-700">
+          <Truck className="w-4 h-4" />
+          <h3 className="eyebrow !text-brand-700">Separação e entrega</h3>
         </div>
         {!editing && (
           <button type="button" onClick={() => setEditing(true)} className="btn-ghost text-xs">
@@ -708,8 +765,26 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
         )}
       </div>
 
+      {/* Edição OU visualização, nunca os dois ao mesmo tempo (bug relatado:
+          clicar em Editar duplicava a view normal embaixo do formulário). */}
       {editing ? (
-        <div className="space-y-2 bg-surface-secondary/60 rounded-card p-3 mb-2">
+        <div className="space-y-2 bg-surface-secondary/60 rounded-card p-3">
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={status}
+              onChange={e => setStatus(e.target.value)}
+              className={cn('badge font-semibold border-0 cursor-pointer', editStatusColor?.bg, editStatusColor?.text)}
+            >
+              {Object.entries(SHIPMENT_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select
+              value={priority}
+              onChange={e => setPriority(e.target.value)}
+              className={cn('badge font-semibold border-0 cursor-pointer', editPriorityColor?.bg, editPriorityColor?.text)}
+            >
+              {Object.entries(SHIPMENT_PRIORITY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
           <div className="flex flex-wrap gap-2">
             <select value={deliveryType} onChange={e => setDeliveryType(e.target.value as any)} className="select w-auto">
               <option value="delivery">Entrega</option>
@@ -720,39 +795,59 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={pending} className="btn-primary px-4 py-1.5 text-sm">Salvar</button>
-            <button type="button" onClick={() => setEditing(false)} disabled={pending} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>
+            <button type="button" onClick={cancel} disabled={pending} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            {statusColor && (
+              <span className={cn('badge text-xs font-semibold', statusColor.bg, statusColor.text)}>
+                {SHIPMENT_STATUS_LABEL[s.separation_status as keyof typeof SHIPMENT_STATUS_LABEL] ?? s.separation_status}
+              </span>
+            )}
+            {priorityColor && (
+              <span className={cn('badge text-xs font-semibold', priorityColor.bg, priorityColor.text)}>
+                {SHIPMENT_PRIORITY_LABEL[s.priority as keyof typeof SHIPMENT_PRIORITY_LABEL] ?? s.priority}
+              </span>
+            )}
+            {s.is_completed && (
+              <span className="inline-flex items-center gap-1 badge text-xs font-semibold bg-emerald-50 text-emerald-700">
+                <Check className="w-3 h-3" /> Entregue
+              </span>
+            )}
+          </div>
 
-      <div className="space-y-2 text-sm">
-        <div className="flex items-center gap-2 text-gray-700">
-          {s.delivery_type === 'delivery' ? <Truck className="w-4 h-4 text-brand-500 shrink-0" /> : <MapPin className="w-4 h-4 text-brand-500 shrink-0" />}
-          <span>{s.delivery_type ? SHIPMENT_DELIVERY_TYPE_LABEL[s.delivery_type as keyof typeof SHIPMENT_DELIVERY_TYPE_LABEL] : <span className="text-gray-400">Tipo não definido</span>}</span>
-        </div>
-        <div className="flex items-center gap-2 text-gray-700">
-          <Calendar className="w-4 h-4 text-brand-500 shrink-0" />
-          <span>{s.delivery_date ? formatDate(s.delivery_date) : <span className="text-gray-400">Data não definida</span>}</span>
-        </div>
-        {s.received_by && (
-          <div className="text-gray-500">
-            Recebido por {s.received_by}{s.received_at ? ` em ${formatDate(s.received_at)}` : ''}
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-gray-700">
+              {s.delivery_type === 'delivery' ? <Truck className="w-4 h-4 text-brand-500 shrink-0" /> : <MapPin className="w-4 h-4 text-brand-500 shrink-0" />}
+              <span>{s.delivery_type ? SHIPMENT_DELIVERY_TYPE_LABEL[s.delivery_type as keyof typeof SHIPMENT_DELIVERY_TYPE_LABEL] : <span className="text-gray-400">Tipo não definido</span>}</span>
+            </div>
+            <div className="flex items-center gap-2 text-gray-700">
+              <Calendar className="w-4 h-4 text-brand-500 shrink-0" />
+              <span>{s.delivery_date ? formatDate(s.delivery_date) : <span className="text-gray-400">Data não definida</span>}</span>
+            </div>
+            {s.received_by && (
+              <div className="text-gray-500">
+                Recebido por {s.received_by}{s.received_at ? ` em ${formatDate(s.received_at)}` : ''}
+              </div>
+            )}
+            {s.completed_at && (
+              <div className="text-gray-400 text-xs">Entregue em {formatDate(s.completed_at)}</div>
+            )}
+            {s.delivery_photo_url && (
+              <a href={s.delivery_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-700 underline">
+                Foto da entrega
+              </a>
+            )}
+            {s.drive_link && (
+              <a href={s.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700 font-medium">
+                <ExternalLink className="w-3.5 h-3.5" /> Pasta de separação
+              </a>
+            )}
           </div>
-        )}
-        {s.completed_at && (
-          <div className="text-gray-400 text-xs">Entregue em {formatDate(s.completed_at)}</div>
-        )}
-        {s.delivery_photo_url && (
-          <a href={s.delivery_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-700 underline">
-            Foto da entrega
-          </a>
-        )}
-        {s.drive_link && (
-          <a href={s.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700 font-medium">
-            <ExternalLink className="w-3.5 h-3.5" /> Pasta de separação
-          </a>
-        )}
-      </div>
+        </>
+      )}
 
       <div className="mt-2.5 pt-2.5 border-t border-surface-border">
         <StageFileUpload solicitationId={s.solicitation_id} stage="expedicao" />
