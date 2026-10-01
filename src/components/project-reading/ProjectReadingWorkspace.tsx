@@ -151,11 +151,6 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // canvas — usado pra saber quando dá pra capturar em alta resolução na
   // exportação (aguardar o zoom temporário terminar de desenhar).
   const renderVersionRef = useRef(0)
-  // Task de render do pdf.js em andamento — chamar page.render() de novo
-  // em cima de uma que ainda não terminou (ex: vários "ticks" da rodinha
-  // do mouse em sequência) trava o pdf.js pra sempre, então a task
-  // anterior precisa ser cancelada antes de começar a próxima.
-  const renderTaskRef = useRef<any>(null)
   const zoomingRef = useRef(false)
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
@@ -656,11 +651,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   useEffect(() => {
     if (!pdfDoc) return
     let cancelled = false
+    let localTask: any = null
     setRendering(true)
-    // Uma render anterior ainda em andamento (ex: zoom na rodinha disparando
-    // vários "ticks" seguidos) precisa ser cancelada antes de começar outra
-    // no mesmo canvas — o pdf.js trava pra sempre se não cancelar.
-    renderTaskRef.current?.cancel()
     pdfDoc.getPage(pageNum).then((page: any) => {
       if (cancelled) return
       const viewport = page.getViewport({ scale: renderScale, rotation: totalRotation(page) })
@@ -670,7 +662,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       canvas.height = viewport.height
       const ctx = canvas.getContext('2d')!
       const task = page.render({ canvasContext: ctx, viewport })
-      renderTaskRef.current = task
+      localTask = task
       task.promise.then(() => {
         if (!cancelled) {
           viewportRef.current = viewport
@@ -679,12 +671,20 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
           renderVersionRef.current++
         }
       }).catch((err: any) => {
-        // Cancelamento esperado (nova render começou antes dessa acabar) —
-        // não é erro de verdade, só ignora.
+        // Cancelamento esperado (uma render mais nova começou antes dessa
+        // terminar, ex: vários "ticks" seguidos da rodinha do zoom) — não é
+        // erro de verdade, só ignora.
         if (err?.name !== 'RenderingCancelledException') console.error(err)
       })
     })
-    return () => { cancelled = true }
+    // O cleanup roda ANTES do efeito seguinte começar (garantido pelo
+    // React) — cancelar aqui, fechado sobre a task desta instância
+    // específica do efeito, evita a corrida de duas renders disputando o
+    // mesmo canvas que travava o pdf.js pra sempre.
+    return () => {
+      cancelled = true
+      try { localTask?.cancel() } catch { /* já tinha terminado, ignora */ }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfDoc, pageNum, renderScale, rotationMap])
 
