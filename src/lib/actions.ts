@@ -384,11 +384,10 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
   const { data: { user } } = await supabase.auth.getUser()
 
   const admin = createAdminClient()
-  const { data: currentNeg } = await admin
-    .from('negotiations')
-    .select('temperature')
-    .eq('quote_id', quoteId)
-    .maybeSingle()
+  const [{ data: currentNeg }, { data: quoteRow }] = await Promise.all([
+    admin.from('negotiations').select('temperature').eq('quote_id', quoteId).maybeSingle(),
+    admin.from('quotes').select('solicitation_id').eq('id', quoteId).maybeSingle(),
+  ])
   const fromTemp = currentNeg?.temperature ?? null
 
   // Determina direção: promoveu (subiu) ou rebaixou (desceu)
@@ -402,6 +401,10 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
     quote_id: quoteId,
     temperature,
     temperature_updated_at: now,
+    // Mantém o vínculo com a Solicitação (feature de Solicitações, Lote 1)
+    // quando a linha de negotiations ainda não existir (upsert) — não
+    // sobrescreve com null um solicitation_id já setado por outra via.
+    ...(quoteRow?.solicitation_id ? { solicitation_id: quoteRow.solicitation_id } : {}),
     // Ao arrastar para "Fechada", grava a data de fechamento (fonte do FATURAMENTO no dashboard).
     // Sem isso, vendas fechadas pelo quadro somem do faturamento. Ao reabrir, limpa a data.
     ...(temperature === 'closed' ? { closed_at: now.split('T')[0] } : {}),

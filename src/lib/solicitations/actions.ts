@@ -46,6 +46,7 @@ export type SolicitationView = {
   purchaseChecklistItems: any[]
   installationTrackings: any[]
   postSaleFollowups: any[]
+  suppliers: { id: string; name: string }[]
   tabs: {
     visita: boolean
     projeto: boolean
@@ -79,6 +80,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     { data: purchaseChecklistItems },
     { data: installationTrackings },
     { data: postSaleFollowups },
+    { data: suppliers },
   ] = await Promise.all([
     db.from('quotes').select('*').eq('solicitation_id', id).order('created_at', { ascending: false }),
     db.from('negotiations').select('*').eq('solicitation_id', id),
@@ -88,6 +90,10 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     db.from('purchase_checklist_items').select('*').eq('solicitation_id', id).order('created_at', { ascending: true }),
     db.from('installation_trackings').select('*').eq('solicitation_id', id).order('created_at', { ascending: false }),
     db.from('post_sale_followups').select('*').eq('solicitation_id', id).order('created_at', { ascending: false }),
+    // Fornecedores (tabela já usada no módulo de precificação/orçamento —
+    // src/lib/pricing/actions.ts — reaproveitada aqui pro dropdown de
+    // "Compra de material" em vez de texto livre).
+    db.from('pricing_suppliers').select('id, name').eq('is_active', true).order('name'),
   ])
 
   return {
@@ -106,6 +112,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     purchaseChecklistItems: purchaseChecklistItems ?? [],
     installationTrackings: installationTrackings ?? [],
     postSaleFollowups: postSaleFollowups ?? [],
+    suppliers: suppliers ?? [],
     tabs: {
       visita: (visits ?? []).length > 0,
       projeto: (designProjects ?? []).length > 0,
@@ -127,6 +134,7 @@ export async function savePurchaseChecklistItem(input: {
   description: string
   supplier?: string | null
   status?: 'a_pedir' | 'pedido' | 'recebido'
+  expectedDeliveryDate?: string | null
 }): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
@@ -137,6 +145,7 @@ export async function savePurchaseChecklistItem(input: {
       description: input.description.trim(),
       supplier: input.supplier || null,
       status: input.status ?? 'a_pedir',
+      expected_delivery_date: input.expectedDeliveryDate || null,
     }).eq('id', input.id)
     if (error) return { error: error.message }
     refresh(input.solicitationId)
@@ -147,11 +156,25 @@ export async function savePurchaseChecklistItem(input: {
     description: input.description.trim(),
     supplier: input.supplier || null,
     status: input.status ?? 'a_pedir',
+    expected_delivery_date: input.expectedDeliveryDate || null,
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
+}
+
+export async function updatePurchaseChecklistItemStatus(
+  id: string,
+  solicitationId: string,
+  status: 'a_pedir' | 'pedido' | 'recebido'
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('purchase_checklist_items').update({ status }).eq('id', id)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
 }
 
 export async function deletePurchaseChecklistItem(id: string, solicitationId: string): Promise<R> {
@@ -251,4 +274,65 @@ export async function deletePostSaleFollowup(id: string, solicitationId: string)
   if (error) return { error: error.message }
   refresh(solicitationId)
   return { ok: true }
+}
+
+// ── Entrar na etapa Visita/Projeto a partir da Solicitação (Bug #8) ──────
+// Mesma lógica de createVisit/createDesignProject de
+// design-projects-actions.ts, mas já nascendo linkada a esta solicitation
+// (e usando o admin client / client_id-architect_id já conhecidos da
+// Solicitação, sem duplicar aquele arquivo nem mexer em /design-projects).
+
+export async function createVisitForSolicitation(input: {
+  solicitationId: string
+  clientId: string
+  architectId?: string | null
+  title: string
+  scheduledAt?: string | null
+  address?: string | null
+  notes?: string | null
+}): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!input.title.trim()) return { error: 'Descreva a visita' }
+  const db = createAdminClient()
+  const { data, error } = await db.from('visits').insert({
+    solicitation_id: input.solicitationId,
+    client_id: input.clientId,
+    architect_id: input.architectId || null,
+    title: input.title.trim(),
+    scheduled_at: input.scheduledAt || null,
+    address: input.address || null,
+    notes: input.notes || null,
+    status: input.scheduledAt ? 'scheduled' : 'to_schedule',
+    created_by: user.id,
+  }).select('id').single()
+  if (error) return { error: error.message }
+  refresh(input.solicitationId)
+  return { ok: true, id: data?.id }
+}
+
+export async function createDesignProjectForSolicitation(input: {
+  solicitationId: string
+  clientId: string
+  architectId?: string | null
+  title: string
+  description?: string | null
+  kind?: 'elaboracao' | 'alocacao_pontos'
+}): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!input.title.trim()) return { error: 'Dê um título ao projeto' }
+  const db = createAdminClient()
+  const { data, error } = await db.from('design_projects').insert({
+    solicitation_id: input.solicitationId,
+    client_id: input.clientId,
+    architect_id: input.architectId || null,
+    title: input.title.trim(),
+    description: input.description || null,
+    kind: input.kind ?? 'elaboracao',
+    created_by: user.id,
+  }).select('id').single()
+  if (error) return { error: error.message }
+  refresh(input.solicitationId)
+  return { ok: true, id: data?.id }
 }
