@@ -293,6 +293,8 @@ export async function updateShipmentForSolicitation(
   updates: {
     delivery_type?: 'delivery' | 'pickup'
     delivery_date?: string
+    separation_status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material' | 'delivered'
+    priority?: 'low' | 'mid' | 'high'
   }
 ): Promise<R> {
   const user = await requireUser()
@@ -522,6 +524,9 @@ export async function uploadStageFileForSolicitation(
     refresh(solicitationId)
     return { ok: true, id: up.id, webViewLink: up.webViewLink }
   } catch (e: any) {
-    return { error: e?.message ?? 'Falha ao enviar arquivo pro Drive' }
+    // Não vaza detalhe interno (nome de env var, stack, etc.) pro cliente —
+    // loga o erro real no servidor e devolve uma mensagem genérica.
+    console.error('[uploadStageFileForSolicitation] falha ao enviar pro Drive:', e)
+    return { error: 'Não foi possível enviar o arquivo. Tente novamente ou avise o suporte.' }
   }
 }
