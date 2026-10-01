@@ -14,10 +14,10 @@
 //   duplicar as telas cheias de /negotiations, /shipping etc. (isso fica
 //   pro Lote 2, junto da página-índice de /solicitacoes).
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   ChevronLeft, Truck, MapPin, Calendar, ExternalLink, Check, CalendarDays, Ruler,
-  ShoppingCart, Wrench, HeartHandshake, Pencil, Star, Trash2, Plus,
+  ShoppingCart, Wrench, HeartHandshake, Pencil, Star, Trash2, Plus, Loader2, UploadCloud, CloudOff,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
@@ -34,8 +34,11 @@ import {
   saveInstallationTracking, deleteInstallationTracking,
   savePostSaleFollowup, deletePostSaleFollowup,
   createVisitForSolicitation, createDesignProjectForSolicitation,
-  updateShipmentForSolicitation,
+  updateShipmentForSolicitation, updateVisitForSolicitation,
+  updateDesignProjectKindForSolicitation, updateDesignProjectDescriptionForSolicitation,
+  updateDesignProjectStatusForSolicitation, uploadStageFileForSolicitation, checkDriveConnected,
 } from '@/lib/solicitations/actions'
+import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-gray-400 italic py-6 text-center">{children}</div>
@@ -72,17 +75,90 @@ function StatusBadge({ color, children }: { color: { bg: string; text: string };
 // ver createVisitForSolicitation acima) e design_projects (enum
 // design_project_status: 'fila' | 'em_andamento' | 'concluido') — mesma
 // paleta usada em STATUS_COLOR/SHIPMENT_STATUS_COLOR (src/types).
-const VISIT_STATUS_LABEL: Record<string, string> = { to_schedule: 'A agendar', scheduled: 'Agendada', done: 'Concluída' }
+const VISIT_STATUS_LABEL: Record<string, string> = {
+  to_schedule: 'A agendar', scheduled: 'Agendada', done: 'Realizada', not_needed: 'Não necessária',
+}
+// Cores pedidas pela Letícia pro card de Visita (rodada 2): agendada=azul,
+// realizada(done)=verde, cancelada/não necessária=cinza — mesma paleta das
+// outras pills do app.
 const VISIT_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
   to_schedule: { bg: 'bg-gray-100', text: 'text-gray-600' },
   scheduled: { bg: 'bg-blue-50', text: 'text-blue-700' },
   done: { bg: 'bg-green-50', text: 'text-green-700' },
+  not_needed: { bg: 'bg-gray-100', text: 'text-gray-500' },
 }
 const PROJECT_STATUS_LABEL: Record<string, string> = { fila: 'Na fila', em_andamento: 'Em andamento', concluido: 'Concluído' }
 const PROJECT_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
   fila: { bg: 'bg-gray-100', text: 'text-gray-600' },
   em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700' },
   concluido: { bg: 'bg-green-50', text: 'text-green-700' },
+}
+// design_projects.kind (enum já existente: 'elaboracao' | 'alocacao_pontos' —
+// ver 20260929_solicitations_core.sql) agora vira select colorido + badge em
+// vez de texto plano, reaproveitando os 2 valores reais do banco (decisão:
+// não inventar categorias novas já que o enum real já cobre o caso de uso
+// pedido — "Elaboração" vs "Alocação de pontos").
+const PROJECT_KIND_LABEL: Record<string, string> = { elaboracao: 'Elaboração', alocacao_pontos: 'Alocação de pontos' }
+const PROJECT_KIND_COLOR: Record<string, { bg: string; text: string; tint: string }> = {
+  elaboracao: { bg: 'bg-violet-50', text: 'text-violet-700', tint: 'bg-violet-50/40' },
+  alocacao_pontos: { bg: 'bg-sky-50', text: 'text-sky-700', tint: 'bg-sky-50/40' },
+}
+
+// ── Upload de arquivo pro Drive por etapa (Visita/Projeto/Expedição) ──────
+// Mesma UX de src/components/quotes/QuoteAttachments.tsx: spinner (Loader2)
+// enquanto sobe, estado de sucesso/erro, e mensagem amigável no lugar do
+// botão quando o Drive não está conectado — só que aqui é um botão simples
+// (sem lista de arquivos já enviados, que ficaria pro Lote 2).
+function StageFileUpload({ solicitationId, stage }: { solicitationId: string; stage: 'visita' | 'projeto' | 'expedicao' }) {
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState<{ ok?: boolean; error?: string; name?: string } | null>(null)
+
+  useEffect(() => {
+    checkDriveConnected().then(setConnected).catch(() => setConnected(false))
+  }, [])
+
+  async function handleFile(file: File | undefined) {
+    if (!file) return
+    setUploading(true)
+    setResult(null)
+    try {
+      const fd = new FormData()
+      fd.set('file', file)
+      const res = await uploadStageFileForSolicitation(solicitationId, stage, fd)
+      if (res.error) setResult({ error: res.error })
+      else setResult({ ok: true, name: file.name })
+    } catch (e: any) {
+      setResult({ error: e?.message ?? 'Falha ao enviar arquivo' })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  if (connected === false) {
+    return (
+      <p className="text-xs text-gray-400 flex items-center gap-1.5">
+        <CloudOff className="w-3.5 h-3.5" /> Google Drive não conectado — conecte em Configurações para enviar arquivos.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
+        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+        Enviar arquivo
+        <input
+          type="file"
+          className="hidden"
+          disabled={uploading || connected !== true}
+          onChange={(e) => { const f = e.target.files?.[0]; handleFile(f); e.target.value = '' }}
+        />
+      </label>
+      {result?.ok && <span className="text-xs text-green-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> "{result.name}" enviado ao Drive.</span>}
+      {result?.error && <span className="text-xs text-red-600">{result.error}</span>}
+    </div>
+  )
 }
 
 // ── Regra de "etapa concluída" por aba (Bug #9) ───────────────────────────
@@ -142,30 +218,10 @@ export function SolicitationDetail({
       label: label('visita', 'Visita'),
       badge: solicitation.visits.length,
       content: (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <AddVisitForm solicitation={solicitation} hasVisits={solicitation.visits.length > 0} />
           {solicitation.visits.map(v => (
-            <Card key={v.id}>
-              <div className="flex items-start justify-between gap-2 flex-wrap">
-                <div>
-                  <div className="font-medium">{v.title || 'Visita'}</div>
-                  <div className="flex items-center gap-1.5 text-sm text-gray-500 mt-1">
-                    <Calendar className="w-3.5 h-3.5 text-brand-500 shrink-0" />
-                    {v.scheduled_at ? formatDate(v.scheduled_at) : 'Sem data agendada'} {v.scheduled_time ? `· ${v.scheduled_time}` : ''}
-                  </div>
-                  {v.address && (
-                    <div className="flex items-center gap-1.5 text-sm text-gray-500 mt-1">
-                      <MapPin className="w-3.5 h-3.5 text-brand-500 shrink-0" />
-                      {v.address}
-                    </div>
-                  )}
-                </div>
-                <StatusBadge color={VISIT_STATUS_COLOR[v.status] ?? VISIT_STATUS_COLOR.to_schedule}>
-                  {VISIT_STATUS_LABEL[v.status] ?? v.status}
-                </StatusBadge>
-              </div>
-              {v.notes && <div className="text-sm mt-2 text-gray-700">{v.notes}</div>}
-            </Card>
+            <VisitCard key={v.id} visit={v} solicitationId={solicitation.id} />
           ))}
         </div>
       ),
@@ -178,20 +234,7 @@ export function SolicitationDetail({
         <div className="space-y-3">
           <AddProjectForm solicitation={solicitation} hasProjects={solicitation.designProjects.length > 0} />
           {solicitation.designProjects.map(p => (
-            <Card key={p.id}>
-              <div className="flex items-start justify-between gap-2 flex-wrap">
-                <div>
-                  <div className="font-medium">#{p.number} · {p.title}</div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {p.kind === 'alocacao_pontos' ? 'Alocação de pontos' : 'Elaboração'}
-                  </div>
-                </div>
-                <StatusBadge color={PROJECT_STATUS_COLOR[p.status] ?? PROJECT_STATUS_COLOR.fila}>
-                  {PROJECT_STATUS_LABEL[p.status] ?? p.status}
-                </StatusBadge>
-              </div>
-              {p.description && <div className="text-sm mt-2 text-gray-700">{p.description}</div>}
-            </Card>
+            <ProjectCard key={p.id} project={p} solicitationId={solicitation.id} />
           ))}
         </div>
       ),
@@ -327,6 +370,83 @@ function AddVisitForm({ solicitation, hasVisits }: { solicitation: SolicitationV
   )
 }
 
+// Card de Visita compacto (pedido Letícia, rodada 2): item de lista denso em
+// vez do "hero card" full-width anterior, com cor de acento por status
+// (VISIT_STATUS_COLOR) e botão Editar (mesmo ícone/convenção do Editar de
+// Separação e entrega, ver ShipmentCard) abrindo um formulário inline pra
+// título/data/endereço/status.
+function VisitCard({ visit: v, solicitationId }: { visit: any; solicitationId: string }) {
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(v.title ?? '')
+  const [scheduledAt, setScheduledAt] = useState(v.scheduled_at ? String(v.scheduled_at).slice(0, 10) : '')
+  const [address, setAddress] = useState(v.address ?? '')
+  const [status, setStatus] = useState(v.status ?? 'to_schedule')
+  const [pending, startTransition] = useTransition()
+  const color = VISIT_STATUS_COLOR[v.status] ?? VISIT_STATUS_COLOR.to_schedule
+
+  function save() {
+    startTransition(async () => {
+      await updateVisitForSolicitation(v.id, solicitationId, {
+        title, scheduledAt: scheduledAt || null, address: address || null, status,
+      })
+      setEditing(false)
+    })
+  }
+
+  return (
+    <div className={cn('rounded-card border px-3 py-2.5 transition-colors', color.bg, 'border-transparent')}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Calendar className={cn('w-4 h-4 shrink-0', color.text)} />
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">{v.title || 'Visita'}</div>
+            <div className="text-xs text-gray-500 truncate">
+              {v.scheduled_at ? formatDate(v.scheduled_at) : 'Sem data agendada'} {v.scheduled_time ? `· ${v.scheduled_time}` : ''}
+              {v.address ? ` · ${v.address}` : ''}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <StatusBadge color={color}>{VISIT_STATUS_LABEL[v.status] ?? v.status}</StatusBadge>
+          {!editing && (
+            <button type="button" onClick={() => setEditing(true)} className="btn-ghost text-xs">
+              <Pencil className="w-3.5 h-3.5" /> Editar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <div className="space-y-2 bg-white/70 rounded-card p-3 mt-2">
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título da visita" className="input" />
+          <div className="flex flex-wrap gap-2">
+            <input type="date" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className="input w-auto" />
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Endereço" className="input flex-1 min-w-[160px]" />
+            <select value={status} onChange={e => setStatus(e.target.value)} className="select w-auto">
+              {Object.entries(VISIT_STATUS_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={save} disabled={pending} className="btn-primary px-4 py-1.5 text-sm">Salvar</button>
+            <button type="button" onClick={() => setEditing(false)} disabled={pending} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {v.notes && <div className="text-sm mt-2 text-gray-700">{v.notes}</div>}
+
+      {/* Upload pro Drive só depois que a visita foi realizada (status
+          'done' no banco — pedido original dizia "realizada", que é a
+          label em PT desse mesmo valor). */}
+      {v.status === 'done' && (
+        <div className="mt-2.5 pt-2.5 border-t border-black/5">
+          <StageFileUpload solicitationId={solicitationId} stage="visita" />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AddProjectForm({ solicitation, hasProjects }: { solicitation: SolicitationView; hasProjects: boolean }) {
   const [open, setOpen] = useState(!hasProjects)
   const [title, setTitle] = useState('')
@@ -373,6 +493,85 @@ function AddProjectForm({ solicitation, hasProjects }: { solicitation: Solicitat
           >Salvar</button>
           {hasProjects && <button type="button" onClick={() => setOpen(false)} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>}
         </div>
+      </div>
+    </Card>
+  )
+}
+
+// Card de Projeto mais rico (pedido Letícia, rodada 2): tinta de fundo pela
+// categoria (kind), badge colorido + select de categoria editável inline,
+// select de status real (design_project_status) chamando a mesma
+// updateDesignProjectStatus de design-projects-actions.ts (via wrapper com
+// revalidatePath desta tela), e o campo de descrição virando o editor de
+// texto rico (RichTextEditor/RichTextView) em cima da coluna
+// design_projects.description já existente.
+function ProjectCard({ project: p, solicitationId }: { project: any; solicitationId: string }) {
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [description, setDescription] = useState(p.description ?? '')
+  const [pending, startTransition] = useTransition()
+  const kindColor = PROJECT_KIND_COLOR[p.kind] ?? PROJECT_KIND_COLOR.elaboracao
+
+  function changeKind(kind: string) {
+    startTransition(async () => { await updateDesignProjectKindForSolicitation(p.id, solicitationId, kind as any) })
+  }
+  function changeStatus(status: string) {
+    startTransition(async () => { await updateDesignProjectStatusForSolicitation(p.id, solicitationId, status as any) })
+  }
+  function saveDescription() {
+    startTransition(async () => {
+      await updateDesignProjectDescriptionForSolicitation(p.id, solicitationId, description)
+      setEditingDescription(false)
+    })
+  }
+
+  return (
+    <Card className={cn(kindColor.tint, 'border-0')}>
+      <div className="flex items-start justify-between gap-2 flex-wrap mb-2">
+        <div className="flex items-center gap-2">
+          <Ruler className="w-4 h-4 text-brand-500 shrink-0" />
+          <div className="font-medium">#{p.number} · {p.title}</div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={p.kind}
+            disabled={pending}
+            onChange={e => changeKind(e.target.value)}
+            className={cn('badge font-semibold border-0 cursor-pointer', kindColor.bg, kindColor.text)}
+          >
+            {Object.entries(PROJECT_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select
+            value={p.status}
+            disabled={pending}
+            onChange={e => changeStatus(e.target.value)}
+            className={cn('badge font-semibold border-0 cursor-pointer', (PROJECT_STATUS_COLOR[p.status] ?? PROJECT_STATUS_COLOR.fila).bg, (PROJECT_STATUS_COLOR[p.status] ?? PROJECT_STATUS_COLOR.fila).text)}
+          >
+            {Object.entries(PROJECT_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-white/60 rounded-card p-2.5">
+        {editingDescription ? (
+          <div className="space-y-2">
+            <RichTextEditor value={description} onChange={setDescription} placeholder="Notas do projeto…" />
+            <div className="flex gap-2">
+              <button type="button" onClick={saveDescription} disabled={pending} className="btn-primary px-4 py-1.5 text-sm">Salvar</button>
+              <button type="button" onClick={() => { setEditingDescription(false); setDescription(p.description ?? '') }} disabled={pending} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {p.description ? <RichTextView html={p.description} /> : <span className="text-sm text-gray-400 italic">Sem notas ainda.</span>}
+            <button type="button" onClick={() => setEditingDescription(true)} className="btn-ghost text-xs mt-1.5">
+              <Pencil className="w-3.5 h-3.5" /> Editar
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-2.5 pt-2.5 border-t border-black/5">
+        <StageFileUpload solicitationId={solicitationId} stage="projeto" />
       </div>
     </Card>
   )
@@ -553,6 +752,10 @@ function ShipmentCard({ shipment: s }: { shipment: any }) {
             <ExternalLink className="w-3.5 h-3.5" /> Pasta de separação
           </a>
         )}
+      </div>
+
+      <div className="mt-2.5 pt-2.5 border-t border-surface-border">
+        <StageFileUpload solicitationId={s.solicitation_id} stage="expedicao" />
       </div>
     </Card>
   )
