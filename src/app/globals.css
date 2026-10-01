@@ -110,3 +110,21 @@
   filter: blur(7px);
   user-select: none;
 }
+
+/* Editor de texto rico do Projeto (RichTextEditor/RichTextView, aba Projeto
+   da Solicitação) — checklist clicável com risco no texto quando marcado,
+   placeholder do contentEditable vazio, e listas com indentação normal. */
+.rich-text-editable:empty:before,
+.rich-text-view:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.rich-text-editable ul,
+.rich-text-view ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.rt-checked {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
