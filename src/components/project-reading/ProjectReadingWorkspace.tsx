@@ -2863,7 +2863,12 @@ function FonteSugeridaLine({ minimaW, measurementId, voltage = '12V', powerSuppl
   const sugestao = sugerirFonte(minimaW)
   const existente = powerSupplies.find(p => p.measurement_id === measurementId)
   const [picking, setPicking] = useState(false)
-  const [escolha, setEscolha] = useState(sugestao ?? CATALOGO_FONTES_12V[0])
+  // Só guarda o que o usuário escolheu na mão. Antes o valor inicial era
+  // congelado na primeira renderização (com o W/m ainda mudando), então o
+  // seletor ficava preso numa potência antiga (ex: 60W com sugestão de 18W).
+  const [escolhaManual, setEscolhaManual] = useState<number | null>(null)
+  useEffect(() => { setEscolhaManual(null) }, [minimaW])
+  const escolha = escolhaManual != null && escolhaManual >= minimaW ? escolhaManual : (sugestao ?? CATALOGO_FONTES_12V[0])
 
   if (existente) {
     return (
@@ -2885,7 +2890,7 @@ function FonteSugeridaLine({ minimaW, measurementId, voltage = '12V', powerSuppl
       )}
       {picking && (
         <div className="flex items-center gap-1.5 bg-sky-50 rounded-md p-1.5 mt-1 flex-wrap">
-          <select value={escolha} onChange={e => setEscolha(Number(e.target.value))} className="text-xs border border-surface-border rounded px-1 py-0.5">
+          <select value={escolha} onChange={e => setEscolhaManual(Number(e.target.value))} className="text-xs border border-surface-border rounded px-1 py-0.5">
             {CATALOGO_FONTES_12V.filter(w => w >= minimaW).map(w => <option key={w} value={w}>{w}W</option>)}
           </select>
           <button onClick={() => { onStartPlacement(measurementId, escolha); setPicking(false) }}
