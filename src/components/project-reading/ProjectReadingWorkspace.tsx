@@ -1091,8 +1091,21 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       }
     }
     setBusy(false)
+    const anchor = pendingVerticalAnchor
     setPendingVerticalMeasure(null)
     setPendingVerticalAnchor(null)
+    // Volta pra Selecionar e já abre o card da medição criada, pra
+    // preencher modelo/W/m etc. — se ficasse na ferramenta vertical, o
+    // próximo clique em cima dela criaria outra medição em vez de abrir
+    // o card (parecia "não clicável"). O efeito de troca de ferramenta
+    // limpa a seleção, então ela é aplicada logo depois.
+    if (res?.data && anchor) {
+      setTool('select')
+      setTimeout(() => {
+        setSelection({ kind: 'measurement', id: res.data.id })
+        setPopoverAnchor(anchor)
+      }, 60)
+    }
   }
 
   // "Mover" é um pan da visualização (arrasta a planta pra qualquer lado),
@@ -1334,7 +1347,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // trecho medido — a cor é sempre a mesma pra composição idêntica
   // (mesmo perfil + mesma fita, ou mesma fita sozinha) e muda assim que
   // qualquer um dos dois produtos muda.
-  function renderComposicaoRibbon(points: Point[], color: string, key: string, halfWidthPx = 6) {
+  function renderComposicaoRibbon(points: Point[], color: string, key: string, onClick?: (e: React.MouseEvent) => void, halfWidthPx = 6) {
     const screenPts = points.map(toScreen)
     if (screenPts.length < 2) return null
     const left: [number, number][] = []
@@ -1363,6 +1376,14 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         <polyline points={rightPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
         <polyline points={leftPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         <polyline points={rightPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {/* Área de clique larga sobre o trecho todo — o único alvo antes era
+            a linha de cota deslocada, difícil de acertar em trechos curtos
+            (ex: medida vertical). */}
+        {onClick && (
+          <polyline points={screenPts.map(p => p.join(',')).join(' ')} fill="none" stroke="transparent" strokeWidth={halfWidthPx * 2 + 12}
+            strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer' }}
+            onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); onClick(e) }} />
+        )}
       </g>
     )
   }
@@ -1610,7 +1631,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   }
                   return (
                     <g key={m.id}>
-                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`)}
+                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`, (e: React.MouseEvent) => selectShape('measurement', m.id, e))}
                       {renderCota(m.points, color, m.id, scale, {
                         selected,
                         onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
