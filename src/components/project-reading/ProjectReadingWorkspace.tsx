@@ -11,7 +11,7 @@ import {
   createPowerSupply, updatePowerSupply, deletePowerSupply,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, closestPointOnPolyline, type Point } from '@/lib/project-reading/geometry'
-import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario } from '@/lib/project-reading/calculations'
+import { calcularFita, calcularPlanoDeCorte, planejarCortes, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario, type EmendaInfo, type PlanoOtimizado } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, ChevronDown, MousePointer2, Shapes, Ruler,
@@ -115,13 +115,35 @@ type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: Ret
 // Um grupo de trechos que compartilham modelo+tamanho/embalagem comercial —
 // não dá pra misturar barra de perfil de 2m com 3m (nem fita 12V com 24V)
 // num mesmo plano de corte, então cada combinação vira seu próprio grupo.
+// Alternativa de compra usando barras de 2m E 3m juntas — só vira o plano
+// ativo se a pessoa confirmar que tem os dois tamanhos em estoque.
+interface AlternativaBarra {
+  plano: PlanoOtimizado
+  economiaM: number
+  descPadrao: string
+  descMisto: string
+}
 interface GrupoPlano {
   key: string
   groupLabel: string
+  produtoBase: string // sem o tamanho da barra (o tamanho vem da peça)
   trechos: Measurement[]
   comercialM: number | null // null = vendido no metro, sem plano de corte
   plano: PlanoResult
   emendaWarnings: string[] // trechos maiores que a peça comercial, quebrados em partes
+  emendas: EmendaInfo[]
+  alternativa: AlternativaBarra | null
+  decisao: 'mixed' | 'padrao' | null
+}
+// "2× 3m + 1× 2m"
+function resumoBarras(plano: PlanoOtimizado, unidade = ''): string {
+  const por = new Map<number, number>()
+  for (const p of plano.pecas) por.set(p.comprimentoM ?? plano.comprimentoComercialM, (por.get(p.comprimentoM ?? plano.comprimentoComercialM) ?? 0) + 1)
+  return Array.from(por.entries()).sort((a, b) => b[0] - a[0]).map(([m, n]) => `${n}× ${m}m${unidade}`).join(' + ')
+}
+// Nome do produto de UMA peça — no perfil o tamanho da barra faz parte do nome.
+function labelPeca(g: GrupoPlano, tamanhoM?: number): string {
+  return g.comercialM != null && g.produtoBase !== g.groupLabel ? `${g.produtoBase} · barra ${tamanhoM ?? g.comercialM}m` : g.groupLabel
 }
 type PieceBadge = { label: string; color: string; siblings: string[] }
 
@@ -153,6 +175,21 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // exportação (aguardar o zoom temporário terminar de desenhar).
   const renderVersionRef = useRef(0)
   const zoomingRef = useRef(false)
+  // Decisão de estoque por grupo de perfil (usar 2m+3m ou só o tamanho
+  // escolhido). Guardada no navegador, por planta — não é dado do projeto.
+  const barDecisionsKey = `plan-bar-decisions-${plan.id}`
+  const [barDecisions, setBarDecisions] = useState<Record<string, string>>({})
+  useEffect(() => {
+    try { const raw = localStorage.getItem(barDecisionsKey); if (raw) setBarDecisions(JSON.parse(raw)) } catch {}
+  }, [barDecisionsKey])
+  function decideBarras(groupKey: string, decisao: 'mixed' | 'padrao' | null) {
+    setBarDecisions(prev => {
+      const next = { ...prev }
+      if (decisao) next[groupKey] = decisao; else delete next[groupKey]
+      try { localStorage.setItem(barDecisionsKey, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
   const [legendItems, setLegendItems] = useState<LegendItem[]>(initLegend)
@@ -552,50 +589,56 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     return Array.from(groups.entries()).map(([key, trechos]) => {
       const first = trechos[0]
       let groupLabel: string
+      let produtoBase: string
       let comercialM: number | null
       if (kind === 'perfil') {
         const bar = first.bar_size ?? 3
-        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'} · barra ${bar}m`
+        produtoBase = `${first.product_model || 'Sem modelo'} · ${first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'}`
+        groupLabel = `${produtoBase} · barra ${bar}m`
         comercialM = bar
       } else {
         const isMetro = first.packaging === 'metro'
         groupLabel = `${first.product_model || 'Sem modelo'} · ${first.voltage || '12V'}${first.color_temp_k ? ` · ${first.color_temp_k}K` : ''} · ${isMetro ? 'vendida no metro' : 'rolo de 5m'}`
+        produtoBase = groupLabel
         comercialM = isMetro ? null : 5
       }
       let plano: PlanoResult = null
-      const emendaWarnings: string[] = []
+      let emendas: EmendaInfo[] = []
+      let alternativa: AlternativaBarra | null = null
+      const decisao = (barDecisions[key] as 'mixed' | 'padrao' | undefined) ?? null
       if (comercialM != null) {
         // Perfil largo pode levar mais de uma tira de fita lado a lado
         // (strand_count) — cada tira consome seu próprio pedaço de rolo.
-        // Um trecho medido MAIOR que a peça comercial (ex: 4.52m medidos de
-        // uma vez, mas só tem barra de 3m) antes travava o plano de corte
-        // inteiro do grupo com erro — e como o erro não aparecia em lugar
-        // nenhum fora da aba Medições, o produto simplesmente sumia do
-        // quantitativo sem explicação. Agora esse trecho é quebrado
-        // automaticamente em pedaços do tamanho comercial (indicando que
-        // precisa de emenda), e o plano sempre é gerado.
         const list: TrechoNecessario[] = trechos.flatMap(t => {
           const strands = kind === 'fita' ? (t.strand_count ?? 1) : 1
-          const parts: TrechoNecessario[] = []
-          for (let i = 0; i < strands; i++) {
-            const baseId = strands > 1 ? `${t.id}#${i + 1}` : t.id
-            const ambiente = envNameFor(t.environment_id)
-            if (t.length_m > comercialM!) {
-              const n = Math.ceil(t.length_m / comercialM!)
-              emendaWarnings.push(`${t.label || MEASURE_LABEL[t.kind]} (${round2(t.length_m)}m, ${ambiente}) precisa de emenda: ${n} ${kind === 'perfil' ? 'barras' : 'rolos'} de ${comercialM}m.`)
-              for (let p = 0; p < n; p++) {
-                const restante = round2(t.length_m - comercialM! * p)
-                parts.push({ id: p === 0 ? baseId : `${baseId}~emenda${p}`, comprimentoM: Math.min(comercialM!, restante), ambiente })
-              }
-            } else {
-              parts.push({ id: baseId, comprimentoM: t.length_m, ambiente })
-            }
-          }
-          return parts
+          return Array.from({ length: strands }, (_, i) => ({
+            id: strands > 1 ? `${t.id}#${i + 1}` : t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id),
+          }))
         })
-        plano = { kind: 'ok', plano: calcularPlanoDeCorte(list, comercialM) }
+        // Trecho maior que a barra vira emenda, e a sobra da emenda entra no
+        // encaixe com os outros trechos (ver planejarCortes).
+        const padrao = planejarCortes(list, [comercialM])
+        let ativo = padrao
+        // Perfil de 2m/3m: se usar os dois tamanhos compra menos material,
+        // oferece como alternativa — quem confirma é a pessoa (estoque).
+        if (kind === 'perfil' && (comercialM === 2 || comercialM === 3)) {
+          const misto = planejarCortes(list, [2, 3])
+          if (misto.totalComercialM < padrao.totalComercialM - 1e-9) {
+            alternativa = {
+              plano: misto, economiaM: round2(padrao.totalComercialM - misto.totalComercialM),
+              descPadrao: resumoBarras(padrao), descMisto: resumoBarras(misto),
+            }
+            if (decisao === 'mixed') ativo = misto
+          }
+        }
+        plano = { kind: 'ok', plano: ativo }
+        emendas = ativo.emendas
       }
-      return { key, groupLabel, trechos, comercialM, plano, emendaWarnings }
+      const emendaWarnings = emendas.map(e => {
+        const m = trechos.find(t => t.id === baseMeasurementId(e.id))
+        return `${m?.label || MEASURE_LABEL[kind]} (${e.comprimentoTotalM}m, ${e.ambiente ?? 'Sem ambiente'}): emenda ${e.partesM.map(x => `${x}m`).join(' + ')}`
+      })
+      return { key, groupLabel, produtoBase, trechos, comercialM, plano, emendaWarnings, emendas, alternativa, decisao }
     })
   }
 
@@ -603,10 +646,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const fitasList = measurements.filter(m => m.kind === 'fita')
   const perfilGroups = useMemo(() => groupAndPlan(perfisList, 'perfil'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [measurements, environments])
+    [measurements, environments, barDecisions])
   const fitaGroups = useMemo(() => groupAndPlan(fitasList, 'fita'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [measurements, environments])
+    [measurements, environments, barDecisions])
 
   // Perfil compra em "peça" (barra), fita compra em "rolo" — nomes
   // diferentes mesmo sendo o mesmo mecanismo de plano de corte por baixo.
@@ -1879,7 +1922,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             )}
             {tab === 'resultado' && (
               <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies}
-                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} />
+                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} onDecideBarras={decideBarras} />
             )}
           </div>
         )}
@@ -3028,7 +3071,7 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
           <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-surface-border flex items-start gap-1.5 text-[11px]">
             <span className="shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: PIECE_COLORS[(p.pecaIndex - 1) % PIECE_COLORS.length] }} />
             <span className="text-gray-600">
-              <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}</span>{' '}
+              <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}{p.comprimentoM ? ` (${p.comprimentoM}m)` : ''}</span>{' '}
               {p.cortes.map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`).join(' + ')}
               <span className="text-gray-400"> → sobra {p.sobraM}m</span>
             </span>
@@ -3043,7 +3086,13 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // Uma linha do quantitativo — um produto com sua unidade e quantidade,
 // pronto pra digitar no Master Lojista sem precisar recalcular nada.
-interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean; subgrupo?: string | null; copyText?: string }
+interface BomNota { tipo: 'divide' | 'usa' | 'emenda' | 'liga'; texto: string; copyText?: string }
+interface BomLine {
+  produto: string; unidade: string; quantidade: string
+  subgrupo?: string | null
+  secao: 'luminaria' | 'perfil' | 'fita' | 'fonte'
+  notas?: BomNota[]
+}
 
 // Ids sintéticos ganham sufixo (tira #N, emenda ~emendaN) — pra achar de
 // volta a medição original (e seu ponto de instalação) a partir do id de
@@ -3069,128 +3118,205 @@ function CopyButton({ text, compact }: { text: string; compact?: boolean }) {
   )
 }
 
-// A partir do plano de corte GLOBAL (que já faz bin-packing entre ambientes),
-// monta as linhas de compra por ambiente e detecta peças compartilhadas —
-// quando uma barra/rolo atende mais de um ambiente, só o "dono" (primeiro
-// corte da peça) deve comprar; o outro ambiente reaproveita a sobra.
+// A partir do plano de corte GLOBAL (que já encaixa as sobras entre
+// ambientes), monta as linhas de compra de UM ambiente. Cada barra/rolo é
+// "comprada" por um único ambiente (o do primeiro corte); os outros que
+// aproveitam a sobra dela aparecem com quantidade 0 e a explicação, pra não
+// comprar a mais no Master Lojista.
 function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: string, envName: string): { lines: BomLine[] } {
-  const lines: BomLine[] = []
+  const secao: BomLine['secao'] = noun === 'barra' ? 'perfil' : 'fita'
+  const lines: (BomLine & { zero?: boolean; shared?: boolean })[] = []
   for (const g of groups) {
     if (g.comercialM == null) {
       // Vendida no metro — cortada exata, não há sobra pra reaproveitar.
       const trechos = g.trechos.filter(t => t.environment_id === envId)
-      if (trechos.length === 0) continue
       const bySub = new Map<string, number>()
       for (const t of trechos) {
         const sub = t.installation_location || ''
         bySub.set(sub, round2((bySub.get(sub) ?? 0) + t.length_m * (t.strand_count ?? 1)))
       }
       for (const [sub, totalM] of Array.from(bySub.entries())) {
-        lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM), subgrupo: sub || null })
+        lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM), subgrupo: sub || null, secao })
       }
       continue
     }
     if (g.plano?.kind !== 'ok') continue
     for (const peca of g.plano.plano.pecas) {
-      const ambientesDaPeca = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
+      const ambientes = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
+      if (!ambientes.includes(envName)) continue
       const dono = peca.cortes[0]?.ambiente ?? 'Sem ambiente'
-      if (!ambientesDaPeca.includes(envName)) continue
-      const corteDesteAmbiente = peca.cortes.find(c => c.ambiente === envName)
-      const origem = corteDesteAmbiente ? g.trechos.find(t => t.id === baseMeasurementId(corteDesteAmbiente.id)) : undefined
-      const subgrupo = origem?.installation_location || null
-      if (ambientesDaPeca.length === 1) {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', subgrupo })
+      const meusCortes = peca.cortes.filter(c => c.ambiente === envName)
+      const origem = g.trechos.find(t => t.id === baseMeasurementId(meusCortes[0].id))
+      const produto = labelPeca(g, peca.comprimentoM)
+      const notas: BomNota[] = []
+      for (const c of meusCortes) {
+        const e = g.emendas.find(x => baseMeasurementId(x.id) === baseMeasurementId(c.id))
+        if (e) {
+          const t = g.trechos.find(x => x.id === baseMeasurementId(e.id))
+          const txt = `emenda: ${t?.label ? t.label + ' ' : ''}${e.comprimentoTotalM}m = ${e.partesM.map(x => `${x}m`).join(' + ')}`
+          if (!notas.some(n => n.texto === txt)) notas.push({ tipo: 'emenda', texto: txt })
+        }
+      }
+      const base = { produto, unidade: noun, secao, subgrupo: origem?.installation_location || null }
+      if (ambientes.length === 1) {
+        lines.push({ ...base, quantidade: '1', notas })
       } else if (envName === dono) {
-        const outros = ambientesDaPeca.filter(a => a !== envName)
-        const detalheCortes = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
-        lines.push({
-          produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true, subgrupo,
-          detalhe: `compartilhada com ${outros.join(', ')}`,
-          copyText: `Reaproveitamento: 1 ${noun} de ${g.groupLabel} atende ${ambientesDaPeca.join(' e ')} (${detalheCortes}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
+        const outros = ambientes.filter(a => a !== envName)
+        const detalhe = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
+        notas.unshift({
+          tipo: 'divide', texto: `1 ${noun} atende também ${outros.join(', ')}`,
+          copyText: `Reaproveitamento: 1 ${noun} de ${produto} atende ${ambientes.join(' e ')} (${detalhe}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
         })
+        lines.push({ ...base, quantidade: '1', notas, shared: true })
       } else {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '0', compartilhada: true, subgrupo,
-          detalhe: `reaproveita sobra de ${dono} — não comprar` })
+        notas.unshift({ tipo: 'usa', texto: `usa a sobra da ${noun} de ${dono} — não comprar` })
+        lines.push({ ...base, quantidade: '0', notas, zero: true, shared: true })
       }
     }
   }
-  // Agrupa linhas iguais (mesmo produto, mesmo subgrupo, não-compartilhadas) somando quantidade.
-  const merged = new Map<string, BomLine>()
+  // Soma barras/rolos idênticos e sem observação de compartilhamento.
+  const merged = new Map<string, BomLine & { shared?: boolean }>()
   for (const l of lines) {
-    const key = `${l.produto}__${l.subgrupo ?? ''}__${l.compartilhada ? 'shared' : 'plain'}__${l.detalhe ?? ''}`
-    if (l.compartilhada) { merged.set(key + Math.random(), l); continue } // compartilhadas ficam cada uma na sua linha
-    const existing = merged.get(key)
-    if (existing) existing.quantidade = String(Number(existing.quantidade) + Number(l.quantidade))
+    const key = `${l.produto}__${l.subgrupo ?? ''}__${(l.notas ?? []).map(n => n.texto).join('|')}`
+    if (l.shared) { merged.set(key + Math.random(), l); continue }
+    const ex = merged.get(key)
+    if (ex) ex.quantidade = String(round2(Number(ex.quantidade) + Number(l.quantidade)))
     else merged.set(key, { ...l })
   }
   return { lines: Array.from(merged.values()) }
 }
 
-function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment }: {
+const fmtM = (n: number) => String(round2(n)).replace('.', ',')
+
+function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment, onDecideBarras }: {
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]; measurements: Measurement[]
   powerSupplies: PowerSupply[]; perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
   onFocusEnvironment: (env: Environment) => void
+  onDecideBarras: (groupKey: string, decisao: 'mixed' | 'padrao' | null) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
-  const totalPerfilM = round2(perfis.reduce((s, m) => s + m.length_m, 0))
-  const totalFitaM = round2(fitas.reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0))
-  const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m * (m.strand_count ?? 1), m.power_w_per_m ?? 0).fonteMinimaW, 0))
-  const semAmbiente = symbols.filter(s => !s.environment_id).length
 
-  // Fonte entra no mesmo ponto de instalação da fita que ela alimenta (é
-  // uma composição perfil+fita+fonte) — e quando duas fontes iguais caem
-  // no mesmo ponto (duas fitas separadas que precisam de fonte própria),
-  // sinaliza pra qual fita cada uma liga, pra não ter dúvida na instalação.
-  function fonteBomFor(envId: string | null): BomLine[] {
-    const envFitaIds = new Set(measurements.filter(m => m.environment_id === envId && m.kind === 'fita').map(m => m.id))
-    const envFontes = powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))
+  // Fonte entra no mesmo ponto de instalação da fita que ela alimenta; se
+  // duas fontes iguais caem no mesmo ponto, diz pra qual fita cada uma liga.
+  function fonteBomFor(envId: string): BomLine[] {
+    const envFitaIds = new Set(fitas.filter(m => m.environment_id === envId).map(m => m.id))
     const byGroup = new Map<string, { watts: number; voltage: string; subgrupo: string | null; fitas: string[] }>()
-    for (const f of envFontes) {
+    for (const f of powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))) {
       const fita = measurements.find(m => m.id === f.measurement_id)
-      const subgrupo = fita?.installation_location || null
       const voltage = fita?.voltage || '12V'
+      const subgrupo = fita?.installation_location || null
       const key = `${f.watts}__${voltage}__${subgrupo ?? ''}`
       if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, voltage, subgrupo, fitas: [] })
       byGroup.get(key)!.fitas.push(fita?.label || 'fita')
     }
     return Array.from(byGroup.values()).sort((a, b) => a.watts - b.watts).map(g => ({
-      produto: `Fonte ${g.voltage} ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo,
-      detalhe: g.fitas.length > 1 ? `liga: ${g.fitas.join(', ')}` : undefined,
+      produto: `Fonte ${g.voltage} ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo, secao: 'fonte' as const,
+      notas: g.fitas.length > 1 ? [{ tipo: 'liga' as const, texto: `liga: ${g.fitas.join(', ')}` }] : [],
     }))
+  }
+
+  // ── Pendências: o que precisa de uma decisão/dado ANTES de lançar ────────
+  const decisoesEstoque = perfilGroups.filter(g => g.alternativa)
+  const pendentes = decisoesEstoque.filter(g => !g.decisao)
+  const resolvidas = decisoesEstoque.filter(g => g.decisao)
+  const fitasSemW = fitas.filter(f => !f.power_w_per_m)
+  const fitasSemFonte = fitas.filter(f => f.power_w_per_m && !powerSupplies.some(ps => ps.measurement_id === f.id))
+  const semModelo = [...perfis, ...fitas].filter(m => !m.product_model)
+  const medicoesSemAmbiente = [...perfis, ...fitas].filter(m => !m.environment_id)
+  const simbolosSemAmbiente = symbols.filter(s => !s.environment_id)
+  const simbolosSemLegenda = symbols.filter(s => !s.legend_item_id)
+  const avisos: string[] = []
+  if (fitasSemW.length) avisos.push(`${fitasSemW.length} fita(s) sem consumo (W/m) — a fonte não é calculada`)
+  if (fitasSemFonte.length) avisos.push(`${fitasSemFonte.length} fita(s) sem fonte posicionada — as fontes dessas não entram no resumo`)
+  if (semModelo.length) avisos.push(`${semModelo.length} perfil/fita sem modelo — aparece como "Sem modelo"`)
+  if (medicoesSemAmbiente.length) avisos.push(`${medicoesSemAmbiente.length} perfil/fita sem ambiente — não entra em nenhum ambiente abaixo`)
+  if (simbolosSemAmbiente.length) avisos.push(`${simbolosSemAmbiente.length} símbolo(s) fora de qualquer ambiente — não entra(m) no resumo`)
+  if (simbolosSemLegenda.length) avisos.push(`${simbolosSemLegenda.length} símbolo(s) sem item de legenda`)
+  const tudoCerto = pendentes.length === 0 && avisos.length === 0
+
+  const totalLum = symbols.filter(s => s.environment_id).length
+
+  const NOTA_COR: Record<BomNota['tipo'], string> = {
+    divide: 'text-amber-700', usa: 'text-amber-700', emenda: 'text-gray-500', liga: 'text-gray-500',
+  }
+  const NOTA_ICONE: Record<BomNota['tipo'], string> = { divide: '↔', usa: '↔', emenda: '✂', liga: '⚡' }
+  const ORDEM: Record<BomLine['secao'], number> = { luminaria: 0, perfil: 1, fita: 2, fonte: 3 }
+
+  function LinhaItem({ l }: { l: BomLine }) {
+    const zero = l.quantidade === '0'
+    return (
+      <div className="flex items-start justify-between gap-3 py-1.5 border-t border-gray-100 first:border-t-0">
+        <div className="min-w-0">
+          <p className={cn('text-[13px] leading-snug', zero ? 'text-gray-400' : 'text-gray-800')}>{l.produto}</p>
+          {(l.notas ?? []).map((n, i) => (
+            <p key={i} className={cn('text-[11px] leading-snug mt-0.5 flex items-center gap-1.5 flex-wrap', NOTA_COR[n.tipo])}>
+              <span>{NOTA_ICONE[n.tipo]} {n.texto}</span>
+              {n.copyText && <CopyButton text={n.copyText} compact />}
+            </p>
+          ))}
+        </div>
+        <p className={cn('text-sm font-bold tabular-nums whitespace-nowrap', zero ? 'text-gray-300' : 'text-gray-900')}>
+          {zero ? '—' : l.quantidade} <span className="text-[11px] font-medium text-gray-400">{zero ? '' : l.unidade}</span>
+        </p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
-        <StatBox label="Ambientes" value={environments.length} />
-        <StatBox label="Pontos de luz" value={symbols.length} />
-        <StatBox label="Metros de perfil" value={`${totalPerfilM}m`} />
-        <StatBox label="Metros de fita" value={`${totalFitaM}m`} />
-        <StatBox label="Fonte mínima total" value={`${Math.ceil(totalFonteW)}W`} />
-        <StatBox label="Sem ambiente" value={semAmbiente} warn={semAmbiente > 0} />
+      <div>
+        <p className="text-sm font-bold text-gray-900">Resumo pra lançar no Master Lojista</p>
+        <p className="text-[11px] text-gray-500 mt-0.5">
+          {environments.length} ambientes · {totalLum} luminárias · {fmtM(perfis.reduce((s, m) => s + m.length_m, 0))} m de perfil · {fmtM(fitas.reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0))} m de fita
+        </p>
       </div>
 
-      <p className="text-[11px] text-gray-400 bg-surface-secondary rounded-lg px-2.5 py-2">
-        💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Quando uma barra/rolo é
-        compartilhado entre ambientes (sobra reaproveitada), aparece um aviso com botão de copiar.
-      </p>
+      {/* Antes de lançar */}
+      <div className={cn('rounded-xl border p-3 space-y-2.5', tudoCerto ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50/60 border-amber-200')}>
+        <p className={cn('text-xs font-bold uppercase tracking-wide', tudoCerto ? 'text-emerald-700' : 'text-amber-700')}>
+          {tudoCerto ? '✓ Nada pendente — pode lançar' : 'Antes de lançar'}
+        </p>
 
-      {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).length > 0 && (
-        <div className="space-y-1">
-          {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).map((w, i) => (
-            <p key={i} className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">⚠️ {w}</p>
-          ))}
-        </div>
-      )}
+        {pendentes.map(g => (
+          <div key={g.key} className="bg-white rounded-lg border border-amber-200 p-2.5 space-y-2">
+            <p className="text-[13px] font-semibold text-gray-800 leading-snug">{g.produtoBase}</p>
+            <p className="text-xs text-gray-600 leading-snug">
+              Hoje o plano compra <b>{g.alternativa!.descPadrao}</b>. Com barras de 2m e 3m dá pra comprar{' '}
+              <b>{g.alternativa!.descMisto}</b> e economizar {fmtM(g.alternativa!.economiaM)} m. Tem os dois tamanhos em estoque?
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => onDecideBarras(g.key, 'mixed')}
+                className="text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg px-3 py-1.5">Sim, usar {g.alternativa!.descMisto}</button>
+              <button onClick={() => onDecideBarras(g.key, 'padrao')}
+                className="text-xs font-semibold text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg px-3 py-1.5">Não, só {g.alternativa!.descPadrao}</button>
+            </div>
+          </div>
+        ))}
 
+        {avisos.length > 0 && (
+          <ul className="space-y-1">
+            {avisos.map((a, i) => <li key={i} className="text-xs text-amber-800 leading-snug">• {a}</li>)}
+          </ul>
+        )}
+
+        {resolvidas.length > 0 && (
+          <div className="pt-1 border-t border-amber-200/70 space-y-0.5">
+            {resolvidas.map(g => (
+              <p key={g.key} className="text-[11px] text-gray-500">
+                ✓ {g.produtoBase}: {g.decisao === 'mixed' ? g.alternativa!.descMisto : g.alternativa!.descPadrao}{' '}
+                <button onClick={() => onDecideBarras(g.key, null)} className="underline hover:text-gray-700">alterar</button>
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Por ambiente */}
       <div className="space-y-3">
         {environments.map(env => {
           const envSymbols = symbols.filter(s => s.environment_id === env.id)
           const byName = new Map<string, number>()
-          // Lâmpadas contam separado do corpo da luminária — um spot duplo
-          // é 1 peça de corpo, mas 2 lâmpadas, e no Master Lojista isso é
-          // comprado como itens distintos.
           const byLamp = new Map<string, number>()
           for (const s of envSymbols) {
             const li = legendItems.find(x => x.id === s.legend_item_id)
@@ -3203,63 +3329,57 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
             }
           }
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
-          const perfilBom = bomFromGroups(perfilGroups, 'barra', env.id, env.name)
-          const fitaBom = bomFromGroups(fitaGroups, 'rolo', env.id, env.name)
-          // Símbolos e fontes não têm ponto de instalação — ficam no
-          // subgrupo "Geral" junto com qualquer perfil/fita sem local
-          // definido. Os demais viram sub-blocos tipo "Sanca", "Marcenaria"
-          // — igual à convenção "Ambiente - Subgrupo" do Master Lojista,
-          // sem repetir o nome do ambiente (que já é o título do card).
-          const allLines: BomLine[] = [
-            ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n) })),
-            ...Array.from(byLamp.entries()).map(([nome, n]) => ({ produto: `💡 ${nome}`, unidade: 'un', quantidade: String(n) })),
-            ...perfilBom.lines,
-            ...fitaBom.lines,
+          const luminarias: BomLine[] = [
+            ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n), secao: 'luminaria' as const })),
+            ...Array.from(byLamp.entries()).map(([nome, n]) => ({ produto: `💡 ${nome}`, unidade: 'un', quantidade: String(n), secao: 'luminaria' as const })),
+          ]
+          const instal: BomLine[] = [
+            ...bomFromGroups(perfilGroups, 'barra', env.id, env.name).lines,
+            ...bomFromGroups(fitaGroups, 'rolo', env.id, env.name).lines,
             ...fonteBomFor(env.id),
           ]
-          const bySubgrupo = new Map<string, BomLine[]>()
-          for (const l of allLines) {
-            const key = l.subgrupo || 'Geral'
-            if (!bySubgrupo.has(key)) bySubgrupo.set(key, [])
-            bySubgrupo.get(key)!.push(l)
+          const bySub = new Map<string, BomLine[]>()
+          for (const l of instal) {
+            const key = l.subgrupo || ''
+            if (!bySub.has(key)) bySub.set(key, [])
+            bySub.get(key)!.push(l)
           }
-          const subgrupos = Array.from(bySubgrupo.keys()).sort((a, b) => a === 'Geral' ? 1 : b === 'Geral' ? -1 : a.localeCompare(b))
+          const subs = Array.from(bySub.keys()).sort((a, b) => a === '' ? 1 : b === '' ? -1 : a.localeCompare(b))
+          const envPerfilM = perfis.filter(m => m.environment_id === env.id).reduce((s, m) => s + m.length_m, 0)
+          const envFitaM = fitas.filter(m => m.environment_id === env.id).reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0)
+          const chips = [
+            envSymbols.length ? `${envSymbols.length} luminária(s)` : null,
+            envPerfilM ? `${fmtM(envPerfilM)} m perfil` : null,
+            envFitaM ? `${fmtM(envFitaM)} m fita` : null,
+          ].filter(Boolean).join(' · ')
+          const vazio = luminarias.length === 0 && instal.length === 0 && envMedidas.length === 0
           return (
-            <div key={env.id} className="border border-surface-border rounded-xl p-3 space-y-2">
-              <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
-                className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
-              {subgrupos.map(sub => (
-                <div key={sub}>
-                  {sub !== 'Geral' && <p className="text-[11px] font-bold text-gray-500 mt-1">{sub}</p>}
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {bySubgrupo.get(sub)!.map((l, i) => (
-                        // A nota de reaproveitamento fica colada embaixo do
-                        // próprio produto (não num aviso solto lá em cima,
-                        // longe do item a que se refere) — curta, só o
-                        // essencial, com o texto completo a um clique via
-                        // "Copiar" pra colar no Master Lojista.
-                        <tr key={i} className={cn('border-t border-surface-border', l.compartilhada && 'bg-amber-50/40')}>
-                          <td className="py-1 text-gray-700 align-top">
-                            <div>{l.produto}</div>
-                            {l.detalhe && (
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] text-amber-700">↔ {l.detalhe}</span>
-                                {l.copyText && <CopyButton text={l.copyText} compact />}
-                              </div>
-                            )}
-                          </td>
-                          <td className={cn('py-1 text-right font-semibold whitespace-nowrap align-top', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade} {l.unidade}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-              {envMedidas.map(m => (
-                <p key={m.id} className="text-xs text-gray-500">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m</p>
-              ))}
-              {allLines.length === 0 && envMedidas.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
+            <div key={env.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+              <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-baseline justify-between gap-2">
+                <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
+                  className="text-sm font-bold text-gray-900 hover:text-brand-600 hover:underline text-left">{env.name}</button>
+                {chips && <span className="text-[11px] text-gray-500 text-right">{chips}</span>}
+              </div>
+              <div className="px-3 py-1 space-y-2">
+                {luminarias.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 pt-1.5">Luminárias</p>
+                    {luminarias.map((l, i) => <LinhaItem key={i} l={l} />)}
+                  </div>
+                )}
+                {subs.map(sub => (
+                  <div key={sub || '__sem__'}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 pt-1.5">
+                      {sub || (subs.length > 1 ? 'Sem ponto de instalação' : 'Perfil / fita')}
+                    </p>
+                    {[...bySub.get(sub)!].sort((a, b) => ORDEM[a.secao] - ORDEM[b.secao]).map((l, i) => <LinhaItem key={i} l={l} />)}
+                  </div>
+                ))}
+                {envMedidas.map(m => (
+                  <p key={m.id} className="text-[11px] text-gray-400 py-1">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m (medida solta, não entra no resumo)</p>
+                ))}
+                {vazio && <p className="text-xs text-gray-400 py-2">Nada registrado ainda.</p>}
+              </div>
             </div>
           )
         })}
