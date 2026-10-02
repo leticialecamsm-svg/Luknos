@@ -1466,7 +1466,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Layers className="w-3.5 h-3.5" /> Reaproveitamento
             </button>
-            <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes (12V) já posicionadas"
+            <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes já posicionadas"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
                 fontesView ? 'bg-amber-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Zap className="w-3.5 h-3.5" /> Fontes
@@ -1674,7 +1674,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   )
                 })}
 
-              {/* Fontes (12V) + cabo pontilhado até a fita — só aparece na
+              {/* Fontes + cabo pontilhado até a fita — só aparece na
                   "Visualizar fontes", pra nunca poluir a visão geral. */}
               {fontesView && powerSupplies.filter(ps => ps.page === pageNum).map(ps => {
                 const feeding = measurements.find(m => m.id === ps.measurement_id)
@@ -2841,7 +2841,7 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
       {preenchido ? (
         <div>
           <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} powerSupplies={powerSupplies}
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} voltage={m.voltage} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {m.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
@@ -2856,8 +2856,8 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
 
 // Linha "Fonte sugerida: 60W (12V)" — catálogo real de estoque (18 a 400W),
 // sempre a próxima potência IGUAL OU ACIMA do mínimo calculado, nunca abaixo.
-function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlacement, onDeleteFonte }: {
-  minimaW: number; measurementId: string; powerSupplies: PowerSupply[]
+function FonteSugeridaLine({ minimaW, measurementId, voltage = '12V', powerSupplies, onStartPlacement, onDeleteFonte }: {
+  minimaW: number; measurementId: string; voltage?: '12V' | '24V' | null; powerSupplies: PowerSupply[]
   onStartPlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const sugestao = sugerirFonte(minimaW)
@@ -2876,7 +2876,7 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
   return (
     <div className="mt-0.5">
       <p className="text-xs font-semibold text-sky-600">
-        {sugestao ? `Fonte sugerida: ${sugestao}W (12V)` : 'Acima do catálogo — divida em mais de uma fonte'}
+        {sugestao ? `Fonte sugerida: ${sugestao}W (${voltage ?? '12V'})` : 'Acima do catálogo — divida em mais de uma fonte'}
       </p>
       {sugestao && !picking && (
         <button onClick={() => setPicking(true)} className="text-[11px] font-medium text-brand-600 hover:underline mt-0.5">
@@ -2993,7 +2993,7 @@ function PerfilFitaCard({
       {preenchido ? (
         <div>
           <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} powerSupplies={powerSupplies}
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} voltage={fita.voltage} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {fita.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
@@ -3140,16 +3140,17 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
   function fonteBomFor(envId: string | null): BomLine[] {
     const envFitaIds = new Set(measurements.filter(m => m.environment_id === envId && m.kind === 'fita').map(m => m.id))
     const envFontes = powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))
-    const byGroup = new Map<string, { watts: number; subgrupo: string | null; fitas: string[] }>()
+    const byGroup = new Map<string, { watts: number; voltage: string; subgrupo: string | null; fitas: string[] }>()
     for (const f of envFontes) {
       const fita = measurements.find(m => m.id === f.measurement_id)
       const subgrupo = fita?.installation_location || null
-      const key = `${f.watts}__${subgrupo ?? ''}`
-      if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, subgrupo, fitas: [] })
+      const voltage = fita?.voltage || '12V'
+      const key = `${f.watts}__${voltage}__${subgrupo ?? ''}`
+      if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, voltage, subgrupo, fitas: [] })
       byGroup.get(key)!.fitas.push(fita?.label || 'fita')
     }
     return Array.from(byGroup.values()).sort((a, b) => a.watts - b.watts).map(g => ({
-      produto: `Fonte 12V ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo,
+      produto: `Fonte ${g.voltage} ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo,
       detalhe: g.fitas.length > 1 ? `liga: ${g.fitas.join(', ')}` : undefined,
     }))
   }
