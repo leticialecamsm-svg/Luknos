@@ -10,6 +10,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { Metric } from './engine'
 import { typeName } from './parse-sheet'
 import { expandTerms, normText } from './synonyms'
+import { matchCatalog, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
+import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -237,6 +239,7 @@ export type SheetItem = {
   id: string; quantidade: number; descricao: string; ncm: string | null; valor_total: number; tipo_icms: string | null
   ipi_percent: number; valor_icms: number; valor_fecoep: number; custo_unitario: number | null; preco_credito: number | null
   imposto_ant_percent: number | null; maquininha: number; comissao: number; lucro: number
+  codigo_produto: string | null; catalog_ref: string | null; photo: ItemPhoto | null
 }
 export type SheetInvoice = { id: string; numero_nota: string | null; data_emissao: string | null; uf_origem: string | null; source: string; on_hold: boolean; items: SheetItem[] }
 
@@ -245,9 +248,11 @@ export async function getSupplierSheet(supplierId: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const { data, error } = await createAdminClient().from('purchase_invoices')
-    .select('id, numero_nota, data_emissao, uf_origem, source, on_hold, maquininha, comissao, lucro, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito, imposto_ant_percent, maquininha, comissao, lucro)')
+    .select('id, numero_nota, data_emissao, uf_origem, source, on_hold, maquininha, comissao, lucro, purchase_invoice_items(id, numero_item, quantidade, descricao, ncm, valor_total, tipo_icms, ipi_percent, valor_icms, valor_fecoep, custo_unitario, preco_credito, imposto_ant_percent, maquininha, comissao, lucro, codigo_produto, catalog_ref)')
     .eq('pricing_supplier_id', supplierId).order('data_emissao', { ascending: false, nullsFirst: false })
   if (error) return { error: error.message }
+  const catalog = await loadCatalog(supplierId)
+  const byRef = new Map(catalog.map(c => [c.ref, c]))
   const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
     id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source, on_hold: !!r.on_hold,
     items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item).map((i: any) => ({
@@ -256,9 +261,51 @@ export async function getSupplierSheet(supplierId: string) {
       custo_unitario: i.custo_unitario == null ? null : Number(i.custo_unitario), preco_credito: i.preco_credito == null ? null : Number(i.preco_credito),
       imposto_ant_percent: i.imposto_ant_percent == null ? null : Number(i.imposto_ant_percent),
       maquininha: Number(i.maquininha ?? r.maquininha), comissao: Number(i.comissao ?? r.comissao), lucro: Number(i.lucro ?? r.lucro),
+      photo: catalog.length ? matchCatalog(i, catalog, byRef) : null,
     })),
   }))
   return { invoices }
+}
+
+// Catálogo com fotos do fornecedor (por enquanto só a Accord, copiada do site dela).
+async function catalogSource(supplierId: string) {
+  const { data } = await createAdminClient().from('pricing_suppliers').select('name').eq('id', supplierId).maybeSingle()
+  return data && normText(data.name).includes('accord') ? 'accord' : null
+}
+
+async function loadCatalog(supplierId: string): Promise<CatalogEntry[]> {
+  const source = await catalogSource(supplierId)
+  if (!source) return []
+  const { data } = await createAdminClient().from('supplier_catalog_products')
+    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes')
+    .eq('source', source).order('name').limit(5000)
+  return (data ?? []).map((c: any) => ({
+    ...c, finishes: c.finishes ?? [],
+    altura_cm: c.altura_cm == null ? null : Number(c.altura_cm), largura_cm: c.largura_cm == null ? null : Number(c.largura_cm),
+    profundidade_cm: c.profundidade_cm == null ? null : Number(c.profundidade_cm), diametro_cm: c.diametro_cm == null ? null : Number(c.diametro_cm),
+  }))
+}
+
+export async function getSupplierCatalog(supplierId: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  return { catalog: await loadCatalog(supplierId) }
+}
+
+// Fixa a foto de um item: ref do catálogo, '-' = sem foto, null = volta ao automático.
+export async function setItemCatalogRef(itemId: string, ref: string | null) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient().from('purchase_invoice_items').update({ catalog_ref: ref }).eq('id', itemId)
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// Relê o site do fornecedor agora (o cron faz isso toda segunda).
+export async function syncSupplierCatalog() {
+  const auth = await guard(true)
+  if ('error' in auth) return { error: auth.error }
+  try { return await syncAccordCatalog() } catch (e) { return { error: (e as Error).message } }
 }
 
 // Salva as alterações feitas no modal de simulação (só admin).
