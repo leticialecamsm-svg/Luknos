@@ -21,6 +21,8 @@ describe('descDims', () => {
     expect(descDims('ARANDELA LEAF 33X9,5X34')).toEqual([33, 9.5, 34])
     expect(descDims('ARANDELA FLEXIVEL CILINDRICA 43CM')).toEqual([43])
     expect(descDims('PENDENTE HORIZON RINGS 30W')).toEqual([])
+    expect(descDims('PENDENTE ANGULAR RD 190X460MM')).toEqual([19, 46])
+    expect(descDims('PENDENTE AGORA D250X157MM')).toEqual([25, 15.7])
   })
 })
 
@@ -73,5 +75,40 @@ describe('matchCatalog — Hevvy (modelo + cor, sem medidas)', () => {
   it('código do XML pode ser EAN ou modelo', () => {
     expect(matchCatalog({ codigo_produto: '7899923400000', descricao: 'X' }, hevvy)?.ref).toBe('1539')
     expect(matchCatalog({ codigo_produto: 'SL-5910L/W2 GD', descricao: 'ARANDELA' }, hevvy)).toMatchObject({ ref: '1091', match: 'codigo' })
+  })
+})
+
+describe('matchCatalog — Skylight, Spotline e Usina', () => {
+  const cat = [
+    entry('SKY-4122M', 'Pendente BOMBYX', 'BOMBYX', { kind: 'pendente', largura_cm: 60, altura_cm: 26, model: 'SKY-4122M', variant: 'BRANCO' }),
+    entry('SKY-4122P', 'Pendente BOMBYX', 'BOMBYX', { kind: 'pendente', largura_cm: 60, altura_cm: 26, model: 'SKY-4122P', variant: 'PRETO' }),
+    { ...entry('SKY-CB02BR', 'CABO TECIDO - BRANCO', null), kind: null },
+    entry('1096/1', 'Pendente Rio', null, { kind: 'pendente', model: '1096/1' }),
+    entry('1500', 'Pendente Hoop', 'Hoop', { kind: 'pendente' }),
+    entry('19750-6LED3', 'Pendente Angular', 'Angular', { kind: 'pendente', diametro_cm: 19, altura_cm: 46, model: '19750-6LED3' }),
+    entry('19760-1LED3', 'Abajur Angular', 'Angular', { kind: 'abajur', diametro_cm: 26, altura_cm: 52, model: '19760-1LED3' }),
+  ]
+
+  it('código do XML igual à ref do catálogo', () => {
+    expect(matchCatalog({ codigo_produto: 'SKY-4122P', descricao: 'PENDENTE BOMBYX 60CM' }, cat)).toMatchObject({ ref: 'SKY-4122P', match: 'codigo' })
+  })
+
+  it('número do modelo no começo da descrição (Spotline)', () => {
+    expect(matchCatalog({ descricao: '1096/1 PENDENTE RIO PRETO 3000 K FCP ST [ BC=760,38 ]' }, cat)).toMatchObject({ ref: '1096/1', match: 'descricao' })
+  })
+
+  it('número solto não é código: "1500 lm" não vira a ref 1500', () => {
+    expect(matchCatalog({ descricao: 'FITA LED 1500 LM' }, cat)).toBeNull()
+  })
+
+  it('palavra rara pesa mais que cor e acessório: Bombyx branco não vira cabo branco; a cor desempata', () => {
+    expect(matchCatalog({ descricao: 'PENDENTE BOMBYX 60CM BRANCO - 2MT DE CABO' }, cat)).toMatchObject({ ref: 'SKY-4122M', match: 'nome' })
+    expect(matchCatalog({ descricao: 'PENDENTE BOMBYX 60CM PRETO' }, cat)?.ref).toBe('SKY-4122P')
+  })
+
+  it('medidas em mm e tipo obrigatório (Usina)', () => {
+    expect(matchCatalog({ descricao: 'PENDENTE ANGULAR RD 190X460MM 1G9 CN-F FCP ST [ BC=398,28 ]' }, cat)?.ref).toBe('19750-6LED3')
+    expect(matchCatalog({ descricao: 'ABAJUR ANGULAR RD 260X520MM 1 G45 CN-F FCP ST' }, cat)?.ref).toBe('19760-1LED3')
+    expect(matchCatalog({ descricao: 'ABAJUR ANGULAR RD 190X460MM' }, cat)).toBeNull()
   })
 })

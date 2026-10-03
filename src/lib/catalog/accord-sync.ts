@@ -4,41 +4,16 @@
 // medidas (/ajax/listar_referencias.php) e a página do produto (fotos por acabamento).
 // A foto principal é copiada para o bucket 'supplier-catalog'; o resto é só URL.
 
-import sharp from 'sharp'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SIZE_TAG, UA, clean, copyImage as copyTo, pool, text, upsertRows } from './sync-utils'
 
 const BASE = 'https://www.accordiluminacao.com'
-const BUCKET = 'supplier-catalog'
-const UA = { 'User-Agent': 'Mozilla/5.0 (Luknos catalog sync)' }
-// As fotos do site chegam a 2 MB: guardamos em JPEG com o lado maior em 640px (~30 KB).
-// A marca vai junto da URL de origem; mudar o tamanho força copiar tudo de novo.
-const MAX_SIDE = 640
-const SIZE_TAG = `#w${MAX_SIDE}`
-
 type Card = { productId: string; href: string; title: string; line: string; thumb: string }
 type Finish = { code: string; name: string; url: string }
-
-async function text(url: string) {
-  const r = await fetch(url, { headers: UA, cache: 'no-store' })
-  if (!r.ok) throw new Error(`${r.status} ${url}`)
-  return r.text()
-}
 
 const cm = (v: unknown) => {
   const n = parseFloat(String(v ?? '').replace(',', '.'))
   return Number.isFinite(n) && n > 0 ? n : null
-}
-
-const clean = (s: string) => s.replace(/\s+/g, ' ').trim()
-
-// Executa fn em todos os itens com no máximo `n` em paralelo.
-async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length)
-  let i = 0
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (i < items.length) { const k = i++; out[k] = await fn(items[k]) }
-  }))
-  return out
 }
 
 function parseCards(html: string, line: string): Card[] {
@@ -65,19 +40,10 @@ function parseFinishes(html: string, productId: string): Finish[] {
 }
 
 async function copyImage(db: ReturnType<typeof createAdminClient>, src: string, productId: string) {
-  const r = await fetch(src, { headers: UA, cache: 'no-store' })
-  if (!r.ok) return null
-  const jpg = await sharp(Buffer.from(await r.arrayBuffer()))
-    .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
-    .flatten({ background: '#ffffff' })
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toBuffer()
-  const path = `accord/${productId}.jpg`
-  const { error } = await db.storage.from(BUCKET).upload(path, jpg, { contentType: 'image/jpeg', upsert: true })
-  if (error) return null
+  const url = await copyTo(db, src, `accord/${productId}.jpg`)
   // Versões antigas (PNG/WEBP em tamanho original) deixam de ser usadas.
-  await db.storage.from(BUCKET).remove([`accord/${productId}.png`, `accord/${productId}.webp`])
-  return `${db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl}?v=${Date.now()}`
+  if (url) await db.storage.from('supplier-catalog').remove([`accord/${productId}.png`, `accord/${productId}.webp`])
+  return url
 }
 
 export async function syncAccordCatalog() {
@@ -127,11 +93,7 @@ export async function syncAccordCatalog() {
     }
   })
 
-  // A mesma ref em dois produtos: fica a última vista (upsert não aceita duplicata no lote).
-  const unique = Array.from(new Map(rows.map(r => [r.ref as string, r])).values())
-  for (let i = 0; i < unique.length; i += 200) {
-    const { error } = await db.from('supplier_catalog_products').upsert(unique.slice(i, i + 200), { onConflict: 'source,ref' })
-    if (error) errors.push(error.message)
-  }
-  return { lines: lines.length, products: cards.size, refs: unique.length, errors }
+  const saved = await upsertRows(db, rows)
+  errors.push(...saved.errors)
+  return { lines: lines.length, products: cards.size, refs: saved.count, errors }
 }

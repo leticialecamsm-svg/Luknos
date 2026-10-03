@@ -8,7 +8,7 @@ import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import { SupplierLogo } from './SupplierLogo'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
 import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
-import { catalogSourceFor, type CatalogEntry } from '@/lib/catalog/match'
+import { catalogSourceFor, AUTO_SYNC_SOURCES, type CatalogEntry } from '@/lib/catalog/match'
 import {
   getSupplierSheet, getSupplierQuotes, getSupplierCatalog,
   type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
@@ -192,7 +192,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
       )}
 
       {picking && (
-        <CatalogPickerModal item={picking} catalog={catalog} canSync={catalogSource === 'accord'} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
+        <CatalogPickerModal item={picking} supplierId={supplierId} catalog={catalog} canSync={!!catalogSource && AUTO_SYNC_SOURCES.includes(catalogSource)} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
           onChanged={u => { replaceItem(u); setPicking(u) }} />
       )}
 

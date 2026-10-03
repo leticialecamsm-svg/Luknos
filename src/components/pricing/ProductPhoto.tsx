@@ -59,8 +59,8 @@ async function shrink(file: File): Promise<Blob> {
 }
 
 // Escolha manual da foto de um item, a partir do catálogo do fornecedor.
-export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged, onCatalogReload }: {
-  item: SheetItem; catalog: CatalogEntry[] | null; canSync?: boolean
+export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose, onChanged, onCatalogReload }: {
+  item: SheetItem; supplierId: string; catalog: CatalogEntry[] | null; canSync?: boolean
   onClose: () => void; onChanged: (i: SheetItem) => void; onCatalogReload: () => Promise<CatalogEntry[]>
 }) {
   const [q, setQ] = useState('')
@@ -113,10 +113,10 @@ export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged,
 
   async function sync() {
     setSyncing('Lendo o site do fornecedor… (leva 1–2 min)'); setErr(null)
-    const r = await syncSupplierCatalog()
+    const r = await syncSupplierCatalog(supplierId)
     if ('error' in r) { setErr(r.error ?? 'Erro'); setSyncing(null); return }
     await onCatalogReload()
-    setSyncing(`${r.refs} referências atualizadas${r.errors.length ? ` · ${r.errors.length} erro(s)` : ''}`)
+    setSyncing(`${r.refs} referências atualizadas${r.partial ? ' (o site é grande: clique de novo para continuar)' : ''}${r.errors.length ? ` · ${r.errors.length} erro(s)` : ''}`)
   }
 
   const current = item.photo

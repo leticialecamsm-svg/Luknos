@@ -1,0 +1,110 @@
+// Sincroniza o catálogo do site da Usina Design (usinadesign.com.br) com
+// supplier_catalog_products. Caminho: listagem de cada linha (cards de família + tipo, com a
+// foto recortada) → página da família, cuja tabela "Códigos da família" traz todos os códigos
+// com dimensão e descrição ("Pendente Aivi"). Cada código vira uma ref; a foto é a do cartão
+// do tipo (pendente, arandela…), copiada reduzida para o bucket 'supplier-catalog'.
+//
+// Se o site for grande demais para uma passada (limite de tempo da função), a rodada para
+// com partial=true e a próxima continua: fotos já copiadas não são baixadas de novo.
+
+import { createAdminClient } from '@/lib/supabase/admin'
+import { SIZE_TAG, clean, copyImage, dimsFrom, pool, text, upsertRows } from './sync-utils'
+
+const BASE = 'https://usinadesign.com.br'
+const LINHAS = ['decorativo', 'externa', 'fitas-e-fontes', 'legou', 'office-slim', 'perfil']
+const BUDGET_MS = 240_000
+
+type Card = { fam: string; tipo: string; img: string; linha: string }
+
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const unescapeHtml = (s: string) => s.replace(/&amp;/g, '&').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+const titleCase = (s: string) => s.replace(/-/g, ' ').replace(/(^|\s)(\S)/g, (_, sp, c) => sp + c.toUpperCase())
+
+function parseCards(html: string, linha: string): Card[] {
+  const out: Card[] = []
+  const re = /href="https:\/\/usinadesign\.com\.br\/familia\/([a-z0-9-]+)\?tipo=([a-z0-9-]+)"[\s\S]{0,900}?<img src="([^"]+)"/g
+  for (const m of Array.from(html.matchAll(re))) out.push({ fam: m[1], tipo: m[2], img: m[3], linha })
+  return out
+}
+
+// Linhas da tabela "Códigos da família X": [código, dimensão, descrição].
+function parseCodes(html: string): [string, string, string][] {
+  const i = html.indexOf('Códigos da família')
+  if (i < 0) return []
+  const table = html.slice(i, html.indexOf('</table>', i))
+  const out: [string, string, string][] = []
+  for (const tr of Array.from(table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g))) {
+    const tds = Array.from(tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), t => clean(unescapeHtml(t[1].replace(/<[^>]+>/g, ''))))
+    if (tds.length >= 3 && tds[0]) out.push([tds[0], tds[1], tds[tds.length - 1]])
+  }
+  return out
+}
+
+export async function syncUsinaCatalog() {
+  const started = Date.now()
+  const db = createAdminClient()
+  const errors: string[] = []
+
+  // 1. Famílias e cartões de tipo (cada linha tem várias páginas).
+  const fams = new Map<string, { linha: string; cards: Card[] }>()
+  for (const linha of LINHAS) {
+    const seen = new Set<string>()
+    for (let page = 1; page <= 40; page++) {
+      let html = ''
+      try { html = await text(`${BASE}/catalogo?linha=${linha}${page > 1 ? `&page=${page}` : ''}`) } catch { break }
+      const cards = parseCards(html, linha).filter(c => !seen.has(`${c.fam}/${c.tipo}`))
+      if (!cards.length) break
+      for (const c of cards) {
+        seen.add(`${c.fam}/${c.tipo}`)
+        const f = fams.get(c.fam) ?? { linha, cards: [] }
+        if (!f.cards.some(x => x.tipo === c.tipo)) f.cards.push(c)
+        fams.set(c.fam, f)
+      }
+    }
+  }
+
+  // 2. O que já está no banco: foto enviada à mão fica; foto copiada e igual não é baixada de novo.
+  const { data: existing } = await db.from('supplier_catalog_products').select('ref, image_url, source_image_url').eq('source', 'usina').limit(20000)
+  const known = new Map((existing ?? []).map(r => [r.ref as string, r]))
+  const copied = new Map<string, string | null>() // fam/tipo -> URL no nosso Storage
+
+  const rows: Record<string, unknown>[] = []
+  let done = 0
+  let partial = false
+  await pool(Array.from(fams.entries()), 6, async ([fam, f]) => {
+    if (Date.now() - started > BUDGET_MS) { partial = true; return }
+    try {
+      const codes = parseCodes(await text(`${BASE}/familia/${fam}?tipo=${f.cards[0].tipo}`))
+      for (const [code, dim, desc] of codes) {
+        // O tipo vem da descrição ("Pendente Vertical Aivi"): vale o cartão de slug mais longo que a abre.
+        const d = norm(desc)
+        const card = [...f.cards].sort((a, b) => b.tipo.length - a.tipo.length).find(c => d.startsWith(c.tipo.replace(/-/g, ' '))) ?? f.cards[0]
+        const key = `${fam}/${card.tipo}`
+        const src = BASE + card.img
+        const prev = known.get(code)
+        const manual = prev?.source_image_url === 'upload'
+        let imageUrl: string | null
+        if (manual) imageUrl = prev!.image_url as string
+        else if (prev?.image_url?.includes('/storage/v1/') && prev.source_image_url === src + SIZE_TAG) imageUrl = prev.image_url as string
+        else {
+          if (!copied.has(key)) copied.set(key, await copyImage(db, src, `usina/${fam}-${card.tipo}.jpg`))
+          imageUrl = copied.get(key) ?? null
+        }
+        rows.push({
+          source: 'usina', ref: code, source_product_id: key, name: desc || titleCase(fam), kind: norm(desc).split(' ')[0] || null,
+          line: titleCase(fam), model: code, product_url: `${BASE}/codigo/${encodeURIComponent(code)}`,
+          image_url: imageUrl, source_image_url: manual ? 'upload' : src + SIZE_TAG, finishes: [], updated_at: new Date().toISOString(),
+          ...dimsFrom(dim, true),
+        })
+      }
+      done++
+    } catch (e) {
+      errors.push(`${fam}: ${(e as Error).message}`)
+    }
+  })
+
+  const saved = await upsertRows(db, rows)
+  errors.push(...saved.errors)
+  return { families: fams.size, processed: done, refs: saved.count, partial, errors }
+}
+

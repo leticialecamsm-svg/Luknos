@@ -16,8 +16,12 @@
       "schedule": "0 10 * * *"
     },
     {
-      "path": "/api/cron/supplier-catalog",
+      "path": "/api/cron/supplier-catalog?source=accord",
       "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "30 9 * * 1"
     }
   ]
 }

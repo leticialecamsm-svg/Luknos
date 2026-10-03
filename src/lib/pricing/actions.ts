@@ -12,6 +12,7 @@ import { typeName } from './parse-sheet'
 import { expandTerms, normText } from './synonyms'
 import { matchCatalog, catalogSourceFor, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
 import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
+import { syncUsinaCatalog } from '@/lib/catalog/usina-sync'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -277,7 +278,7 @@ async function catalogSource(supplierId: string) {
 async function loadCatalog(supplierId: string): Promise<CatalogEntry[]> {
   const source = await catalogSource(supplierId)
   const { data } = await createAdminClient().from('supplier_catalog_products')
-    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean')
+    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean, variant')
     .eq('source', source).order('name').limit(5000)
   return (data ?? []).map((c: any) => ({
     ...c, finishes: c.finishes ?? [],
@@ -346,11 +347,17 @@ export async function uploadItemPhoto(form: FormData) {
   return { ok: true, ref }
 }
 
-// Relê o site do fornecedor agora (o cron faz isso toda segunda).
-export async function syncSupplierCatalog() {
+// Relê o site do fornecedor agora (o cron faz isso toda segunda). Só Accord e Usina vêm de site;
+// os demais catálogos vêm de PDF e são importados por script.
+export async function syncSupplierCatalog(supplierId: string) {
   const auth = await guard(true)
   if ('error' in auth) return { error: auth.error }
-  try { return await syncAccordCatalog() } catch (e) { return { error: (e as Error).message } }
+  try {
+    const source = await catalogSource(supplierId)
+    if (source === 'accord') return { ...(await syncAccordCatalog()), partial: false }
+    if (source === 'usina') return await syncUsinaCatalog()
+    return { error: 'Este fornecedor não tem site para atualizar' }
+  } catch (e) { return { error: (e as Error).message } }
 }
 
 // Salva as alterações feitas no modal de simulação (só admin).
