@@ -24,6 +24,20 @@ import {
 
 type R = { error?: string; ok?: boolean; id?: string }
 
+export type SolicitationEvent = {
+  id: string
+  stage: string | null
+  kind: 'note' | 'system'
+  description: string
+  created_at: string
+  created_by: string | null
+  authorName: string | null
+  authorAvatarColor: string | null
+  authorAvatarUrl: string | null
+}
+
+export type StageFileStage = 'visita' | 'projeto' | 'compra' | 'expedicao' | 'instalacao' | 'posVenda'
+
 async function requireUser() {
   const { data: { user } } = await createClient().auth.getUser()
   return user
@@ -32,6 +46,48 @@ async function requireUser() {
 function refresh(id?: string) {
   revalidatePath('/solicitacoes')
   if (id) revalidatePath(`/solicitacoes/${id}`)
+}
+
+// Registro de histórico best-effort: NUNCA derruba nem atrasa a action
+// principal. Se a tabela ainda não existir (migration não aplicada) ou o
+// insert falhar, só loga no servidor e segue.
+async function logSolicitationEvent(
+  solicitationId: string,
+  stage: string | null,
+  description: string,
+  userId: string | null,
+  kind: 'note' | 'system' = 'system'
+): Promise<void> {
+  try {
+    const { error } = await createAdminClient().from('solicitation_events').insert({
+      solicitation_id: solicitationId,
+      stage,
+      kind,
+      description,
+      created_by: userId,
+    })
+    if (error) console.error('[logSolicitationEvent]', error.message)
+  } catch (e) {
+    console.error('[logSolicitationEvent]', e)
+  }
+}
+
+// Nota manual de qualquer colaborador no Histórico da Solicitação.
+export async function addSolicitationNote(solicitationId: string, text: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const clean = text.trim()
+  if (!clean) return { error: 'Escreva a nota' }
+  const { error } = await createAdminClient().from('solicitation_events').insert({
+    solicitation_id: solicitationId,
+    stage: null,
+    kind: 'note',
+    description: clean.slice(0, 2000),
+    created_by: user.id,
+  })
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
 }
 
 // ── Leitura consolidada ───────────────────────────────────────────────────
@@ -55,6 +111,8 @@ export type SolicitationView = {
   installationTrackings: any[]
   postSaleFollowups: any[]
   suppliers: { id: string; name: string }[]
+  // Histórico manual/automático (solicitation_events), mais novo primeiro.
+  events: SolicitationEvent[]
   // Usuários distintos que criaram registros desta Solicitação (created_by).
   team: { id: string; name: string; avatar_color: string | null; avatar_url: string | null }[]
   tabs: {
@@ -106,6 +164,20 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     db.from('pricing_suppliers').select('id, name').eq('is_active', true).order('name'),
   ])
 
+  // Histórico: se a tabela ainda não existe (migration pendente), vira vazio.
+  let eventRows: any[] = []
+  try {
+    const { data, error } = await db
+      .from('solicitation_events')
+      .select('id, stage, kind, description, created_by, created_at')
+      .eq('solicitation_id', id)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (!error) eventRows = data ?? []
+  } catch {
+    eventRows = []
+  }
+
   // Equipe envolvida: created_by distintos da Solicitação e dos registros.
   const creatorIds = Array.from(new Set(
     [
@@ -115,11 +187,28 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       ...(purchaseChecklistItems ?? []).map((r: any) => r.created_by),
       ...(installationTrackings ?? []).map((r: any) => r.created_by),
       ...(postSaleFollowups ?? []).map((r: any) => r.created_by),
+      ...eventRows.map((r: any) => r.created_by),
     ].filter(Boolean) as string[]
   ))
   const { data: teamUsers } = creatorIds.length
     ? await db.from('users').select('id, name, avatar_color, avatar_url').in('id', creatorIds)
     : { data: [] as any[] }
+
+  const userById = new Map<string, any>((teamUsers ?? []).map((u: any) => [u.id, u]))
+  const events: SolicitationEvent[] = eventRows.map((e: any) => {
+    const u = e.created_by ? userById.get(e.created_by) : null
+    return {
+      id: e.id,
+      stage: e.stage ?? null,
+      kind: e.kind === 'note' ? 'note' : 'system',
+      description: e.description,
+      created_at: e.created_at,
+      created_by: e.created_by ?? null,
+      authorName: u?.name ?? null,
+      authorAvatarColor: u?.avatar_color ?? null,
+      authorAvatarUrl: u?.avatar_url ?? null,
+    }
+  })
 
   return {
     id: solicitation.id,
@@ -140,6 +229,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     installationTrackings: installationTrackings ?? [],
     postSaleFollowups: postSaleFollowups ?? [],
     suppliers: suppliers ?? [],
+    events,
     team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
     tabs: {
       visita: (visits ?? []).length > 0,
@@ -176,6 +266,7 @@ export async function savePurchaseChecklistItem(input: {
       expected_delivery_date: input.expectedDeliveryDate || null,
     }).eq('id', input.id)
     if (error) return { error: error.message }
+    await logSolicitationEvent(input.solicitationId, 'compra', `Compra editada: ${input.description.trim()}`, user.id)
     refresh(input.solicitationId)
     return { ok: true, id: input.id }
   }
@@ -188,33 +279,43 @@ export async function savePurchaseChecklistItem(input: {
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'compra', `Item de compra criado: ${input.description.trim()}`, user.id)
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
 }
 
+const PURCHASE_LOG_LABEL: Record<string, string> = { a_pedir: 'A pedir', pedido: 'Pedido', recebido: 'Recebido' }
+
 export async function updatePurchaseChecklistItemStatus(
   id: string,
   solicitationId: string,
-  status: 'a_pedir' | 'pedido' | 'recebido'
+  status: 'a_pedir' | 'pedido' | 'recebido',
+  label?: string
 ): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('purchase_checklist_items').update({ status }).eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'compra', `Compra: ${label || 'item'} → ${PURCHASE_LOG_LABEL[status] ?? status}`, user.id)
   refresh(solicitationId)
   return { ok: true }
 }
 
-export async function deletePurchaseChecklistItem(id: string, solicitationId: string): Promise<R> {
+export async function deletePurchaseChecklistItem(id: string, solicitationId: string, label?: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('purchase_checklist_items').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'compra', 'Item de compra excluído' + (label ? `: ${label}` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }
 
 // ── Acompanhamento de instalação (installation_trackings) ────────────────
+
+const INSTALLATION_LOG_LABEL: Record<string, string> = {
+  agendada: 'Agendada', em_andamento: 'Em andamento', concluida: 'Concluída', com_pendencia: 'Com pendência',
+}
 
 export async function saveInstallationTracking(input: {
   id?: string
@@ -238,6 +339,7 @@ export async function saveInstallationTracking(input: {
   if (input.id) {
     const { error } = await db.from('installation_trackings').update(payload).eq('id', input.id)
     if (error) return { error: error.message }
+    await logSolicitationEvent(input.solicitationId, 'instalacao', `Instalação atualizada (${INSTALLATION_LOG_LABEL[payload.status] ?? payload.status})`, user.id)
     refresh(input.solicitationId)
     return { ok: true, id: input.id }
   }
@@ -247,15 +349,17 @@ export async function saveInstallationTracking(input: {
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'instalacao', `Instalação agendada${payload.team ? `: ${payload.team}` : ''}`, user.id)
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
 }
 
-export async function deleteInstallationTracking(id: string, solicitationId: string): Promise<R> {
+export async function deleteInstallationTracking(id: string, solicitationId: string, label?: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('installation_trackings').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'instalacao', 'Instalação excluída' + (label ? `: ${label}` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -282,6 +386,7 @@ export async function savePostSaleFollowup(input: {
   if (input.id) {
     const { error } = await db.from('post_sale_followups').update(payload).eq('id', input.id)
     if (error) return { error: error.message }
+    await logSolicitationEvent(input.solicitationId, 'posVenda', 'Contato de pós-venda atualizado', user.id)
     refresh(input.solicitationId)
     return { ok: true, id: input.id }
   }
@@ -291,15 +396,17 @@ export async function savePostSaleFollowup(input: {
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'posVenda', 'Contato de pós-venda registrado', user.id)
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
 }
 
-export async function deletePostSaleFollowup(id: string, solicitationId: string): Promise<R> {
+export async function deletePostSaleFollowup(id: string, solicitationId: string, label?: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('post_sale_followups').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'posVenda', 'Pós-venda excluído' + (label ? `: ${label}` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -309,6 +416,10 @@ export async function deletePostSaleFollowup(id: string, solicitationId: string)
 // /shipping) em vez de inventar uma escrita paralela na tabela shipments —
 // só adiciona o revalidatePath da Solicitação, que aquela action não
 // conhece, pra tela de detalhe refletir a edição na hora.
+
+const SHIPMENT_LOG_LABEL: Record<string, string> = {
+  queued: 'Na fila', in_progress: 'Em separação', completed: 'Separado', awaiting_material: 'Aguardando material', delivered: 'Entregue',
+}
 
 export async function updateShipmentForSolicitation(
   id: string,
@@ -327,6 +438,7 @@ export async function updateShipmentForSolicitation(
   } catch (e: any) {
     return { error: e?.message ?? 'Erro ao atualizar expedição' }
   }
+  await logSolicitationEvent(solicitationId, 'expedicao', 'Separação e entrega atualizada' + (updates.separation_status ? ` (${SHIPMENT_LOG_LABEL[updates.separation_status] ?? updates.separation_status})` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -362,6 +474,7 @@ export async function createVisitForSolicitation(input: {
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'visita', `Visita criada: ${input.title.trim()}`, user.id)
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
 }
@@ -388,6 +501,7 @@ export async function createDesignProjectForSolicitation(input: {
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'projeto', `Projeto criado: ${input.title.trim()}`, user.id)
   refresh(input.solicitationId)
   return { ok: true, id: data?.id }
 }
@@ -397,6 +511,10 @@ export async function createDesignProjectForSolicitation(input: {
 // login + revalidatePath, só que escrevendo direto em `visits` (não existe
 // uma updateVisit genérica em design-projects-actions.ts pra reaproveitar —
 // só updateVisitStatus, que troca status isolado).
+
+const VISIT_LOG_LABEL: Record<string, string> = {
+  to_schedule: 'A agendar', scheduled: 'Agendada', done: 'Realizada', not_needed: 'Não necessária',
+}
 
 export async function updateVisitForSolicitation(
   id: string,
@@ -418,6 +536,12 @@ export async function updateVisitForSolicitation(
   if (updates.status !== undefined) payload.status = updates.status
   const { error } = await db.from('visits').update(payload).eq('id', id)
   if (error) return { error: error.message }
+  const vLabel = updates.title?.trim()
+  await logSolicitationEvent(
+    solicitationId, 'visita',
+    updates.status ? `Visita${vLabel ? ` "${vLabel}"` : ''} → ${VISIT_LOG_LABEL[updates.status] ?? updates.status}` : `Visita editada${vLabel ? `: ${vLabel}` : ''}`,
+    user.id
+  )
   refresh(solicitationId)
   return { ok: true }
 }
@@ -433,6 +557,7 @@ export async function updateDesignProjectKindForSolicitation(
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('design_projects').update({ kind }).eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'projeto', `Projeto: categoria → ${kind === 'alocacao_pontos' ? 'Alocação de pontos' : 'Elaboração'}`, user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -451,6 +576,7 @@ export async function updateDesignProjectDescriptionForSolicitation(
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('design_projects').update({ description: descriptionHtml }).eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'projeto', 'Notas do projeto atualizadas', user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -469,6 +595,7 @@ export async function updateDesignProjectStatusForSolicitation(
   if (!user) return { error: 'Não autenticado' }
   const res = await updateDesignProjectStatus(id, status)
   if ((res as any)?.error) return { error: (res as any).error }
+  await logSolicitationEvent(solicitationId, 'projeto', `Projeto → ${status === 'fila' ? 'Na fila' : status === 'em_andamento' ? 'Em andamento' : 'Concluído'}`, user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -483,7 +610,10 @@ export async function updateDesignProjectStatusForSolicitation(
 const STAGE_FOLDER_NAME: Record<string, string> = {
   visita: 'Visita',
   projeto: 'Projeto',
+  compra: 'Compra de material',
   expedicao: 'Separação e entrega',
+  instalacao: 'Instalação',
+  posVenda: 'Pós-venda',
 }
 
 const FOLDER_ILLEGAL = /[\\/:*?"<>|]+/g
@@ -523,7 +653,7 @@ async function resolveSolicitationDriveFolderId(db: ReturnType<typeof createAdmi
 async function resolveStageFolderId(
   db: ReturnType<typeof createAdminClient>,
   solicitationId: string,
-  stage: 'visita' | 'projeto' | 'expedicao'
+  stage: StageFileStage
 ): Promise<string> {
   const rootFolderId = await resolveSolicitationDriveFolderId(db, solicitationId)
   const stageFolder = await findOrCreateFolder(STAGE_FOLDER_NAME[stage] ?? stage, rootFolderId)
@@ -539,7 +669,7 @@ export async function checkDriveConnected(): Promise<boolean> {
 
 export async function uploadStageFileForSolicitation(
   solicitationId: string,
-  stage: 'visita' | 'projeto' | 'expedicao',
+  stage: StageFileStage,
   formData: FormData
 ): Promise<R & { webViewLink?: string }> {
   const user = await requireUser()
@@ -557,6 +687,7 @@ export async function uploadStageFileForSolicitation(
       mimeType: file.type || 'application/octet-stream',
       data: new Uint8Array(await file.arrayBuffer()),
     })
+    await logSolicitationEvent(solicitationId, stage, `Arquivo ${file.name} enviado (${STAGE_FOLDER_NAME[stage] ?? stage})`, user.id)
     refresh(solicitationId)
     return { ok: true, id: up.id, webViewLink: up.webViewLink }
   } catch (e: any) {
@@ -574,7 +705,7 @@ export async function uploadStageFileForSolicitation(
 // sem reimplementar a chamada à API do Drive.
 export async function listStageFilesForSolicitation(
   solicitationId: string,
-  stage: 'visita' | 'projeto' | 'expedicao'
+  stage: StageFileStage
 ): Promise<{ files: DriveFileItem[]; error?: string }> {
   const user = await requireUser()
   if (!user) return { files: [], error: 'Não autenticado' }
@@ -595,20 +726,22 @@ export async function listStageFilesForSolicitation(
 // deletePostSaleFollowup acima: admin client, guard de login, revalidatePath.
 // Nenhuma das duas tinha delete ainda neste arquivo (só update/create).
 
-export async function deleteVisitForSolicitation(id: string, solicitationId: string): Promise<R> {
+export async function deleteVisitForSolicitation(id: string, solicitationId: string, label?: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('visits').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'visita', 'Visita excluída' + (label ? `: ${label}` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }
 
-export async function deleteDesignProjectForSolicitation(id: string, solicitationId: string): Promise<R> {
+export async function deleteDesignProjectForSolicitation(id: string, solicitationId: string, label?: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('design_projects').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'projeto', 'Projeto excluído' + (label ? `: ${label}` : ''), user.id)
   refresh(solicitationId)
   return { ok: true }
 }

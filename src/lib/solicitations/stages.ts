@@ -159,3 +159,132 @@ export function quoteValues(q: any | null) {
     open: splits.length ? sum(splits.filter(x => x.status === 'open')) : null,
   }
 }
+
+// ── Hero: número grande, chips e datas (tudo puro) ───────────────────────
+
+const ymd = (v: string | Date | null | undefined): string | null => {
+  if (!v) return null
+  const str = typeof v === 'string' ? v : v.toISOString()
+  return /^\d{4}-\d{2}-\d{2}/.test(str) ? str.slice(0, 10) : null
+}
+const earliest = (vals: (string | null | undefined)[]): string | null => {
+  const v = vals.map(ymd).filter(Boolean) as string[]
+  return v.length ? v.sort()[0] : null
+}
+
+// Data local YYYY-MM-DD.
+export function localToday(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+// Dias na esteira = dias desde a criação da Solicitação (mínimo 0).
+export function daysInPipeline(createdAt: string, now: Date = new Date()): number {
+  return dayCount(createdAt, now) ?? 0
+}
+
+export type BigMetric =
+  | { kind: 'money'; value: number; label: string }
+  | { kind: 'days'; days: number; label: string }
+
+// Número grande do hero: venda fechada (negociação 'closed') com final_value ->
+// valor final; senão quoted_value do orçamento principal; senão dias na esteira.
+export function bigMetric(s: SolicitationView, primaryQuote: any | null, now: Date = new Date()): BigMetric {
+  const v = quoteValues(primaryQuote)
+  const closed = s.negotiations.some(n => n.temperature === 'closed')
+  if (closed && v.final != null) return { kind: 'money', value: v.final, label: 'Valor fechado' }
+  if (v.quoted != null) return { kind: 'money', value: v.quoted, label: 'Valor orçado' }
+  return { kind: 'days', days: daysInPipeline(s.createdAt, now), label: 'na esteira' }
+}
+
+// Prazo da etapa atual (só quando há uma etapa "current" e uma data):
+// orçamento -> quotes.deadline; visita -> menor data agendada não finalizada;
+// compra -> menor expected_delivery_date de item não recebido; separação ->
+// menor delivery_date não entregue; instalação -> menor scheduled_date não
+// concluída. Projeto/negociação/pós-venda não têm prazo.
+export function stageDeadline(s: SolicitationView, primaryQuote: any | null, currentStageId: string | null): { stage: string; date: string } | null {
+  if (!currentStageId) return null
+  let date: string | null = null
+  switch (currentStageId) {
+    case 'orcamento': date = ymd(primaryQuote?.deadline ?? s.quotes[0]?.deadline); break
+    case 'visita': date = earliest(s.visits.filter(v => v.status !== 'done' && v.status !== 'not_needed').map(v => v.scheduled_at)); break
+    case 'compra': date = earliest(s.purchaseChecklistItems.filter(i => i.status !== 'recebido').map(i => i.expected_delivery_date)); break
+    case 'expedicao': date = earliest(s.shipments.filter(sh => !sh.is_completed && sh.separation_status !== 'delivered').map(sh => sh.delivery_date)); break
+    case 'instalacao': date = earliest(s.installationTrackings.filter(i => i.status !== 'concluida').map(i => i.scheduled_date)); break
+    default: date = null
+  }
+  return date ? { stage: currentStageId, date } : null
+}
+
+export function currentStageId(s: SolicitationView, now: Date = new Date()): string | null {
+  return computeStages(s, now).find(x => x.state === 'current')?.id ?? null
+}
+
+export type DateTone = 'overdue' | 'today' | 'soon' | 'future'
+
+// Chip de data: Hoje / Ontem / Amanhã / dd/mm. `today` = YYYY-MM-DD local.
+export function dateChip(date: string | null | undefined, today: string): { label: string; tone: DateTone } | null {
+  const d = ymd(date)
+  if (!d) return null
+  const diff = Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86_400_000)
+  if (diff === 0) return { label: 'Hoje', tone: 'today' }
+  if (diff === -1) return { label: 'Ontem', tone: 'overdue' }
+  if (diff === 1) return { label: 'Amanhã', tone: 'soon' }
+  return { label: `${d.slice(8, 10)}/${d.slice(5, 7)}`, tone: diff < 0 ? 'overdue' : 'future' }
+}
+
+const MONTHS_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+// "08 out" (rótulo curto sob o ícone da linha do tempo).
+export function shortDayLabel(date: string | null | undefined): string {
+  const d = ymd(date)
+  return d ? `${d.slice(8, 10)} ${MONTHS_PT[Number(d.slice(5, 7)) - 1] ?? ''}` : ''
+}
+
+// Planejado x Concluído por etapa (registros "finalizados" = Concluído).
+export function isRecordFinished(stage: string, r: any): boolean {
+  switch (stage) {
+    case 'visita': return r.status === 'done' || r.status === 'not_needed'
+    case 'projeto': return r.status === 'concluido'
+    case 'compra': return r.status === 'recebido'
+    case 'expedicao': return !!r.is_completed || r.separation_status === 'completed' || r.separation_status === 'delivered'
+    case 'instalacao': return r.status === 'concluida'
+    case 'posVenda': return !!r.resolution
+    default: return false
+  }
+}
+
+export function splitPlannedDone<T>(stage: string, rows: T[]): { planned: T[]; done: T[] } {
+  return {
+    planned: rows.filter(r => !isRecordFinished(stage, r)),
+    done: rows.filter(r => isRecordFinished(stage, r)),
+  }
+}
+
+// ── Histórico unificado ──────────────────────────────────────────────────
+
+export type HistoryEntry = {
+  id: string
+  kind: 'note' | 'system'
+  text: string
+  createdAt: string
+  authorId: string | null
+  authorName: string | null
+  authorAvatarUrl: string | null
+}
+
+// Junta solicitation_events e as atividades do orçamento principal, mais novo
+// primeiro. Atividade `type === 'note'` (exceto "✏️ Editado…") = Nota; o resto
+// = Automático.
+export function mergeHistory(events: SolicitationView['events'], activities: any[]): HistoryEntry[] {
+  const a: HistoryEntry[] = events.map(e => ({
+    id: `e-${e.id}`, kind: e.kind, text: e.description, createdAt: e.created_at,
+    authorId: e.created_by, authorName: e.authorName, authorAvatarUrl: e.authorAvatarUrl,
+  }))
+  const b: HistoryEntry[] = (activities ?? []).map(x => {
+    const isNote = x.type === 'note' && !String(x.description ?? '').startsWith('✏️ Editado') && !x.is_system && !!x.user_id
+    return {
+      id: `a-${x.id}`, kind: isNote ? 'note' : 'system', text: String(x.description ?? ''), createdAt: x.created_at,
+      authorId: x.user_id ?? null, authorName: x.user?.name ?? null, authorAvatarUrl: x.user?.avatar_url ?? null,
+    }
+  })
+  return [...a, ...b].sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())
+}
