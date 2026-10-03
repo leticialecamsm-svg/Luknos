@@ -8,7 +8,7 @@ import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import { SupplierLogo } from './SupplierLogo'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
 import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
-import type { CatalogEntry } from '@/lib/catalog/match'
+import { catalogSourceFor, type CatalogEntry } from '@/lib/catalog/match'
 import {
   getSupplierSheet, getSupplierQuotes, getSupplierCatalog,
   type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
@@ -33,8 +33,9 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
-  // Fornecedores com catálogo de fotos (copiado do site do fabricante).
-  const hasCatalog = !!supplier && norm(supplier.name).includes('accord')
+  // Fornecedores com catálogo de fotos (site do fabricante ou catálogo PDF).
+  const catalogSource = supplier ? catalogSourceFor(supplier.name) : null
+  const hasCatalog = !!catalogSource
   const replaceItem = (u: SheetItem) => setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) })))
   const loadCatalog = async () => { const r = await getSupplierCatalog(supplierId); setCatalog('error' in r ? [] : r.catalog) }
   const openPicker = (i: SheetItem) => { setPicking(i); if (catalog === null) loadCatalog() }
@@ -185,7 +186,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
       )}
 
       {picking && (
-        <CatalogPickerModal item={picking} catalog={catalog} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
+        <CatalogPickerModal item={picking} catalog={catalog} canSync={catalogSource === 'accord'} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
           onChanged={u => { replaceItem(u); setPicking(u) }} />
       )}
 

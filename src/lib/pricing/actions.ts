@@ -10,7 +10,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { Metric } from './engine'
 import { typeName } from './parse-sheet'
 import { expandTerms, normText } from './synonyms'
-import { matchCatalog, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
+import { matchCatalog, catalogSourceFor, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
 import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
@@ -267,17 +267,17 @@ export async function getSupplierSheet(supplierId: string) {
   return { invoices }
 }
 
-// Catálogo com fotos do fornecedor (por enquanto só a Accord, copiada do site dela).
+// Catálogo com fotos do fornecedor: Accord (copiado do site) e Hevvy (do catálogo PDF).
 async function catalogSource(supplierId: string) {
   const { data } = await createAdminClient().from('pricing_suppliers').select('name').eq('id', supplierId).maybeSingle()
-  return data && normText(data.name).includes('accord') ? 'accord' : null
+  return data ? catalogSourceFor(data.name) : null
 }
 
 async function loadCatalog(supplierId: string): Promise<CatalogEntry[]> {
   const source = await catalogSource(supplierId)
   if (!source) return []
   const { data } = await createAdminClient().from('supplier_catalog_products')
-    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes')
+    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean')
     .eq('source', source).order('name').limit(5000)
   return (data ?? []).map((c: any) => ({
     ...c, finishes: c.finishes ?? [],
