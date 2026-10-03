@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { descDims, matchCatalog, type CatalogEntry } from './match'
 
-const entry = (ref: string, name: string, line: string, d: Partial<CatalogEntry> = {}): CatalogEntry => ({
+const entry = (ref: string, name: string, line: string | null, d: Partial<CatalogEntry> = {}): CatalogEntry => ({
   ref, name, kind: name.split(' ')[0].toLowerCase(), line,
   altura_cm: null, largura_cm: null, profundidade_cm: null, diametro_cm: null,
   product_url: null, image_url: `https://x/${ref}.jpg`, source_image_url: null, finishes: [], ...d,
