@@ -14,8 +14,18 @@ export const SIZE_TAG = `#w${MAX_SIDE}`
 
 export type AdminDb = ReturnType<typeof createAdminClient>
 
+// fetch que espera e tenta de novo quando o site pede calma (429/503), respeitando Retry-After.
+export async function fetchRetry(url: string, tries = 4): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const r = await fetch(url, { headers: UA, cache: 'no-store' })
+    if ((r.status !== 429 && r.status !== 503) || i >= tries - 1) return r
+    const wait = Number(r.headers.get('retry-after')) * 1000 || 1500 * 2 ** i
+    await new Promise(res => setTimeout(res, Math.min(wait, 8000)))
+  }
+}
+
 export async function text(url: string) {
-  const r = await fetch(url, { headers: UA, cache: 'no-store' })
+  const r = await fetchRetry(url)
   if (!r.ok) throw new Error(`${r.status} ${url}`)
   return r.text()
 }
@@ -35,7 +45,7 @@ export async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>
 // Baixa a foto de `src`, reduz e grava em <pasta>/<nome>.jpg do bucket. Devolve a URL pública
 // (com ?v= para furar o cache do navegador) ou null se não deu.
 export async function copyImage(db: AdminDb, src: string, path: string): Promise<string | null> {
-  const r = await fetch(src, { headers: UA, cache: 'no-store' })
+  const r = await fetchRetry(src)
   if (!r.ok) return null
   const jpg = await sharp(Buffer.from(await r.arrayBuffer()))
     .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })

@@ -64,14 +64,23 @@ export async function syncUsinaCatalog() {
   }
 
   // 2. O que já está no banco: foto enviada à mão fica; foto copiada e igual não é baixada de novo.
-  const { data: existing } = await db.from('supplier_catalog_products').select('ref, image_url, source_image_url').eq('source', 'usina').limit(20000)
+  const { data: existing } = await db.from('supplier_catalog_products').select('ref, image_url, source_image_url, line, updated_at').eq('source', 'usina').limit(20000)
   const known = new Map((existing ?? []).map(r => [r.ref as string, r]))
   const copied = new Map<string, string | null>() // fam/tipo -> URL no nosso Storage
+
+  // O site limita requisições: se uma rodada não der conta de tudo, a próxima começa pelas
+  // famílias mais desatualizadas (as nunca vistas primeiro), e várias rodadas cobrem o catálogo.
+  const lastSeen = new Map<string, string>()
+  for (const r of existing ?? []) {
+    const k = norm(String(r.line ?? '')).replace(/ /g, '-')
+    if (!lastSeen.has(k) || String(r.updated_at) < lastSeen.get(k)!) lastSeen.set(k, String(r.updated_at))
+  }
+  const order = Array.from(fams.entries()).sort((a, b) => (lastSeen.get(a[0]) ?? '').localeCompare(lastSeen.get(b[0]) ?? ''))
 
   const rows: Record<string, unknown>[] = []
   let done = 0
   let partial = false
-  await pool(Array.from(fams.entries()), 6, async ([fam, f]) => {
+  await pool(order, 2, async ([fam, f]) => {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const codes = parseCodes(await text(`${BASE}/familia/${fam}?tipo=${f.cards[0].tipo}`))
