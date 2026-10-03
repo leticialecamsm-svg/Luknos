@@ -84,10 +84,17 @@ export async function syncUsinaCatalog() {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const codes = parseCodes(await text(`${BASE}/familia/${fam}?tipo=${f.cards[0].tipo}`))
-      for (const [code, dim, desc] of codes) {
+      // Muitos códigos vêm com descrição em branco ("—"): herdam a de um irmão do mesmo modelo
+      // (mesmo número antes do traço), que costuma trazer o tipo ("Pendente Angular Globo…").
+      const blank = (d: string) => !d || /^[—–-]+$/.test(d)
+      const sibling = new Map<string, string>()
+      for (const [code, , desc] of codes) if (!blank(desc) && !sibling.has(code.split('-')[0])) sibling.set(code.split('-')[0], desc)
+      for (const [code, dim, rawDesc] of codes) {
+        const desc = blank(rawDesc) ? sibling.get(code.split('-')[0]) ?? '' : rawDesc
         // O tipo vem da descrição ("Pendente Vertical Aivi"): vale o cartão de slug mais longo que a abre.
         const d = norm(desc)
         const card = [...f.cards].sort((a, b) => b.tipo.length - a.tipo.length).find(c => d.startsWith(c.tipo.replace(/-/g, ' '))) ?? f.cards[0]
+        const name = desc || `${titleCase(card.tipo)} ${titleCase(fam)}`
         const key = `${fam}/${card.tipo}`
         const src = BASE + card.img
         const prev = known.get(code)
@@ -100,7 +107,7 @@ export async function syncUsinaCatalog() {
           imageUrl = copied.get(key) ?? null
         }
         rows.push({
-          source: 'usina', ref: code, source_product_id: key, name: desc || titleCase(fam), kind: norm(desc).split(' ')[0] || null,
+          source: 'usina', ref: code, source_product_id: key, name, kind: norm(name).split(' ')[0] || null,
           line: titleCase(fam), model: code, product_url: `${BASE}/codigo/${encodeURIComponent(code)}`,
           image_url: imageUrl, source_image_url: manual ? 'upload' : src + SIZE_TAG, finishes: [], updated_at: new Date().toISOString(),
           ...dimsFrom(dim, true),
