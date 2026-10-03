@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageOff, ImagePlus, Loader2, RefreshCw, Search, X, ExternalLink } from 'lucide-react'
+import { ImageOff, ImagePlus, Loader2, RefreshCw, Search, Upload, X, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { matchCatalog, normText, dimsLabel, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
-import { setItemCatalogRef, syncSupplierCatalog, type SheetItem } from '@/lib/pricing/actions'
+import { setItemCatalogRef, syncSupplierCatalog, uploadItemPhoto, type SheetItem } from '@/lib/pricing/actions'
 
 const MATCH_LABEL: Record<ItemPhoto['match'], string> = {
   codigo: 'pelo código da nota',
@@ -46,10 +46,22 @@ export function ProductThumb({ item, onPick }: { item: SheetItem; onPick: () => 
   )
 }
 
+// Reduz a foto no navegador (lado maior 900px, JPEG) antes de enviar: fica ~100 KB.
+async function shrink(file: File): Promise<Blob> {
+  const bmp = await createImageBitmap(file)
+  const k = Math.min(1, 900 / Math.max(bmp.width, bmp.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bmp.width * k); canvas.height = Math.round(bmp.height * k)
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+  return new Promise((ok, fail) => canvas.toBlob(b => (b ? ok(b) : fail(new Error('Não deu para ler a foto'))), 'image/jpeg', 0.85))
+}
+
 // Escolha manual da foto de um item, a partir do catálogo do fornecedor.
 export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged, onCatalogReload }: {
   item: SheetItem; catalog: CatalogEntry[] | null; canSync?: boolean
-  onClose: () => void; onChanged: (i: SheetItem) => void; onCatalogReload: () => Promise<void>
+  onClose: () => void; onChanged: (i: SheetItem) => void; onCatalogReload: () => Promise<CatalogEntry[]>
 }) {
   const [q, setQ] = useState('')
   const [saving, setSaving] = useState(false)
@@ -78,6 +90,25 @@ export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged,
     if ('error' in r) { setErr(r.error ?? 'Erro'); return }
     const photo = catalog ? matchCatalog({ ...item, catalog_ref: ref }, catalog) : null
     onChanged({ ...item, catalog_ref: ref, photo })
+  }
+
+  async function upload(f: File | undefined) {
+    if (!f) return
+    setSaving(true); setErr(null)
+    try {
+      const form = new FormData()
+      form.set('itemId', item.id)
+      if (item.photo?.ref) form.set('ref', item.photo.ref)
+      form.set('file', await shrink(f), 'foto.jpg')
+      const r = await uploadItemPhoto(form)
+      if ('error' in r) throw new Error(r.error)
+      const fresh = await onCatalogReload()
+      onChanged({ ...item, catalog_ref: r.ref ?? null, photo: matchCatalog({ ...item, catalog_ref: r.ref ?? null }, fresh) })
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function sync() {
@@ -109,6 +140,11 @@ export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged,
               {current?.product_url && <a href={current.product_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline"><ExternalLink className="w-3 h-3" /> Ver no site</a>}
               {item.catalog_ref && <button disabled={saving} onClick={() => choose(null)} className="text-xs text-gray-500 hover:text-gray-800 underline">Voltar ao automático</button>}
               {item.catalog_ref !== '-' && <button disabled={saving} onClick={() => choose('-')} className="text-xs text-gray-500 hover:text-gray-800 underline">Sem foto</button>}
+              <label title={current ? 'Troca a foto desta Ref para todas as notas' : 'Envia a foto deste produto'}
+                className={cn('inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline cursor-pointer', saving && 'opacity-50 pointer-events-none')}>
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />} {current ? 'Enviar outra foto' : 'Enviar foto'}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { upload(e.target.files?.[0]); e.target.value = '' }} />
+              </label>
             </div>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
@@ -134,7 +170,7 @@ export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged,
           {catalog === null ? (
             <p className="py-10 text-sm text-gray-400 text-center flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando catálogo…</p>
           ) : catalog.length === 0 ? (
-            <p className="py-10 text-sm text-gray-400 text-center">Catálogo vazio.{canSync ? ' Clique em Atualizar catálogo.' : ''}</p>
+            <p className="py-10 text-sm text-gray-400 text-center">{canSync ? 'Catálogo vazio. Clique em Atualizar catálogo.' : 'Nenhuma foto deste fornecedor ainda. Use “Enviar foto”.'}</p>
           ) : list.length === 0 ? (
             <p className="py-10 text-sm text-gray-400 text-center">Nada encontrado.</p>
           ) : (

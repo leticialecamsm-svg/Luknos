@@ -267,15 +267,15 @@ export async function getSupplierSheet(supplierId: string) {
   return { invoices }
 }
 
-// Catálogo com fotos do fornecedor: Accord (copiado do site) e Hevvy (do catálogo PDF).
+// Catálogo com fotos do fornecedor: Accord (copiado do site), Hevvy (do catálogo PDF)
+// e, para todos, as fotos enviadas à mão (os demais fornecedores só têm essas).
 async function catalogSource(supplierId: string) {
   const { data } = await createAdminClient().from('pricing_suppliers').select('name').eq('id', supplierId).maybeSingle()
-  return data ? catalogSourceFor(data.name) : null
+  return (data && catalogSourceFor(data.name)) || `sup-${supplierId}`
 }
 
 async function loadCatalog(supplierId: string): Promise<CatalogEntry[]> {
   const source = await catalogSource(supplierId)
-  if (!source) return []
   const { data } = await createAdminClient().from('supplier_catalog_products')
     .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean')
     .eq('source', source).order('name').limit(5000)
@@ -299,6 +299,51 @@ export async function setItemCatalogRef(itemId: string, ref: string | null) {
   const { error } = await createAdminClient().from('purchase_invoice_items').update({ catalog_ref: ref }).eq('id', itemId)
   if (error) return { error: error.message }
   return { ok: true }
+}
+
+// Foto enviada à mão para um item. Vira (ou substitui) a foto da ref no catálogo do
+// fornecedor, então outras notas com a mesma ref também passam a mostrá-la.
+// ref: a que o item já usa; sem ela, a REF da descrição, o código do XML ou uma nova.
+export async function uploadItemPhoto(form: FormData) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const itemId = String(form.get('itemId') ?? '')
+  const file = form.get('file')
+  if (!itemId || !(file instanceof Blob) || !file.size) return { error: 'Foto não recebida' }
+  if (file.size > 4 * 1024 * 1024) return { error: 'Foto muito grande (máx. 4 MB)' }
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return { error: 'Envie JPG, PNG ou WEBP' }
+
+  const db = createAdminClient()
+  const { data: item } = await db.from('purchase_invoice_items')
+    .select('id, descricao, codigo_produto, purchase_invoices!inner(pricing_supplier_id)').eq('id', itemId).maybeSingle()
+  const supplierId = (item as any)?.purchase_invoices?.pricing_supplier_id
+  if (!item || !supplierId) return { error: 'Item não encontrado' }
+  const source = await catalogSource(supplierId)
+
+  const given = String(form.get('ref') ?? '').trim()
+  const ref = given
+    || item.descricao.match(/\bREF\b[\s.:]*(\d{3,5})/i)?.[1]
+    || (item.codigo_produto ? String(item.codigo_produto).trim() : '')
+    || `M-${item.id.slice(0, 8)}`
+
+  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+  const path = `${source}/upload/${ref.replace(/[^\w.-]+/g, '_')}-${Date.now()}.${ext}`
+  const { error: upErr } = await db.storage.from('supplier-catalog').upload(path, file, { contentType: file.type })
+  if (upErr) return { error: upErr.message }
+  const imageUrl = db.storage.from('supplier-catalog').getPublicUrl(path).data.publicUrl
+
+  const { data: existing } = await db.from('supplier_catalog_products').select('id').eq('source', source).eq('ref', ref).maybeSingle()
+  const desc = String(item.descricao).replace(/\s+/g, ' ').trim()
+  const { error } = existing
+    ? await db.from('supplier_catalog_products').update({ image_url: imageUrl, source_image_url: 'upload', updated_at: new Date().toISOString() }).eq('id', existing.id)
+    : await db.from('supplier_catalog_products').insert({
+        source, ref, source_product_id: 'upload', image_url: imageUrl, source_image_url: 'upload',
+        name: desc.replace(/\s*\(?REF[\s.:]*\d{3,5}\)?/i, '').trim().slice(0, 120),
+        kind: normText(desc).split(/\s+/)[0] || null,
+      })
+  if (error) return { error: error.message }
+  await db.from('purchase_invoice_items').update({ catalog_ref: ref }).eq('id', itemId)
+  return { ok: true, ref }
 }
 
 // Relê o site do fornecedor agora (o cron faz isso toda segunda).

@@ -34,10 +34,16 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
 
   const supplier = suppliers.find(s => s.id === supplierId)
   // Fornecedores com catálogo de fotos (site do fabricante ou catálogo PDF).
+  // Todo fornecedor aceita foto enviada à mão; Accord e Hevvy também têm o catálogo completo.
   const catalogSource = supplier ? catalogSourceFor(supplier.name) : null
-  const hasCatalog = !!catalogSource
+  const hasCatalog = !!supplier
   const replaceItem = (u: SheetItem) => setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) })))
-  const loadCatalog = async () => { const r = await getSupplierCatalog(supplierId); setCatalog('error' in r ? [] : r.catalog) }
+  const loadCatalog = async () => {
+    const r = await getSupplierCatalog(supplierId)
+    const list = 'error' in r ? [] : r.catalog
+    setCatalog(list)
+    return list
+  }
   const openPicker = (i: SheetItem) => { setPicking(i); if (catalog === null) loadCatalog() }
 
   useEffect(() => {
