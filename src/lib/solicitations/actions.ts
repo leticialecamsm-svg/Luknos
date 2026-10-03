@@ -41,6 +41,8 @@ export type SolicitationView = {
   number: number
   clientId: string
   clientName: string | null
+  clientPhone: string | null
+  clientEmail: string | null
   architectId: string | null
   architectName: string | null
   createdAt: string
@@ -53,6 +55,8 @@ export type SolicitationView = {
   installationTrackings: any[]
   postSaleFollowups: any[]
   suppliers: { id: string; name: string }[]
+  // Usuários distintos que criaram registros desta Solicitação (created_by).
+  team: { id: string; name: string; avatar_color: string | null; avatar_url: string | null }[]
   tabs: {
     visita: boolean
     projeto: boolean
@@ -72,7 +76,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
 
   const { data: solicitation } = await db
     .from('solicitations')
-    .select('id, number, client_id, architect_id, created_at, client:client_id(id, name), architect:architect_id(id, name)')
+    .select('id, number, client_id, architect_id, created_by, created_at, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
     .eq('id', id)
     .maybeSingle()
   if (!solicitation) return null
@@ -102,11 +106,28 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     db.from('pricing_suppliers').select('id, name').eq('is_active', true).order('name'),
   ])
 
+  // Equipe envolvida: created_by distintos da Solicitação e dos registros.
+  const creatorIds = Array.from(new Set(
+    [
+      (solicitation as any).created_by,
+      ...(visits ?? []).map((r: any) => r.created_by),
+      ...(designProjects ?? []).map((r: any) => r.created_by),
+      ...(purchaseChecklistItems ?? []).map((r: any) => r.created_by),
+      ...(installationTrackings ?? []).map((r: any) => r.created_by),
+      ...(postSaleFollowups ?? []).map((r: any) => r.created_by),
+    ].filter(Boolean) as string[]
+  ))
+  const { data: teamUsers } = creatorIds.length
+    ? await db.from('users').select('id, name, avatar_color, avatar_url').in('id', creatorIds)
+    : { data: [] as any[] }
+
   return {
     id: solicitation.id,
     number: solicitation.number,
     clientId: solicitation.client_id,
     clientName: (solicitation as any).client?.name ?? null,
+    clientPhone: (solicitation as any).client?.phone ?? null,
+    clientEmail: (solicitation as any).client?.email ?? null,
     architectId: solicitation.architect_id,
     architectName: (solicitation as any).architect?.name ?? null,
     createdAt: solicitation.created_at,
@@ -119,6 +140,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     installationTrackings: installationTrackings ?? [],
     postSaleFollowups: postSaleFollowups ?? [],
     suppliers: suppliers ?? [],
+    team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
     tabs: {
       visita: (visits ?? []).length > 0,
       projeto: (designProjects ?? []).length > 0,
