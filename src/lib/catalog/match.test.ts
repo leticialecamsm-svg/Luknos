@@ -50,3 +50,28 @@ describe('matchCatalog', () => {
     expect(matchCatalog({ codigo_produto: '1145A.48', descricao: 'X', catalog_ref: '-' }, catalog)).toBeNull()
   })
 })
+
+describe('matchCatalog — Hevvy (modelo + cor, sem medidas)', () => {
+  const hevvy = [
+    entry('1088', 'Arandela Katana', 'Arandelas Katana', { model: 'SL-5910L/W2 BK' }),
+    entry('1091', 'Arandela Katana', 'Arandelas Katana', { model: 'SL-5910L/W2 GD' }),
+    entry('1087', 'Arandela Katana', 'Arandelas Katana', { model: 'SL-5910M/W2 BK' }),
+    entry('1534', 'Arandela Tron', 'Arandelas Tron', { model: 'PZ-002/80WL1 GD+BK' }),
+    entry('1539', 'Arandela Tron', 'Arandelas Tron', { model: 'PZ-002/80WL1 BK', ean: '7899923400000' }),
+  ]
+
+  it('acha o modelo na descrição e escolhe a cor', () => {
+    expect(matchCatalog({ descricao: 'ARANDELA KATANA LED 3000K 29W SL-5910L W2 SAND GOL' }, hevvy)?.ref).toBe('1091')
+    expect(matchCatalog({ descricao: 'ARANDELA KATANA LED 3000K 29W SL-5910L W2 BK' }, hevvy)?.ref).toBe('1088')
+    expect(matchCatalog({ descricao: 'ARANDELA KATANA LED 3000K 24W SL-5910M W2 BLACK' }, hevvy)?.ref).toBe('1087')
+  })
+
+  it('sem medidas no catálogo, aceita pelo nome e desempata pela cor', () => {
+    expect(matchCatalog({ descricao: 'ARANDELA TRON 89CM 31W 3000K BLACK' }, hevvy)).toMatchObject({ ref: '1539', match: 'nome' })
+  })
+
+  it('código do XML pode ser EAN ou modelo', () => {
+    expect(matchCatalog({ codigo_produto: '7899923400000', descricao: 'X' }, hevvy)?.ref).toBe('1539')
+    expect(matchCatalog({ codigo_produto: 'SL-5910L/W2 GD', descricao: 'ARANDELA' }, hevvy)).toMatchObject({ ref: '1091', match: 'codigo' })
+  })
+})

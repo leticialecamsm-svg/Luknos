@@ -36,7 +36,7 @@ export function ProductThumb({ item, onPick }: { item: SheetItem; onPick: () => 
             {src ? <img src={src} alt={p.name} className="max-w-full max-h-full object-contain" /> : <ImageOff className="w-8 h-8 text-gray-300" />}
           </div>
           <p className="mt-2 text-sm font-semibold text-gray-900">{p.name}</p>
-          <p className="text-xs text-gray-500">Ref. {p.ref}{p.dims ? ` · ${p.dims}` : ''}</p>
+          <p className="text-xs text-gray-500">Ref. {p.ref}{p.model ? ` · ${p.model}` : ''}{p.dims ? ` · ${p.dims}` : ''}</p>
           {p.finish && <p className="text-xs text-gray-500">Acabamento {p.finish.code}. {p.finish.name}</p>}
           <p className={cn('mt-1 text-[11px]', p.match === 'nome' ? 'text-amber-700' : 'text-gray-400')}>Foto {MATCH_LABEL[p.match]}</p>
         </div>,
@@ -47,8 +47,8 @@ export function ProductThumb({ item, onPick }: { item: SheetItem; onPick: () => 
 }
 
 // Escolha manual da foto de um item, a partir do catálogo do fornecedor.
-export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalogReload }: {
-  item: SheetItem; catalog: CatalogEntry[] | null
+export function CatalogPickerModal({ item, catalog, canSync, onClose, onChanged, onCatalogReload }: {
+  item: SheetItem; catalog: CatalogEntry[] | null; canSync?: boolean
   onClose: () => void; onChanged: (i: SheetItem) => void; onCatalogReload: () => Promise<void>
 }) {
   const [q, setQ] = useState('')
@@ -66,7 +66,7 @@ export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalo
     if (!catalog) return []
     const terms = normText(q.trim()).split(/\s+/).filter(Boolean)
     const rows = terms.length
-      ? catalog.filter(c => { const h = normText(`${c.name} ${c.ref} ${c.line ?? ''} ${(c.source_image_url ?? '').split('/').pop()}`); return terms.every(t => h.includes(t)) })
+      ? catalog.filter(c => { const h = normText(`${c.name} ${c.ref} ${c.model ?? ''} ${c.line ?? ''} ${(c.source_image_url ?? '').split('/').pop()}`); return terms.every(t => h.includes(t)) })
       : catalog
     return rows.slice(0, 120)
   }, [catalog, q])
@@ -101,7 +101,7 @@ export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalo
             <p className="text-sm font-semibold text-gray-900">{item.descricao}</p>
             {current ? (
               <p className="mt-1 text-xs text-gray-600">
-                {current.name} · Ref. {current.ref}{current.dims ? ` · ${current.dims}` : ''}{current.finish ? ` · ${current.finish.code}. ${current.finish.name}` : ''}
+                {current.name} · Ref. {current.ref}{current.model ? ` · ${current.model}` : ''}{current.dims ? ` · ${current.dims}` : ''}{current.finish ? ` · ${current.finish.code}. ${current.finish.name}` : ''}
                 <span className={cn('block', current.match === 'nome' ? 'text-amber-700' : 'text-gray-400')}>Foto {MATCH_LABEL[current.match]}</span>
               </p>
             ) : <p className="mt-1 text-xs text-gray-400">Sem foto. Escolha abaixo.</p>}
@@ -120,10 +120,12 @@ export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalo
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar no catálogo: nome, linha ou Ref…"
               className="w-full pl-9 pr-3 py-2 bg-white border border-surface-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30" />
           </div>
-          <button onClick={sync} disabled={!!syncing && syncing.startsWith('Lendo')} title="Relê o site do fornecedor (só administradores; roda sozinho toda segunda)"
-            className="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-60">
-            <RefreshCw className={cn('w-3.5 h-3.5', syncing?.startsWith('Lendo') && 'animate-spin')} /> Atualizar catálogo
-          </button>
+          {canSync && (
+            <button onClick={sync} disabled={!!syncing && syncing.startsWith('Lendo')} title="Relê o site do fornecedor (só administradores; roda sozinho toda segunda)"
+              className="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-60">
+              <RefreshCw className={cn('w-3.5 h-3.5', syncing?.startsWith('Lendo') && 'animate-spin')} /> Atualizar catálogo
+            </button>
+          )}
           {syncing && <span className="text-xs text-gray-500">{syncing}</span>}
           {err && <span className="text-xs text-red-600">{err}</span>}
         </div>
@@ -132,7 +134,7 @@ export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalo
           {catalog === null ? (
             <p className="py-10 text-sm text-gray-400 text-center flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando catálogo…</p>
           ) : catalog.length === 0 ? (
-            <p className="py-10 text-sm text-gray-400 text-center">Catálogo vazio. Clique em Atualizar catálogo.</p>
+            <p className="py-10 text-sm text-gray-400 text-center">Catálogo vazio.{canSync ? ' Clique em Atualizar catálogo.' : ''}</p>
           ) : list.length === 0 ? (
             <p className="py-10 text-sm text-gray-400 text-center">Nada encontrado.</p>
           ) : (
@@ -144,7 +146,7 @@ export function CatalogPickerModal({ item, catalog, onClose, onChanged, onCatalo
                     {c.image_url ? <img src={c.image_url} alt="" loading="lazy" className="max-w-full max-h-full object-contain" /> : <ImageOff className="w-6 h-6 text-gray-300" />}
                   </div>
                   <p className="mt-1 text-xs font-medium text-gray-800 leading-tight">{c.name}</p>
-                  <p className="text-[11px] text-gray-500">Ref. {c.ref}</p>
+                  <p className="text-[11px] text-gray-500">Ref. {c.ref}{c.model ? ` · ${c.model}` : ''}</p>
                   <p className="text-[11px] text-gray-400">{dimsLabel(c)}</p>
                 </button>
               ))}
