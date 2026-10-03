@@ -29,6 +29,10 @@ STOP = {'GOLD', 'BLACK', 'AMBER', 'SMOKY', 'CHROME', 'CROMADO', 'WHITE', 'BRANCO
         'LANÇAMENTO', 'COBRE', 'BRONZE', 'NATURAL', 'FUMÊ', 'CHAMPAGNE', 'TRANSPARENTE'}
 
 
+def area(bb):
+    return (bb[2] - bb[0]) * (bb[3] - bb[1])
+
+
 def title_of(text):
     # "LINHA DE\nPENDENTES\nHORIZON\nRINGS\n◊ COM LED…" -> "PENDENTES HORIZON RINGS"
     ls = [l.strip() for l in text.split('\n')]
@@ -71,7 +75,17 @@ def to_jpeg(pix):
 def extract(pdf_path, out_dir):
     doc = fitz.open(pdf_path)
     os.makedirs(os.path.join(out_dir, 'img'), exist_ok=True)
-    titles = [title_of(p.get_text()) for p in doc]
+    texts = [p.get_text() for p in doc]
+    titles = [title_of(t) for t in texts]
+    has_refs = [bool(re.search(r'Ref:?\s*\d{3,5}', t)) for t in texts]
+
+    def page_title(pn):
+        # Sem título na página: vale a vizinha que é a página de abertura da linha
+        # (título e foto de ambiente, sem produtos); se as duas têm produtos, a anterior.
+        if titles[pn]: return titles[pn]
+        near = [q for q in (pn - 1, pn + 1) if 0 <= q < len(doc) and titles[q]]
+        opening = [q for q in near if not has_refs[q]]
+        return titles[(opening or near or [pn])[0]]
     found = {}
     for pn, page in enumerate(doc):
         lines = []
@@ -80,10 +94,10 @@ def extract(pdf_path, out_dir):
             for l in b['lines']:
                 t = ''.join(s['text'] for s in l['spans']).strip()
                 if t: lines.append((t, l['bbox']))
+        page_area = page.rect.width * page.rect.height
         imgs = [i for i in page.get_image_info(xrefs=True)
                 if i['xref'] and (i['bbox'][2] - i['bbox'][0]) * (i['bbox'][3] - i['bbox'][1]) > 2500]
-        # Título da linha: nesta página ou na anterior (foto de ambiente + título, depois os produtos).
-        title = titles[pn] or (titles[pn - 1] if pn else '')
+        title = page_title(pn)
         for k, (t, bb) in enumerate(lines):
             r = re.match(r'Ref:?\s*(\d{3,5})', t)
             if not r or k == 0: continue
@@ -92,7 +106,11 @@ def extract(pdf_path, out_dir):
             ref = r.group(1)
             ean = next((e.group(1) for t2, _ in lines[k + 1:k + 3] for e in [re.search(r'EAN13:?\s*(\d{13})', t2)] if e), '')
             pt = ((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2)
-            best = min(imgs, key=lambda i: dist(pt, i['bbox']), default=None)
+            # Fundo de ambiente (imagem que cobre boa parte da página) fica atrás das
+            # etiquetas e "encosta" em todas: só vale se não houver foto de produto perto.
+            products = [i for i in imgs if area(i['bbox']) < 0.3 * page_area]
+            near = min(products, key=lambda i: dist(pt, i['bbox']), default=None)
+            best = near if near and dist(pt, near['bbox']) < 90 else min(imgs, key=lambda i: dist(pt, i['bbox']), default=None)
             d = dist(pt, best['bbox']) if best else 999
             cur = found.get(ref)
             if cur and cur['d'] <= d:
@@ -122,7 +140,7 @@ def extract(pdf_path, out_dir):
             if not os.path.exists(path):
                 open(path, 'wb').write(to_jpeg(doc[r['page'] - 1].get_pixmap(dpi=60)))
         kind, name = nice_name(r['title'])
-        if not kind and 'SPOT' in doc[r['page'] - 1].get_text().upper():  # páginas de spots não têm "LINHA DE"
+        if not kind and 'SPOT' in texts[r['page'] - 1].upper():  # páginas de spots não têm "LINHA DE"
             kind, name = 'spot', f"Spot {r['model']}"
         if not kind and r['model'].startswith('LM-'):  # linha magnética 48V (trilhos, spots, pendentes)
             kind, name = 'magnetica', f"Linha Magnética {r['model']}"
@@ -145,10 +163,16 @@ def upload(rows, out_dir):
     body = [{k: r[k] for k in ('source', 'ref', 'source_product_id', 'name', 'kind', 'line', 'model', 'ean')}
             | {'image_url': f"{url}/storage/v1/object/public/supplier-catalog/hevvy/{r['image_file']}",
                'source_image_url': f"catalogo-pdf#page={r['page']}"} for r in rows]
-    req = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?on_conflict=source,ref', method='POST',
-                                 data=json.dumps(body).encode(),
-                                 headers={**h, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'})
-    urllib.request.urlopen(req).read()
+    # Refs com foto enviada à mão no sistema mantêm a foto (só o resto é atualizado).
+    q = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?source=eq.hevvy&source_image_url=eq.upload&select=ref', headers=h)
+    manual = {r['ref'] for r in json.loads(urllib.request.urlopen(q).read() or b'[]')}
+    keep = [{k: v for k, v in b.items() if k not in ('image_url', 'source_image_url')} for b in body if b['ref'] in manual]
+    for part in ([b for b in body if b['ref'] not in manual], keep):
+        if not part: continue
+        req = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?on_conflict=source,ref', method='POST',
+                                     data=json.dumps(part).encode(),
+                                     headers={**h, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'})
+        urllib.request.urlopen(req).read()
 
 
 if __name__ == '__main__':

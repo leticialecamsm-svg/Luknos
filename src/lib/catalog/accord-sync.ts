@@ -4,11 +4,16 @@
 // medidas (/ajax/listar_referencias.php) e a página do produto (fotos por acabamento).
 // A foto principal é copiada para o bucket 'supplier-catalog'; o resto é só URL.
 
+import sharp from 'sharp'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const BASE = 'https://www.accordiluminacao.com'
 const BUCKET = 'supplier-catalog'
 const UA = { 'User-Agent': 'Mozilla/5.0 (Luknos catalog sync)' }
+// As fotos do site chegam a 2 MB: guardamos em JPEG com o lado maior em 640px (~30 KB).
+// A marca vai junto da URL de origem; mudar o tamanho força copiar tudo de novo.
+const MAX_SIDE = 640
+const SIZE_TAG = `#w${MAX_SIDE}`
 
 type Card = { productId: string; href: string; title: string; line: string; thumb: string }
 type Finish = { code: string; name: string; url: string }
@@ -62,12 +67,17 @@ function parseFinishes(html: string, productId: string): Finish[] {
 async function copyImage(db: ReturnType<typeof createAdminClient>, src: string, productId: string) {
   const r = await fetch(src, { headers: UA, cache: 'no-store' })
   if (!r.ok) return null
-  const type = r.headers.get('content-type') ?? 'image/jpeg'
-  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'
-  const path = `accord/${productId}.${ext}`
-  const { error } = await db.storage.from(BUCKET).upload(path, Buffer.from(await r.arrayBuffer()), { contentType: type, upsert: true })
+  const jpg = await sharp(Buffer.from(await r.arrayBuffer()))
+    .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer()
+  const path = `accord/${productId}.jpg`
+  const { error } = await db.storage.from(BUCKET).upload(path, jpg, { contentType: 'image/jpeg', upsert: true })
   if (error) return null
-  return db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
+  // Versões antigas (PNG/WEBP em tamanho original) deixam de ser usadas.
+  await db.storage.from(BUCKET).remove([`accord/${productId}.png`, `accord/${productId}.webp`])
+  return `${db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl}?v=${Date.now()}`
 }
 
 export async function syncAccordCatalog() {
@@ -96,8 +106,10 @@ export async function syncAccordCatalog() {
       if (!Array.isArray(refs) || refs.length === 0) return
       const sourceImage = BASE + c.thumb.replace('/thumb/', '/').replace(/-small(\.\w+)$/, '$1')
       const prev = known.get(c.productId)
+      // Foto enviada à mão (source_image_url = 'upload') nunca é trocada pela do site.
+      const manual = prev?.source_image_url === 'upload'
       // Só reaproveita se já estiver no nosso Storage e a origem não mudou.
-      const imageUrl = prev?.image_url?.includes('/storage/v1/') && prev.source_image_url === sourceImage
+      const imageUrl = manual ? prev!.image_url : prev?.image_url?.includes('/storage/v1/') && prev.source_image_url === sourceImage + SIZE_TAG
         ? prev.image_url
         : (await copyImage(db, sourceImage, c.productId)) ?? (await copyImage(db, BASE + c.thumb, c.productId)) ?? sourceImage
       const finishes = page ? parseFinishes(page, c.productId) : []
@@ -107,7 +119,7 @@ export async function syncAccordCatalog() {
         rows.push({
           source: 'accord', ref, source_product_id: c.productId, name: c.title, kind: c.title.split(' ')[0]?.toLowerCase() || null, line: c.line,
           altura_cm: cm(r.altura), largura_cm: cm(r.largura), profundidade_cm: cm(r.profundidade), diametro_cm: cm(r.diametro),
-          product_url: BASE + c.href, image_url: imageUrl, source_image_url: sourceImage, finishes, updated_at: new Date().toISOString(),
+          product_url: BASE + c.href, image_url: imageUrl, source_image_url: manual ? 'upload' : sourceImage + SIZE_TAG, finishes, updated_at: new Date().toISOString(),
         })
       }
     } catch (e) {
