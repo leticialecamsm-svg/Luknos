@@ -18,35 +18,42 @@ export type TabItem = {
 export function Tabs({
   items,
   defaultTab,
+  active: controlledActive,
+  onChange,
   className,
 }: {
   items: TabItem[]
   defaultTab?: string
+  // Modo controlado (opcional): permite a tela trocar de aba por fora (ex.: barra de etapas).
+  active?: string
+  onChange?: (id: string) => void
   className?: string
 }) {
-  const [active, setActive] = useState(defaultTab ?? items[0]?.id)
+  const [inner, setInner] = useState(defaultTab ?? items[0]?.id)
+  const active = controlledActive ?? inner
+  const setActive = (id: string) => { setInner(id); onChange?.(id) }
   const activeItem = items.find(i => i.id === active) ?? items[0]
 
   return (
     <div className={className}>
-      <div className="flex gap-1 bg-gray-100 rounded-pill p-1 w-fit mb-4 flex-wrap">
+      <div className="flex gap-1.5 mb-4 flex-wrap">
         {items.map(item => (
           <button
             key={item.id}
             type="button"
             onClick={() => setActive(item.id)}
             className={cn(
-              'px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-1.5',
+              'px-4 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
               active === item.id
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-navy text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             )}
           >
             {item.label}
             {typeof item.badge === 'number' && item.badge > 0 && (
               <span className={cn(
                 'text-xs rounded-full px-1.5 py-0.5 leading-none',
-                active === item.id ? 'bg-brand-500/20 text-brand-700' : 'bg-gray-200 text-gray-600'
+                active === item.id ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'
               )}>
                 {item.badge}
               </span>

@@ -42,6 +42,8 @@ import {
 } from '@/lib/solicitations/actions'
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
 import { useConfirm } from '@/components/ui/useConfirm'
+import { isStageDone } from '@/lib/solicitations/stages'
+import { SolicitationHeader, StagePipeline, SolicitationSummary } from '@/components/solicitations/SolicitationOverview'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-gray-400 italic py-6 text-center">{children}</div>
@@ -342,38 +344,13 @@ function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: 
   )
 }
 
-// ── Regra de "etapa concluída" por aba (Bug #9) ───────────────────────────
-// Mesma semântica do protótipo aprovado: uma etapa é "concluída" quando já
-// tem um desfecho registrado na tabela daquele setor — não apenas "tem
-// registro". Usado pro prefixo ✓ na aba e pro contador do título.
-function isStageDone(id: string, s: SolicitationView): boolean {
-  switch (id) {
-    case 'visita':
-      return s.visits.some(v => v.status === 'done')
-    case 'projeto':
-      return s.designProjects.some(p => p.status === 'concluido')
-    case 'orcamento':
-      return s.quotes.some(q => q.status === 'done')
-    case 'negociacao':
-      return s.negotiations.some(n => n.temperature === 'closed' || n.temperature === 'lost')
-    case 'compra':
-      return s.purchaseChecklistItems.length > 0 && s.purchaseChecklistItems.every(i => i.status === 'recebido')
-    case 'expedicao':
-      return s.shipments.some(sh => sh.is_completed || sh.separation_status === 'delivered')
-    case 'instalacao':
-      return s.installationTrackings.some(i => i.status === 'concluida')
-    case 'posVenda':
-      return s.postSaleFollowups.some(f => !!f.resolution)
-    default:
-      return false
-  }
-}
-
 export function SolicitationDetail({
   solicitation,
   primaryQuote,
   primaryQuoteActivities,
+  initialTab,
 }: {
+  initialTab?: string
   solicitation: SolicitationView
   primaryQuote: any | null
   primaryQuoteActivities: any[]
@@ -393,7 +370,14 @@ export function SolicitationDetail({
     return doneMap[id] ? `✓ ${text}` : text
   }
 
+  const [activeTab, setActiveTab] = useState(initialTab ?? 'resumo')
+
   const items: TabItem[] = [
+    {
+      id: 'resumo',
+      label: 'Resumo',
+      content: <SolicitationSummary s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />,
+    },
     {
       id: 'visita',
       label: label('visita', 'Visita'),
@@ -482,19 +466,9 @@ export function SolicitationDetail({
       <Link href="/solicitacoes" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
         <ChevronLeft className="w-4 h-4" /> Solicitações
       </Link>
-      <div className="flex items-center gap-3 flex-wrap mb-1">
-        <h1 className="text-xl font-semibold">Solicitação #{solicitation.number}</h1>
-        <span
-          className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-700"
-          title='Etapa concluída = já tem um desfecho registrado (orçamento concluído, negociação fechada/perdida, compra toda recebida, etc.). O total considera só as etapas já iniciadas (com algum registro) nesta Solicitação.'
-        >
-          {doneCount} de {startedCount} etapas concluídas
-        </span>
-      </div>
-      <div className="text-sm text-gray-500 mb-6">
-        {solicitation.clientName ?? 'Cliente'} {solicitation.architectName ? `· Arquiteto(a): ${solicitation.architectName}` : ''} · Criada em {formatDate(solicitation.createdAt)}
-      </div>
-      <Tabs items={items} />
+      <SolicitationHeader s={solicitation} doneCount={doneCount} startedCount={startedCount} />
+      <StagePipeline s={solicitation} onSelect={setActiveTab} />
+      <Tabs items={items} active={activeTab} onChange={setActiveTab} />
     </div>
   )
 }

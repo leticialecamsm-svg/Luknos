@@ -3,7 +3,7 @@ import { getSolicitation } from '@/lib/solicitations/actions'
 import { getQuoteById, getQuoteActivities } from '@/lib/actions'
 import { SolicitationDetail } from '@/components/solicitations/SolicitationDetail'
 
-export default async function SolicitationDetailPage({ params }: { params: { id: string } }) {
+export default async function SolicitationDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
   const solicitation = await getSolicitation(params.id)
   if (!solicitation) notFound()
 
@@ -18,6 +18,7 @@ export default async function SolicitationDetailPage({ params }: { params: { id:
   return (
     <SolicitationDetail
       solicitation={solicitation}
+      initialTab={searchParams?.tab}
       primaryQuote={primaryQuote}
       primaryQuoteActivities={primaryQuoteActivities}
     />
