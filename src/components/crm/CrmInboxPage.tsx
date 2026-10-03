@@ -56,7 +56,6 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Gravação de áudio (segurar/clicar no microfone, como no WhatsApp).
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const [sendingVoice, setSendingVoice] = useState(false)
@@ -84,9 +83,6 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Rede de segurança: além do tempo real abaixo, confere sozinho a cada 6s
-  // (silencioso, sem piscar "Carregando…") — assim a tela nunca fica presa
-  // esperando o Realtime, mesmo se ele falhar por algum motivo.
   useEffect(() => {
     const t = setInterval(() => {
       refreshList(true)
@@ -95,51 +91,50 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     return () => clearInterval(t)
   }, [selectedId, refreshList, refreshThread])
 
-  // Realtime: nova mensagem em qualquer conversa -> atualiza lista; se for a
-  // conversa aberta, atualiza a thread também.
   useEffect(() => {
     const supabase = createClient()
-    const channel = supabase
-      .channel('crm-messages-feed')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_messages' }, (payload) => {
-        const row = payload.new as any
+    const channel = supabase.channel('crm:all')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'crm_messages',
+      }, () => {
         refreshList(true)
-        if (selectedId && row.conversation_id === selectedId) refreshThread(selectedId, true)
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'crm_conversations' }, () => {
-        refreshList(true)
+        if (selectedId) refreshThread(selectedId, true)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId])
+  }, [selectedId, refreshList, refreshThread])
 
-  const selected = conversations.find((c) => c.id === selectedId) ?? null
+  const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
 
-  async function handleSend() {
-    if (!selectedId || !text.trim()) return
-    const value = text
-    setText('')
-    const res = await sendCrmMessage({ conversationId: selectedId, text: value })
-    if (res.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error); setText(value); return }
-    refreshThread(selectedId)
+  const handleFile = (files: FileList | null) => {
+    if (!files) return
+    Array.from(files).forEach((file) => {
+      if (!selectedId) { toast.error('ERRO', 'Escolha uma conversa primeiro'); return }
+      startTransition(async () => {
+        const up = await uploadCrmFile(selectedId, file)
+        if (up.error) { toast.error('ERRO AO ENVIAR', up.error); return }
+        const res = await sendCrmMessage({
+          conversationId: selectedId,
+          storagePath: up.storagePath,
+          fileName: file.name,
+          mimeType: file.type,
+        })
+        if (res.error) toast.error('ERRO', res.error)
+        else refreshThread(selectedId)
+      })
+    })
   }
 
-  function handleFile(fileList: FileList | null) {
-    if (!fileList?.length || !selectedId) return
-    const file = fileList[0]
+  const handleSend = () => {
+    if (!text.trim() || !selectedId) return
+    const msg = text
+    setText('')
     startTransition(async () => {
-      const up = await uploadCrmFile(selectedId, file)
-      if (up.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', up.error); return }
-      const res = await sendCrmMessage({
-        conversationId: selectedId,
-        text: text.trim() || undefined,
-        storagePath: up.storagePath,
-        fileName: file.name,
-        mimeType: file.type,
-      })
-      if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
-      else { setText(''); refreshThread(selectedId) }
+      const res = await sendCrmMessage({ conversationId: selectedId, text: msg })
+      if (res.error) toast.error('ERRO', res.error)
+      else refreshThread(selectedId)
     })
   }
 
@@ -160,10 +155,6 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
         .find((t) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(t)) ?? ''
       let recorder: MediaRecorder
       try {
-        // força um mimeType de áudio explícito sempre que possível — sem
-        // isso, alguns Chrome relatam o gravador como "video/webm" mesmo
-        // pra um stream só de áudio, e o WhatsApp nunca entrega a mensagem
-        // (fica "pendente" pra sempre, sem erro nenhum pra avisar).
         recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream, { mimeType: 'audio/webm' })
       } catch {
         recorder = new MediaRecorder(stream)
@@ -187,16 +178,11 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     setRecording(false)
   }
 
-  // Para de gravar e abre a prévia (ouvir antes de enviar) — não envia
-  // nada ainda, só monta o arquivo localmente.
   function finishRecording() {
     const recorder = mediaRecorderRef.current
     if (!recorder) { setRecording(false); return }
     recorder.onstop = () => {
       stopRecordingTracks()
-      // o container (webm/mp4) é real; só o rótulo "video/..." às vezes vem
-      // errado pra um stream que só tem áudio — troca pelo "audio/..."
-      // equivalente antes de subir, senão o WhatsApp nunca entrega.
       let mimeType = recorder.mimeType || 'audio/webm'
       if (!mimeType.startsWith('audio/')) {
         mimeType = mimeType.includes('mp4') ? 'audio/mp4' : 'audio/webm'
@@ -236,41 +222,9 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
     else refreshThread(selectedId)
   }
 
-  useEffect(() => () => {
-    mediaRecorderRef.current?.stop()
-    stopRecordingTracks()
-    if (previewAudio) URL.revokeObjectURL(previewAudio.url)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   async function openAttachment(path: string) {
-    const res = await getCrmAttachmentUrl(path)
-    if (res.error || !res.url) { toast.error('OCORREU UM ERRO', res.error ?? 'Não foi possível abrir.'); return }
-    window.open(res.url, '_blank', 'noopener,noreferrer')
-  }
-
-  async function handleReassign(userId: string) {
-    if (!selectedId) return
-    const res = await reassignConversation(selectedId, userId)
-    setShowReassign(false)
-    if (res.error) toast.error('NÃO FOI POSSÍVEL TRANSFERIR', res.error)
-    else { toast.success('TRANSFERIDO!', 'A conversa mudou de atendente.'); refreshList(); refreshThread(selectedId) }
-  }
-
-  async function handleLinkContact(contactId: string | null) {
-    if (!selectedId) return
-    const res = await linkConversationContact(selectedId, contactId)
-    setShowLinkContact(false)
-    if (res.error) toast.error('OCORREU UM ERRO', res.error)
-    else { toast.success('VINCULADO!', 'Contato atualizado.'); refreshList() }
-  }
-
-  async function handleRenameConversation(name: string) {
-    if (!selectedId) return
-    const res = await setConversationDisplayName(selectedId, name)
-    setShowLinkContact(false)
-    if (res.error) toast.error('OCORREU UM ERRO', res.error)
-    else { toast.success('SALVO!', 'Nome atualizado.'); refreshList() }
+    const r = await getCrmAttachmentUrl(path)
+    if ('url' in r) window.open(r.url, '_blank')
   }
 
   useEffect(() => {
@@ -280,131 +234,177 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   }, [contactQuery])
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] gap-4">
-      {/* Lista de conversas */}
-      <div className="w-80 shrink-0 flex flex-col card p-0 overflow-hidden">
-        <div className="p-3 border-b border-surface-border flex gap-1">
-          {([
-            ['mine', 'Minhas', MessageSquareText],
-            ['unassigned', 'Sem atendente', Inbox],
-            ['all', 'Todas', UsersIcon],
-          ] as const).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              onClick={() => setScope(key)}
-              className={cn(
-                'flex-1 text-xs font-medium rounded-lg px-2 py-1.5 flex items-center justify-center gap-1',
-                scope === key ? 'bg-brand-500 text-white' : 'text-gray-500 hover:bg-surface-secondary',
-              )}
-            >
-              <Icon className="w-3.5 h-3.5" /> {label}
-            </button>
-          ))}
+    <div className="flex h-[calc(100vh-7.5rem)] gap-0 bg-white">
+      {/* ──────────────────────────────────────────────────────────────────────
+          SIDEBAR - Conversas
+          ────────────────────────────────────────────────────────────────────── */}
+      <div className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
+        {/* Header com tabs */}
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-gray-900 mb-3">Conversas</h2>
+          <div className="flex gap-2">
+            {(['mine', 'unassigned', 'all'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setScope(key)}
+                className={cn(
+                  'flex-1 px-3 py-1.5 text-sm font-medium rounded-full transition-colors',
+                  scope === key
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                )}
+              >
+                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : 'Todas'}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Lista */}
         <div className="flex-1 overflow-y-auto">
           {loadingList && (
-            <p className="text-xs text-gray-400 p-4 flex items-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando…
-            </p>
+            <div className="p-8 text-center">
+              <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto" />
+            </div>
           )}
           {!loadingList && conversations.length === 0 && (
-            <p className="text-xs text-gray-400 p-4">Nenhuma conversa aqui.</p>
+            <p className="text-sm text-gray-500 p-4 text-center">Nenhuma conversa aqui</p>
           )}
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setSelectedId(c.id)}
-              className={cn(
-                'w-full text-left px-3 py-2.5 border-b border-surface-border/60 hover:bg-surface-secondary transition-colors',
-                selectedId === c.id && 'bg-brand-50',
-              )}
-            >
-              <p className="text-sm font-medium text-gray-800 truncate">
-                {c.contact_name ?? c.remote_jid.split('@')[0]}
-              </p>
-              <p className="text-xs text-gray-400 truncate">{c.last_body ?? '—'}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">
-                {c.instance_label}{c.assigned_user_name ? ` · ${c.assigned_user_name}` : ''}
-              </p>
-            </button>
-          ))}
+          <div className="p-2 space-y-1">
+            {conversations.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedId(c.id)}
+                className={cn(
+                  'w-full text-left p-3 rounded-lg transition-all',
+                  selectedId === c.id
+                    ? 'bg-gray-100 border-l-4 border-gray-900'
+                    : 'hover:bg-gray-50'
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Avatar */}
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-sm font-bold flex items-center justify-center shrink-0">
+                    {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-gray-900 truncate">
+                      {c.contact_name ?? c.remote_jid.split('@')[0]}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{c.instance_label}</p>
+                    <p className="text-xs text-gray-400 line-clamp-1 mt-1">
+                      {c.last_body || 'Sem mensagens'}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Thread */}
-      <div className="flex-1 card p-0 flex flex-col overflow-hidden">
+      {/* ──────────────────────────────────────────────────────────────────────
+          MAIN - Thread de mensagens
+          ────────────────────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
         {!selected && (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-            Escolha uma conversa à esquerda.
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-400 text-center">
+              <p className="text-lg font-medium text-gray-600 mb-1">Escolha uma conversa</p>
+              <p className="text-sm text-gray-500">Selecione uma conversa na esquerda para começar</p>
+            </p>
           </div>
         )}
 
         {selected && (
           <>
-            <div className="p-3 border-b border-surface-border flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-800 truncate">
-                  {selected.contact_name ?? selected.remote_jid.split('@')[0]}
-                </p>
-                <p className="text-xs text-gray-400">{selected.instance_label}</p>
+            {/* Header da conversa */}
+            <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-sm font-bold flex items-center justify-center">
+                  {(selected.contact_name ?? selected.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">
+                    {selected.contact_name ?? selected.remote_jid.split('@')[0]}
+                  </h3>
+                  <p className="text-sm text-gray-500">{selected.instance_label}</p>
+                </div>
               </div>
-              <div className="flex gap-1.5 shrink-0">
-                <button onClick={() => setShowLinkContact(true)} className="btn-secondary text-xs px-2 py-1.5 flex items-center gap-1">
-                  <Link2 className="w-3.5 h-3.5" /> Vincular contato
+
+              {/* Ações */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowLinkContact(true)}
+                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Link2 className="w-4 h-4" />
                 </button>
-                <button onClick={() => setShowReassign(true)} className="btn-secondary text-xs px-2 py-1.5 flex items-center gap-1">
-                  <UserCog className="w-3.5 h-3.5" /> Mudar atendente
+                <button
+                  onClick={() => setShowReassign(true)}
+                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <UserCog className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-surface-secondary/30">
-              {loadingThread && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+            {/* Mensagens */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {loadingThread && (
+                <div className="text-center py-4">
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
+                </div>
+              )}
               {messages.map((m) => (
                 <MessageBubble key={m.id} msg={m} onOpenAttachment={openAttachment} />
               ))}
               <div ref={bottomRef} />
             </div>
 
+            {/* Composer */}
             {recording ? (
-              <div className="p-3 border-t border-surface-border flex items-center gap-3">
-                <span className="relative flex h-2.5 w-2.5 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <div className="p-4 border-t border-gray-200 bg-white flex items-center gap-3">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
                 </span>
                 <span className="text-sm text-gray-600 flex-1">
                   Gravando… {String(Math.floor(recordSeconds / 60)).padStart(2, '0')}:{String(recordSeconds % 60).padStart(2, '0')}
                 </span>
-                <button type="button" onClick={cancelRecording} className="p-2 text-gray-400 hover:text-red-600" title="Cancelar">
-                  <Trash2 className="w-5 h-5" />
+                <button type="button" onClick={cancelRecording} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <Trash2 className="w-4 h-4 text-gray-600" />
                 </button>
-                <button type="button" onClick={finishRecording} className="btn-primary px-3 py-2" title="Parar e ouvir">
-                  <Square className="w-4 h-4" />
+                <button type="button" onClick={finishRecording} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <Square className="w-4 h-4 text-gray-600" />
                 </button>
               </div>
             ) : previewAudio ? (
-              <div className="p-3 border-t border-surface-border flex items-center gap-3">
-                <audio controls src={previewAudio.url} className="h-9 flex-1" />
-                <button type="button" onClick={discardPreviewAudio} className="p-2 text-gray-400 hover:text-red-600" title="Descartar">
-                  <Trash2 className="w-5 h-5" />
+              <div className="p-4 border-t border-gray-200 bg-white flex items-center gap-3">
+                <audio controls src={previewAudio.url} className="h-10 flex-1" />
+                <button type="button" onClick={discardPreviewAudio} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <Trash2 className="w-4 h-4 text-gray-600" />
                 </button>
                 <button
                   type="button"
                   onClick={sendPreviewAudio}
                   disabled={sendingVoice}
-                  className="btn-primary px-3 py-2"
+                  className="p-2 bg-gray-900 text-white hover:bg-gray-800 rounded-full transition-colors"
                   title="Enviar áudio"
                 >
                   {sendingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </div>
             ) : (
-              <div className="p-3 border-t border-surface-border flex items-end gap-2">
+              <div className="p-4 border-t border-gray-200 bg-white flex items-end gap-2">
+                {/* Ícone de anexo */}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={pending || sendingVoice}
-                  className="p-2 text-gray-400 hover:text-brand-600"
+                  className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Anexar arquivo"
                 >
                   {pending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
@@ -415,27 +415,35 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
                   className="hidden"
                   onChange={(e) => { handleFile(e.target.files); e.target.value = '' }}
                 />
+
+                {/* Input */}
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
                   placeholder="Escreva uma mensagem…"
                   rows={1}
-                  className="input flex-1 resize-none"
+                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-0"
                 />
+
+                {/* Microfone ou enviar */}
                 {text.trim() ? (
-                  <button onClick={handleSend} className="btn-primary px-3 py-2">
-                    <Send className="w-4 h-4" />
+                  <button
+                    onClick={handleSend}
+                    className="p-2.5 bg-gray-900 text-white hover:bg-gray-800 rounded-full transition-colors"
+                    title="Enviar mensagem"
+                  >
+                    <Send className="w-5 h-5" />
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={startRecording}
                     disabled={sendingVoice}
-                    className="btn-primary px-3 py-2"
+                    className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                     title="Gravar áudio"
                   >
-                    {sendingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                    <Mic className="w-5 h-5" />
                   </button>
                 )}
               </div>
@@ -444,147 +452,255 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
         )}
       </div>
 
-      {showReassign && selected && (
-        <Modal onClose={() => setShowReassign(false)} title="Mudar atendente">
-          <div className="space-y-1 max-h-80 overflow-y-auto">
-            {users.map((u) => (
-              <button
-                key={u.id}
-                onClick={() => handleReassign(u.id)}
-                className={cn(
-                  'w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-surface-secondary',
-                  u.id === selected.assigned_user_id && 'bg-brand-50 font-medium',
-                )}
-              >
-                {u.name}
-              </button>
-            ))}
-          </div>
-        </Modal>
+      {/* Modais... */}
+      {showLinkContact && selected && (
+        <LinkContactModal
+          conversationId={selected.id}
+          currentName={selected.contact_name ?? ''}
+          onClose={() => setShowLinkContact(false)}
+          onSuccess={() => { setShowLinkContact(false); refreshList() }}
+          users={users}
+          contactQuery={contactQuery}
+          setContactQuery={setContactQuery}
+          contactResults={contactResults}
+        />
       )}
 
-      {showLinkContact && selected && (
-        <Modal onClose={() => setShowLinkContact(false)} title="Vincular contato">
-          <div className="space-y-3">
-            <div className="relative">
-              <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" />
-              <input
-                autoFocus
-                value={contactQuery}
-                onChange={(e) => setContactQuery(e.target.value)}
-                placeholder="Buscar contato já cadastrado…"
-                className="input pl-8"
-              />
-            </div>
-            {selected.contact_id && (
-              <button onClick={() => handleLinkContact(null)} className="text-xs text-red-600 hover:underline">
-                Desvincular contato atual
-              </button>
-            )}
-            <div className="space-y-1 max-h-48 overflow-y-auto">
-              {contactResults.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => handleLinkContact(c.id)}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-surface-secondary"
-                >
-                  {c.name} <span className="text-xs text-gray-400">({c.type})</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="border-t border-surface-border pt-3">
-              <p className="text-xs text-gray-500 mb-1.5">
-                Ou só dar um nome pra essa conversa (sem vincular a um contato do sistema):
-              </p>
-              <NameOnlyForm
-                initial={selected.contact_id ? '' : (selected.contact_name ?? '')}
-                onSave={handleRenameConversation}
-              />
-            </div>
-          </div>
-        </Modal>
+      {showReassign && selected && (
+        <ReassignModal
+          conversationId={selected.id}
+          currentUserId={selected.assigned_user_id ?? ''}
+          onClose={() => setShowReassign(false)}
+          onSuccess={() => { setShowReassign(false); refreshList() }}
+          users={users}
+        />
       )}
     </div>
   )
 }
 
-function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: (path: string) => void }) {
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// Componentes auxiliares
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: (p: string) => void }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (msg.message_type === 'audio' && msg.storage_path) {
-      getCrmAttachmentUrl(msg.storage_path).then((r) => { if (r.url) setAudioUrl(r.url) })
+      getCrmAttachmentUrl(msg.storage_path).then((r) => {
+        if ('url' in r && r.url) setAudioUrl(r.url)
+      })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [msg.storage_path, msg.message_type])
+  }, [msg])
+
+  const isOutbound = msg.direction === 'outbound'
+  const time = new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
   if (msg.is_system) {
-    return <p className="text-center text-[11px] text-gray-400 py-1">{msg.body}</p>
+    return <div className="text-center py-2 text-xs text-gray-400">{msg.body}</div>
   }
-  const mine = msg.direction === 'outbound'
+
   return (
-    <div className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
-      <div className={cn(
-        'max-w-[70%] rounded-2xl px-3 py-2 text-sm',
-        mine ? 'bg-brand-500 text-white rounded-br-sm' : 'bg-white border border-surface-border rounded-bl-sm',
-      )}>
-        {mine && msg.sender_name && (
-          <p className="text-[11px] font-semibold opacity-80 mb-0.5">{msg.sender_name}</p>
+    <div className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}>
+      <div
+        className={cn(
+          'max-w-xs rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+          isOutbound
+            ? 'bg-gray-900 text-white'
+            : 'bg-white text-gray-900 border border-gray-200'
         )}
-        {msg.storage_path && msg.message_type === 'audio' && (
-          audioUrl
-            ? <audio controls src={audioUrl} className="h-9 max-w-[220px] mb-1" />
-            : <p className="text-xs opacity-70 mb-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> áudio…</p>
+      >
+        {!isOutbound && msg.sender_name && (
+          <p className="text-xs font-semibold text-gray-500 mb-1">{msg.sender_name}</p>
         )}
-        {msg.storage_path && msg.message_type !== 'audio' && (
+
+        {msg.message_type === 'text' && msg.body && (
+          <p className="whitespace-pre-wrap">{msg.body}</p>
+        )}
+
+        {msg.message_type === 'audio' && audioUrl && (
+          <audio controls src={audioUrl} className="w-full h-9 rounded" />
+        )}
+
+        {['image', 'document'].includes(msg.message_type) && msg.storage_path && (
           <button
-            onClick={() => onOpenAttachment(msg.storage_path!)}
-            className={cn('flex items-center gap-1.5 text-xs underline mb-1', mine ? 'text-white' : 'text-brand-600')}
+            onClick={() => msg.storage_path && onOpenAttachment(msg.storage_path)}
+            className={cn(
+              'underline text-sm',
+              isOutbound ? 'text-gray-200' : 'text-blue-600'
+            )}
           >
-            <Paperclip className="w-3.5 h-3.5" /> {msg.file_name ?? 'arquivo'}
+            {msg.file_name || 'Arquivo'}
           </button>
         )}
-        {msg.body && <p className="whitespace-pre-wrap">{msg.body}</p>}
-        <p className={cn('text-[10px] mt-1', mine ? 'text-white/70' : 'text-gray-400')}>
-          {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+
+        <p className={cn('text-xs mt-1 opacity-70', isOutbound ? 'text-gray-300' : 'text-gray-500')}>
+          {time}
         </p>
       </div>
     </div>
   )
 }
 
-function NameOnlyForm({ initial, onSave }: { initial: string; onSave: (name: string) => void }) {
-  const [name, setName] = useState(initial)
+function ReassignModal({
+  conversationId,
+  currentUserId,
+  onClose,
+  onSuccess,
+  users,
+}: {
+  conversationId: string
+  currentUserId: string
+  onClose: () => void
+  onSuccess: () => void
+  users: SystemUser[]
+}) {
+  const toast = useToast()
+  const [pending, startTransition] = useTransition()
+
+  const handleReassign = (userId: string | null) => {
+    startTransition(async () => {
+      const res = await reassignConversation(conversationId, userId)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success('ATUALIZADO!', 'Conversa atribuída'); onSuccess() }
+    })
+  }
+
   return (
-    <div className="flex gap-2">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="ex.: Marido da Michelline"
-        className="input flex-1"
-      />
-      <button
-        type="button"
-        onClick={() => onSave(name)}
-        disabled={!name.trim()}
-        className="btn-secondary text-sm px-3"
-      >
-        Salvar
-      </button>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-gray-900">Atribuir conversa</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <button
+            onClick={() => handleReassign(null)}
+            disabled={pending}
+            className={cn(
+              'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
+              !currentUserId
+                ? 'bg-gray-200 text-gray-900 font-medium'
+                : 'hover:bg-gray-100 text-gray-700'
+            )}
+          >
+            Sem atribuição
+          </button>
+          {users.map((u) => (
+            <button
+              key={u.id}
+              onClick={() => handleReassign(u.id)}
+              disabled={pending}
+              className={cn(
+                'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
+                currentUserId === u.id
+                  ? 'bg-gray-200 text-gray-900 font-medium'
+                  : 'hover:bg-gray-100 text-gray-700'
+              )}
+            >
+              {u.name}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function LinkContactModal({
+  conversationId,
+  currentName,
+  onClose,
+  onSuccess,
+  users,
+  contactQuery,
+  setContactQuery,
+  contactResults,
+}: {
+  conversationId: string
+  currentName: string
+  onClose: () => void
+  onSuccess: () => void
+  users: SystemUser[]
+  contactQuery: string
+  setContactQuery: (q: string) => void
+  contactResults: any[]
+}) {
+  const toast = useToast()
+  const [pending, startTransition] = useTransition()
+
+  const handleLink = (contactId: string | null) => {
+    startTransition(async () => {
+      const res = await linkConversationContact(conversationId, contactId)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success('VINCULADO!', 'Contato atualizado'); onSuccess() }
+    })
+  }
+
+  const handleRename = (name: string) => {
+    startTransition(async () => {
+      const res = await setConversationDisplayName(conversationId, name)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success('SALVO!', 'Nome atualizado'); onSuccess() }
+    })
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="card p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-gray-900">Vincular contato</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        {children}
+
+        <div className="space-y-3">
+          <input
+            autoFocus
+            value={contactQuery}
+            onChange={(e) => setContactQuery(e.target.value)}
+            placeholder="Buscar contato…"
+            className="w-full px-3 py-2 bg-gray-100 rounded-lg border-0 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
+          />
+
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {contactResults.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => handleLink(c.id)}
+                disabled={pending}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-100 transition-colors text-gray-700"
+              >
+                {c.name} <span className="text-xs text-gray-400">({c.type})</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t border-gray-200 pt-3">
+            <p className="text-xs text-gray-500 mb-2">Ou digitar um nome:</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="ex.: João Silva"
+                className="flex-1 px-3 py-2 bg-gray-100 rounded-lg border-0 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const name = (e.target as HTMLInputElement).value
+                    if (name.trim()) {
+                      handleRename(name)
+                      ;(e.target as HTMLInputElement).value = ''
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

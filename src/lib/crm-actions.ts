@@ -227,12 +227,12 @@ export async function getCrmMessages(conversationId: string) {
   }
 }
 
-export async function reassignConversation(conversationId: string, newUserId: string) {
+export async function reassignConversation(conversationId: string, newUserId: string | null) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
 
-  const { data: newUser } = await admin.from('users').select('name').eq('id', newUserId).maybeSingle()
+  const { data: newUser } = newUserId ? await admin.from('users').select('name').eq('id', newUserId).maybeSingle() : { data: null }
   const { error } = await admin
     .from('crm_conversations')
     .update({ assigned_user_id: newUserId })
