@@ -22,6 +22,14 @@
     {
       "path": "/api/cron/supplier-catalog?source=usina",
       "schedule": "30 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "40 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "50 9 * * 1"
     }
   ]
 }

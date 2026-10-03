@@ -14,7 +14,7 @@ const BASE = 'https://usinadesign.com.br'
 const LINHAS = ['decorativo', 'externa', 'fitas-e-fontes', 'legou', 'office-slim', 'perfil']
 const BUDGET_MS = 240_000
 
-type Card = { fam: string; tipo: string; img: string; linha: string }
+export type Card = { fam: string; tipo: string; img: string; linha: string }
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const unescapeHtml = (s: string) => s.replace(/&amp;/g, '&').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
@@ -27,18 +27,45 @@ function parseCards(html: string, linha: string): Card[] {
   return out
 }
 
-// Linhas da tabela "Códigos da família X": [código, dimensão, descrição].
-function parseCodes(html: string): [string, string, string][] {
+// Linhas da tabela "Códigos da família X": [código, dimensão, descrição]. As colunas mudam de
+// família para família, então a descrição é a coluna chamada "Descrição" (nem toda tabela tem).
+export function parseCodes(html: string): [string, string, string][] {
   const i = html.indexOf('Códigos da família')
   if (i < 0) return []
   const table = html.slice(i, html.indexOf('</table>', i))
+  const cell = (h: string) => clean(unescapeHtml(h.replace(/<[^>]+>/g, '')))
+  const heads = Array.from(table.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g), t => cell(t[1]))
+  const descCol = heads.findIndex(h => norm(h) === 'descricao')
   const out: [string, string, string][] = []
   for (const tr of Array.from(table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g))) {
-    const tds = Array.from(tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), t => clean(unescapeHtml(t[1].replace(/<[^>]+>/g, ''))))
-    if (tds.length >= 3 && tds[0]) out.push([tds[0], tds[1], tds[tds.length - 1]])
+    const tds = Array.from(tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), t => cell(t[1]))
+    if (tds.length >= 2 && tds[0]) out.push([tds[0], tds[1], descCol >= 0 ? tds[descCol] ?? '' : ''])
   }
   return out
 }
+
+// Tipo do código pela página dele: "Pegasus · Plafon/Arandela · Decorativo" -> "Plafon/Arandela".
+export function tipoDaPagina(html: string, code: string): string | null {
+  const lines = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, '\n').split('\n').map(l => clean(unescapeHtml(l))).filter(Boolean)
+  for (let j = 0; j < lines.length - 2; j++) {
+    if (lines[j] === code && lines[j + 1].endsWith('·') && lines[j + 2].endsWith('·')) return lines[j + 2].replace(/\s*·$/, '')
+  }
+  return null
+}
+
+// Cartão (tipo) que melhor corresponde a um texto de tipo ("Plafon/Arandela", "Pendente Vertical Aivi").
+export function pickCard(cards: Card[], text: string): Card | null {
+  const slug = norm(text).replace(/[^a-z]/g, '')
+  const byLen = [...cards].sort((a, b) => b.tipo.length - a.tipo.length)
+  return byLen.find(c => c.tipo.replace(/-/g, '') === slug)
+    ?? byLen.find(c => norm(text).startsWith(c.tipo.replace(/-/g, ' ')))
+    ?? byLen.find(c => slug.startsWith(c.tipo.replace(/-/g, '')))
+    ?? null
+}
+
+// Tipo (pendente, arandela, plafon…) a partir do slug do cartão ("pendente-vertical", "plafonarandela").
+const KINDS = ['pendente', 'arandela', 'plafon', 'abajur', 'balizador', 'embutido', 'spot', 'coluna', 'poste', 'luminaria', 'trilho', 'perfil', 'fita', 'fonte', 'projetor', 'refletor']
+export const kindOf = (tipo: string) => KINDS.find(k => tipo.replace(/-/g, '').startsWith(k)) ?? tipo.split('-')[0]
 
 export async function syncUsinaCatalog() {
   const started = Date.now()
@@ -84,16 +111,24 @@ export async function syncUsinaCatalog() {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const codes = parseCodes(await text(`${BASE}/familia/${fam}?tipo=${f.cards[0].tipo}`))
-      // Muitos códigos vêm com descrição em branco ("—"): herdam a de um irmão do mesmo modelo
-      // (mesmo número antes do traço), que costuma trazer o tipo ("Pendente Angular Globo…").
+      // Códigos sem descrição herdam a de um irmão do mesmo modelo (mesmo número antes do traço).
       const blank = (d: string) => !d || /^[—–-]+$/.test(d)
+      const model = (code: string) => code.split('-')[0]
       const sibling = new Map<string, string>()
-      for (const [code, , desc] of codes) if (!blank(desc) && !sibling.has(code.split('-')[0])) sibling.set(code.split('-')[0], desc)
+      for (const [code, , desc] of codes) if (!blank(desc) && !sibling.has(model(code))) sibling.set(model(code), desc)
+      // Família com vários tipos e sem descrição: pergunta o tipo à página de um código por modelo.
+      const tipoDoModelo = new Map<string, Card>()
+      if (f.cards.length > 1) {
+        for (const [code, , desc] of codes) {
+          const m = model(code)
+          if (!blank(desc) || sibling.has(m) || tipoDoModelo.has(m)) continue
+          const tipo = tipoDaPagina(await text(`${BASE}/codigo/${encodeURIComponent(code)}`).catch(() => ''), code)
+          tipoDoModelo.set(m, (tipo && pickCard(f.cards, tipo)) || f.cards[0])
+        }
+      }
       for (const [code, dim, rawDesc] of codes) {
-        const desc = blank(rawDesc) ? sibling.get(code.split('-')[0]) ?? '' : rawDesc
-        // O tipo vem da descrição ("Pendente Vertical Aivi"): vale o cartão de slug mais longo que a abre.
-        const d = norm(desc)
-        const card = [...f.cards].sort((a, b) => b.tipo.length - a.tipo.length).find(c => d.startsWith(c.tipo.replace(/-/g, ' '))) ?? f.cards[0]
+        const desc = blank(rawDesc) ? sibling.get(model(code)) ?? '' : rawDesc
+        const card = (desc && pickCard(f.cards, desc)) || tipoDoModelo.get(model(code)) || f.cards[0]
         const name = desc || `${titleCase(card.tipo)} ${titleCase(fam)}`
         const key = `${fam}/${card.tipo}`
         const src = BASE + card.img
@@ -107,7 +142,7 @@ export async function syncUsinaCatalog() {
           imageUrl = copied.get(key) ?? null
         }
         rows.push({
-          source: 'usina', ref: code, source_product_id: key, name, kind: norm(name).split(' ')[0] || null,
+          source: 'usina', ref: code, source_product_id: key, name, kind: kindOf(card.tipo),
           line: titleCase(fam), model: code, product_url: `${BASE}/codigo/${encodeURIComponent(code)}`,
           image_url: imageUrl, source_image_url: manual ? 'upload' : src + SIZE_TAG, finishes: [], updated_at: new Date().toISOString(),
           ...dimsFrom(dim, true),
