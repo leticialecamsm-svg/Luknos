@@ -7,8 +7,10 @@ import { brl, pct } from '@/lib/pricing/engine'
 import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import { SupplierLogo } from './SupplierLogo'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
+import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
+import type { CatalogEntry } from '@/lib/catalog/match'
 import {
-  getSupplierSheet, getSupplierQuotes,
+  getSupplierSheet, getSupplierQuotes, getSupplierCatalog,
   type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
 } from '@/lib/pricing/actions'
 
@@ -27,13 +29,20 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   const [search, setSearch] = useState('')
   const [closed, setClosed] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<SheetItem | null>(null)
+  const [picking, setPicking] = useState<SheetItem | null>(null)
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
+  // Fornecedores com catálogo de fotos (copiado do site do fabricante).
+  const hasCatalog = !!supplier && norm(supplier.name).includes('accord')
+  const replaceItem = (u: SheetItem) => setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) })))
+  const loadCatalog = async () => { const r = await getSupplierCatalog(supplierId); setCatalog('error' in r ? [] : r.catalog) }
+  const openPicker = (i: SheetItem) => { setPicking(i); if (catalog === null) loadCatalog() }
 
   useEffect(() => {
     if (!supplierId) return
     let cancelled = false
-    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set())
+    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set()); setCatalog(null)
     getSupplierSheet(supplierId).then(r => { if (!cancelled && !('error' in r)) setInvoices(r.invoices) })
     getSupplierQuotes(supplierId, 100).then(r => { if (!cancelled && !('error' in r)) setQuotes(r.quotes) })
     return () => { cancelled = true }
@@ -139,7 +148,11 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
                         {open && inv.items.map(i => (
                           <tr key={i.id} onClick={() => setEditing(i)} className="border-t border-surface-border hover:bg-surface-secondary/50 cursor-pointer">
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{i.quantidade}</td>
-                            <td className="px-3 py-2 text-gray-800 min-w-[280px]">{i.descricao}</td>
+                            <td className="px-3 py-2 text-gray-800 min-w-[280px]">
+                              {hasCatalog ? (
+                                <span className="flex items-center gap-2.5"><ProductThumb item={i} onPick={() => openPicker(i)} />{i.descricao}</span>
+                              ) : i.descricao}
+                            </td>
                             <td className="px-3 py-2 font-mono text-xs text-gray-500">{i.ncm}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{brl(i.valor_total)}</td>
                             <td className="px-3 py-2"><span className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded', i.tipo_icms?.toUpperCase() === 'ANT' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700')}>{i.tipo_icms ?? '—'}</span></td>
@@ -168,7 +181,12 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
 
       {editing && (
         <ItemSimulatorModal item={editing} onClose={() => setEditing(null)}
-          onSaved={u => { setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) }))); setEditing(null) }} />
+          onSaved={u => { replaceItem(u); setEditing(null) }} />
+      )}
+
+      {picking && (
+        <CatalogPickerModal item={picking} catalog={catalog} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
+          onChanged={u => { replaceItem(u); setPicking(u) }} />
       )}
 
       {view === 'cotacoes' && (
