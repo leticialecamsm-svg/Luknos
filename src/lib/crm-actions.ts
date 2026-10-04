@@ -370,7 +370,6 @@ export async function syncCrmContactInfo() {
 
   const admin = createAdminClient()
 
-  // Busca todas as conversas abertas com suas instâncias
   const { data: convs, error: convErr } = await admin
     .from('crm_conversations')
     .select('id, remote_jid, contact_id, contact_name_cache, crm_instances(instance_name, is_active)')
@@ -384,13 +383,14 @@ export async function syncCrmContactInfo() {
 
   let updated = 0
   const errors: string[] = []
+  const debugSamples: unknown[] = []
 
   for (const conv of convs ?? []) {
     const instance = (conv as any).crm_instances
     if (!instance?.is_active || !instance?.instance_name) continue
 
     try {
-      // Chama a Evolution via crm-evolution-setup (proxy seguro — chave nunca exposta)
+      const action = debugSamples.length < 2 ? 'debug_contact' : 'contact_info'
       const res = await fetch(`${SUPABASE_URL}/functions/v1/crm-evolution-setup`, {
         method: 'POST',
         headers: {
@@ -399,12 +399,18 @@ export async function syncCrmContactInfo() {
           'x-internal-call': '1',
         },
         body: JSON.stringify({
-          action: 'contact_info',
+          action,
           instance_name: instance.instance_name,
           remote_jid: conv.remote_jid,
         }),
       })
       const r = await res.json().catch(() => ({}))
+
+      if (action === 'debug_contact') {
+        debugSamples.push({ remote_jid: conv.remote_jid, http_status: res.status, result: r })
+        continue
+      }
+
       if (r.error) { errors.push(r.error); continue }
 
       const updates: Record<string, string | null> = {}
@@ -423,5 +429,5 @@ export async function syncCrmContactInfo() {
     }
   }
 
-  return { ok: true, updated, errors: errors.length ? errors : undefined }
+  return { ok: true, updated, errors: errors.length ? errors : undefined, debug: debugSamples }
 }
