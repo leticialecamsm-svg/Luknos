@@ -19,6 +19,17 @@ import { verifyWebhookSecret, getMediaBase64 } from '../_shared/evolution.ts'
 import { createServiceClient } from '../_shared/supabase.ts'
 import { samePhone } from '../_shared/phone.ts'
 import { invokeFunction, runBackground } from '../_shared/internal.ts'
+import {
+  base64ToBytes,
+  detectKind,
+  extractBody,
+  extractMediaFileName,
+  extractMediaMimeType,
+  extForMime,
+  inferMessageType,
+  mapMessageType,
+} from '../_shared/wa-parse.ts'
+import { handleCrmMessage } from './crm.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 Deno.serve(async (req) => {
@@ -76,8 +87,19 @@ async function handle(payload: EvolutionWebhook) {
     .maybeSingle()
 
   const instance = payload.instance ?? ''
-  if (config?.evolution_instance_name && instance && instance !== config.evolution_instance_name) {
-    return { handled: false, skipped: 'instance_mismatch', instance }
+  const isRobotInstance = !!config?.evolution_instance_name && instance === config.evolution_instance_name
+
+  if (!isRobotInstance) {
+    // Não é o número do robô de orçamentos — ou é um número do CRM
+    // multiatendente (crm_instances), ou é desconhecido (ignora).
+    const { data: crmInstance } = await db
+      .from('crm_instances')
+      .select('id, instance_name, default_user_id')
+      .eq('instance_name', instance)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (!crmInstance) return { handled: false, skipped: 'unknown_instance', instance }
+    return await handleCrmMessage(db, crmInstance, payload)
   }
 
   const data = payload.data ?? {}
@@ -244,77 +266,4 @@ async function saveAttachment(
   return att.id
 }
 
-function detectKind(fileName: string, mime: string | null): string {
-  const ext = (fileName.split('.').pop() ?? '').toLowerCase()
-  const m = (mime ?? '').toLowerCase()
-  if (ext === 'pdf' || m === 'application/pdf') return 'plant_pdf'
-  if (ext === 'dwg' || m.includes('dwg') || m.includes('acad')) return 'dwg'
-  if (['skp', 'skb'].includes(ext) || m.includes('sketchup')) return 'sketchup'
-  if (
-    ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'heic'].includes(ext) ||
-    m.startsWith('image/')
-  ) {
-    return 'image_3d'
-  }
-  return 'other'
-}
 
-function extForMime(mime?: string): string {
-  if (!mime) return ''
-  if (mime === 'application/pdf') return '.pdf'
-  if (mime.startsWith('image/')) return '.' + mime.split('/')[1]
-  return ''
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const clean = b64.includes(',') ? b64.split(',')[1] : b64
-  const bin = atob(clean)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
-}
-
-// ── parsing de mensagem ────────────────────────────────────────────────────
-
-function inferMessageType(message?: Record<string, unknown>): string {
-  if (!message) return 'unknown'
-  if (message.conversation || message.extendedTextMessage) return 'conversation'
-  if (message.imageMessage) return 'imageMessage'
-  if (message.documentMessage || message.documentWithCaptionMessage) return 'documentMessage'
-  if (message.audioMessage) return 'audioMessage'
-  return 'unknown'
-}
-
-function mapMessageType(t: string): 'text' | 'document' | 'image' | 'audio' | 'other' {
-  switch (t) {
-    case 'conversation':
-    case 'extendedTextMessage':
-      return 'text'
-    case 'documentMessage':
-    case 'documentWithCaptionMessage':
-      return 'document'
-    case 'imageMessage':
-      return 'image'
-    case 'audioMessage':
-    case 'pttMessage':
-      return 'audio'
-    default:
-      return 'other'
-  }
-}
-
-function extractBody(message?: Record<string, unknown>): string | null {
-  if (!message) return null
-  if (typeof message.conversation === 'string') return message.conversation
-  const ext = message.extendedTextMessage as { text?: string } | undefined
-  if (ext?.text) return ext.text
-  const img = message.imageMessage as { caption?: string } | undefined
-  if (img?.caption) return img.caption
-  const doc = message.documentMessage as { caption?: string } | undefined
-  if (doc?.caption) return doc.caption
-  const docCap = message.documentWithCaptionMessage as
-    | { message?: { documentMessage?: { caption?: string } } }
-    | undefined
-  if (docCap?.message?.documentMessage?.caption) return docCap.message.documentMessage.caption
-  return null
-}

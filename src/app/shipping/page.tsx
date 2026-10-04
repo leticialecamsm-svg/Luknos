@@ -1,6 +1,8 @@
 import { ShippingContainer } from '@/components/shipping/ShippingContainer'
 import { getShipments } from '@/lib/actions'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata = {
   title: 'Expedição | Luknos',
 }

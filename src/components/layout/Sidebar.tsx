@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, MessageCircle, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/dashboard/tasks', label: 'Tarefas e Agenda', icon: CheckSquare },
   { href: '/design-projects', label: 'Projetos',    icon: FileBox },
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
+  { href: '/crm',             label: 'CRM (WhatsApp)', icon: MessageCircle },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
   { href: '/site-leads',      label: 'Contatos do Site', icon: Inbox },
@@ -32,6 +33,7 @@ const ADMIN_NAV = [
   { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)', icon: Receipt },
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
+  { href: '/crm-instances', label: 'Números do CRM', icon: Smartphone },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
