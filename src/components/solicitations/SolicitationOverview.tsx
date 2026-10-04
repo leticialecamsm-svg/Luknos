@@ -87,6 +87,21 @@ function Chip({ icon: Icon, label, children, className, onClick }: { icon: any; 
   )
 }
 
+function InlineChip({ icon: Icon, label, children, onClick }: { icon: any; label: string; children: React.ReactNode; onClick?: (() => void) | undefined }) {
+  const Comp: any = onClick ? 'button' : 'span'
+  return (
+    <Comp
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={cn('inline-flex items-center gap-1.5', onClick && 'hover:opacity-70')}
+    >
+      <Icon className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+      <span className="text-[11px] uppercase tracking-wide text-gray-400">{label}</span>
+      <span className="text-sm font-semibold text-navy">{children}</span>
+    </Comp>
+  )
+}
+
 function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const m = bigMetric(s, primaryQuote)
   if (m.kind === 'days') {
@@ -120,30 +135,28 @@ export function SolicitationHero({
   const name = s.clientName ?? 'Cliente'
   const neg = s.negotiations[0]
   const temp = neg?.temperature as keyof typeof TEMPERATURE_LABEL | undefined
+  const curId = currentStageId(s)
+  const curLabel = STAGES.find(x => x.id === curId)?.label ?? 'Em andamento'
 
   return (
     <div className="mb-4">
-      {/* Linha 1: Avatar + nome + badges */}
-      <div className="flex items-start gap-4">
-        <InitialsAvatar seed={s.clientId || name} name={name} size={64} />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm text-gray-500">Solicitação #{s.number}</div>
-          <h1 className="text-2xl font-semibold truncate">{name}</h1>
-          <div className="flex items-center gap-2 flex-wrap mt-1 text-xs text-gray-500">
-            {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 font-medium">Arq. {s.architectName}</span>}
-            <span>Criada em {formatDate(s.createdAt)}</span>
-            <span
-              className="font-medium px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-700"
-              title="Etapa concluída = já tem um desfecho registrado (orçamento concluído, negociação fechada/perdida, compra toda recebida, etc.). O total considera só as etapas já iniciadas (com algum registro) nesta Solicitação."
-            >
-              {doneCount} de {startedCount} etapas concluídas
-            </span>
-          </div>
-        </div>
+      {/* Linha 1: Avatar + nome + #número + status + contagem — tudo inline */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <InitialsAvatar seed={s.clientId || name} name={name} size={48} />
+        <h1 className="text-2xl font-bold">{name}</h1>
+        <span className="text-sm text-gray-400 font-medium">#{s.number}</span>
+        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">{curLabel}</span>
+        <span
+          className="px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-700 text-xs font-medium"
+          title="Etapa concluída = já tem um desfecho registrado"
+        >
+          {doneCount} de {startedCount} etapas concluídas
+        </span>
+        {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">Arq. {s.architectName}</span>}
       </div>
 
       {/* Linha 2: Valor grande à esquerda + botões de status à direita */}
-      <div className="flex items-end justify-between mt-5 flex-wrap gap-4">
+      <div className="flex items-end justify-between mt-4 flex-wrap gap-4">
         <BigNumber s={s} primaryQuote={primaryQuote} />
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -227,25 +240,39 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
         )}
       </div>
 
-      {/* Chips abaixo da barra */}
-      <div className="flex flex-wrap gap-2 mt-3">
-        <Chip icon={Timer} label="Tempo na esteira">{days} {days === 1 ? 'dia' : 'dias'}</Chip>
+      {/* Chips inline abaixo da barra — separados por | igual ao wireframe */}
+      <div className="flex items-center flex-wrap gap-x-0 gap-y-2 mt-3 text-sm">
+        <InlineChip icon={Timer} label="Tempo na esteira" onClick={undefined}>
+          {days} {days === 1 ? 'dia' : 'dias'}
+        </InlineChip>
         {deadline && (
-          <Chip icon={CalendarDays} label={`Prazo · ${curLabel ?? ''}`} onClick={() => onSelect(deadline.stage)}>
-            <span className="flex items-center gap-1.5">{formatDate(deadline.date)} <DateChip date={deadline.date} today={today} /></span>
-          </Chip>
+          <>
+            <span className="text-gray-300 mx-3 select-none">|</span>
+            <InlineChip icon={CalendarDays} label={`Prazo da etapa atual`} onClick={() => onSelect(deadline.stage)}>
+              <span className="flex items-center gap-1.5">{formatDate(deadline.date)} <DateChip date={deadline.date} today={today} /></span>
+            </InlineChip>
+          </>
         )}
         {temp && TEMPERATURE_LABEL[temp] && (
-          <Chip icon={Thermometer} label="Temperatura de fechamento" onClick={() => onSelect('negociacao')}>
-            <span className={cn('px-2 py-0.5 rounded-full text-xs', TEMPERATURE_COLOR[temp].bg, TEMPERATURE_COLOR[temp].text)}>{TEMPERATURE_LABEL[temp]}</span>
-          </Chip>
+          <>
+            <span className="text-gray-300 mx-3 select-none">|</span>
+            <InlineChip icon={Thermometer} label="Temperatura" onClick={() => onSelect('negociacao')}>
+              <span className={cn('font-semibold', TEMPERATURE_COLOR[temp].text)}>{TEMPERATURE_LABEL[temp]}</span>
+            </InlineChip>
+          </>
         )}
-        <Chip icon={ArrowRightCircle} label="Próximo passo" onClick={next.tab ? () => onSelect(next.tab!) : undefined}>{next.text}</Chip>
+        <>
+          <span className="text-gray-300 mx-3 select-none">|</span>
+          <InlineChip icon={ArrowRightCircle} label="Próximo passo" onClick={next.tab ? () => onSelect(next.tab!) : undefined}>
+            {next.text}
+          </InlineChip>
+        </>
       </div>
 
       {/* Equipe */}
       {s.team.length > 0 && (
-        <div className="mt-3">
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium uppercase tracking-wide">Equipe</span>
           <TeamStack team={s.team} />
         </div>
       )}
