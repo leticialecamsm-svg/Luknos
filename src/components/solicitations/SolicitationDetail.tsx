@@ -254,7 +254,7 @@ export function SolicitationDetail({
         <ChevronLeft className="w-4 h-4" /> Solicitações
       </Link>
       <SolicitationHero s={solicitation} primaryQuote={primaryQuote} doneCount={doneCount} startedCount={startedCount} onSelect={setActiveTab} />
-      <StagePipeline s={solicitation} onSelect={setActiveTab} />
+      <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />
       {/* Coluna esquerda fixa em todas as abas; abaixo de 1024px empilha. */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         <SolicitationSidebar s={solicitation} primaryQuote={primaryQuote} activities={primaryQuoteActivities} />

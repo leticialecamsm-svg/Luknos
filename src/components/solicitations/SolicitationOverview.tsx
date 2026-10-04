@@ -91,11 +91,11 @@ function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any
   const m = bigMetric(s, primaryQuote)
   if (m.kind === 'days') {
     return (
-      <div className="text-right">
+      <div>
         <div className="text-[11px] uppercase tracking-wide text-gray-400">Tempo</div>
         <div className="text-navy leading-none">
-          <span className="text-5xl font-bold">{m.days}</span>
-          <span className="text-lg text-gray-400 ml-1.5">{m.days === 1 ? 'dia' : 'dias'} {m.label}</span>
+          <span className="text-6xl font-bold">{m.days}</span>
+          <span className="text-xl text-gray-400 ml-1.5">{m.days === 1 ? 'dia' : 'dias'} {m.label}</span>
         </div>
       </div>
     )
@@ -103,12 +103,12 @@ function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any
   const [int, cents] = m.value.toFixed(2).split('.')
   const intFmt = Number(int).toLocaleString('pt-BR')
   return (
-    <div className="text-right">
+    <div>
       <div className="text-[11px] uppercase tracking-wide text-gray-400">{m.label}</div>
       <div className="text-navy leading-none whitespace-nowrap">
-        <span className="text-lg text-gray-400 mr-1">R$</span>
-        <span className="text-5xl font-bold">{intFmt}</span>
-        <span className="text-xl text-gray-400">,{cents}</span>
+        <span className="text-xl text-gray-400 mr-1">R$</span>
+        <span className="text-6xl font-bold">{intFmt}</span>
+        <span className="text-2xl text-gray-400">,{cents}</span>
       </div>
     </div>
   )
@@ -118,18 +118,13 @@ export function SolicitationHero({
   s, primaryQuote, doneCount, startedCount, onSelect,
 }: { s: SolicitationView; primaryQuote: any | null; doneCount: number; startedCount: number; onSelect: (id: string) => void }) {
   const name = s.clientName ?? 'Cliente'
-  const today = localToday()
-  const curId = currentStageId(s)
-  const deadline = stageDeadline(s, primaryQuote, curId)
-  const curLabel = STAGES.find(x => x.id === curId)?.label
   const neg = s.negotiations[0]
   const temp = neg?.temperature as keyof typeof TEMPERATURE_LABEL | undefined
-  const next = nextStep(s, today, x => formatDate(x))
-  const days = daysInPipeline(s.createdAt)
 
   return (
     <div className="mb-4">
-      <div className="flex items-center gap-4 flex-wrap">
+      {/* Linha 1: Avatar + nome + badges */}
+      <div className="flex items-start gap-4">
         <InitialsAvatar seed={s.clientId || name} name={name} size={64} />
         <div className="min-w-0 flex-1">
           <div className="text-sm text-gray-500">Solicitação #{s.number}</div>
@@ -145,9 +140,94 @@ export function SolicitationHero({
             </span>
           </div>
         </div>
-        <BigNumber s={s} primaryQuote={primaryQuote} />
       </div>
 
+      {/* Linha 2: Valor grande à esquerda + botões de status à direita */}
+      <div className="flex items-end justify-between mt-5 flex-wrap gap-4">
+        <BigNumber s={s} primaryQuote={primaryQuote} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => onSelect('negociacao')}
+            className={cn(
+              'flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors',
+              temp === 'closed'
+                ? 'bg-green-500 text-white shadow-sm'
+                : 'border border-green-500 text-green-700 hover:bg-green-50'
+            )}
+          >
+            <Check className="w-4 h-4" /> Venda fechada
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelect('negociacao')}
+            className={cn(
+              'flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors',
+              temp === 'lost'
+                ? 'bg-red-500 text-white shadow-sm'
+                : 'border border-red-400 text-red-600 hover:bg-red-50'
+            )}
+          >
+            Perdida
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationView; primaryQuote: any | null; onSelect: (id: string) => void }) {
+  const stages = computeStages(s)
+  const today = localToday()
+  const curId = currentStageId(s)
+  const deadline = stageDeadline(s, primaryQuote, curId)
+  const curLabel = STAGES.find(x => x.id === curId)?.label
+  const neg = s.negotiations[0]
+  const temp = neg?.temperature as keyof typeof TEMPERATURE_LABEL | undefined
+  const next = nextStep(s, today, x => formatDate(x))
+  const days = daysInPipeline(s.createdAt)
+
+  return (
+    <div className="mb-5">
+      {/* Barra de segmentos */}
+      <div className="flex gap-1.5 overflow-x-auto pb-2">
+        {stages.map(st => {
+          const Icon = st.state === 'done' ? Check : st.state === 'current' ? Clock : Lock
+          return (
+            <button
+              key={st.id}
+              type="button"
+              onClick={() => onSelect(st.id)}
+              className={cn(
+                'flex-1 min-w-[130px] text-left rounded-card px-4 py-3 border transition-shadow hover:shadow-sm',
+                st.state === 'done' && 'bg-green-500 border-green-500 text-white',
+                st.state === 'current' && 'bg-brand-500/15 border-brand-500 text-navy',
+                st.state === 'not_started' && 'border-dashed border-gray-300 text-gray-400 bg-gray-50'
+              )}
+              style={st.state === 'not_started' ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 12px)' } : undefined}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{st.label}</span>
+              </div>
+              <div className="text-[11px] opacity-90">
+                {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ' '}
+              </div>
+            </button>
+          )
+        })}
+        {deadline && (
+          <button
+            type="button"
+            onClick={() => onSelect(deadline.stage)}
+            className="shrink-0 flex items-center gap-1.5 rounded-card px-3 py-3 border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold whitespace-nowrap self-stretch"
+          >
+            📌 {formatDate(deadline.date)}
+          </button>
+        )}
+      </div>
+
+      {/* Chips abaixo da barra */}
       <div className="flex flex-wrap gap-2 mt-3">
         <Chip icon={Timer} label="Tempo na esteira">{days} {days === 1 ? 'dia' : 'dias'}</Chip>
         {deadline && (
@@ -162,39 +242,13 @@ export function SolicitationHero({
         )}
         <Chip icon={ArrowRightCircle} label="Próximo passo" onClick={next.tab ? () => onSelect(next.tab!) : undefined}>{next.text}</Chip>
       </div>
-    </div>
-  )
-}
 
-export function StagePipeline({ s, onSelect }: { s: SolicitationView; onSelect: (id: string) => void }) {
-  const stages = computeStages(s)
-  return (
-    <div className="flex gap-2 overflow-x-auto pb-2 mb-5">
-      {stages.map(st => {
-        const Icon = st.state === 'done' ? Check : st.state === 'current' ? Clock : Lock
-        return (
-          <button
-            key={st.id}
-            type="button"
-            onClick={() => onSelect(st.id)}
-            className={cn(
-              'flex-1 min-w-[112px] text-left rounded-card px-3 py-2 border transition-shadow hover:shadow-sm',
-              st.state === 'done' && 'bg-green-500 border-green-500 text-white',
-              st.state === 'current' && 'bg-brand-500/15 border-brand-500 text-navy',
-              st.state === 'not_started' && 'border-dashed border-gray-300 text-gray-400 bg-gray-50'
-            )}
-            style={st.state === 'not_started' ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 12px)' } : undefined}
-          >
-            <div className="flex items-center gap-1.5 text-xs font-semibold">
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{st.label}</span>
-            </div>
-            <div className="text-[11px] mt-0.5 opacity-90 h-4">
-              {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ''}
-            </div>
-          </button>
-        )
-      })}
+      {/* Equipe */}
+      {s.team.length > 0 && (
+        <div className="mt-3">
+          <TeamStack team={s.team} />
+        </div>
+      )}
     </div>
   )
 }
