@@ -82,9 +82,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       setSyncingContacts(false)
       if ('error' in r && r.error) toast.error('ERRO', r.error)
       else {
-        const debugInfo = (r as any).debug ? ` | debug: ${JSON.stringify((r as any).debug)}` : ''
-        toast.success('SINCRONIZADO', `${r.updated ?? 0} conversa(s) atualizadas${debugInfo}`)
-        console.log('[syncCrmContactInfo] result:', JSON.stringify(r, null, 2))
+        toast.success('SINCRONIZADO', `${r.updated ?? 0} conversa(s) atualizadas`)
         refreshList()
       }
     })

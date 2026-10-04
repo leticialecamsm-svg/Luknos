@@ -383,15 +383,12 @@ export async function syncCrmContactInfo() {
 
   let updated = 0
   const errors: string[] = []
-  const debugSamples: unknown[] = []
 
   for (const conv of convs ?? []) {
     const instance = (conv as any).crm_instances
     if (!instance?.is_active || !instance?.instance_name) continue
 
     try {
-      // Primeira conversa: roda debug completo com todas as variantes de endpoint
-      const action = debugSamples.length < 1 ? 'debug_contact' : 'contact_info'
       const res = await fetch(`${SUPABASE_URL}/functions/v1/crm-evolution-setup`, {
         method: 'POST',
         headers: {
@@ -400,17 +397,12 @@ export async function syncCrmContactInfo() {
           'x-internal-call': '1',
         },
         body: JSON.stringify({
-          action,
+          action: 'contact_info',
           instance_name: instance.instance_name,
           remote_jid: conv.remote_jid,
         }),
       })
       const r = await res.json().catch(() => ({}))
-
-      if (action === 'debug_contact') {
-        debugSamples.push({ remote_jid: conv.remote_jid, http_status: res.status, result: r })
-        continue
-      }
 
       if (r.error) { errors.push(r.error); continue }
 
@@ -430,5 +422,5 @@ export async function syncCrmContactInfo() {
     }
   }
 
-  return { ok: true, updated, errors: errors.length ? errors : undefined, debug: debugSamples }
+  return { ok: true, updated, errors: errors.length ? errors : undefined }
 }

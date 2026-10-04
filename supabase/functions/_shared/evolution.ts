@@ -44,42 +44,81 @@ export interface EvolutionContact {
   profilePictureUrl?: string | null
 }
 
-// Busca dados do contato (nome salvo + foto). Silencia erros para não
-// bloquear o fluxo principal.
+// Busca dados do contato. Tenta múltiplas variantes de endpoint pois o caminho
+// varia entre versões da Evolution API.
 export async function fetchContact(
   instance: string,
   remoteJid: string,
 ): Promise<EvolutionContact | null> {
+  const number = remoteJid.split('@')[0]
+
+  // v2 GET com query param
   try {
-    const res = await evolutionFetch(`/contact/fetchContacts/${instance}`, {
+    const r = await evolutionFetch(`/contact/fetchContacts/${instance}?where[id]=${encodeURIComponent(remoteJid)}`)
+    if (r.ok) {
+      const d = await r.json().catch(() => null)
+      const item = Array.isArray(d) ? d[0] : (d && !Array.isArray(d) ? d : null)
+      if (item) return item as EvolutionContact
+    }
+  } catch { /* continua */ }
+
+  // v2 POST com body
+  try {
+    const r = await evolutionFetch(`/contact/fetchContacts/${instance}`, {
       method: 'POST',
       body: JSON.stringify({ where: { id: remoteJid } }),
     })
-    if (!res.ok) return null
-    const data = await res.json().catch(() => null)
-    if (Array.isArray(data) && data.length > 0) return data[0] as EvolutionContact
-    if (data && typeof data === 'object' && !Array.isArray(data)) return data as EvolutionContact
-    return null
-  } catch {
-    return null
-  }
+    if (r.ok) {
+      const d = await r.json().catch(() => null)
+      const item = Array.isArray(d) ? d[0] : (d && !Array.isArray(d) ? d : null)
+      if (item) return item as EvolutionContact
+    }
+  } catch { /* continua */ }
+
+  // v1 / alternativo: número como path
+  try {
+    const r = await evolutionFetch(`/contact/find/${instance}?number=${number}`)
+    if (r.ok) {
+      const d = await r.json().catch(() => null)
+      if (d) return d as EvolutionContact
+    }
+  } catch { /* continua */ }
+
+  return null
 }
 
-// URL da foto de perfil do WhatsApp para qualquer usuário.
-// Evolution v2: GET /contact/getProfilePicture/{instance}?number=558296268111
+// URL da foto de perfil. Tenta variantes de endpoint entre versões da Evolution.
 export async function getProfilePicture(
   instance: string,
   remoteJid: string,
 ): Promise<string | null> {
-  try {
-    const number = remoteJid.split('@')[0]
-    const res = await evolutionFetch(`/contact/getProfilePicture/${instance}?number=${number}`)
-    if (!res.ok) return null
-    const data = await res.json().catch(() => null)
-    return (data?.profilePictureUrl as string | null | undefined) ?? null
-  } catch {
-    return null
+  const number = remoteJid.split('@')[0]
+
+  const attempts = [
+    // v2 GET padrão
+    () => evolutionFetch(`/contact/getProfilePicture/${instance}?number=${number}`),
+    // via /chat
+    () => evolutionFetch(`/chat/fetchProfilePictureUrl/${instance}?number=${number}`),
+    // POST variante
+    () => evolutionFetch(`/contact/getProfilePicture/${instance}`, {
+      method: 'POST',
+      body: JSON.stringify({ number }),
+    }),
+    // v1 sem instância no path
+    () => evolutionFetch(`/profile/picture?instance=${encodeURIComponent(instance)}&number=${number}`),
+  ]
+
+  for (const attempt of attempts) {
+    try {
+      const res = await attempt()
+      if (!res.ok) continue
+      const data = await res.json().catch(() => null)
+      const url = data?.profilePictureUrl ?? data?.picture ?? data?.url ?? null
+      if (url && typeof url === 'string') return url
+    } catch { /* continua */ }
   }
+
+  return null
 }
 
 // Baixa a mídia (documento/imagem/áudio) de uma mensagem recebida.

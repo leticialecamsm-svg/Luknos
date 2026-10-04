@@ -61,7 +61,7 @@ export async function handleCrmMessage(
   let conversation = (
     await db
       .from('crm_conversations')
-      .select('id, contact_id, assigned_user_id, status')
+      .select('id, contact_id, assigned_user_id, status, contact_name_cache')
       .eq('instance_id', crmInstance.id)
       .eq('remote_jid', remoteJid)
       .maybeSingle()
@@ -85,12 +85,20 @@ export async function handleCrmMessage(
         assigned_user_id: crmInstance.default_user_id,
         status: 'open',
       })
-      .select('id, contact_id, assigned_user_id, status')
+      .select('id, contact_id, assigned_user_id, status, contact_name_cache')
       .single()
     if (error) throw error
     conversation = created
-  } else if (conversation.status === 'closed') {
-    await db.from('crm_conversations').update({ status: 'open' }).eq('id', conversation.id)
+  } else {
+    const convUpdates: Record<string, unknown> = {}
+    if (conversation.status === 'closed') convUpdates.status = 'open'
+    // Atualiza nome sempre que o contato mandar mensagem com pushName
+    if (!fromMe && data.pushName && !conversation.contact_id && data.pushName !== conversation.contact_name_cache) {
+      convUpdates.contact_name_cache = data.pushName
+    }
+    if (Object.keys(convUpdates).length > 0) {
+      await db.from('crm_conversations').update(convUpdates).eq('id', conversation.id)
+    }
   }
 
   // ── mensagem ─────────────────────────────────────────────────────────────
