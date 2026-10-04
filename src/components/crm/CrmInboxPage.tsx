@@ -501,14 +501,23 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
 
 function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: (p: string) => void }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [audioError, setAudioError] = useState(false)
+  const [audioLoading, setAudioLoading] = useState(false)
 
   useEffect(() => {
     if (msg.message_type === 'audio' && msg.storage_path) {
+      setAudioLoading(true)
+      setAudioError(false)
       getCrmAttachmentUrl(msg.storage_path).then((r) => {
-        if ('url' in r && r.url) setAudioUrl(r.url)
-      })
+        if ('url' in r && r.url) {
+          setAudioUrl(r.url)
+        } else {
+          setAudioError(true)
+        }
+      }).catch(() => setAudioError(true))
+        .finally(() => setAudioLoading(false))
     }
-  }, [msg])
+  }, [msg.id, msg.storage_path])
 
   const isOutbound = msg.direction === 'outbound'
   const time = new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -536,10 +545,40 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
         )}
 
         {msg.message_type === 'audio' && (
-          audioUrl ? (
-            <audio controls src={audioUrl} className="w-full h-9 rounded" />
+          audioLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 min-w-[160px]">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Carregando áudio...</span>
+            </div>
+          ) : audioUrl ? (
+            <div className="min-w-[200px]">
+              <audio
+                controls
+                className="w-full"
+                style={{ height: '36px' }}
+                onError={() => setAudioError(true)}
+              >
+                <source src={audioUrl} type={msg.mime_type?.split(';')[0] || 'audio/ogg'} />
+                <source src={audioUrl} type="audio/mpeg" />
+                Seu navegador não suporta áudio.
+              </audio>
+              {audioError && (
+                <a
+                  href={audioUrl}
+                  download={msg.file_name || 'audio.oga'}
+                  className={cn('text-xs underline mt-1 block', isOutbound ? 'text-gray-300' : 'text-blue-600')}
+                >
+                  🎙️ Baixar áudio
+                </a>
+              )}
+            </div>
           ) : (
-            <div className="text-sm text-gray-500">🎙️ Carregando áudio...</div>
+            <div className="flex items-center gap-2 text-sm min-w-[160px]">
+              <span>🎙️</span>
+              <span className={isOutbound ? 'text-gray-300' : 'text-gray-500'}>
+                {audioError ? 'Áudio indisponível' : 'Mensagem de voz'}
+              </span>
+            </div>
           )
         )}
 
@@ -553,6 +592,12 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
           >
             {msg.file_name || 'Arquivo'}
           </button>
+        )}
+
+        {msg.message_type === 'other' && (
+          <p className={cn('text-xs italic', isOutbound ? 'text-gray-400' : 'text-gray-400')}>
+            Mensagem não suportada
+          </p>
         )}
 
         <p className={cn('text-xs mt-1 opacity-70', isOutbound ? 'text-gray-300' : 'text-gray-500')}>
