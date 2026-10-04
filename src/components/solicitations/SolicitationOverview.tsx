@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
+  MoreHorizontal, Flag,
 } from 'lucide-react'
 import { avatarColor } from '@/lib/avatar-color'
 import {
@@ -19,17 +20,17 @@ import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils
 import { ORIGIN_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { addSolicitationNote, type SolicitationView } from '@/lib/solicitations/actions'
 
-export function InitialsAvatar({ seed, name, url, size = 56 }: { seed: string; name: string; url?: string | null; size?: number }) {
+export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
   if (url) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url} alt={name} title={name} width={size} height={size} className="rounded-full object-cover shrink-0" style={{ width: size, height: size }} />
+    return <img src={url} alt={name} title={name} width={size} height={size} className="object-cover shrink-0" style={{ width: size, height: size, borderRadius: square ? 14 : '50%' }} />
   }
   const c = avatarColor(seed)
   return (
     <div
       title={name}
-      className="rounded-full flex items-center justify-center font-semibold shrink-0"
-      style={{ width: size, height: size, background: c.bg, color: c.text, fontSize: Math.round(size * 0.38) }}
+      className="flex items-center justify-center font-semibold shrink-0"
+      style={{ width: size, height: size, background: c.bg, color: c.text, fontSize: Math.round(size * 0.38), borderRadius: square ? 14 : '50%', boxShadow: square ? 'inset 0 0 0 1.5px rgba(255,255,255,.7)' : undefined }}
     >
       {getInitials(name || '?')}
     </div>
@@ -102,6 +103,26 @@ function InlineChip({ icon: Icon, label, children, onClick }: { icon: any; label
   )
 }
 
+// Chip do hero igual ao wireframe: pill com ícone em círculo colorido + label cinza + valor bold.
+function HeroChip({ iconBg, iconColor, icon: Icon, label, children, onClick }: {
+  iconBg: string; iconColor: string; icon: any; label: string; children: React.ReactNode; onClick?: () => void
+}) {
+  const Comp: any = onClick ? 'button' : 'span'
+  return (
+    <Comp
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={cn('inline-flex items-center gap-[7px] pl-2 pr-3 py-1.5 rounded-full bg-white border border-black/[0.08] whitespace-nowrap', onClick && 'hover:border-brand-500 transition-colors')}
+    >
+      <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0" style={{ background: iconBg, color: iconColor }}>
+        <Icon className="w-3 h-3" />
+      </span>
+      <span className="text-[11px] text-gray-400">{label}</span>
+      <b className="font-semibold text-gray-900 text-[12px]">{children}</b>
+    </Comp>
+  )
+}
+
 function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const m = bigMetric(s, primaryQuote)
   if (m.kind === 'days') {
@@ -135,19 +156,17 @@ export function SolicitationHero({
   const name = s.clientName ?? 'Cliente'
   const neg = s.negotiations[0]
   const temp = neg?.temperature as keyof typeof TEMPERATURE_LABEL | undefined
-  const curId = currentStageId(s)
-  const curLabel = STAGES.find(x => x.id === curId)?.label ?? 'Em andamento'
 
   return (
     <div className="mb-4">
-      {/* Linha 1: Avatar + nome + #número + status + contagem — tudo inline */}
+      {/* Linha 1: Avatar quadrado + nome + #número + "Em andamento" + contagem */}
       <div className="flex items-center gap-3 flex-wrap">
-        <InitialsAvatar seed={s.clientId || name} name={name} size={48} />
-        <h1 className="text-2xl font-bold">{name}</h1>
-        <span className="text-sm text-gray-400 font-medium">#{s.number}</span>
-        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">{curLabel}</span>
+        <InitialsAvatar seed={s.clientId || name} name={name} size={40} square />
+        <h1 className="text-[22px] font-bold leading-tight text-gray-900">{name}</h1>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white border border-amber-200 font-mono text-[11px] font-medium text-amber-800">#{s.number}</span>
+        <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[11.5px] font-medium">Em andamento</span>
         <span
-          className="px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-700 text-xs font-medium"
+          className="px-2 py-0.5 rounded-full bg-green-100 border border-green-200 text-green-800 text-[11.5px] font-semibold"
           title="Etapa concluída = já tem um desfecho registrado"
         >
           {doneCount} de {startedCount} etapas concluídas
@@ -155,33 +174,45 @@ export function SolicitationHero({
         {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">Arq. {s.architectName}</span>}
       </div>
 
-      {/* Linha 2: Valor grande à esquerda + botões de status à direita */}
-      <div className="flex items-end justify-between mt-4 flex-wrap gap-4">
+      {/* Linha 2: Valor grande à esquerda + botões de ação à direita */}
+      <div className="flex items-end justify-between mt-3 flex-wrap gap-4">
         <BigNumber s={s} primaryQuote={primaryQuote} />
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => onSelect('negociacao')}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors',
+              'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold border transition-colors',
               temp === 'closed'
-                ? 'bg-green-500 text-white shadow-sm'
-                : 'border border-green-500 text-green-700 hover:bg-green-50'
+                ? 'bg-green-100 text-green-800 border-green-300'
+                : 'bg-white text-green-700 border-green-500 hover:bg-green-50'
             )}
           >
-            <Check className="w-4 h-4" /> Venda fechada
+            <Check className="w-3.5 h-3.5" /> Venda fechada
           </button>
           <button
             type="button"
             onClick={() => onSelect('negociacao')}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors',
-              temp === 'lost'
-                ? 'bg-red-500 text-white shadow-sm'
-                : 'border border-red-400 text-red-600 hover:bg-red-50'
+              'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12px] font-semibold bg-white border border-black/10 shadow-sm transition-colors hover:border-brand-500',
+              temp === 'lost' ? 'text-red-700' : 'text-red-700'
             )}
           >
             Perdida
+          </button>
+          <button
+            type="button"
+            aria-label="Mais ações"
+            className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-gray-500 hover:text-navy shadow-sm transition-colors"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Adicionar"
+            className="w-9 h-9 rounded-full bg-brand-500 border border-brand-500 flex items-center justify-center text-white shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -201,81 +232,91 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
   const days = daysInPipeline(s.createdAt)
 
   return (
-    <div className="mb-5">
-      {/* Barra de segmentos */}
-      <div className="flex gap-1.5 overflow-x-auto pb-2">
-        {stages.map(st => {
-          const Icon = st.state === 'done' ? Check : st.state === 'current' ? Clock : Lock
-          return (
-            <button
-              key={st.id}
-              type="button"
-              onClick={() => onSelect(st.id)}
-              className={cn(
-                'flex-1 min-w-[130px] text-left rounded-card px-4 py-3 border transition-shadow hover:shadow-sm',
-                st.state === 'done' && 'bg-green-500 border-green-500 text-white',
-                st.state === 'current' && 'bg-brand-500/15 border-brand-500 text-navy',
-                st.state === 'not_started' && 'border-dashed border-gray-300 text-gray-400 bg-gray-50'
-              )}
-              style={st.state === 'not_started' ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 12px)' } : undefined}
-            >
-              <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{st.label}</span>
-              </div>
-              <div className="text-[11px] opacity-90">
-                {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ' '}
-              </div>
-            </button>
-          )
-        })}
+    <div className="mb-0">
+      {/* Linha de segmentos + prazo no canto direito */}
+      <div className="flex items-stretch gap-3">
+        <div className="flex-1 min-w-0 flex gap-1 overflow-x-auto pb-1">
+          {stages.map(st => {
+            const isDone = st.state === 'done'
+            const isCur = st.state === 'current'
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => onSelect(st.id)}
+                className={cn(
+                  'flex-1 min-w-[100px] text-left rounded-card px-3 py-2.5 border transition-shadow hover:shadow-sm',
+                  isDone && 'bg-green-500 border-green-500 text-white',
+                  isCur && 'bg-amber-50 border-amber-300 text-amber-900',
+                  !isDone && !isCur && 'border-dashed border-gray-300 text-gray-400'
+                )}
+                style={!isDone && !isCur ? { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)' } : undefined}
+              >
+                <div className="flex items-center gap-1 w-full">
+                  <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
+                  {isDone && <Check className="ml-auto shrink-0 w-3 h-3" />}
+                  {isCur && <Clock className="ml-auto shrink-0 w-3 h-3" />}
+                </div>
+                <div className="text-[10.5px] font-medium opacity-85 mt-0.5">
+                  {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ' '}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+        {/* Prazo da etapa atual — canto direito da barra */}
         {deadline && (
           <button
             type="button"
             onClick={() => onSelect(deadline.stage)}
-            className="shrink-0 flex items-center gap-1.5 rounded-card px-3 py-3 border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold whitespace-nowrap self-stretch"
+            className="shrink-0 flex items-center gap-2 pl-3 pr-2 hover:opacity-80 transition-opacity"
           >
-            📌 {formatDate(deadline.date)}
+            <Flag className="w-4 h-4 text-brand-500 shrink-0" />
+            <div className="text-left">
+              <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold leading-none mb-0.5">Prazo da etapa atual</p>
+              <p className="text-[12.5px] font-semibold text-gray-900 leading-none">{formatDate(deadline.date)}</p>
+            </div>
           </button>
         )}
       </div>
 
-      {/* Chips inline abaixo da barra — separados por | igual ao wireframe */}
-      <div className="flex items-center flex-wrap gap-x-0 gap-y-2 mt-3 text-sm">
-        <InlineChip icon={Timer} label="Tempo na esteira" onClick={undefined}>
+      {/* Chips — pill com ícone colorido + label + valor, igual ao wireframe */}
+      <div className="flex flex-wrap gap-2 mt-3">
+        <HeroChip iconBg="#e0f2fe" iconColor="#0369a1" icon={Timer} label="Tempo na esteira">
           {days} {days === 1 ? 'dia' : 'dias'}
-        </InlineChip>
+        </HeroChip>
         {deadline && (
-          <>
-            <span className="text-gray-300 mx-3 select-none">|</span>
-            <InlineChip icon={CalendarDays} label={`Prazo da etapa atual`} onClick={() => onSelect(deadline.stage)}>
-              <span className="flex items-center gap-1.5">{formatDate(deadline.date)} <DateChip date={deadline.date} today={today} /></span>
-            </InlineChip>
-          </>
+          <HeroChip iconBg="#fef3c7" iconColor="#92400e" icon={CalendarDays} label="Prazo da etapa atual" onClick={() => onSelect(deadline.stage)}>
+            <span className="flex items-center gap-1">{formatDate(deadline.date)} <DateChip date={deadline.date} today={today} /></span>
+          </HeroChip>
         )}
         {temp && TEMPERATURE_LABEL[temp] && (
-          <>
-            <span className="text-gray-300 mx-3 select-none">|</span>
-            <InlineChip icon={Thermometer} label="Temperatura" onClick={() => onSelect('negociacao')}>
-              <span className={cn('font-semibold', TEMPERATURE_COLOR[temp].text)}>{TEMPERATURE_LABEL[temp]}</span>
-            </InlineChip>
-          </>
+          <HeroChip iconBg="#d1fae5" iconColor="#065f46" icon={Thermometer} label="Temperatura" onClick={() => onSelect('negociacao')}>
+            <span className={TEMPERATURE_COLOR[temp].text}>{TEMPERATURE_LABEL[temp]}</span>
+          </HeroChip>
         )}
-        <>
-          <span className="text-gray-300 mx-3 select-none">|</span>
-          <InlineChip icon={ArrowRightCircle} label="Próximo passo" onClick={next.tab ? () => onSelect(next.tab!) : undefined}>
-            {next.text}
-          </InlineChip>
-        </>
+        <HeroChip iconBg="#ede9fe" iconColor="#5b21b6" icon={ArrowRightCircle} label="Próximo passo" onClick={next.tab ? () => onSelect(next.tab!) : undefined}>
+          {next.text}
+        </HeroChip>
+        {/* Equipe como último chip */}
+        {s.team.length > 0 && (
+          <span className="inline-flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-white border border-black/[0.08]">
+            <span className="text-[11px] text-gray-400 pl-1">Equipe</span>
+            <div className="flex -space-x-1.5 pl-1">
+              {s.team.slice(0, 5).map(u => (
+                <div key={u.id} className="rounded-full ring-1 ring-white">
+                  <InitialsAvatar seed={u.id} name={u.name} url={u.avatar_url} size={22} />
+                </div>
+              ))}
+              {s.team.length > 5 && (
+                <div className="w-[22px] h-[22px] rounded-full bg-gray-100 ring-1 ring-white text-[9px] font-semibold text-gray-600 flex items-center justify-center">
+                  +{s.team.length - 5}
+                </div>
+              )}
+            </div>
+          </span>
+        )}
       </div>
-
-      {/* Equipe */}
-      {s.team.length > 0 && (
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-medium uppercase tracking-wide">Equipe</span>
-          <TeamStack team={s.team} />
-        </div>
-      )}
     </div>
   )
 }
