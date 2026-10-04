@@ -101,6 +101,12 @@ export type SolicitationView = {
   clientEmail: string | null
   architectId: string | null
   architectName: string | null
+  // Campos de caracterização (agora na tabela solicitations)
+  category: string | null
+  size: string | null
+  origin: string | null
+  workStage: string | null
+  priority: string
   createdAt: string
   quotes: any[]
   negotiations: any[]
@@ -134,7 +140,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
 
   const { data: solicitation } = await db
     .from('solicitations')
-    .select('id, number, client_id, architect_id, created_by, created_at, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
+    .select('id, number, client_id, architect_id, created_by, created_at, category, size, origin, work_stage, priority, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
     .eq('id', id)
     .maybeSingle()
   if (!solicitation) return null
@@ -219,6 +225,11 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     clientEmail: (solicitation as any).client?.email ?? null,
     architectId: solicitation.architect_id,
     architectName: (solicitation as any).architect?.name ?? null,
+    category: (solicitation as any).category ?? null,
+    size: (solicitation as any).size ?? null,
+    origin: (solicitation as any).origin ?? null,
+    workStage: (solicitation as any).work_stage ?? null,
+    priority: (solicitation as any).priority ?? 'normal',
     createdAt: solicitation.created_at,
     quotes: quotes ?? [],
     negotiations: negotiations ?? [],
@@ -754,6 +765,102 @@ export async function deleteShipmentForSolicitation(id: string, solicitationId: 
   const { error } = await createAdminClient().from('shipments').delete().eq('id', id)
   if (error) return { error: error.message }
   await logSolicitationEvent(solicitationId, 'expedicao', 'Separação/entrega excluída', user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Detalhes da Solicitação (categoria, tamanho, origem, etapa, prioridade) ──
+
+export async function updateSolicitationDetails(
+  id: string,
+  data: {
+    category?: string | null
+    size?: string | null
+    origin?: string | null
+    workStage?: string | null
+    priority?: string
+    architectId?: string | null
+  }
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const patch: Record<string, any> = {}
+  if ('category' in data)   patch.category   = data.category   ?? null
+  if ('size' in data)       patch.size        = data.size       ?? null
+  if ('origin' in data)     patch.origin      = data.origin     ?? null
+  if ('workStage' in data)  patch.work_stage  = data.workStage  ?? null
+  if ('priority' in data)   patch.priority    = data.priority   ?? 'normal'
+  if ('architectId' in data) patch.architect_id = data.architectId ?? null
+  const { error } = await createAdminClient().from('solicitations').update(patch).eq('id', id)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(id, null, 'Detalhes da solicitação atualizados', user.id)
+  refresh(id)
+  return { ok: true }
+}
+
+// ── Criar orçamento dentro da Solicitação ────────────────────────────────────
+
+export async function createQuoteForSolicitation(
+  solicitationId: string,
+  data: { clientId: string; priority?: string; status?: string }
+): Promise<R & { quoteId?: string }> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const db = createAdminClient()
+  // Número do orçamento: reutiliza a sequence existente
+  let seq: any = null
+  try { const r = await db.rpc('next_quote_number').maybeSingle(); seq = r?.data ?? null } catch { seq = null }
+  const { data: inserted, error } = await db.from('quotes').insert({
+    client_id: data.clientId,
+    solicitation_id: solicitationId,
+    status: data.status ?? 'open',
+    priority: data.priority ?? 'normal',
+    created_by: user.id,
+  }).select('id').maybeSingle()
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento criado', user.id)
+  refresh(solicitationId)
+  return { ok: true, id: inserted?.id, quoteId: inserted?.id }
+}
+
+// ── Excluir orçamento da Solicitação ─────────────────────────────────────────
+
+export async function deleteQuoteFromSolicitation(quoteId: string, solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('quotes').delete().eq('id', quoteId)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento excluído', user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Atualizar visita com responsável ─────────────────────────────────────────
+
+export async function updateVisitResponsible(
+  visitId: string,
+  solicitationId: string,
+  responsibleId: string | null
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('visits').update({ responsible_id: responsibleId }).eq('id', visitId)
+  if (error) return { error: error.message }
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Atualizar projeto com responsável ────────────────────────────────────────
+
+export async function updateProjectResponsible(
+  projectId: string,
+  solicitationId: string,
+  responsibleId: string | null
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('design_projects').update({ responsible_id: responsibleId }).eq('id', projectId)
+  if (error) return { error: error.message }
   refresh(solicitationId)
   return { ok: true }
 }

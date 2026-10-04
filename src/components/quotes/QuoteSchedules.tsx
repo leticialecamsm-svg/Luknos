@@ -14,7 +14,7 @@ const TYPE_CONFIG: Record<string, { label: string; bg: string; border: string; t
   lembrete:  { label: 'Lembrete',  bg: 'bg-violet-50', border: 'border-l-violet-500', text: 'text-violet-700' },
 }
 
-export function QuoteSchedules({ quoteId, quoteLabel }: { quoteId: string; quoteLabel: string }) {
+export function QuoteSchedules({ quoteId, quoteLabel, allowedTypes }: { quoteId: string; quoteLabel: string; allowedTypes?: string[] }) {
   const [schedules, setSchedules] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -25,8 +25,9 @@ export function QuoteSchedules({ quoteId, quoteLabel }: { quoteId: string; quote
 
   async function load() {
     setLoading(true)
-    const data = await getSchedulesByQuote(quoteId)
-    setSchedules(data as any[])
+    let data = await getSchedulesByQuote(quoteId) as any[]
+    if (allowedTypes?.length) data = data.filter(s => allowedTypes.includes(s.type))
+    setSchedules(data)
     setLoading(false)
   }
 
@@ -74,6 +75,7 @@ export function QuoteSchedules({ quoteId, quoteLabel }: { quoteId: string; quote
       {creating && (
         <ScheduleModal
           defaultQuote={{ id: quoteId, label: quoteLabel }}
+          allowedTypes={allowedTypes}
           onClose={() => setCreating(false)}
           onSuccess={() => { setCreating(false); load() }}
         />

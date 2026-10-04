@@ -18,8 +18,8 @@ import {
   mergeHistory, STAGES, type DateTone,
 } from '@/lib/solicitations/stages'
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
-import { ORIGIN_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { addSolicitationNote, type SolicitationView } from '@/lib/solicitations/actions'
+import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
+import { addSolicitationNote, updateSolicitationDetails, type SolicitationView } from '@/lib/solicitations/actions'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
   if (url) {
@@ -402,19 +402,55 @@ const TAB_BTN_STYLE: React.CSSProperties = {
   cursor: 'pointer', flexShrink: 0,
 }
 
+const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABEL) as [string, string][]
+const SIZE_OPTIONS = Object.entries(SIZE_LABEL) as [string, string][]
+const ORIGIN_OPTIONS = Object.entries(ORIGIN_LABEL) as [string, string][]
+const PRIORITY_OPTIONS = Object.entries(PRIORITY_LABEL) as [string, string][]
+const WORK_STAGE_OPTIONS = [
+  ['foundation', 'Fundação'],
+  ['structure', 'Estrutura'],
+  ['masonry', 'Alvenaria'],
+  ['rough', 'Obra bruta'],
+  ['finishing', 'Acabamento'],
+  ['delivered', 'Entregue'],
+] as [string, string][]
+
 export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
-  const origin = primaryQuote?.origin ? ORIGIN_LABEL[primaryQuote.origin as keyof typeof ORIGIN_LABEL] ?? null : null
+  const [editing, setEditing] = useState(false)
+  const [pending, startTransition] = useTransition()
+  const router = useRouter()
+
+  // Form state
+  const [category, setCategory] = useState(s.category ?? '')
+  const [size, setSize] = useState(s.size ?? '')
+  const [origin, setOrigin] = useState(s.origin ?? '')
+  const [workStage, setWorkStage] = useState(s.workStage ?? '')
+  const [priority, setPriority] = useState(s.priority ?? 'normal')
+
+  function save() {
+    startTransition(async () => {
+      await updateSolicitationDetails(s.id, {
+        category: category || null,
+        size: size || null,
+        origin: origin || null,
+        workStage: workStage || null,
+        priority: priority || 'normal',
+      })
+      setEditing(false)
+      router.refresh()
+    })
+  }
+
   const driveLink: string | null = primaryQuote?.drive_link ?? null
+
   const detailActions = (
     <>
-      <button type="button" aria-label="Editar" title="Editar detalhes (em breve)" style={TAB_BTN_STYLE}>
+      <button type="button" aria-label="Editar" title="Editar detalhes" onClick={() => setEditing(e => !e)} style={{ ...TAB_BTN_STYLE, background: editing ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.55)' }}>
         <Pencil style={{ width: 10, height: 10 }} />
-      </button>
-      <button type="button" aria-label="Mais opções" title="Mais opções (em breve)" style={TAB_BTN_STYLE}>
-        <MoreHorizontal style={{ width: 11, height: 11 }} />
       </button>
     </>
   )
+
   return (
     <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14" actions={detailActions}>
       <div className="space-y-3">
@@ -422,7 +458,62 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
         {s.clientEmail && <Field icon={Mail} label="E-mail" value={s.clientEmail} />}
         {s.architectName && <Field icon={Pencil} label="Arquiteto(a)" value={s.architectName} />}
-        {origin && <Field icon={Compass} label="Origem" value={origin} />}
+
+        {/* Campos de caracterização — sempre visíveis se preenchidos */}
+        {s.category && !editing && <Field icon={Compass} label="Categoria" value={CATEGORY_LABEL[s.category as keyof typeof CATEGORY_LABEL] ?? s.category} />}
+        {s.size && !editing && <Field icon={Compass} label="Tamanho" value={SIZE_LABEL[s.size as keyof typeof SIZE_LABEL] ?? s.size} />}
+        {s.origin && !editing && <Field icon={Compass} label="Origem" value={ORIGIN_LABEL[s.origin as keyof typeof ORIGIN_LABEL] ?? s.origin} />}
+        {s.workStage && !editing && <Field icon={Compass} label="Etapa da obra" value={WORK_STAGE_OPTIONS.find(([k]) => k === s.workStage)?.[1] ?? s.workStage} />}
+        {s.priority && s.priority !== 'normal' && !editing && <Field icon={Compass} label="Prioridade" value={PRIORITY_LABEL[s.priority as keyof typeof PRIORITY_LABEL] ?? s.priority} />}
+
+        {/* Formulário de edição inline */}
+        {editing && (
+          <div className="space-y-2 rounded-xl bg-white/70 p-3 border border-amber-200">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Categoria</label>
+                <select value={category} onChange={e => setCategory(e.target.value)} className="select w-full text-xs">
+                  <option value="">—</option>
+                  {CATEGORY_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Tamanho</label>
+                <select value={size} onChange={e => setSize(e.target.value)} className="select w-full text-xs">
+                  <option value="">—</option>
+                  {SIZE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Origem</label>
+                <select value={origin} onChange={e => setOrigin(e.target.value)} className="select w-full text-xs">
+                  <option value="">—</option>
+                  {ORIGIN_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Etapa da obra</label>
+                <select value={workStage} onChange={e => setWorkStage(e.target.value)} className="select w-full text-xs">
+                  <option value="">—</option>
+                  {WORK_STAGE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Prioridade</label>
+                <select value={priority} onChange={e => setPriority(e.target.value)} className="select w-full text-xs">
+                  {PRIORITY_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={save} disabled={pending} className="btn-primary px-3 py-1 text-xs">
+                {pending ? 'Salvando…' : 'Salvar'}
+              </button>
+              <button type="button" onClick={() => setEditing(false)} className="btn-secondary px-3 py-1 text-xs">Cancelar</button>
+            </div>
+          </div>
+        )}
+
         {s.team.length > 0 && (
           <div>
             <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Equipe envolvida</div>

@@ -12,8 +12,8 @@ import { useState, useTransition } from 'react'
 import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
-import { QuoteDetail } from '@/components/quotes/QuoteDetail'
 import { NegotiationSection } from '@/components/quotes/NegotiationSection'
+import { QuoteTab } from '@/components/solicitations/QuoteTab'
 import { formatDate, cn } from '@/lib/utils'
 import {
   SHIPMENT_STATUS_LABEL, SHIPMENT_PRIORITY_LABEL, SHIPMENT_DELIVERY_TYPE_LABEL,
@@ -233,11 +233,7 @@ export function SolicitationDetail({
       label: label('orcamento', 'Orçamento'),
       icon: FileText,
       badge: solicitation.quotes.length,
-      content: primaryQuote ? (
-        <QuoteDetail quote={primaryQuote} activities={primaryQuoteActivities} showNegotiation={false} />
-      ) : (
-        <Empty>Nenhum orçamento vinculado a esta solicitação.</Empty>
-      ),
+      content: <QuoteTab solicitation={solicitation} quote={primaryQuote} />,
     },
     {
       id: 'negociacao',
