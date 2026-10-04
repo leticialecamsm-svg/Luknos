@@ -390,7 +390,8 @@ export async function syncCrmContactInfo() {
     if (!instance?.is_active || !instance?.instance_name) continue
 
     try {
-      const action = debugSamples.length < 2 ? 'debug_contact' : 'contact_info'
+      // Primeira conversa: roda debug completo com todas as variantes de endpoint
+      const action = debugSamples.length < 1 ? 'debug_contact' : 'contact_info'
       const res = await fetch(`${SUPABASE_URL}/functions/v1/crm-evolution-setup`, {
         method: 'POST',
         headers: {
