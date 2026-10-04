@@ -12,10 +12,14 @@ async function getSefazToken(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: user, password: pass, rememberMe: false }),
   })
-  if (!res.ok) throw new Error(`Falha ao autenticar na SEFAZ: ${res.status}`)
-  const data = await res.json()
-  if (!data.id_token) throw new Error('Token não retornado pela SEFAZ')
-  return data.id_token
+  if (!res.ok) throw new Error(`Falha ao autenticar na SEFAZ AL (${res.status}). Confira usuário/senha do portal Cobrança DF-e.`)
+  // O portal entrega o token no header Authorization (é de lá que o front deles lê);
+  // id_token no corpo fica como reserva
+  const header = res.headers.get('authorization') ?? ''
+  const data = await res.json().catch(() => ({}))
+  const token = header.startsWith('Bearer ') ? header.slice(7) : data.id_token
+  if (!token) throw new Error('Token não retornado pela SEFAZ AL')
+  return token
 }
 
 export interface SefazItem {
@@ -47,7 +51,12 @@ export async function GET(req: NextRequest) {
     )
     if (!res.ok) {
       if (res.status === 404) return NextResponse.json({ error: 'Nota não encontrada na SEFAZ AL' }, { status: 404 })
-      throw new Error(`SEFAZ retornou ${res.status}`)
+      const corpo = (await res.text().catch(() => '')).slice(0, 300)
+      console.error(`fetch-sefaz ${res.status}:`, corpo)
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`A SEFAZ AL recusou o acesso (${res.status}) mesmo após o login. Entre em contribuinte.sefaz.al.gov.br/cobrancadfe com o mesmo usuário e veja se pede troca de senha ou aceite de termo.`)
+      }
+      throw new Error(`SEFAZ AL retornou ${res.status}`)
     }
 
     const raw: any[] = await res.json()
