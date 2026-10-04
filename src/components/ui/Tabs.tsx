@@ -45,15 +45,15 @@ export function Tabs({
             className={cn(
               'px-4 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
               active === item.id
-                ? 'bg-navy text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-white border border-brand-500/30 text-navy shadow-sm font-semibold'
+                : 'bg-transparent text-gray-500 hover:text-navy hover:bg-gray-100/60'
             )}
           >
             {item.label}
             {typeof item.badge === 'number' && item.badge > 0 && (
               <span className={cn(
                 'text-xs rounded-full px-1.5 py-0.5 leading-none',
-                active === item.id ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'
+                active === item.id ? 'bg-brand-500/15 text-brand-700' : 'bg-gray-200 text-gray-500'
               )}>
                 {item.badge}
               </span>

@@ -250,7 +250,7 @@ export function SolicitationDetail({
 
   return (
     <div>
-      <div className="rounded-2xl border border-surface-border bg-[#F8F5EE] px-6 pt-5 pb-4 mb-5">
+      <div className="rounded-2xl px-6 pt-5 pb-4 mb-5" style={{ background: 'linear-gradient(180deg,#fff 0%,#fff 55%,#f7f8fa 100%)', border: '1px solid rgba(10,31,59,.08)', boxShadow: 'rgba(255,255,255,.98) 0 1.5px 0 0 inset, rgba(255,255,255,.45) 0 0 0 1px inset, rgba(10,31,59,.03) 0 -1px 0 0 inset, rgba(10,31,59,.06) 0 2px 8px 0, rgba(10,31,59,.16) 0 22px 44px -20px' }}>
         <SolicitationHero s={solicitation} primaryQuote={primaryQuote} doneCount={doneCount} startedCount={startedCount} onSelect={setActiveTab} />
         <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />
       </div>

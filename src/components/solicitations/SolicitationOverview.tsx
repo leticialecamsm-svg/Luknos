@@ -326,13 +326,21 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
 }
 
 // Cartão pastel com título em "aba de pasta" (chip com entalhe).
-function NotchCard({ title, icon: Icon, tint, children }: { title: string; icon: any; tint: string; children: React.ReactNode }) {
+function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, children }: {
+  title: string; icon: any; tint: string; borderColor: string; bodyBg: string; textColor: string; children: React.ReactNode
+}) {
   return (
     <div>
-      <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-t-2xl text-sm font-semibold text-navy" style={{ background: tint }}>
-        <Icon className="w-4 h-4" /> {title}
+      <div
+        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold"
+        style={{ background: tint, color: textColor, borderRadius: '14px 14px 0 0', border: `1px solid ${borderColor}`, borderBottom: 'none', position: 'relative', zIndex: 2, marginBottom: -1 }}
+      >
+        <Icon className="w-3.5 h-3.5" /> {title}
       </div>
-      <div className="rounded-b-card rounded-tr-card p-4 border border-surface-border/60" style={{ background: tint }}>
+      <div
+        className="p-4 relative"
+        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
+      >
         {children}
       </div>
     </div>
@@ -376,7 +384,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   const origin = primaryQuote?.origin ? ORIGIN_LABEL[primaryQuote.origin as keyof typeof ORIGIN_LABEL] ?? null : null
   const driveLink: string | null = primaryQuote?.drive_link ?? null
   return (
-    <NotchCard title="Detalhes" icon={User} tint="#FFF6D6">
+    <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14">
       <div className="space-y-3">
         <Field icon={User} label="Cliente" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
@@ -420,7 +428,7 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
   }
 
   return (
-    <NotchCard title="Histórico" icon={History} tint="#F0EBFA">
+    <NotchCard title="Histórico" icon={History} tint="#ece6fb" borderColor="#ddd2f8" bodyBg="linear-gradient(160deg,#ece6fb 0%,#f8f6ff 70%)" textColor="#5b21b6">
       <div className="flex items-center gap-2 mb-3">
         <input
           value={text}
