@@ -2,6 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
+
+// Gera cores diferentes para cada contato baseado no ID
+function getAvatarColor(id: string): string {
+  const colors = [
+    'from-blue-400 to-blue-600',
+    'from-green-400 to-green-600',
+    'from-purple-400 to-purple-600',
+    'from-pink-400 to-pink-600',
+    'from-yellow-400 to-yellow-600',
+    'from-red-400 to-red-600',
+    'from-indigo-400 to-indigo-600',
+    'from-cyan-400 to-cyan-600',
+  ]
+  const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return colors[hash % colors.length]
+}
 import {
   getCrmConversations,
   getCrmMessages,
@@ -284,7 +300,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
               >
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-sm font-bold flex items-center justify-center shrink-0">
+                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
                     {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
                   </div>
 
@@ -323,7 +339,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
             {/* Header da conversa */}
             <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-sm font-bold flex items-center justify-center">
+                <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(selected.id)} text-white text-sm font-bold flex items-center justify-center`}>
                   {(selected.contact_name ?? selected.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
                 </div>
                 <div>
@@ -519,8 +535,12 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
           <p className="whitespace-pre-wrap">{msg.body}</p>
         )}
 
-        {msg.message_type === 'audio' && audioUrl && (
-          <audio controls src={audioUrl} className="w-full h-9 rounded" />
+        {msg.message_type === 'audio' && (
+          audioUrl ? (
+            <audio controls src={audioUrl} className="w-full h-9 rounded" />
+          ) : (
+            <div className="text-sm text-gray-500">🎙️ Carregando áudio...</div>
+          )
         )}
 
         {['image', 'document'].includes(msg.message_type) && msg.storage_path && (
