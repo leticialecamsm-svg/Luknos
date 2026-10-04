@@ -248,13 +248,15 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
                 key={st.id}
                 type="button"
                 onClick={() => onSelect(st.id)}
-                className={cn(
-                  'flex-1 min-w-[100px] text-left rounded-card px-3 py-2.5 border transition-shadow hover:shadow-sm',
-                  isDone && 'bg-green-500 border-green-500 text-white',
-                  isCur && 'bg-amber-50 border-amber-300 text-amber-900',
-                  !isDone && !isCur && 'border-dashed border-gray-300 text-gray-400'
-                )}
-                style={!isDone && !isCur ? { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)' } : undefined}
+                className="flex-1 min-w-[100px] text-left px-3 py-2.5 transition-shadow hover:opacity-90"
+                style={{
+                  borderRadius: 12,
+                  ...(isDone
+                    ? { background: 'linear-gradient(180deg,#d9f7e6,#bdeed3)', color: '#065f46', border: '1px solid #9fe0bc' }
+                    : isCur
+                    ? { background: 'linear-gradient(180deg,#fdecc0,#f5d78a)', color: '#5c4410', border: '1px solid #e0bd69' }
+                    : { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)', color: '#8b94a5', border: '1px dashed #cdd3de' }),
+                }}
               >
                 <div className="flex items-center gap-1 w-full">
                   <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
@@ -339,8 +341,16 @@ function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, ch
       </div>
       <div
         className="p-4 relative"
-        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
+        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px', paddingTop: 22 }}
       >
+        <div style={{ position: 'absolute', top: 10, right: 12, display: 'flex', gap: 6 }}>
+          <button type="button" aria-label="Editar" className="flex items-center justify-center text-gray-500 hover:text-navy transition-colors" style={{ width: 28, height: 28, borderRadius: 999, border: '1px solid rgba(10,31,59,.1)', background: 'rgba(255,255,255,.85)' }}>
+            <Pencil style={{ width: 12, height: 12 }} />
+          </button>
+          <button type="button" aria-label="Mais" className="flex items-center justify-center text-gray-500 hover:text-navy transition-colors" style={{ width: 28, height: 28, borderRadius: 999, border: '1px solid rgba(10,31,59,.1)', background: 'rgba(255,255,255,.85)' }}>
+            <MoreHorizontal style={{ width: 13, height: 13 }} />
+          </button>
+        </div>
         {children}
       </div>
     </div>
@@ -349,13 +359,16 @@ function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, ch
 
 function Field({ icon: Icon, label, value }: { icon: any; label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="w-7 h-7 rounded-full bg-white/70 flex items-center justify-center shrink-0 mt-0.5">
-        <Icon className="w-3.5 h-3.5 text-brand-700" />
+    <div className="flex items-center gap-2.5">
+      <div
+        className="flex items-center justify-center shrink-0"
+        style={{ width: 30, height: 30, borderRadius: 10, background: 'rgba(255,255,255,.85)', color: '#8a6a1f', boxShadow: 'inset 0 0 0 1px rgba(203,164,85,.25)', flexShrink: 0 }}
+      >
+        <Icon style={{ width: 14, height: 14 }} />
       </div>
       <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
-        <div className="text-sm font-medium text-navy break-words">{value}</div>
+        <div className="text-[10px] uppercase tracking-wide" style={{ color: '#9aa3b2', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
+        <div className="text-[13px] font-medium break-words" style={{ color: '#111827', marginTop: 1 }}>{value}</div>
       </div>
     </div>
   )
@@ -386,7 +399,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   return (
     <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14">
       <div className="space-y-3">
-        <Field icon={User} label="Cliente" value={s.clientName ?? '—'} />
+        <Field icon={User} label="Nome" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
         {s.clientEmail && <Field icon={Mail} label="E-mail" value={s.clientEmail} />}
         {s.architectName && <Field icon={Pencil} label="Arquiteto(a)" value={s.architectName} />}
@@ -445,28 +458,38 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
       {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
       <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
         {entries.length === 0 && <p className="text-sm text-gray-400 italic text-center py-3">Nada registrado ainda.</p>}
-        {entries.map(e => (
-          <div key={e.id} className="flex gap-2.5 rounded-xl bg-white/70 p-2.5">
-            {e.kind === 'system' && !e.authorName ? (
-              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center shrink-0"><Bot className="w-3.5 h-3.5 text-blue-600" /></div>
-            ) : (
-              <InitialsAvatar seed={e.authorId ?? e.authorName ?? 'x'} name={e.authorName ?? 'Sistema'} url={e.authorAvatarUrl} size={28} />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-semibold text-gray-700">{e.authorName ?? 'Sistema'}</span>
-                {e.kind === 'note' ? (
-                  <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full"><StickyNote className="w-2.5 h-2.5" /> Nota</span>
-                ) : (
-                  <span className="text-[10px] font-medium text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">Automático</span>
-                )}
-                <span className="text-[10px] text-gray-400 ml-auto">{formatRelativeWithTime(e.createdAt)}</span>
+        {entries.map(e => {
+          const isNote = e.kind === 'note'
+          return (
+            <div
+              key={e.id}
+              className="flex gap-2.5 p-2.5"
+              style={{
+                borderRadius: 14,
+                border: `1px solid ${isNote ? '#f3e0ae' : 'rgba(10,31,59,.06)'}`,
+                background: isNote ? '#fff7d6' : 'rgba(255,255,255,.85)',
+              }}
+            >
+              {e.kind === 'system' && !e.authorName ? (
+                <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center shrink-0"><Bot className="w-3.5 h-3.5 text-blue-600" /></div>
+              ) : (
+                <InitialsAvatar seed={e.authorId ?? e.authorName ?? 'x'} name={e.authorName ?? 'Sistema'} url={e.authorAvatarUrl} size={28} />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-semibold" style={{ color: '#111827' }}>{e.authorName ?? 'Sistema'}</span>
+                  <span className="text-[10px] ml-auto" style={{ color: '#9aa3b2' }}>{formatRelativeWithTime(e.createdAt)}</span>
+                  {isNote ? (
+                    <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 600, background: '#fde68a', color: '#78490b' }}>Nota</span>
+                  ) : (
+                    <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 500, background: '#ece6fb', color: '#6b5aa8' }}>Automático</span>
+                  )}
+                </div>
+                <p className="text-sm mt-0.5 break-words whitespace-pre-wrap" style={{ color: isNote ? '#374151' : '#6b7280' }}>{e.text}</p>
               </div>
-              {/* Texto puro (React escapa) — nunca HTML. */}
-              <p className={cn('text-sm mt-0.5 break-words whitespace-pre-wrap', e.kind === 'system' ? 'text-gray-500' : 'text-gray-800')}>{e.text}</p>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </NotchCard>
   )

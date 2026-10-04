@@ -1,17 +1,12 @@
 'use client'
 
-// Tabs genérico e reutilizável, extraído do padrão ad hoc de pílulas usado
-// em telas como DesignProjectsWorkspace (useState<'a'|'b'>() + botões com
-// bg-white/shadow quando ativo). Mantém a mesma aparência visual, só troca
-// tabs fixas por uma lista de itens configurável.
-
 import { useState, type ReactNode } from 'react'
-import { cn } from '@/lib/utils'
 
 export type TabItem = {
   id: string
   label: string
   badge?: number
+  icon?: any
   content: ReactNode
 }
 
@@ -24,7 +19,6 @@ export function Tabs({
 }: {
   items: TabItem[]
   defaultTab?: string
-  // Modo controlado (opcional): permite a tela trocar de aba por fora (ex.: barra de etapas).
   active?: string
   onChange?: (id: string) => void
   className?: string
@@ -33,35 +27,65 @@ export function Tabs({
   const active = controlledActive ?? inner
   const setActive = (id: string) => { setInner(id); onChange?.(id) }
   const activeItem = items.find(i => i.id === active) ?? items[0]
+  const activeIdx = items.findIndex(i => i.id === active)
 
   return (
     <div className={className}>
-      <div className="flex gap-1.5 mb-4 flex-wrap">
-        {items.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setActive(item.id)}
-            className={cn(
-              'px-4 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
-              active === item.id
-                ? 'bg-white border border-brand-500/30 text-navy shadow-sm font-semibold'
-                : 'bg-transparent text-gray-500 hover:text-navy hover:bg-gray-100/60'
-            )}
-          >
-            {item.label}
-            {typeof item.badge === 'number' && item.badge > 0 && (
-              <span className={cn(
-                'text-xs rounded-full px-1.5 py-0.5 leading-none',
-                active === item.id ? 'bg-brand-500/15 text-brand-700' : 'bg-gray-200 text-gray-500'
-              )}>
-                {item.badge}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Linha de abas */}
+      <div className="flex items-end flex-wrap" style={{ paddingLeft: 2, gap: '3px 3px' }}>
+        {items.map((item, idx) => {
+          const isActive = item.id === active
+          const Icon = item.icon
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActive(item.id)}
+              style={isActive ? {
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '9px 15px 10px',
+                borderRadius: '14px 14px 0 0',
+                fontSize: 12, fontWeight: 600,
+                background: '#fff', color: '#0a1f3b',
+                border: '1px solid rgba(10,31,59,.08)', borderBottom: 'none',
+                marginBottom: -1, position: 'relative', zIndex: 2,
+              } : {
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '6px 12px',
+                borderRadius: 999,
+                fontSize: 11.5, fontWeight: 500,
+                background: 'rgba(255,255,255,.7)', color: '#4f596b',
+                border: '1px solid rgba(10,31,59,.1)',
+                marginBottom: 6,
+              }}
+            >
+              {isActive && Icon && (
+                <Icon style={{ width: 13, height: 13, color: '#cba455', flexShrink: 0 }} />
+              )}
+              {item.label}
+              {typeof item.badge === 'number' && item.badge > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 999, lineHeight: 1.4,
+                  background: isActive ? 'rgba(10,31,59,.07)' : '#f3f4f6',
+                  color: isActive ? '#0a1f3b' : '#6b7280',
+                }}>
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
-      <div>{activeItem?.content}</div>
+      {/* Conteúdo */}
+      <div style={{
+        border: '1px solid rgba(10,31,59,.08)',
+        borderRadius: activeIdx === 0 ? '0 22px 22px 22px' : '22px',
+        background: 'linear-gradient(180deg,#fff 0%,#fdfdfc 100%)',
+        padding: 20,
+        boxShadow: 'rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.12) 0 22px 44px -26px',
+      }}>
+        {activeItem?.content}
+      </div>
     </div>
   )
 }

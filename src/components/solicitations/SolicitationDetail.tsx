@@ -9,7 +9,7 @@
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
 import { useState, useTransition } from 'react'
-import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus } from 'lucide-react'
+import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { QuoteDetail } from '@/components/quotes/QuoteDetail'
@@ -33,6 +33,7 @@ import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTex
 import { useConfirm } from '@/components/ui/useConfirm'
 import { isStageDone, splitPlannedDone } from '@/lib/solicitations/stages'
 import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/components/solicitations/SolicitationOverview'
+import { avatarColor } from '@/lib/avatar-color'
 import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/StageRecords'
 
 type Team = SolicitationView['team']
@@ -116,6 +117,8 @@ export function SolicitationDetail({
   primaryQuote: any | null
   primaryQuoteActivities: any[]
 }) {
+  const clientColor = avatarColor(solicitation.clientId || solicitation.clientName || '')
+  const headBg = `linear-gradient(120deg,${clientColor.bg} 0%,#ffffff 50%,#fdf6e3 100%)`
   const STAGE_IDS = ['visita', 'projeto', 'orcamento', 'negociacao', 'compra', 'expedicao', 'instalacao', 'posVenda']
   const doneMap = Object.fromEntries(STAGE_IDS.map(id => [id, isStageDone(id, solicitation)]))
   const doneCount = Object.values(doneMap).filter(Boolean).length
@@ -141,6 +144,7 @@ export function SolicitationDetail({
     {
       id: 'visita',
       label: label('visita', 'Visita'),
+      icon: MapPin,
       badge: solicitation.visits.length,
       content: (
         <StagePanel
@@ -156,6 +160,7 @@ export function SolicitationDetail({
     {
       id: 'projeto',
       label: label('projeto', 'Projeto'),
+      icon: Ruler,
       badge: solicitation.designProjects.length,
       content: (
         <StagePanel
@@ -171,6 +176,7 @@ export function SolicitationDetail({
     {
       id: 'orcamento',
       label: label('orcamento', 'Orçamento'),
+      icon: FileText,
       badge: solicitation.quotes.length,
       content: primaryQuote ? (
         <QuoteDetail quote={primaryQuote} activities={primaryQuoteActivities} showNegotiation={false} />
@@ -181,6 +187,7 @@ export function SolicitationDetail({
     {
       id: 'negociacao',
       label: label('negociacao', 'Negociação'),
+      icon: HandCoins,
       badge: solicitation.negotiations.length,
       content: primaryQuote ? (
         <NegotiationSection quote={primaryQuote} />
@@ -191,6 +198,7 @@ export function SolicitationDetail({
     {
       id: 'compra',
       label: label('compra', 'Compra de material'),
+      icon: ShoppingCart,
       badge: solicitation.purchaseChecklistItems.length,
       content: (
         <StagePanel
@@ -206,6 +214,7 @@ export function SolicitationDetail({
     {
       id: 'expedicao',
       label: label('expedicao', 'Separação e entrega'),
+      icon: Package,
       badge: solicitation.shipments.length,
       content: (
         <StagePanel
@@ -219,6 +228,7 @@ export function SolicitationDetail({
     {
       id: 'instalacao',
       label: label('instalacao', 'Instalação'),
+      icon: Wrench,
       badge: solicitation.installationTrackings.length,
       content: (
         <StagePanel
@@ -234,6 +244,7 @@ export function SolicitationDetail({
     {
       id: 'posVenda',
       label: label('posVenda', 'Pós-venda'),
+      icon: HeartPulse,
       badge: solicitation.postSaleFollowups.length,
       content: (
         <StagePanel
@@ -250,7 +261,7 @@ export function SolicitationDetail({
 
   return (
     <div>
-      <div className="rounded-2xl px-6 pt-5 pb-4 mb-5" style={{ background: 'linear-gradient(180deg,#fff 0%,#fff 55%,#f7f8fa 100%)', border: '1px solid rgba(10,31,59,.08)', boxShadow: 'rgba(255,255,255,.98) 0 1.5px 0 0 inset, rgba(255,255,255,.45) 0 0 0 1px inset, rgba(10,31,59,.03) 0 -1px 0 0 inset, rgba(10,31,59,.06) 0 2px 8px 0, rgba(10,31,59,.16) 0 22px 44px -20px' }}>
+      <div className="rounded-2xl px-6 pt-5 pb-4 mb-5" style={{ background: headBg, border: '1px solid rgba(10,31,59,.08)', boxShadow: 'rgba(255,255,255,.98) 0 1.5px 0 0 inset, rgba(255,255,255,.45) 0 0 0 1px inset, rgba(10,31,59,.03) 0 -1px 0 0 inset, rgba(10,31,59,.06) 0 2px 8px 0, rgba(10,31,59,.16) 0 22px 44px -20px' }}>
         <SolicitationHero s={solicitation} primaryQuote={primaryQuote} doneCount={doneCount} startedCount={startedCount} onSelect={setActiveTab} />
         <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />
       </div>
