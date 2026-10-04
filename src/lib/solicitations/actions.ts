@@ -815,7 +815,6 @@ export async function createQuoteForSolicitation(
     solicitation_id: solicitationId,
     status: data.status ?? 'queue',
     priority: data.priority ?? 'normal',
-    created_by: user.id,
   }).select('id').maybeSingle()
   if (error) return { error: error.message }
   await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento criado', user.id)
