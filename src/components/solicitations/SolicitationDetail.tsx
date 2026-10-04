@@ -250,9 +250,6 @@ export function SolicitationDetail({
 
   return (
     <div>
-      <Link href="/solicitacoes" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
-        <ChevronLeft className="w-4 h-4" /> Solicitações
-      </Link>
       <div className="rounded-2xl border border-surface-border bg-[#F8F5EE] px-6 pt-5 pb-4 mb-5">
         <SolicitationHero s={solicitation} primaryQuote={primaryQuote} doneCount={doneCount} startedCount={startedCount} onSelect={setActiveTab} />
         <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />

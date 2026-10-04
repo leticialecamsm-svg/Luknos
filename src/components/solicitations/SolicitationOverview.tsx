@@ -6,10 +6,11 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
-  MoreHorizontal, Flag,
+  MoreHorizontal, Flag, ArrowLeft,
 } from 'lucide-react'
 import { avatarColor } from '@/lib/avatar-color'
 import {
@@ -159,8 +160,11 @@ export function SolicitationHero({
 
   return (
     <div className="mb-4">
-      {/* Linha 1: Avatar quadrado + nome + #número + "Em andamento" + contagem */}
+      {/* Linha 1: ← + Avatar quadrado + nome + #número + "Em andamento" + contagem */}
       <div className="flex items-center gap-3 flex-wrap">
+        <Link href="/solicitacoes" aria-label="Voltar" className="w-8 h-8 rounded-full border border-black/10 bg-white/85 flex items-center justify-center text-gray-600 hover:text-navy shrink-0">
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </Link>
         <InitialsAvatar seed={s.clientId || name} name={name} size={40} square />
         <h1 className="text-[22px] font-bold leading-tight text-gray-900">{name}</h1>
         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white border border-amber-200 font-mono text-[11px] font-medium text-amber-800">#{s.number}</span>
