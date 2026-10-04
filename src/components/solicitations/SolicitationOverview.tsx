@@ -10,7 +10,7 @@ import Link from 'next/link'
 import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
-  MoreHorizontal, Flag, ArrowLeft,
+  MoreHorizontal, Flag, ArrowLeft, Filter,
 } from 'lucide-react'
 import { avatarColor } from '@/lib/avatar-color'
 import {
@@ -207,13 +207,19 @@ export function SolicitationHero({
           <button
             type="button"
             aria-label="Mais ações"
+            title="Mais ações (em breve)"
             className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-gray-500 hover:text-navy shadow-sm transition-colors"
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
           <button
             type="button"
-            aria-label="Adicionar"
+            aria-label="Adicionar nota"
+            title="Adicionar nota"
+            onClick={() => {
+              const el = document.querySelector<HTMLInputElement>('input[placeholder="Anotar ou atualizar…"]')
+              if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus() }
+            }}
             className="w-9 h-9 rounded-full bg-brand-500 border border-brand-500 flex items-center justify-center text-white shadow-sm"
           >
             <Plus className="w-4 h-4" />
@@ -327,30 +333,25 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
   )
 }
 
-// Cartão pastel com título em "aba de pasta" (chip com entalhe).
-function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, children }: {
-  title: string; icon: any; tint: string; borderColor: string; bodyBg: string; textColor: string; children: React.ReactNode
+// Cartão pastel com título em "aba de pasta". `actions` renderiza botões à direita do título.
+function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, actions, children }: {
+  title: string; icon: any; tint: string; borderColor: string; bodyBg: string; textColor: string;
+  actions?: React.ReactNode; children: React.ReactNode
 }) {
   return (
     <div>
       <div
-        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold"
         style={{ background: tint, color: textColor, borderRadius: '14px 14px 0 0', border: `1px solid ${borderColor}`, borderBottom: 'none', position: 'relative', zIndex: 2, marginBottom: -1 }}
       >
-        <Icon className="w-3.5 h-3.5" /> {title}
+        <Icon className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">{title}</span>
+        {actions && <span className="ml-auto flex items-center gap-1 pl-2">{actions}</span>}
       </div>
       <div
-        className="p-4 relative"
-        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px', paddingTop: 22 }}
+        className="p-4"
+        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
       >
-        <div style={{ position: 'absolute', top: 10, right: 12, display: 'flex', gap: 6 }}>
-          <button type="button" aria-label="Editar" className="flex items-center justify-center text-gray-500 hover:text-navy transition-colors" style={{ width: 28, height: 28, borderRadius: 999, border: '1px solid rgba(10,31,59,.1)', background: 'rgba(255,255,255,.85)' }}>
-            <Pencil style={{ width: 12, height: 12 }} />
-          </button>
-          <button type="button" aria-label="Mais" className="flex items-center justify-center text-gray-500 hover:text-navy transition-colors" style={{ width: 28, height: 28, borderRadius: 999, border: '1px solid rgba(10,31,59,.1)', background: 'rgba(255,255,255,.85)' }}>
-            <MoreHorizontal style={{ width: 13, height: 13 }} />
-          </button>
-        </div>
         {children}
       </div>
     </div>
@@ -393,11 +394,29 @@ function RoundAction({ href, title, icon: Icon, external }: { href: string; titl
   )
 }
 
+const TAB_BTN_STYLE: React.CSSProperties = {
+  width: 24, height: 24, borderRadius: 999,
+  border: '1px solid rgba(255,255,255,.55)',
+  background: 'rgba(255,255,255,.55)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  cursor: 'pointer', flexShrink: 0,
+}
+
 export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const origin = primaryQuote?.origin ? ORIGIN_LABEL[primaryQuote.origin as keyof typeof ORIGIN_LABEL] ?? null : null
   const driveLink: string | null = primaryQuote?.drive_link ?? null
+  const detailActions = (
+    <>
+      <button type="button" aria-label="Editar" title="Editar detalhes (em breve)" style={TAB_BTN_STYLE}>
+        <Pencil style={{ width: 10, height: 10 }} />
+      </button>
+      <button type="button" aria-label="Mais opções" title="Mais opções (em breve)" style={TAB_BTN_STYLE}>
+        <MoreHorizontal style={{ width: 11, height: 11 }} />
+      </button>
+    </>
+  )
   return (
-    <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14">
+    <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14" actions={detailActions}>
       <div className="space-y-3">
         <Field icon={User} label="Nome" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
@@ -421,12 +440,18 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   )
 }
 
+type HistoryFilter = 'all' | 'note' | 'auto'
+const FILTER_CYCLE: Record<HistoryFilter, HistoryFilter> = { all: 'note', note: 'auto', auto: 'all' }
+const FILTER_TITLE: Record<HistoryFilter, string> = { all: 'Mostrar: todos', note: 'Mostrar: só notas', auto: 'Mostrar: só automáticos' }
+
 export function HistoryCard({ s, activities }: { s: SolicitationView; activities: any[] }) {
   const router = useRouter()
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-  const entries = mergeHistory(s.events, activities)
+  const [filter, setFilter] = useState<HistoryFilter>('all')
+  const allEntries = mergeHistory(s.events, activities)
+  const entries = filter === 'all' ? allEntries : allEntries.filter(e => filter === 'note' ? e.kind === 'note' : e.kind !== 'note')
 
   function add() {
     const t = text.trim()
@@ -440,8 +465,30 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
     })
   }
 
+  const historyActions = (
+    <>
+      {filter !== 'all' && (
+        <span style={{ fontSize: 9, fontWeight: 700, color: '#5b21b6', letterSpacing: '.03em', paddingRight: 2 }}>
+          {filter === 'note' ? 'Notas' : 'Auto'}
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label="Filtrar histórico"
+        title={FILTER_TITLE[filter]}
+        onClick={() => setFilter(f => FILTER_CYCLE[f])}
+        style={{ ...TAB_BTN_STYLE, background: filter !== 'all' ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.55)', color: filter !== 'all' ? '#5b21b6' : 'inherit' }}
+      >
+        <Filter style={{ width: 10, height: 10 }} />
+      </button>
+      <button type="button" aria-label="Mais opções" title="Mais opções (em breve)" style={TAB_BTN_STYLE}>
+        <MoreHorizontal style={{ width: 11, height: 11 }} />
+      </button>
+    </>
+  )
+
   return (
-    <NotchCard title="Histórico" icon={History} tint="#ece6fb" borderColor="#ddd2f8" bodyBg="linear-gradient(160deg,#ece6fb 0%,#f8f6ff 70%)" textColor="#5b21b6">
+    <NotchCard title="Histórico" icon={History} tint="#ece6fb" borderColor="#ddd2f8" bodyBg="linear-gradient(160deg,#ece6fb 0%,#f8f6ff 70%)" textColor="#5b21b6" actions={historyActions}>
       <div className="flex items-center gap-2 mb-3">
         <input
           value={text}
@@ -457,7 +504,11 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
       </div>
       {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
       <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-        {entries.length === 0 && <p className="text-sm text-gray-400 italic text-center py-3">Nada registrado ainda.</p>}
+        {entries.length === 0 && (
+          <p className="text-sm text-gray-400 italic text-center py-3">
+            {filter !== 'all' ? `Nenhum registro do tipo "${filter === 'note' ? 'Nota' : 'Automático'}".` : 'Nada registrado ainda.'}
+          </p>
+        )}
         {entries.map(e => {
           const isNote = e.kind === 'note'
           return (
