@@ -745,3 +745,15 @@ export async function deleteDesignProjectForSolicitation(id: string, solicitatio
   refresh(solicitationId)
   return { ok: true }
 }
+
+// Separa expedição da solicitação: exclui o registro de shipments vinculado.
+// Atenção: o registro também some de /shipping. Confirmação obrigatória na tela.
+export async function deleteShipmentForSolicitation(id: string, solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('shipments').delete().eq('id', id)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'expedicao', 'Separação/entrega excluída', user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}

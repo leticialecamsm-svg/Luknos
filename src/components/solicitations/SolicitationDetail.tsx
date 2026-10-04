@@ -9,7 +9,7 @@
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
 import { useState, useTransition } from 'react'
-import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse } from 'lucide-react'
+import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { QuoteDetail } from '@/components/quotes/QuoteDetail'
@@ -28,6 +28,7 @@ import {
   updateShipmentForSolicitation, updateVisitForSolicitation,
   updateDesignProjectKindForSolicitation, updateDesignProjectDescriptionForSolicitation,
   updateDesignProjectStatusForSolicitation, deleteVisitForSolicitation, deleteDesignProjectForSolicitation,
+  deleteShipmentForSolicitation,
 } from '@/lib/solicitations/actions'
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -129,7 +130,10 @@ export function SolicitationDetail({
     return doneMap[id] ? `✓ ${text}` : text
   }
 
-  const [activeTab, setActiveTab] = useState(initialTab && STAGE_IDS.includes(initialTab) ? initialTab : 'visita')
+  const ALL_TAB_IDS = ['visao-geral', ...STAGE_IDS]
+  const [activeTab, setActiveTab] = useState(
+    initialTab && ALL_TAB_IDS.includes(initialTab) ? initialTab : 'visao-geral'
+  )
   const team = solicitation.team
   const sid = solicitation.id
 
@@ -140,7 +144,58 @@ export function SolicitationDetail({
   const installs = splitPlannedDone('instalacao', solicitation.installationTrackings)
   const postSales = splitPlannedDone('posVenda', solicitation.postSaleFollowups)
 
+  // ── Conteúdo da Visão Geral ─────────────────────────────────────────────
+  const overviewStages = STAGE_IDS.map(id => {
+    const label = { visita: 'Visita', projeto: 'Projeto', orcamento: 'Orçamento', negociacao: 'Negociação', compra: 'Compra', expedicao: 'Separação e entrega', instalacao: 'Instalação', posVenda: 'Pós-venda' }[id] ?? id
+    const icons: Record<string, any> = { visita: MapPin, projeto: Ruler, orcamento: FileText, negociacao: HandCoins, compra: ShoppingCart, expedicao: Package, instalacao: Wrench, posVenda: HeartPulse }
+    const hasRecords = !!solicitation.tabs[id as keyof typeof solicitation.tabs]
+    const isDone = doneMap[id]
+    return { id, label, icon: icons[id], hasRecords, isDone }
+  })
+
+  const overviewContent = (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Etapas desta solicitação</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {overviewStages.map(st => {
+          const Icon = st.icon
+          return (
+            <button
+              key={st.id}
+              type="button"
+              onClick={() => setActiveTab(st.id)}
+              disabled={!st.hasRecords}
+              className={cn(
+                'flex flex-col items-start gap-1.5 rounded-xl p-3 text-left transition-shadow',
+                st.hasRecords ? 'hover:shadow-sm cursor-pointer' : 'opacity-40 cursor-default',
+                st.isDone ? 'bg-green-50 border border-green-200' : st.hasRecords ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50 border border-gray-200'
+              )}
+            >
+              <div className="flex items-center gap-1.5 w-full">
+                {Icon && <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: st.isDone ? '#16a34a' : st.hasRecords ? '#d97706' : '#9ca3af' }} />}
+                <span className="text-[11.5px] font-semibold truncate" style={{ color: st.isDone ? '#15803d' : st.hasRecords ? '#92400e' : '#9ca3af' }}>
+                  {st.label}
+                </span>
+                {st.isDone && <Check className="ml-auto w-3 h-3 text-green-600 shrink-0" />}
+                {!st.isDone && st.hasRecords && <Clock className="ml-auto w-3 h-3 text-amber-600 shrink-0" />}
+              </div>
+              <span className="text-[10px]" style={{ color: st.isDone ? '#15803d' : st.hasRecords ? '#78350f' : '#9ca3af' }}>
+                {st.isDone ? 'Concluído' : st.hasRecords ? 'Em andamento' : 'Sem registro'}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   const items: TabItem[] = [
+    {
+      id: 'visao-geral',
+      label: 'Visão geral',
+      icon: LayoutDashboard,
+      content: overviewContent,
+    },
     {
       id: 'visita',
       label: label('visita', 'Visita'),
@@ -263,13 +318,29 @@ export function SolicitationDetail({
     <div>
       <div className="rounded-2xl px-6 pt-5 pb-4 mb-5" style={{ background: headBg, border: '1px solid rgba(10,31,59,.08)', boxShadow: 'rgba(255,255,255,.98) 0 1.5px 0 0 inset, rgba(255,255,255,.45) 0 0 0 1px inset, rgba(10,31,59,.03) 0 -1px 0 0 inset, rgba(10,31,59,.06) 0 2px 8px 0, rgba(10,31,59,.16) 0 22px 44px -20px' }}>
         <SolicitationHero s={solicitation} primaryQuote={primaryQuote} doneCount={doneCount} startedCount={startedCount} onSelect={setActiveTab} />
-        <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />
+        <div className="flex items-end justify-between gap-3 mt-3">
+          <div className="flex-1 min-w-0">
+            <StagePipeline s={solicitation} primaryQuote={primaryQuote} onSelect={setActiveTab} />
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('visao-geral')}
+            className={cn(
+              'shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold border transition-colors',
+              activeTab === 'visao-geral'
+                ? 'bg-navy text-white border-navy'
+                : 'bg-white/80 text-navy border-black/10 hover:border-navy'
+            )}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" /> Visão geral
+          </button>
+        </div>
       </div>
       {/* Coluna esquerda fixa em todas as abas; abaixo de 1024px empilha. */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         <SolicitationSidebar s={solicitation} primaryQuote={primaryQuote} activities={primaryQuoteActivities} />
         <div className="flex-1 min-w-0 w-full">
-          <Tabs items={items} active={activeTab} onChange={setActiveTab} />
+          <Tabs items={items} active={activeTab} onChange={setActiveTab} hideTabBar />
         </div>
       </div>
     </div>
@@ -547,7 +618,6 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
 }
 
 // ── Separação e entrega (shipments) ───────────────────────────────────────
-// Sem criar/excluir aqui: a expedição nasce e é removida em /shipping.
 
 function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
   const [editing, setEditing] = useState(false)
@@ -556,11 +626,18 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
   const [status, setStatus] = useState<string>(s.separation_status ?? 'queued')
   const [priority, setPriority] = useState<string>(s.priority ?? 'mid')
   const [pending, startTransition] = useTransition()
+  const { confirm, ConfirmDialog } = useConfirm()
   const accent = SHIPMENT_STATUS_ACCENT[s.separation_status as string] ?? SHIPMENT_STATUS_ACCENT.queued
   const priorityColor = SHIPMENT_PRIORITY_COLOR[s.priority as keyof typeof SHIPMENT_PRIORITY_COLOR]
   const finished = !!s.is_completed || s.separation_status === 'completed' || s.separation_status === 'delivered'
   const statusColors = SHIPMENT_STATUS_COLOR as Record<string, { bg: string; text: string }>
   const priorityColors = SHIPMENT_PRIORITY_COLOR as Record<string, { bg: string; text: string }>
+
+  async function handleDelete() {
+    const yes = await confirm('Excluir esta separação/entrega? O registro também será removido da fila de Expedição.', 'Excluir')
+    if (!yes) return
+    startTransition(async () => { await deleteShipmentForSolicitation(s.id, s.solicitation_id) })
+  }
 
   function save() {
     startTransition(async () => {
@@ -577,6 +654,7 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
   }
 
   return (
+    <>
     <RecordRow
       accent={accent} icon={Truck}
       title={s.delivery_type ? SHIPMENT_DELIVERY_TYPE_LABEL[s.delivery_type as keyof typeof SHIPMENT_DELIVERY_TYPE_LABEL] : 'Separação e entrega'}
@@ -587,7 +665,7 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
           onChange={st => startTransition(async () => { await updateShipmentForSolicitation(s.id, s.solicitation_id, { separation_status: st as any }) })} />
         {priorityColor && <span className={cn('badge text-xs font-semibold', priorityColor.bg, priorityColor.text)}>{SHIPMENT_PRIORITY_LABEL[s.priority as keyof typeof SHIPMENT_PRIORITY_LABEL] ?? s.priority}</span>}
       </>}
-      onEdit={() => setEditing(true)} pending={pending}
+      onEdit={() => setEditing(true)} onDelete={handleDelete} pending={pending}
     >
       {!editing && (
         <div className="text-xs text-gray-500 mt-1 space-y-0.5">
@@ -619,6 +697,8 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
         </InlineEdit>
       )}
     </RecordRow>
+    {ConfirmDialog}
+    </>
   )
 }
 

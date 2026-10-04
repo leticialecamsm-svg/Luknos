@@ -873,6 +873,7 @@ export async function closeSale(quoteId: string, data: {
   revalidatePath('/shipping')
   revalidatePath('/partners')
   revalidatePath('/finance')
+  revalidatePath('/solicitacoes', 'layout')
   return { ok: true }
 }
 
@@ -3015,6 +3016,7 @@ export async function cancelSale(quoteId: string) {
   revalidatePath(`/quotes/${quoteId}`)
   revalidatePath('/finance')
   revalidatePath('/dashboard')
+  revalidatePath('/solicitacoes', 'layout')
   return {}
 }
 
