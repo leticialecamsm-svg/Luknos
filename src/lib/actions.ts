@@ -2565,7 +2565,7 @@ export async function getFinanceEntries() {
   try {
     const { data } = await createAdminClient()
       .from('finance_entries')
-      .select('*')
+      .select('*, purchase_invoice:purchase_invoice_id(id, numero_nota, fornecedor_nome)')
       .order('due_date', { ascending: true })
     return data ?? []
   } catch {
@@ -2638,12 +2638,27 @@ export async function updateFinanceEntry(id: string, data: {
   return { ok: true }
 }
 
-export async function setFinancePaid(id: string, paid: boolean, paidAt?: string) {
+export async function setFinancePaid(id: string, paid: boolean, details?: {
+  paidAt?: string
+  paidAmount?: number
+  interestAmount?: number
+  fineAmount?: number
+  discountAmount?: number
+  accountId?: string | null
+}) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }
   const updates = paid
-    ? { status: 'paid', paid_at: paidAt || new Date().toISOString().split('T')[0] }
-    : { status: 'pending', paid_at: null }
+    ? {
+        status: 'paid',
+        paid_at: details?.paidAt || new Date().toISOString().split('T')[0],
+        paid_amount: details?.paidAmount ?? null,
+        interest_amount: details?.interestAmount ?? 0,
+        fine_amount: details?.fineAmount ?? 0,
+        discount_amount: details?.discountAmount ?? 0,
+        account_id: details?.accountId ?? null,
+      }
+    : { status: 'pending', paid_at: null, paid_amount: null, interest_amount: 0, fine_amount: 0, discount_amount: 0, account_id: null }
   const { error } = await createAdminClient().from('finance_entries').update(updates).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/finance')
@@ -2660,6 +2675,37 @@ export async function deleteFinanceEntry(id: string, group?: string | null) {
   if (error) return { error: error.message }
   revalidatePath('/finance')
   return { ok: true }
+}
+
+export async function createFinanceEntriesFromInvoice(data: {
+  invoiceId: string
+  fornecedorNome: string
+  descriptionPrefix: string
+  duplicatas: { nDup: string; dVenc: string; vDup: number }[]
+}) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+
+  const rows = data.duplicatas.map((dup, i) => ({
+    description: data.descriptionPrefix,
+    type: 'payable',
+    counterparty: data.fornecedorNome,
+    amount: dup.vDup,
+    due_date: dup.dVenc,
+    status: 'pending',
+    purchase_invoice_id: data.invoiceId,
+    numero_duplicata: dup.nDup,
+    group_id: data.duplicatas.length > 1 ? data.invoiceId : null,
+    installment_number: data.duplicatas.length > 1 ? i + 1 : null,
+    installments_total: data.duplicatas.length > 1 ? data.duplicatas.length : null,
+    created_by: auth.userId,
+  }))
+
+  const { error } = await admin.from('finance_entries').insert(rows)
+  if (error) return { error: error.message }
+  revalidatePath('/finance')
+  return { ok: true, count: rows.length }
 }
 
 // ── Saldos de contas ──

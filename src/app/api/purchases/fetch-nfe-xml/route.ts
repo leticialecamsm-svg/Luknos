@@ -86,7 +86,20 @@ function parseNFeXML(nfeXml: string) {
     return { nItem, cProd, ncm, quantidade, valorTotal, ipiPercent }
   })
 
-  return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, items }
+  // Cobrança: duplicatas (boletos)
+  const cobrBlock = nfeXml.match(/<cobr>([\s\S]*?)<\/cobr>/)?.[1] ?? ''
+  const dupMatches = cobrBlock.match(/<dup>([\s\S]*?)<\/dup>/g) ?? []
+  const duplicatas = dupMatches
+    .map(dup => ({
+      nDup: get(dup, 'nDup'),
+      dVenc: get(dup, 'dVenc').slice(0, 10),
+      vDup: parseFloat(get(dup, 'vDup')) || 0,
+    }))
+    .filter(d => d.dVenc && d.vDup > 0)
+
+  const valorNF = parseFloat(get(nfeXml, 'vNF')) || 0
+
+  return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, items, duplicatas, valorNF }
 }
 
 // Extrai e descompacta o XML da NF-e do docZip retornado pelo DistDFe

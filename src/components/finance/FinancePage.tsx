@@ -1,578 +1,391 @@
 'use client'
 
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { createFinanceEntry, updateFinanceEntry, setFinancePaid, deleteFinanceEntry, getFinanceEntries, createFinanceSupplier, createFinanceCategory, updateFinanceAccount, createFinanceAccount } from '@/lib/actions'
+import {
+  createFinanceEntry, updateFinanceEntry, setFinancePaid,
+  deleteFinanceEntry, getFinanceEntries,
+  createFinanceSupplier, createFinanceCategory,
+  updateFinanceAccount, createFinanceAccount,
+} from '@/lib/actions'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Plus, X, Check, Trash2, Loader2, AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw, Layers, Building2, Tag, Landmark } from 'lucide-react'
+import {
+  Plus, X, Check, Trash2, Loader2, AlertTriangle,
+  ArrowDownCircle, ArrowUpCircle, ChevronLeft, ChevronRight,
+  RefreshCw, Layers, Landmark, Clock, CheckCircle2, Pencil,
+  Search, MoreVertical, FileText, Receipt, Building2,
+} from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import Link from 'next/link'
 
-const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
 function todayISO() {
-  const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+function isoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 function parseISO(s: string) { return new Date(s + 'T00:00:00') }
-function isoDate(d: Date) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function fmtDate(s: string | null) {
+  if (!s) return '—'
+  const [y, m, d] = s.split('-')
+  return `${d}/${m}/${y}`
+}
+function fmtDateLong(s: string | null) {
+  if (!s) return '—'
+  const dt = parseISO(s)
+  return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+function getEntryStatus(e: any, today: string): 'paid' | 'overdue' | 'pending' {
+  if (e.status === 'paid') return 'paid'
+  if (e.due_date < today) return 'overdue'
+  return 'pending'
+}
+function parseBR(s: string) {
+  return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0
+}
 
-const PIE_COLORS = ['#111827','#CBA455','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#EC4899','#6B7280','#84CC16']
+// ── Componentes pequenos ───────────────────────────────────────────────────────
 
-export function FinancePage({ initialEntries, suppliers: initialSuppliers, categories: initialCategories, accounts: initialAccounts }: {
-  initialEntries: any[]
-  suppliers: any[]
-  categories: any[]
-  accounts: any[]
+function StatusBadge({ status }: { status: 'paid' | 'overdue' | 'pending' }) {
+  const map = {
+    paid:    { label: 'Pago',     cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    overdue: { label: 'Vencido',  cls: 'bg-red-50 text-red-700 border-red-200' },
+    pending: { label: 'Pendente', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  }
+  const { label, cls } = map[status]
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border', cls)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full', status === 'paid' ? 'bg-emerald-500' : status === 'overdue' ? 'bg-red-500' : 'bg-amber-400')} />
+      {label}
+    </span>
+  )
+}
+
+function OrigemBadge({ entry }: { entry: any }) {
+  if (entry.purchase_invoice) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-blue-600">
+        <FileText className="w-3 h-3" />
+        NF-e {entry.purchase_invoice.numero_nota || ''}
+      </span>
+    )
+  }
+  if (entry.quote_id) {
+    return (
+      <Link href={`/quotes/${entry.quote_id}`} className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:underline" onClick={e => e.stopPropagation()}>
+        <Receipt className="w-3 h-3" />
+        Orçamento
+      </Link>
+    )
+  }
+  return <span className="text-[11px] text-gray-400">Manual</span>
+}
+
+function KpiTile({ icon: Icon, label, value, count, color, alert }: {
+  icon: React.ElementType; label: string; value: number; count: number
+  color: 'gray' | 'red' | 'green'; alert?: boolean
+}) {
+  const colors = {
+    gray:  { card: 'border-surface-border bg-gradient-to-br from-gray-50 to-white', icon: 'text-gray-400', val: 'text-gray-800', sub: 'text-gray-500' },
+    red:   { card: 'border-red-100 bg-gradient-to-br from-red-50 to-white', icon: 'text-red-400', val: 'text-red-700', sub: 'text-red-500' },
+    green: { card: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white', icon: 'text-emerald-400', val: 'text-emerald-700', sub: 'text-emerald-500' },
+  }
+  const c = colors[color]
+  return (
+    <div className={cn('rounded-xl border shadow-card p-4', c.card)}>
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={cn('w-4 h-4', c.icon)} />
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+        {alert && value > 0 && <AlertTriangle className="w-3 h-3 text-red-400" />}
+      </div>
+      <p className={cn('text-2xl font-bold', c.val)}>{formatCurrency(value)}</p>
+      <p className={cn('text-xs mt-0.5', c.sub)}>{count} lançamento{count !== 1 ? 's' : ''}</p>
+    </div>
+  )
+}
+
+// ── Modal: Dar Baixa ──────────────────────────────────────────────────────────
+
+function DarBaixaModal({ entry, accounts, onClose, onDone }: {
+  entry: any; accounts: any[]; onClose: () => void; onDone: () => void
+}) {
+  const toast = useToast()
+  const today = todayISO()
+  const [paidAmount, setPaidAmount] = useState(String(entry.amount))
+  const [paidAt, setPaidAt] = useState(today)
+  const [interest, setInterest] = useState('0')
+  const [fine, setFine] = useState('0')
+  const [discount, setDiscount] = useState('0')
+  const [accountId, setAccountId] = useState<string>('')
+  const [saving, setSaving] = useState(false)
+
+  // Recalcula paid_amount quando juros/multa/desconto mudam
+  useEffect(() => {
+    const base = parseFloat(paidAmount) || entry.amount
+    const int = parseBR(interest)
+    const fi = parseBR(fine)
+    const dis = parseBR(discount)
+    const total = entry.amount + int + fi - dis
+    if (int !== 0 || fi !== 0 || dis !== 0) {
+      setPaidAmount(total.toFixed(2))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interest, fine, discount])
+
+  async function handleSubmit() {
+    setSaving(true)
+    const res = await setFinancePaid(entry.id, true, {
+      paidAt,
+      paidAmount: parseFloat(paidAmount) || entry.amount,
+      interestAmount: parseBR(interest),
+      fineAmount: parseBR(fine),
+      discountAmount: parseBR(discount),
+      accountId: accountId || null,
+    })
+    setSaving(false)
+    if (res?.error) { toast.error('OCORREU UM ERRO', res.error); return }
+    toast.success('TUDO CERTO!', 'Baixa registrada com sucesso.')
+    onDone()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-surface-border flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Dar baixa</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{entry.description} · {formatCurrency(entry.amount)}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Valor pago *</label>
+              <input
+                type="number" step="0.01" value={paidAmount}
+                onChange={e => setPaidAmount(e.target.value)}
+                className="input mt-1"
+              />
+            </div>
+            <div>
+              <label className="label">Data</label>
+              <input type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} className="input mt-1" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Juros</label>
+              <input type="number" step="0.01" min="0" value={interest} onChange={e => setInterest(e.target.value)} className="input mt-1" />
+            </div>
+            <div>
+              <label className="label">Multa</label>
+              <input type="number" step="0.01" min="0" value={fine} onChange={e => setFine(e.target.value)} className="input mt-1" />
+            </div>
+            <div>
+              <label className="label">Desconto</label>
+              <input type="number" step="0.01" min="0" value={discount} onChange={e => setDiscount(e.target.value)} className="input mt-1" />
+            </div>
+          </div>
+          <div>
+            <label className="label">Conta bancária</label>
+            <select value={accountId} onChange={e => setAccountId(e.target.value)} className="select mt-1">
+              <option value="">Sem conta atribuída</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            {!accountId && (
+              <p className="text-[11px] text-amber-600 mt-1">
+                Sem conta atribuída, este lançamento não entra na conferência de saldo com o banco.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
+          <button onClick={onClose} className="btn-secondary flex-1">Fechar</button>
+          <button onClick={handleSubmit} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} Registrar baixa
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Modal: Detalhe do lançamento ──────────────────────────────────────────────
+
+function EntryDetailModal({ entry: initialEntry, accounts, onClose, onEdit, onReload }: {
+  entry: any; accounts: any[]; onClose: () => void; onEdit: () => void; onReload: () => void
 }) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
-  const [entries, setEntries] = useState<any[]>(initialEntries)
-  const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
-  const [categories, setCategories] = useState<any[]>(initialCategories)
-  const [accounts, setAccounts] = useState<any[]>(initialAccounts)
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState<any | null>(null)
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid'>('pending')
-  const [filterType, setFilterType] = useState<'all' | 'payable' | 'receivable'>('payable')
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set())
-
-  // Navegação de semana
-  const [weekOffset, setWeekOffset] = useState(0)
-  const [selectedDay, setSelectedDay] = useState<string | null>(null)
-
-  // Filtro de mês
-  const now = new Date()
-  const [filterMonth, setFilterMonth] = useState(now.getMonth())
-  const [filterYear, setFilterYear] = useState(now.getFullYear())
-  const [showCalendar, setShowCalendar] = useState(false)
-  const [customRange, setCustomRange] = useState<{from:string;to:string}|null>(null)
-
-  async function reload() {
-    const data = await getFinanceEntries()
-    setEntries(data as any[])
-  }
-
+  const [entry, setEntry] = useState(initialEntry)
+  const [showDarBaixa, setShowDarBaixa] = useState(false)
+  const [reverting, setReverting] = useState(false)
   const today = todayISO()
-  const baseNow = parseISO(today)
+  const status = getEntryStatus(entry, today)
+  const isPayable = entry.type === 'payable'
+  const account = accounts.find(a => a.id === entry.account_id)
 
-  // Semana com offset
-  const weekStart = new Date(baseNow)
-  weekStart.setDate(baseNow.getDate() - baseNow.getDay() + weekOffset * 7)
-  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6)
-
-  // Mês selecionado
-  const monthStart = new Date(filterYear, filterMonth, 1)
-  const monthEnd = new Date(filterYear, filterMonth + 1, 0)
-
-  const payablesPending = entries.filter(e => e.type === 'payable' && e.status === 'pending')
-
-  const kpi = useMemo(() => {
-    const active = payablesPending.filter(e => !excludedIds.has(e.id))
-    const sumIn = (from: string, to: string) =>
-      active.filter(e => e.due_date >= from && e.due_date <= to).reduce((s, e) => s + Number(e.amount), 0)
-    return {
-      today: active.filter(e => e.due_date === today).reduce((s, e) => s + Number(e.amount), 0),
-      week: sumIn(isoDate(weekStart), isoDate(weekEnd)),
-      month: sumIn(isoDate(monthStart), isoDate(monthEnd)),
-      overdue: active.filter(e => e.due_date < today).reduce((s, e) => s + Number(e.amount), 0),
-      total: active.reduce((s, e) => s + Number(e.amount), 0),
-    }
-  }, [entries, weekOffset, filterMonth, filterYear, excludedIds])
-
-  // Dias da semana atual
-  const weekDays = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i)
-    const dISO = isoDate(d)
-    const total = payablesPending.filter(e => e.due_date === dISO && !excludedIds.has(e.id)).reduce((s, e) => s + Number(e.amount), 0)
-    return { date: d, iso: dISO, total, isToday: dISO === today }
-  })
-  const maxDay = Math.max(1, ...weekDays.map(d => d.total))
-
-  // Gráfico pizza por categoria
-  const pieData = useMemo(() => {
-    const byCategory: Record<string, number> = {}
-    payablesPending.filter(e => !excludedIds.has(e.id)).forEach(e => {
-      const cat = e.category || 'Sem categoria'
-      byCategory[cat] = (byCategory[cat] || 0) + Number(e.amount)
-    })
-    const total = Object.values(byCategory).reduce((s, v) => s + v, 0)
-    return Object.entries(byCategory)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, value], i) => ({ name, value, pct: total > 0 ? value / total : 0, color: PIE_COLORS[i % PIE_COLORS.length] }))
-  }, [entries, excludedIds])
-
-  const filtered = useMemo(() => {
-    let list = entries.filter(e =>
-      (filterType === 'all' || e.type === filterType) &&
-      (filterStatus === 'all' || e.status === filterStatus)
-    )
-    if (selectedDay) {
-      list = list.filter(e => e.due_date === selectedDay)
-    } else if (customRange) {
-      list = list.filter(e => e.due_date >= customRange.from && e.due_date <= customRange.to)
-    } else {
-      const from = isoDate(monthStart)
-      const to = isoDate(monthEnd)
-      list = list.filter(e => e.due_date >= from && e.due_date <= to)
-    }
-    return list
-  }, [entries, filterType, filterStatus, filterMonth, filterYear, customRange, selectedDay])
-
-  function toggleExclude(id: string) {
-    setExcludedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-
-  async function togglePaid(e: any) {
-    const next = e.status !== 'paid'
-    setEntries(prev => prev.map(x => x.id === e.id ? { ...x, status: next ? 'paid' : 'pending', paid_at: next ? today : null } : x))
-    const res = await setFinancePaid(e.id, next)
-    if (res?.error) { toast.error('OCORREU UM ERRO', res.error); reload() }
-  }
-
-  async function remove(e: any) {
-    const isGroup = !!e.group_id
-    const ok = await confirm(isGroup ? 'Excluir todas as parcelas deste lançamento?' : 'Excluir este lançamento?', 'Sim, excluir')
+  async function handleEstornar() {
+    const ok = await confirm('Estornar este pagamento e marcar como pendente?', 'Estornar')
     if (!ok) return
-    const res = await deleteFinanceEntry(e.id, isGroup ? e.group_id : null)
+    setReverting(true)
+    const res = await setFinancePaid(entry.id, false)
+    setReverting(false)
     if (res?.error) { toast.error('OCORREU UM ERRO', res.error); return }
-    reload()
+    toast.success('TUDO CERTO!', 'Pagamento estornado.')
+    onReload()
+    onClose()
   }
 
-  function prevMonth() {
-    if (filterMonth === 0) { setFilterMonth(11); setFilterYear(y => y - 1) }
-    else setFilterMonth(m => m - 1)
-    setCustomRange(null)
+  async function handleDelete() {
+    const isGroup = !!entry.group_id
+    const ok = await confirm(
+      isGroup ? 'Excluir todas as parcelas deste lançamento?' : 'Excluir este lançamento?',
+      'Sim, excluir'
+    )
+    if (!ok) return
+    const res = await deleteFinanceEntry(entry.id, isGroup ? entry.group_id : null)
+    if (res?.error) { toast.error('OCORREU UM ERRO', res.error); return }
+    toast.success('TUDO CERTO!', 'Lançamento excluído.')
+    onReload()
+    onClose()
   }
-  function nextMonth() {
-    if (filterMonth === 11) { setFilterMonth(0); setFilterYear(y => y + 1) }
-    else setFilterMonth(m => m + 1)
-    setCustomRange(null)
-  }
-
-  // SVG pizza
-  function buildPieSlices(onHover: (seg: any | null, e?: React.MouseEvent) => void) {
-    if (pieData.length === 0) return null
-    let cumAngle = -Math.PI / 2
-    const cx = 80, cy = 80, r = 70
-    return pieData.map((seg, i) => {
-      const angle = seg.pct * 2 * Math.PI
-      const x1 = cx + r * Math.cos(cumAngle)
-      const y1 = cy + r * Math.sin(cumAngle)
-      cumAngle += angle
-      const x2 = cx + r * Math.cos(cumAngle)
-      const y2 = cy + r * Math.sin(cumAngle)
-      const large = angle > Math.PI ? 1 : 0
-      return (
-        <path key={i}
-          d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`}
-          fill={seg.color}
-          className="cursor-pointer hover:opacity-80 transition-opacity duration-100"
-          onMouseEnter={e => onHover(seg, e)}
-          onMouseMove={e => onHover(seg, e)}
-          onMouseLeave={() => onHover(null)}
-        />
-      )
-    })
-  }
-
-  const weekLabel = weekOffset === 0 ? 'Esta semana'
-    : weekOffset === -1 ? 'Semana passada'
-    : weekOffset === 1 ? 'Próxima semana'
-    : `${weekStart.getDate()}/${weekStart.getMonth()+1} – ${weekEnd.getDate()}/${weekEnd.getMonth()+1}`
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Contas a pagar e a receber</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Filtro de mês */}
-          <div className="relative">
-            <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-3 py-2">
-              <button onClick={prevMonth} className="text-gray-400 hover:text-gray-600"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => setShowCalendar(v => !v)} className="text-sm font-medium text-gray-700 min-w-[110px] text-center">
-                {customRange ? `${parseISO(customRange.from).toLocaleDateString('pt-BR')} – ${parseISO(customRange.to).toLocaleDateString('pt-BR')}` : `${MONTHS_PT[filterMonth]} ${filterYear}`}
-              </button>
-              <button onClick={nextMonth} className="text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4" /></button>
+    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 pt-5 pb-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border',
+                isPayable ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              )}>
+                {isPayable ? 'A PAGAR' : 'A RECEBER'}
+              </span>
+              <StatusBadge status={status} />
             </div>
-            {showCalendar && (
-              <div className="absolute right-0 top-full mt-1 bg-white border border-surface-border rounded-xl shadow-lg p-4 z-20 min-w-[280px]">
-                <p className="text-xs font-semibold text-gray-500 mb-3">Selecionar período</p>
-                <div className="space-y-2">
-                  <div>
-                    <label className="label text-[11px]">De</label>
-                    <input type="date" className="input mt-0.5 text-sm" onChange={e => setCustomRange(prev => ({ from: e.target.value, to: prev?.to || e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="label text-[11px]">Até</label>
-                    <input type="date" className="input mt-0.5 text-sm" onChange={e => setCustomRange(prev => ({ from: prev?.from || e.target.value, to: e.target.value }))} />
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button onClick={() => { setCustomRange(null); setShowCalendar(false) }} className="btn-secondary flex-1 text-xs">Limpar</button>
-                    <button onClick={() => setShowCalendar(false)} className="btn-primary flex-1 text-xs">Aplicar</button>
-                  </div>
+            <div className="flex items-center gap-1">
+              <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-brand-600 rounded-lg hover:bg-surface-secondary"><Pencil className="w-4 h-4" /></button>
+              <button onClick={handleDelete} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mt-3">{entry.description}</h2>
+          <p className="text-3xl font-black text-gray-900 mt-1">
+            {formatCurrency(entry.amount)}
+          </p>
+          {entry.installment_number && (
+            <p className="text-xs text-gray-400 mt-1">
+              Parcela {entry.installment_number} de {entry.installments_total}
+            </p>
+          )}
+        </div>
+
+        {/* Details grid */}
+        <div className="px-6 pb-4">
+          <div className="rounded-xl border border-surface-border divide-y divide-surface-border overflow-hidden">
+            <div className="grid grid-cols-2 divide-x divide-surface-border">
+              <div className="px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Vencimento</p>
+                <p className={cn('text-sm font-semibold', status === 'overdue' ? 'text-red-600' : 'text-gray-800')}>
+                  {fmtDateLong(entry.due_date)}
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">{isPayable ? 'Fornecedor' : 'Cliente'}</p>
+                <p className="text-sm font-semibold text-gray-800">{entry.counterparty || '—'}</p>
+              </div>
+            </div>
+            {entry.category && (
+              <div className="px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Categoria</p>
+                <p className="text-sm text-gray-700">{entry.category}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 divide-x divide-surface-border">
+              <div className="px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Origem</p>
+                <OrigemBadge entry={entry} />
+              </div>
+              {entry.numero_duplicata && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Duplicata</p>
+                  <p className="text-sm text-gray-700">#{entry.numero_duplicata}</p>
+                </div>
+              )}
+            </div>
+            {entry.status === 'paid' && (
+              <div className="grid grid-cols-2 divide-x divide-surface-border bg-emerald-50/30">
+                <div className="px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Pago em</p>
+                  <p className="text-sm font-semibold text-emerald-700">{fmtDateLong(entry.paid_at)}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Valor pago</p>
+                  <p className="text-sm font-semibold text-emerald-700">
+                    {formatCurrency(entry.paid_amount ?? entry.amount)}
+                    {account && <span className="text-xs text-emerald-600 ml-1">· {account.name}</span>}
+                  </p>
                 </div>
               </div>
             )}
-          </div>
-          <button onClick={() => setShowForm(true)} className="btn-primary"><Plus className="w-4 h-4" /> Novo lançamento</button>
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <KpiCard label="Vence hoje" value={kpi.today} color="blue" />
-        <KpiCard label={weekLabel} value={kpi.week} color="indigo" />
-        <KpiCard label={`${MONTHS_PT[filterMonth]}`} value={kpi.month} color="violet" />
-        <KpiCard label="Em atraso" value={kpi.overdue} color="red" alert={kpi.overdue > 0} />
-        <KpiCard label="Total a pagar" value={kpi.total} color="gray" />
-      </div>
-
-      {/* Saldos das contas */}
-      <div className="rounded-card shadow-card border border-surface-border bg-gradient-card p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-            <Landmark className="w-4 h-4 text-brand-500" /> Saldo nas contas
-          </h3>
-          <span className="text-sm font-bold text-gray-800">
-            Total: {formatCurrency(accounts.reduce((s, a) => s + Number(a.balance), 0))}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {accounts.map(a => (
-            <AccountCard key={a.id} account={a} onSave={async (id, val) => {
-              const res = await updateFinanceAccount(id, val)
-              if (!res?.error) setAccounts(prev => prev.map(x => x.id === id ? { ...x, balance: val } : x))
-            }} />
-          ))}
-          <NewAccountCard onCreate={async (name, balance) => {
-            const res = await createFinanceAccount(name, balance)
-            if (!res?.error && res?.data) setAccounts(prev => [...prev, res.data])
-            return res
-          }} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Semana */}
-        <div className="lg:col-span-2 rounded-card shadow-card border border-surface-border bg-gradient-card p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-brand-500" /> A pagar — {weekLabel}
-            </h3>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setWeekOffset(o => o - 1)} className="p-1 text-gray-400 hover:text-gray-700 rounded"><ChevronLeft className="w-4 h-4" /></button>
-              {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} className="text-[10px] text-brand-600 hover:underline">Hoje</button>}
-              <button onClick={() => setWeekOffset(o => o + 1)} className="p-1 text-gray-400 hover:text-gray-700 rounded"><ChevronRight className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="grid grid-cols-7 gap-2">
-            {weekDays.map((d, i) => {
-              const isSelected = selectedDay === d.iso
-              return (
-                <button key={d.iso} type="button"
-                  onClick={() => setSelectedDay(prev => prev === d.iso ? null : d.iso)}
-                  className={cn('flex flex-col items-center gap-1 rounded-lg p-1 transition-colors w-full',
-                    isSelected ? 'bg-brand-50 ring-1 ring-brand-300' : 'hover:bg-surface-secondary'
-                  )}>
-                  <div className="w-full h-20 flex items-end">
-                    <div className="w-full rounded-t-md transition-all"
-                      style={{ height: `${d.total > 0 ? Math.max(6, (d.total / maxDay) * 100) : 2}%`,
-                               backgroundColor: isSelected ? '#CBA455' : d.isToday ? '#CBA455' : '#CBD5E1',
-                               opacity: isSelected ? 1 : d.isToday ? 1 : 0.7 }} />
-                  </div>
-                  <p className={cn('text-[10px] font-semibold', isSelected ? 'text-brand-600' : d.isToday ? 'text-brand-600' : 'text-gray-400')}>{WEEKDAYS[i]} {d.date.getDate()}</p>
-                  <p className={cn('text-[10px]', isSelected ? 'text-brand-700 font-semibold' : 'text-gray-600')}>{d.total > 0 ? formatCurrency(d.total) : '—'}</p>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Pizza por categoria */}
-        <PieCard pieData={pieData} buildPieSlices={buildPieSlices} formatCurrency={formatCurrency} />
-      </div>
-
-      <div className="flex gap-2">
-        {selectedDay && (
-          <button onClick={() => setSelectedDay(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 text-xs text-brand-700">
-            <X className="w-3.5 h-3.5" /> {parseISO(selectedDay).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })} — ver todos
-          </button>
-        )}
-        {excludedIds.size > 0 && (
-          <button onClick={() => setExcludedIds(new Set())} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-200 bg-orange-50 text-xs text-orange-700">
-            <X className="w-3.5 h-3.5" /> {excludedIds.size} excluído(s) do total — restaurar
-          </button>
-        )}
-      </div>
-
-      {/* Filtros */}
-      <div className="flex flex-wrap items-center gap-2">
-        {([['payable','A pagar'],['receivable','A receber'],['all','Tudo']] as const).map(([v,l]) => (
-          <button key={v} onClick={() => setFilterType(v)}
-            className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border', filterType === v ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-500 border-surface-border')}>{l}</button>
-        ))}
-        <span className="w-px h-5 bg-gray-200 mx-1" />
-        {([['pending','Pendentes'],['paid','Pagas'],['all','Todas']] as const).map(([v,l]) => (
-          <button key={v} onClick={() => setFilterStatus(v)}
-            className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border', filterStatus === v ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-surface-border')}>{l}</button>
-        ))}
-      </div>
-
-      {/* Lista */}
-      <div className="card overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-surface-border bg-surface text-left">
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600 w-10"></th>
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600">Descrição</th>
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600">Vencimento</th>
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600 text-right">Valor</th>
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600 w-16 text-center" title="Excluir do total">Excluir</th>
-              <th className="px-4 py-3 text-xs font-semibold text-gray-600 w-10"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum lançamento</td></tr>
+            {entry.notes && (
+              <div className="px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">Observações</p>
+                <p className="text-sm text-gray-600 whitespace-pre-line">{entry.notes}</p>
+              </div>
             )}
-            {filtered.map(e => {
-              const overdue = e.status === 'pending' && e.due_date < today
-              const isReceivable = e.type === 'receivable'
-              const excluded = excludedIds.has(e.id)
-              return (
-                <tr key={e.id} className={cn('border-b border-surface-border last:border-0 hover:bg-surface', excluded && 'opacity-50')}>
-                  <td className="px-4 py-3">
-                    <button onClick={() => togglePaid(e)} title={e.status === 'paid' ? 'Marcar pendente' : 'Confirmar pagamento'}
-                      className={cn('w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors',
-                        e.status === 'paid' ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 hover:border-emerald-400')}>
-                      {e.status === 'paid' && <Check className="w-3.5 h-3.5" />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {isReceivable ? <ArrowDownCircle className="w-4 h-4 text-emerald-500 shrink-0" /> : <ArrowUpCircle className="w-4 h-4 text-red-400 shrink-0" />}
-                      <div className="min-w-0">
-                        <p className={cn('text-sm font-medium', e.status === 'paid' ? 'text-gray-400 line-through' : 'text-gray-800')}>
-                          {e.quote_id ? (
-                            <a href={`/quotes/${e.quote_id}`} className="hover:underline hover:text-brand-600" title="Ver orçamento">{e.description}</a>
-                          ) : e.description}
-                          {e.installments_total ? <span className="text-xs text-gray-400 ml-1">({e.installment_number}/{e.installments_total})</span> : null}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          {e.counterparty && <p className="text-xs text-gray-400">{e.counterparty}</p>}
-                          {e.category && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{e.category}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={cn('text-sm', overdue ? 'text-red-600 font-semibold' : 'text-gray-600')}>
-                      {parseISO(e.due_date).toLocaleDateString('pt-BR')}
-                      {overdue && <span className="inline-flex items-center gap-0.5 ml-1 text-[10px]"><AlertTriangle className="w-3 h-3" /> atraso</span>}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={cn('text-sm font-semibold', isReceivable ? 'text-emerald-600' : excluded ? 'text-gray-300 line-through' : 'text-gray-800')}>
-                      {formatCurrency(Number(e.amount))}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <button onClick={() => toggleExclude(e.id)} title={excluded ? 'Incluir no total' : 'Excluir do total'}
-                      className={cn('w-5 h-5 rounded border-2 mx-auto flex items-center justify-center transition-colors',
-                        excluded ? 'bg-orange-400 border-orange-400 text-white' : 'border-gray-300 hover:border-orange-400')}>
-                      {excluded && <X className="w-3 h-3" />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setEditing(e)} className="text-gray-300 hover:text-brand-500"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => remove(e)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {showForm && <FinanceForm suppliers={suppliers} categories={categories} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
-      {editing && <FinanceForm entry={editing} suppliers={suppliers} categories={categories} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} onNewSupplier={s => setSuppliers(p => [...p, s])} onNewCategory={c => setCategories(p => [...p, c])} />}
-      {ConfirmDialog}
-    </div>
-  )
-}
-
-function PieCard({ pieData, buildPieSlices, formatCurrency }: { pieData: any[]; buildPieSlices: (fn: (seg: any | null, e?: React.MouseEvent) => void) => React.ReactNode; formatCurrency: (v: number) => string }) {
-  const [hovered, setHovered] = useState<any | null>(null)
-  const [pos, setPos] = useState({ x: 0, y: 0 })
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  function handleHover(seg: any | null, e?: React.MouseEvent) {
-    setHovered(seg)
-    if (e && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect()
-      setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-    }
-  }
-
-  return (
-    <div ref={containerRef} className="rounded-card shadow-card border border-surface-border bg-gradient-card p-4 relative">
-      <h3 className="text-sm font-semibold text-gray-900 mb-3">Por categoria</h3>
-      {pieData.length === 0 ? (
-        <p className="text-xs text-gray-400 text-center py-6">Sem dados</p>
-      ) : (
-        <div className="flex items-center justify-center" onMouseLeave={() => setHovered(null)}>
-          <svg viewBox="0 0 160 160" className="w-36 h-36">
-            {buildPieSlices(handleHover)}
-          </svg>
-        </div>
-      )}
-      {hovered && (
-        <div
-          className="absolute z-50 pointer-events-none bg-gray-900 text-white rounded-lg px-3 py-2 shadow-xl text-center"
-          style={{ left: pos.x + 12, top: pos.y - 10, transform: 'translateY(-100%)' }}
-        >
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hovered.color }} />
-            <span className="text-[11px] font-semibold whitespace-nowrap">{hovered.name}</span>
           </div>
-          <div className="text-sm font-bold">{formatCurrency(hovered.value)}</div>
-          <div className="text-[10px] text-gray-400">{Math.round(hovered.pct * 100)}%</div>
         </div>
-      )}
-    </div>
-  )
-}
 
-function AccountCard({ account, onSave }: { account: any; onSave: (id: string, val: number) => Promise<void> }) {
-  const [editing, setEditing] = useState(false)
-  const [input, setInput] = useState(String(account.balance))
-  const [saving, setSaving] = useState(false)
-
-  async function save() {
-    const val = parseFloat(input.replace(',', '.'))
-    if (isNaN(val)) return
-    setSaving(true)
-    await onSave(account.id, val)
-    setSaving(false)
-    setEditing(false)
-  }
-
-  return (
-    <div className="rounded-xl border border-surface-border bg-surface-secondary p-3 flex flex-col gap-1">
-      <p className="text-xs font-semibold text-gray-500">{account.name}</p>
-      {editing ? (
-        <div className="flex items-center gap-1 mt-1">
-          <input
-            type="number" step="0.01" value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-            className="input text-sm py-1 px-2 flex-1 min-w-0" autoFocus
-          />
-          <button onClick={save} disabled={saving} className="p-1 text-emerald-600 hover:text-emerald-700">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-          </button>
-          <button onClick={() => setEditing(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        {/* Actions */}
+        <div className="flex gap-3 px-6 pb-6">
+          {entry.status === 'pending' ? (
+            <button
+              onClick={() => setShowDarBaixa(true)}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              <Check className="w-4 h-4" /> Dar Baixa
+            </button>
+          ) : (
+            <button
+              onClick={handleEstornar}
+              disabled={reverting}
+              className="btn-secondary flex-1 flex items-center justify-center gap-2"
+            >
+              {reverting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Estornar
+            </button>
+          )}
         </div>
-      ) : (
-        <button onClick={() => { setInput(String(account.balance)); setEditing(true) }}
-          className="text-left group flex items-center justify-between mt-1">
-          <span className={cn('text-base font-bold', Number(account.balance) < 0 ? 'text-red-600' : 'text-gray-800')}>
-            {formatCurrency(Number(account.balance))}
-          </span>
-          <Pencil className="w-3 h-3 text-gray-300 group-hover:text-brand-500 transition-colors" />
-        </button>
-      )}
-    </div>
-  )
-}
-
-function NewAccountCard({ onCreate }: { onCreate: (name: string, balance: number) => Promise<{ error?: string } | undefined> }) {
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const [balance, setBalance] = useState('0')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  async function save() {
-    if (!name.trim()) { setError('Informe o nome'); return }
-    setSaving(true)
-    setError('')
-    const res = await onCreate(name.trim(), parseFloat(balance.replace(',', '.')) || 0)
-    setSaving(false)
-    if (res?.error) { setError(res.error); return }
-    setName(''); setBalance('0'); setAdding(false)
-  }
-
-  if (!adding) {
-    return (
-      <button
-        onClick={() => setAdding(true)}
-        className="rounded-xl border border-dashed border-surface-border bg-surface-secondary/60 p-3 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors min-h-[76px]"
-      >
-        <Plus className="w-5 h-5" />
-        <span className="text-xs font-semibold">Nova conta</span>
-      </button>
-    )
-  }
-
-  return (
-    <div className="rounded-xl shadow-card border border-brand-200 bg-white p-3 flex flex-col gap-1.5">
-      <input
-        value={name} onChange={e => setName(e.target.value)}
-        placeholder="Nome da conta"
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
-        className="input text-sm py-1 px-2" autoFocus
-      />
-      <input
-        type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
-        placeholder="Saldo inicial"
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
-        className="input text-sm py-1 px-2"
-      />
-      {error && <p className="text-[10px] text-red-600">{error}</p>}
-      <div className="flex items-center gap-1">
-        <button onClick={save} disabled={saving} className="btn-primary text-xs py-1 px-2 flex-1 flex items-center justify-center gap-1">
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Salvar
-        </button>
-        <button onClick={() => { setAdding(false); setError('') }} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
       </div>
     </div>
+    {showDarBaixa && (
+      <DarBaixaModal
+        entry={entry}
+        accounts={accounts}
+        onClose={() => setShowDarBaixa(false)}
+        onDone={() => { setShowDarBaixa(false); onReload(); onClose() }}
+      />
+    )}
+    {ConfirmDialog}
+    </>
   )
 }
 
-function KpiCard({ label, value, color, alert }: { label: string; value: number; color: string; alert?: boolean }) {
-  const colors: Record<string, string> = {
-    blue: 'text-blue-700 border-blue-100 from-blue-50',
-    indigo: 'text-indigo-700 border-indigo-100 from-indigo-50',
-    violet: 'text-violet-700 border-violet-100 from-violet-50',
-    red: 'text-red-700 border-red-100 from-red-50',
-    gray: 'text-gray-700 border-surface-border from-gray-50',
-  }
-  return (
-    <div className={cn('rounded-xl shadow-card border bg-gradient-to-br to-white p-4', colors[color])}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80 flex items-center gap-1">
-        {alert && <AlertTriangle className="w-3 h-3" />} {label}
-      </p>
-      <p className="text-xl font-bold mt-1">{formatCurrency(value)}</p>
-    </div>
-  )
-}
+// ── Combobox com criação inline ────────────────────────────────────────────────
 
-// Combobox com criação inline
 function ComboboxField({ label, value, onChange, options, onCreateNew, placeholder }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
+  label: string; value: string; onChange: (v: string) => void
   options: { id: string; name: string; sub?: string }[]
   onCreateNew: (name: string) => Promise<{ id: string; name: string } | null>
   placeholder?: string
@@ -583,7 +396,6 @@ function ComboboxField({ label, value, onChange, options, onCreateNew, placehold
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => { setQuery(value) }, [value])
-
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -607,17 +419,14 @@ function ComboboxField({ label, value, onChange, options, onCreateNew, placehold
     <div ref={ref} className="relative">
       <label className="label">{label}</label>
       <input
-        className="input mt-1"
-        placeholder={placeholder ?? 'Digite para buscar...'}
+        className="input mt-1" placeholder={placeholder ?? 'Buscar ou criar...'}
         value={query}
         onChange={e => { setQuery(e.target.value); onChange(''); setOpen(true) }}
         onFocus={() => setOpen(true)}
       />
       {open && (
         <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-surface-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
-          {filtered.length === 0 && !showCreate && (
-            <p className="px-3 py-2 text-xs text-gray-400">Nenhum resultado</p>
-          )}
+          {filtered.length === 0 && !showCreate && <p className="px-3 py-2 text-xs text-gray-400">Nenhum resultado</p>}
           {filtered.map(o => (
             <button key={o.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-surface-secondary"
               onClick={() => { onChange(o.name); setQuery(o.name); setOpen(false) }}>
@@ -638,14 +447,12 @@ function ComboboxField({ label, value, onChange, options, onCreateNew, placehold
   )
 }
 
+// ── Modal: Formulário (Criar / Editar) ────────────────────────────────────────
+
 function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupplier, onNewCategory }: {
-  entry?: any
-  suppliers: any[]
-  categories: any[]
-  onClose: () => void
-  onSaved: () => void
-  onNewSupplier: (s: any) => void
-  onNewCategory: (c: any) => void
+  entry?: any; suppliers: any[]; categories: any[]
+  onClose: () => void; onSaved: () => void
+  onNewSupplier: (s: any) => void; onNewCategory: (c: any) => void
 }) {
   const toast = useToast()
   const isEdit = !!entry
@@ -656,13 +463,11 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
   const [category, setCategory] = useState(entry?.category ?? '')
   const [amount, setAmount] = useState(entry ? String(entry.amount) : '')
   const [dueDate, setDueDate] = useState(entry?.due_date ?? todayISO())
+  const [notes, setNotes] = useState(entry?.notes ?? '')
   const [recurrence, setRecurrence] = useState<null | 'recurring' | 'installment'>(null)
-  // Parcelado
   const [installments, setInstallments] = useState('3')
   const [intervalDays, setIntervalDays] = useState('30')
   const [splitAmount, setSplitAmount] = useState(true)
-  // Recorrente
-  const [recurringInterval, setRecurringInterval] = useState<'monthly'>('monthly')
   const [recurringLimit, setRecurringLimit] = useState<'none' | 'date'>('none')
   const [recurringEndDate, setRecurringEndDate] = useState('')
   const [error, setError] = useState('')
@@ -671,7 +476,6 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
   const amt = parseFloat(amount) || 0
   const perParcel = splitAmount ? amt / n : amt
 
-  // Parcelas projetadas
   const projectedInstallments = useMemo(() => {
     if (recurrence !== 'installment' || !amt || n < 2) return []
     const base = new Date(dueDate + 'T00:00:00')
@@ -682,21 +486,19 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
     })
   }, [recurrence, amt, n, dueDate, intervalDays, splitAmount])
 
-  // Recorrências projetadas
   const projectedRecurring = useMemo(() => {
     if (recurrence !== 'recurring' || !amt || !dueDate) return []
-    const items = []
+    const items: string[] = []
     const base = new Date(dueDate + 'T00:00:00')
     const endDate = recurringLimit === 'date' && recurringEndDate ? new Date(recurringEndDate + 'T00:00:00') : null
     let current = new Date(base)
     for (let i = 0; i < 24; i++) {
       if (endDate && current > endDate) break
       items.push(isoDate(current))
-      current = new Date(current)
-      current.setMonth(current.getMonth() + 1)
+      current = new Date(current); current.setMonth(current.getMonth() + 1)
     }
     return items
-  }, [recurrence, amt, dueDate, recurringInterval, recurringLimit, recurringEndDate])
+  }, [recurrence, amt, dueDate, recurringLimit, recurringEndDate])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -704,32 +506,23 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
     if (!description.trim()) { setError('Informe a descrição'); return }
     if (!a || a <= 0) { setError('Informe o valor'); return }
     setError(''); setSaving(true)
-
     let res
     if (isEdit) {
       res = await updateFinanceEntry(entry.id, {
-        description: description.trim(), type, category: category || null,
-        counterparty: counterparty || null, amount: a, due_date: dueDate,
-      })
-    } else if (recurrence === 'recurring') {
-      const endDate = recurringLimit === 'date' && recurringEndDate ? recurringEndDate : null
-      res = await createFinanceEntry({
-        description: description.trim(), type, category: category || null, counterparty: counterparty || null,
-        amount: a, due_date: dueDate,
-        installments: projectedRecurring.length || 12,
-        interval_days: 30,
-        split_amount: false,
+        description: description.trim(), type,
+        category: category || null, counterparty: counterparty || null,
+        amount: a, due_date: dueDate, notes: notes || null,
       })
     } else {
       res = await createFinanceEntry({
-        description: description.trim(), type, category: category || null, counterparty: counterparty || null,
-        amount: a, due_date: dueDate,
-        installments: recurrence === 'installment' ? n : 1,
+        description: description.trim(), type,
+        category: category || null, counterparty: counterparty || null,
+        amount: a, due_date: dueDate, notes: notes || null,
+        installments: recurrence === 'installment' ? n : recurrence === 'recurring' ? (projectedRecurring.length || 12) : 1,
         interval_days: parseInt(intervalDays) || 30,
         split_amount: splitAmount,
       })
     }
-
     setSaving(false)
     if (res?.error) { setError(res.error); toast.error('OCORREU UM ERRO', res.error); return }
     toast.success('TUDO CERTO!', isEdit ? 'Lançamento atualizado.' : 'Lançamento criado.')
@@ -764,7 +557,9 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
           <div className="flex gap-2">
             {([['payable','A pagar'],['receivable','A receber']] as const).map(([v,l]) => (
               <button key={v} type="button" onClick={() => setType(v)}
-                className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border', type === v ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-600 border-surface-border')}>{l}</button>
+                className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors', type === v ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-600 border-surface-border hover:border-gray-300')}>
+                {l}
+              </button>
             ))}
           </div>
 
@@ -775,20 +570,15 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
 
           <div className="grid grid-cols-2 gap-3">
             <ComboboxField
-              label={type === 'payable' ? 'Fornecedor' : 'Cliente'}
-              value={counterparty}
+              label={type === 'payable' ? 'Fornecedor' : 'Cliente'} value={counterparty}
               onChange={setCounterparty}
               options={suppliers.map(s => ({ id: s.id, name: s.name, sub: s.supply_area }))}
               onCreateNew={handleNewSupplier}
-              placeholder="Buscar ou criar..."
             />
             <ComboboxField
-              label="Categoria"
-              value={category}
-              onChange={setCategory}
+              label="Categoria" value={category} onChange={setCategory}
               options={categories.map(c => ({ id: c.id, name: c.name }))}
               onCreateNew={handleNewCategory}
-              placeholder="Buscar ou criar..."
             />
           </div>
 
@@ -803,9 +593,14 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
             </div>
           </div>
 
-          {/* Recorrente / Parcelado */}
+          <div>
+            <label className="label">Observações</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} className="input mt-1 resize-none" rows={2} placeholder="Opcional..." />
+          </div>
+
+          {/* Recorrência / Parcelamento */}
           {!isEdit && (
-            <div className="rounded-card shadow-card border border-surface-border p-4 space-y-4">
+            <div className="rounded-xl border border-surface-border p-4 space-y-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repetição</p>
               <div className="flex gap-2">
                 {([['recurring','Recorrente'],['installment','Parcelado']] as const).map(([v,l]) => (
@@ -821,12 +616,6 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
 
               {recurrence === 'recurring' && (
                 <div className="space-y-3">
-                  <div>
-                    <label className="label">Repetição</label>
-                    <select value={recurringInterval} onChange={e => setRecurringInterval(e.target.value as any)} className="select mt-1">
-                      <option value="monthly">Mensalmente</option>
-                    </select>
-                  </div>
                   <div>
                     <label className="label">Limite</label>
                     <div className="flex gap-2 mt-1">
@@ -877,12 +666,16 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
                     {([['true','Dividir o valor'],['false','Valor por parcela']] as const).map(([v,l]) => (
                       <button key={v} type="button" onClick={() => setSplitAmount(v === 'true')}
                         className={cn('flex-1 px-2 py-1.5 rounded-lg text-xs font-medium border',
-                          (splitAmount === (v === 'true')) ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-surface-border text-gray-500')}>{l}</button>
+                          (splitAmount === (v === 'true')) ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-surface-border text-gray-500')}>
+                        {l}
+                      </button>
                     ))}
                   </div>
                   {projectedInstallments.length > 0 && (
                     <div className="bg-surface-secondary rounded-lg p-3 space-y-1">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Parcelas projetadas · Total: <strong>{formatCurrency(splitAmount ? amt : amt * n)}</strong></p>
+                      <p className="text-xs font-medium text-gray-600 mb-2">
+                        Parcelas · Total: <strong>{formatCurrency(splitAmount ? amt : amt * n)}</strong>
+                      </p>
                       {projectedInstallments.map((p, i) => (
                         <div key={i} className="flex items-center justify-between text-xs">
                           <span className="text-gray-500">{i+1}/{n} — {parseISO(p.date).toLocaleDateString('pt-BR')}</span>
@@ -904,6 +697,444 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+// ── Componente de conta bancária ────────────────────────────────────────────────
+
+function AccountCard({ account, onSave }: { account: any; onSave: (id: string, val: number) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState(String(account.balance))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const val = parseFloat(input.replace(',', '.'))
+    if (isNaN(val)) return
+    setSaving(true)
+    await onSave(account.id, val)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  return (
+    <div className="rounded-xl border border-surface-border bg-surface-secondary p-3 flex flex-col gap-1">
+      <p className="text-xs font-semibold text-gray-500">{account.name}</p>
+      {editing ? (
+        <div className="flex items-center gap-1 mt-1">
+          <input
+            type="number" step="0.01" value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+            className="input text-sm py-1 px-2 flex-1 min-w-0" autoFocus
+          />
+          <button onClick={save} disabled={saving} className="p-1 text-emerald-600 hover:text-emerald-700">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          </button>
+          <button onClick={() => setEditing(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+      ) : (
+        <button onClick={() => { setInput(String(account.balance)); setEditing(true) }}
+          className="text-left group flex items-center justify-between mt-1">
+          <span className={cn('text-base font-bold', Number(account.balance) < 0 ? 'text-red-600' : 'text-gray-800')}>
+            {formatCurrency(Number(account.balance))}
+          </span>
+          <Pencil className="w-3 h-3 text-gray-300 group-hover:text-brand-500 transition-colors" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function NewAccountCard({ onCreate }: { onCreate: (name: string, balance: number) => Promise<{ error?: string } | undefined> }) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [balance, setBalance] = useState('0')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save() {
+    if (!name.trim()) { setError('Informe o nome'); return }
+    setSaving(true); setError('')
+    const res = await onCreate(name.trim(), parseFloat(balance.replace(',', '.')) || 0)
+    setSaving(false)
+    if (res?.error) { setError(res.error); return }
+    setName(''); setBalance('0'); setAdding(false)
+  }
+
+  if (!adding) {
+    return (
+      <button onClick={() => setAdding(true)}
+        className="rounded-xl border border-dashed border-surface-border bg-surface-secondary/60 p-3 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors min-h-[76px]">
+        <Plus className="w-5 h-5" />
+        <span className="text-xs font-semibold">Nova conta</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl shadow-card border border-brand-200 bg-white p-3 flex flex-col gap-1.5">
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Nome da conta"
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
+        className="input text-sm py-1 px-2" autoFocus />
+      <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
+        placeholder="Saldo inicial"
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setAdding(false) }}
+        className="input text-sm py-1 px-2" />
+      {error && <p className="text-[10px] text-red-600">{error}</p>}
+      <div className="flex items-center gap-1">
+        <button onClick={save} disabled={saving} className="btn-primary text-xs py-1 px-2 flex-1 flex items-center justify-center gap-1">
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Salvar
+        </button>
+        <button onClick={() => { setAdding(false); setError('') }} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+      </div>
+    </div>
+  )
+}
+
+// ── Componente principal ───────────────────────────────────────────────────────
+
+export function FinancePage({ initialEntries, suppliers: initialSuppliers, categories: initialCategories, accounts: initialAccounts }: {
+  initialEntries: any[]; suppliers: any[]; categories: any[]; accounts: any[]
+}) {
+  const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
+
+  const [entries, setEntries] = useState<any[]>(initialEntries)
+  const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
+  const [categories, setCategories] = useState<any[]>(initialCategories)
+  const [accounts, setAccounts] = useState<any[]>(initialAccounts)
+
+  // Navegação e filtros
+  const now = new Date()
+  const [tab, setTab] = useState<'payable' | 'receivable'>('payable')
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'overdue' | 'paid' | 'all'>('pending')
+  const [filterMonth, setFilterMonth] = useState(now.getMonth())
+  const [filterYear, setFilterYear] = useState(now.getFullYear())
+  const [search, setSearch] = useState('')
+  const [showAccounts, setShowAccounts] = useState(false)
+
+  // Modals
+  const [selected, setSelected] = useState<any>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<any>(null)
+
+  const today = todayISO()
+
+  async function reload() {
+    const data = await getFinanceEntries()
+    setEntries(data as any[])
+  }
+
+  // KPIs (global, sem filtro de mês)
+  const kpi = useMemo(() => {
+    const byType = (type: string) => entries.filter(e => e.type === type)
+    const payables = byType('payable')
+    const receivables = byType('receivable')
+
+    const monthStart = isoDate(new Date(filterYear, filterMonth, 1))
+    const monthEnd = isoDate(new Date(filterYear, filterMonth + 1, 0))
+
+    const vencer = payables.filter(e => e.status === 'pending' && e.due_date >= today)
+    const vencido = payables.filter(e => e.status === 'pending' && e.due_date < today)
+    const pagoMes = entries.filter(e => e.status === 'paid' && e.paid_at && e.paid_at >= monthStart && e.paid_at <= monthEnd)
+    const aReceberMes = receivables.filter(e => e.status === 'pending' && e.due_date >= monthStart && e.due_date <= monthEnd)
+
+    return {
+      vencer: { value: vencer.reduce((s, e) => s + Number(e.amount), 0), count: vencer.length },
+      vencido: { value: vencido.reduce((s, e) => s + Number(e.amount), 0), count: vencido.length },
+      pagoMes: { value: pagoMes.reduce((s, e) => s + Number(e.paid_amount ?? e.amount), 0), count: pagoMes.length },
+      aReceberMes: { value: aReceberMes.reduce((s, e) => s + Number(e.amount), 0), count: aReceberMes.length },
+    }
+  }, [entries, today, filterMonth, filterYear])
+
+  // Entradas filtradas
+  const filtered = useMemo(() => {
+    const monthStart = isoDate(new Date(filterYear, filterMonth, 1))
+    const monthEnd = isoDate(new Date(filterYear, filterMonth + 1, 0))
+
+    return entries.filter(e => {
+      if (e.type !== tab) return false
+      if (search) {
+        const q = search.toLowerCase()
+        if (!e.description?.toLowerCase().includes(q) && !e.counterparty?.toLowerCase().includes(q)) return false
+      }
+      const status = getEntryStatus(e, today)
+      if (statusFilter === 'pending') return status === 'pending'
+      if (statusFilter === 'overdue') return status === 'overdue'
+      if (statusFilter === 'paid') return status === 'paid'
+      // 'all' → filtra pelo mês
+      return e.due_date >= monthStart && e.due_date <= monthEnd
+    })
+  }, [entries, tab, statusFilter, filterMonth, filterYear, search, today])
+
+  function prevMonth() {
+    if (filterMonth === 0) { setFilterMonth(11); setFilterYear(y => y - 1) }
+    else setFilterMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (filterMonth === 11) { setFilterMonth(0); setFilterYear(y => y + 1) }
+    else setFilterMonth(m => m + 1)
+  }
+
+  const totalSelecionado = filtered.reduce((s, e) => s + Number(e.amount), 0)
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Contas a pagar e a receber</p>
+        </div>
+        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
+          <Plus className="w-4 h-4" /> Novo lançamento
+        </button>
+      </div>
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiTile icon={Clock} label="A vencer" value={kpi.vencer.value} count={kpi.vencer.count} color="gray" />
+        <KpiTile icon={AlertTriangle} label="Vencido" value={kpi.vencido.value} count={kpi.vencido.count} color="red" alert />
+        <KpiTile icon={CheckCircle2} label={`Pago em ${MONTHS_PT[filterMonth]}`} value={kpi.pagoMes.value} count={kpi.pagoMes.count} color="green" />
+        <KpiTile icon={ArrowDownCircle} label={`A receber em ${MONTHS_PT[filterMonth]}`} value={kpi.aReceberMes.value} count={kpi.aReceberMes.count} color="gray" />
+      </div>
+
+      {/* Contas bancárias */}
+      <div className="rounded-card shadow-card border border-surface-border bg-gradient-card p-4">
+        <button
+          onClick={() => setShowAccounts(v => !v)}
+          className="flex items-center justify-between w-full"
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Landmark className="w-4 h-4 text-brand-500" />
+            Saldo nas contas
+            <span className="text-sm font-bold text-gray-600 ml-2">
+              {formatCurrency(accounts.reduce((s, a) => s + Number(a.balance), 0))}
+            </span>
+          </span>
+          <ChevronRight className={cn('w-4 h-4 text-gray-400 transition-transform', showAccounts && 'rotate-90')} />
+        </button>
+        {showAccounts && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+            {accounts.map(a => (
+              <AccountCard key={a.id} account={a} onSave={async (id, val) => {
+                const res = await updateFinanceAccount(id, val)
+                if (!res?.error) setAccounts(prev => prev.map(x => x.id === id ? { ...x, balance: val } : x))
+              }} />
+            ))}
+            <NewAccountCard onCreate={async (name, balance) => {
+              const res = await createFinanceAccount(name, balance)
+              if (!res?.error && res?.data) setAccounts(prev => [...prev, res.data])
+              return res
+            }} />
+          </div>
+        )}
+      </div>
+
+      {/* Tabs: A Pagar / A Receber */}
+      <div className="flex gap-4 border-b border-surface-border">
+        {([['payable','A Pagar'],['receivable','A Receber']] as const).map(([v,l]) => (
+          <button key={v} onClick={() => setTab(v)}
+            className={cn('pb-3 px-1 text-sm font-semibold border-b-2 transition-colors',
+              tab === v ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5">
+          {([
+            ['pending','Pendentes'],
+            ['overdue','Vencidos'],
+            ['paid','Pagos'],
+            ['all','Todos'],
+          ] as const).map(([v,l]) => (
+            <button key={v} onClick={() => setStatusFilter(v)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                statusFilter === v
+                  ? v === 'overdue' ? 'bg-red-600 text-white border-red-600'
+                    : v === 'paid' ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-gray-900 text-white border-gray-900'
+                  : 'bg-white text-gray-500 border-surface-border hover:border-gray-300')}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          {statusFilter === 'all' && (
+            <div className="flex items-center gap-1 bg-white border border-surface-border rounded-lg px-2 py-1.5">
+              <button onClick={prevMonth} className="text-gray-400 hover:text-gray-600"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-xs font-medium text-gray-700 w-32 text-center">{MONTHS_PT[filterMonth]} {filterYear}</span>
+              <button onClick={nextMonth} className="text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4" /></button>
+            </div>
+          )}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              className="input pl-8 py-1.5 text-sm w-48"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Tabela */}
+      <div className="card overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-surface-border bg-surface text-left">
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500">{tab === 'payable' ? 'Fornecedor' : 'Cliente'}</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500">Descrição</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 hidden sm:table-cell">Vencimento</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 text-right">Valor</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 hidden lg:table-cell">Origem</th>
+              <th className="px-4 py-3 w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                  Nenhum lançamento{search ? ` para "${search}"` : ''}
+                </td>
+              </tr>
+            )}
+            {filtered.map(e => {
+              const status = getEntryStatus(e, today)
+              return (
+                <tr
+                  key={e.id}
+                  onClick={() => setSelected(e)}
+                  className="border-b border-surface-border last:border-0 hover:bg-surface cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3">
+                    <p className="text-sm text-gray-700 font-medium truncate max-w-[140px]">{e.counterparty || '—'}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className={cn('text-sm font-medium truncate max-w-[200px]', e.status === 'paid' ? 'text-gray-400 line-through' : 'text-gray-800')}>
+                      {e.description}
+                    </p>
+                    {e.installment_number && (
+                      <p className="text-[11px] text-gray-400">{e.installment_number}/{e.installments_total}</p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 hidden sm:table-cell">
+                    <span className={cn('text-sm', status === 'overdue' ? 'text-red-600 font-semibold' : 'text-gray-600')}>
+                      {fmtDate(e.due_date)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className={cn('text-sm font-semibold tabular-nums',
+                      tab === 'receivable' ? 'text-emerald-700' : status === 'overdue' ? 'text-red-700' : 'text-gray-800')}>
+                      {formatCurrency(Number(e.amount))}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={status} />
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    <OrigemBadge entry={e} />
+                  </td>
+                  <td className="px-4 py-3" onClick={ev => ev.stopPropagation()}>
+                    <RowMenu
+                      status={e.status}
+                      onDarBaixa={() => setSelected(e)}
+                      onEdit={() => { setEditing(e) }}
+                      onDelete={async () => {
+                        const isGroup = !!e.group_id
+                        const ok = await confirm(isGroup ? 'Excluir todas as parcelas?' : 'Excluir este lançamento?', 'Sim, excluir')
+                        if (!ok) return
+                        const res = await deleteFinanceEntry(e.id, isGroup ? e.group_id : null)
+                        if (res?.error) { toast.error('OCORREU UM ERRO', res.error); return }
+                        reload()
+                      }}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-surface-border flex items-center justify-between">
+            <p className="text-xs text-gray-400">{filtered.length} lançamento{filtered.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs font-semibold text-gray-700">
+              Total: {formatCurrency(totalSelecionado)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {selected && !editing && (
+        <EntryDetailModal
+          entry={selected}
+          accounts={accounts}
+          onClose={() => setSelected(null)}
+          onEdit={() => { setEditing(selected); setSelected(null) }}
+          onReload={async () => { await reload(); setSelected(null) }}
+        />
+      )}
+      {(showForm || editing) && (
+        <FinanceForm
+          entry={editing}
+          suppliers={suppliers}
+          categories={categories}
+          onClose={() => { setShowForm(false); setEditing(null) }}
+          onSaved={() => { setShowForm(false); setEditing(null); reload() }}
+          onNewSupplier={s => setSuppliers(p => [...p, s])}
+          onNewCategory={c => setCategories(p => [...p, c])}
+        />
+      )}
+      {ConfirmDialog}
+    </div>
+  )
+}
+
+// ── RowMenu ────────────────────────────────────────────────────────────────────
+
+function RowMenu({ status, onDarBaixa, onEdit, onDelete }: {
+  status: string; onDarBaixa: () => void; onEdit: () => void; onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(v => !v)} className="p-1 text-gray-300 hover:text-gray-600 rounded">
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 bg-white border border-surface-border rounded-xl shadow-lg py-1 z-20 min-w-[140px]">
+          {status === 'pending' && (
+            <button onClick={() => { setOpen(false); onDarBaixa() }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-surface-secondary flex items-center gap-2">
+              <Check className="w-3.5 h-3.5 text-emerald-500" /> Dar baixa
+            </button>
+          )}
+          <button onClick={() => { setOpen(false); onEdit() }}
+            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-surface-secondary flex items-center gap-2">
+            <Pencil className="w-3.5 h-3.5 text-gray-400" /> Editar
+          </button>
+          <button onClick={() => { setOpen(false); onDelete() }}
+            className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+            <Trash2 className="w-3.5 h-3.5" /> Excluir
+          </button>
+        </div>
+      )}
     </div>
   )
 }

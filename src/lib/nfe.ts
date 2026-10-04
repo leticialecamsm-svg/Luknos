@@ -20,6 +20,12 @@ export interface NFeItemParsed {
   ipiPercent: number
 }
 
+export interface NFeDuplicata {
+  nDup: string
+  dVenc: string  // YYYY-MM-DD
+  vDup: number
+}
+
 export interface NFeParsed {
   numeroNota: string
   dataEmissao: string
@@ -28,6 +34,8 @@ export interface NFeParsed {
   transportadoraCnpj: string
   transportadoraNome: string
   items: NFeItemParsed[]
+  duplicatas: NFeDuplicata[]
+  valorNF: number
 }
 
 // Um .pfx é um DER: começa com 0x30 e o próprio cabeçalho declara o tamanho total.
@@ -130,7 +138,20 @@ export function parseNFeXML(nfeXml: string): NFeParsed {
     return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
   })
 
-  return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, transportadoraCnpj, transportadoraNome, items }
+  // Cobrança: duplicatas (boletos parcelados)
+  const cobrBlock = nfeXml.match(/<cobr>([\s\S]*?)<\/cobr>/)?.[1] ?? ''
+  const dupMatches = cobrBlock.match(/<dup>([\s\S]*?)<\/dup>/g) ?? []
+  const duplicatas: NFeDuplicata[] = dupMatches
+    .map(dup => ({
+      nDup: tag(dup, 'nDup'),
+      dVenc: tag(dup, 'dVenc').slice(0, 10),
+      vDup: parseFloat(tag(dup, 'vDup')) || 0,
+    }))
+    .filter(d => d.dVenc && d.vDup > 0)
+
+  const valorNF = parseFloat(tag(nfeXml, 'vNF')) || 0
+
+  return { numeroNota, dataEmissao, fornecedorCnpj, fornecedorNome, transportadoraCnpj, transportadoraNome, items, duplicatas, valorNF }
 }
 
 export async function unzipDoc(b64: string): Promise<string> {

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck, FileSearch } from 'lucide-react'
-import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice } from '@/lib/actions'
+import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice, createFinanceEntriesFromInvoice } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ interface NFeItem {
   ipiPercent: number
 }
 
-function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; dataEmissao: string; fornecedorCnpj: string; fornecedorNome: string } | null {
+function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; dataEmissao: string; fornecedorCnpj: string; fornecedorNome: string; duplicatas: NFeDuplicata[] } | null {
   try {
     const parser = new DOMParser()
     const doc = parser.parseFromString(xmlText, 'application/xml')
@@ -72,7 +72,6 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
       const quantidade = parseFloat(get(prod, 'qCom')) || 0
       const valorTotal = parseFloat(get(prod, 'vProd')) || 0
 
-      // IPI: pIPI é a alíquota (%), ou calcular por vIPI/vProd
       let ipiPercent = 0
       if (ipi) {
         const pIPI = get(ipi, 'pIPI')
@@ -86,10 +85,27 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
       return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
     })
 
-    return { items, numeroNota, dataEmissao: dataEmissao.slice(0, 10), fornecedorCnpj, fornecedorNome }
+    // Duplicatas (boletos parcelados) do bloco <cobr>
+    const cobrEl = doc.querySelector('cobr')
+    const dupEls = cobrEl ? Array.from(cobrEl.querySelectorAll('dup')) : []
+    const duplicatas: NFeDuplicata[] = dupEls
+      .map(dup => ({
+        nDup: get(dup, 'nDup'),
+        dVenc: get(dup, 'dVenc').slice(0, 10),
+        vDup: parseFloat(get(dup, 'vDup')) || 0,
+      }))
+      .filter(d => d.dVenc && d.vDup > 0)
+
+    return { items, numeroNota, dataEmissao: dataEmissao.slice(0, 10), fornecedorCnpj, fornecedorNome, duplicatas }
   } catch {
     return null
   }
+}
+
+interface NFeDuplicata {
+  nDup: string
+  dVenc: string
+  vDup: number
 }
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -160,6 +176,11 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
 
   const [saving, setSaving] = useState(false)
 
+  // Duplicatas extraídas da NF-e para geração de contas a pagar
+  const [duplicatas, setDuplicatas] = useState<NFeDuplicata[]>([])
+  const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
+  const [showContasModal, setShowContasModal] = useState(false)
+
   async function handleFetch() {
     const clean = chave.replace(/\D/g, '')
     if (clean.length !== 44) { setError('A chave deve ter exatamente 44 dígitos numéricos.'); return }
@@ -179,6 +200,9 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       // Mapa de itens da NF-e nacional por número do item
       const nfeMap = new Map<number, any>()
       if (nfeData?.items) nfeData.items.forEach((it: any) => nfeMap.set(it.nItem, it))
+
+      // Duplicatas (boletos) retornadas pela API da NF-e
+      if (nfeData?.duplicatas?.length) setDuplicatas(nfeData.duplicatas)
 
       // XML upload tem prioridade se disponível
       const xmlMap = nfeItemsFromXML
@@ -230,6 +254,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       const chaveFromXML = text.match(/\d{44}/)?.[0] ?? ''
       if (chaveFromXML) setChave(chaveFromXML)
       if (parsed.fornecedorNome) setFornecedorNome(parsed.fornecedorNome)
+      if (parsed.duplicatas?.length) setDuplicatas(parsed.duplicatas)
       const map = new Map<number, NFeItem>()
       parsed.items.forEach(it => map.set(it.nItem, it))
       setNfeItemsFromXML(map)
@@ -295,8 +320,14 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       const itemsResult = await savePurchaseInvoiceItems(invoiceId, itemsPayload)
       if (itemsResult && 'error' in itemsResult) { setError(itemsResult.error ?? 'Erro ao salvar itens'); return }
 
-      onSaved()
-      onClose()
+      // Se há duplicatas (boletos) na NF-e, oferecer geração de contas a pagar
+      if (duplicatas.length > 0) {
+        setSavedInvoiceId(invoiceId)
+        setShowContasModal(true)
+      } else {
+        onSaved()
+        onClose()
+      }
     } catch (e: any) {
       setError(e.message ?? 'Erro inesperado')
     } finally {
@@ -309,6 +340,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
   const m = parseBR(maquininha) / 100
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
         {/* Header */}
@@ -552,6 +584,110 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
             </button>
           </div>
         )}
+      </div>
+    </div>
+
+    {showContasModal && savedInvoiceId && (
+      <GerarContasModal
+        invoiceId={savedInvoiceId}
+        fornecedorNome={fornecedorNome}
+        numeroNota={meta?.numeroNota ?? ''}
+        duplicatas={duplicatas}
+        onDone={() => { setShowContasModal(false); onSaved(); onClose() }}
+      />
+    )}
+  </>
+  )
+}
+
+// ── Modal: Gerar Contas a Pagar da NF-e ───────────────────────────────────────
+
+function GerarContasModal({ invoiceId, fornecedorNome, numeroNota, duplicatas, onDone }: {
+  invoiceId: string
+  fornecedorNome: string
+  numeroNota: string
+  duplicatas: NFeDuplicata[]
+  onDone: () => void
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set(duplicatas.map((_, i) => i)))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function toggle(i: number) {
+    setSelected(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+  }
+
+  async function handleGerar() {
+    const chosen = duplicatas.filter((_, i) => selected.has(i))
+    if (!chosen.length) { onDone(); return }
+    setSaving(true)
+    setError(null)
+    const prefix = `NF-e ${numeroNota || invoiceId.slice(0,8)} — ${fornecedorNome}`
+    const res = await createFinanceEntriesFromInvoice({
+      invoiceId,
+      fornecedorNome,
+      descriptionPrefix: prefix,
+      duplicatas: chosen,
+    })
+    setSaving(false)
+    if (res && 'error' in res) { setError(res.error ?? null); return }
+    onDone()
+  }
+
+  const totalSelecionado = duplicatas.filter((_, i) => selected.has(i)).reduce((s, d) => s + d.vDup, 0)
+  const fmtDate = (d: string) => {
+    if (!d) return '—'
+    const [y, m, day] = d.split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
+          <h2 className="text-base font-bold text-gray-900">Gerar Contas a Pagar</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-600">
+            A NF-e contém <strong>{duplicatas.length}</strong> boleto{duplicatas.length !== 1 ? 's' : ''} ({fornecedorNome}).
+            Selecione quais deseja criar como contas a pagar:
+          </p>
+          <div className="divide-y divide-surface-border rounded-xl border border-surface-border overflow-hidden">
+            {duplicatas.map((dup, i) => (
+              <label key={i} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-surface-secondary">
+                <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} className="rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">
+                    Parcela {dup.nDup || `${i + 1}/${duplicatas.length}`}
+                  </p>
+                  <p className="text-xs text-gray-500">Venc. {fmtDate(dup.dVenc)}</p>
+                </div>
+                <span className="text-sm font-semibold text-gray-800 tabular-nums">
+                  {dup.vDup.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </label>
+            ))}
+          </div>
+          {selected.size > 0 && (
+            <p className="text-xs text-gray-500 text-right">
+              Total selecionado: <strong className="text-gray-800">
+                {totalSelecionado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </strong>
+            </p>
+          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
+          <button onClick={onDone} className="btn-secondary flex-1">Pular</button>
+          <button
+            onClick={handleGerar}
+            disabled={saving || selected.size === 0}
+            className="btn-primary flex-1 flex items-center justify-center gap-2"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {saving ? 'Criando...' : `Criar ${selected.size} conta${selected.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
       </div>
     </div>
   )
