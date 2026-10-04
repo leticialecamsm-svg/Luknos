@@ -27,6 +27,7 @@ import {
   searchContactsForCrm,
   sendCrmMessage,
   getCrmAttachmentUrl,
+  syncCrmContactInfo,
   type ConversationRow,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
@@ -34,7 +35,7 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square,
+  Mic, Trash2, Square, RefreshCw,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all'
@@ -71,6 +72,21 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   const [contactResults, setContactResults] = useState<any[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [syncingContacts, setSyncingContacts] = useState(false)
+
+  const handleSyncContacts = () => {
+    setSyncingContacts(true)
+    startTransition(async () => {
+      const r = await syncCrmContactInfo()
+      setSyncingContacts(false)
+      if ('error' in r && r.error) toast.error('ERRO', r.error)
+      else {
+        toast.success('SINCRONIZADO', `${r.updated ?? 0} conversa(s) atualizadas`)
+        refreshList()
+      }
+    })
+  }
 
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
@@ -257,7 +273,17 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       <div className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
         {/* Header com tabs */}
         <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-bold text-gray-900 mb-3">Conversas</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-gray-900">Conversas</h2>
+            <button
+              onClick={handleSyncContacts}
+              disabled={syncingContacts}
+              title="Sincronizar nomes e fotos dos contatos"
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn('w-4 h-4', syncingContacts && 'animate-spin')} />
+            </button>
+          </div>
           <div className="flex gap-2">
             {(['mine', 'unassigned', 'all'] as const).map((key) => (
               <button
@@ -300,9 +326,19 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
               >
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
-                    {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
-                  </div>
+                  {c.contact_photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={c.contact_photo_url}
+                      alt=""
+                      className="w-10 h-10 rounded-full object-cover shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  ) : (
+                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
+                      {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
+                    </div>
+                  )}
 
                   {/* Info */}
                   <div className="min-w-0 flex-1">

@@ -13,7 +13,7 @@
 import { handleOptions, json } from '../_shared/cors.ts'
 import { isInternalCall } from '../_shared/internal.ts'
 import { env } from '../_shared/env.ts'
-import { evolutionFetch } from '../_shared/evolution.ts'
+import { evolutionFetch, fetchContact, getProfilePicture } from '../_shared/evolution.ts'
 
 Deno.serve(async (req) => {
   const pre = handleOptions(req)
@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
   if (!isInternalCall(req)) return json({ error: 'unauthorized' }, 401)
 
-  let payload: { action?: 'connect' | 'status'; instance_name?: string }
+  let payload: { action?: 'connect' | 'status' | 'contact_info'; instance_name?: string; remote_jid?: string }
   try {
     payload = await req.json()
   } catch {
@@ -32,6 +32,10 @@ Deno.serve(async (req) => {
 
   try {
     if (payload.action === 'status') return json(await status(instanceName))
+    if (payload.action === 'contact_info') {
+      if (!payload.remote_jid) return json({ error: 'remote_jid_required' }, 400)
+      return json(await contactInfo(instanceName, payload.remote_jid))
+    }
     return json(await connect(instanceName))
   } catch (err) {
     console.error('crm-evolution-setup erro:', err)
@@ -110,4 +114,16 @@ async function status(instanceName: string) {
     | { instance?: { state?: string } ; state?: string }
     | null
   return { state: data?.instance?.state ?? data?.state ?? 'unknown' }
+}
+
+async function contactInfo(instanceName: string, remoteJid: string) {
+  const [contact, photoUrl] = await Promise.all([
+    fetchContact(instanceName, remoteJid),
+    getProfilePicture(instanceName, remoteJid),
+  ])
+  return {
+    name: contact?.name ?? null,
+    pushName: contact?.pushName ?? null,
+    photo_url: photoUrl ?? contact?.profilePictureUrl ?? null,
+  }
 }

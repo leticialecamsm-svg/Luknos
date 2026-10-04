@@ -146,6 +146,7 @@ export interface ConversationRow {
   remote_jid: string
   contact_id: string | null
   contact_name_cache: string | null
+  contact_photo_url: string | null
   assigned_user_id: string | null
   assigned_user_name: string | null
   status: string
@@ -164,7 +165,7 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
   let q = admin
     .from('crm_conversations')
     .select(`
-      id, remote_jid, contact_id, contact_name_cache, assigned_user_id, status, last_message_at,
+      id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, status, last_message_at,
       crm_instances(label), contacts(name),
       assigned:users!crm_conversations_assigned_user_id_fkey(name)
     `)
@@ -198,6 +199,7 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
     remote_jid: c.remote_jid,
     contact_id: c.contact_id,
     contact_name_cache: c.contact_name_cache,
+    contact_photo_url: c.contact_photo_url ?? null,
     assigned_user_id: c.assigned_user_id,
     assigned_user_name: c.assigned?.name ?? null,
     status: c.status,
@@ -358,4 +360,68 @@ export async function getCrmAttachmentUrl(storagePath: string) {
     .createSignedUrl(storagePath, 300)
   if (error) return { error: error.message }
   return { url: data.signedUrl }
+}
+
+// Sincroniza nome (do contato salvo no celular) e foto de perfil para todas as
+// conversas abertas, chamando a Evolution API para cada instância CRM.
+export async function syncCrmContactInfo() {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+
+  const admin = createAdminClient()
+
+  // Busca todas as conversas abertas com suas instâncias
+  const { data: convs, error: convErr } = await admin
+    .from('crm_conversations')
+    .select('id, remote_jid, contact_id, contact_name_cache, crm_instances(instance_name, is_active)')
+    .eq('status', 'open')
+    .limit(300)
+
+  if (convErr) return { error: convErr.message }
+
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+  let updated = 0
+  const errors: string[] = []
+
+  for (const conv of convs ?? []) {
+    const instance = (conv as any).crm_instances
+    if (!instance?.is_active || !instance?.instance_name) continue
+
+    try {
+      // Chama a Evolution via crm-evolution-setup (proxy seguro — chave nunca exposta)
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/crm-evolution-setup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          'x-internal-call': '1',
+        },
+        body: JSON.stringify({
+          action: 'contact_info',
+          instance_name: instance.instance_name,
+          remote_jid: conv.remote_jid,
+        }),
+      })
+      const r = await res.json().catch(() => ({}))
+      if (r.error) { errors.push(r.error); continue }
+
+      const updates: Record<string, string | null> = {}
+      const resolvedName = r.name ?? r.pushName ?? null
+      if (resolvedName && resolvedName !== conv.contact_name_cache && !conv.contact_id) {
+        updates.contact_name_cache = resolvedName
+      }
+      if (r.photo_url) updates.contact_photo_url = r.photo_url
+
+      if (Object.keys(updates).length > 0) {
+        await admin.from('crm_conversations').update(updates).eq('id', conv.id)
+        updated++
+      }
+    } catch (e: any) {
+      errors.push(e?.message ?? 'erro')
+    }
+  }
+
+  return { ok: true, updated, errors: errors.length ? errors : undefined }
 }

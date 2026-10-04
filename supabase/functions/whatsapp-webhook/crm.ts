@@ -12,7 +12,7 @@
 // conversa no painel não ficar incompleta. Sem como saber o nome de quem
 // mandou nesse caso (b): fica sender_user_id = default_user_id da instância.
 
-import { getMediaBase64 } from '../_shared/evolution.ts'
+import { fetchContact, getMediaBase64, getProfilePicture } from '../_shared/evolution.ts'
 import { samePhone } from '../_shared/phone.ts'
 import {
   base64ToBytes,
@@ -127,6 +127,9 @@ export async function handleCrmMessage(
     }
   }
 
+  // Background: busca nome salvo no celular + foto de perfil.
+  syncContactInfo(db, conversation.id, crmInstance.instance_name, remoteJid, conversation.contact_name_cache).catch(() => {})
+
   return { handled: true, conversation_id: conversation.id, message_id: msg.id }
 }
 
@@ -159,4 +162,33 @@ async function saveCrmAttachment(
     .from('crm_messages')
     .update({ storage_path: path, file_name: fileName, mime_type: mimeType })
     .eq('id', messageId)
+}
+
+// Tenta obter nome salvo nos contatos do celular + foto de perfil e grava no DB.
+// Chamado em background — falhas são silenciosas.
+async function syncContactInfo(
+  db: SupabaseClient,
+  conversationId: string,
+  instanceName: string,
+  remoteJid: string,
+  currentNameCache: string | null,
+) {
+  const [contact, photoUrl] = await Promise.all([
+    fetchContact(instanceName, remoteJid),
+    getProfilePicture(instanceName, remoteJid),
+  ])
+
+  const updates: Record<string, string | null> = {}
+
+  // Preferência: nome salvo no celular > pushName do contato > mantém o atual
+  const resolvedName = contact?.name ?? contact?.pushName ?? null
+  if (resolvedName && resolvedName !== currentNameCache) {
+    updates.contact_name_cache = resolvedName
+  }
+
+  if (photoUrl) updates.contact_photo_url = photoUrl
+
+  if (Object.keys(updates).length > 0) {
+    await db.from('crm_conversations').update(updates).eq('id', conversationId)
+  }
 }
