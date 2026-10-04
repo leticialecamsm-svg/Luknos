@@ -8,6 +8,7 @@
 // sem visitas (têm aba própria), sem fornecedor.
 
 import { useState, useEffect, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Pencil, Check, X, FileText, Loader2, CalendarClock, Paperclip } from 'lucide-react'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import {
@@ -226,11 +227,11 @@ export function QuoteTab({
   solicitation: SolicitationView
   quote: any | null
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [creating, setCreating] = useState(false)
   const [localQuote, setLocalQuote] = useState<any | null>(quote)
 
-  // sync when parent refreshes
   useEffect(() => { setLocalQuote(quote) }, [quote])
 
   function handleCreate() {
@@ -238,9 +239,9 @@ export function QuoteTab({
     setCreating(true)
     startTransition(async () => {
       const res = await createQuoteForSolicitation(solicitation.id, { clientId: solicitation.clientId })
-      if (!res.ok) { setCreating(false); return }
-      // router.refresh() will happen via revalidatePath — component receives new prop
       setCreating(false)
+      if (!res.ok) return
+      router.refresh()
     })
   }
 

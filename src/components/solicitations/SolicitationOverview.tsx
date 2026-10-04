@@ -4,7 +4,7 @@
 // etapas e a coluna fixa da esquerda (Detalhes + Histórico). Só apresentação —
 // as regras vivem em src/lib/solicitations/stages.ts.
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -20,6 +20,7 @@ import {
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { addSolicitationNote, updateSolicitationDetails, type SolicitationView } from '@/lib/solicitations/actions'
+import { searchContacts } from '@/lib/actions'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
   if (url) {
@@ -420,12 +421,34 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
-  // Form state
   const [category, setCategory] = useState(s.category ?? '')
   const [size, setSize] = useState(s.size ?? '')
   const [origin, setOrigin] = useState(s.origin ?? '')
   const [workStage, setWorkStage] = useState(s.workStage ?? '')
   const [priority, setPriority] = useState(s.priority ?? 'normal')
+
+  // Arquiteto typeahead
+  const [architectId, setArchitectId] = useState<string | null>(s.architectId ?? null)
+  const [architectLabel, setArchitectLabel] = useState(s.architectName ?? '')
+  const [archQuery, setArchQuery] = useState('')
+  const [archResults, setArchResults] = useState<any[]>([])
+  const [archOpen, setArchOpen] = useState(false)
+  const archRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (archQuery.length < 2) { setArchResults([]); return }
+    let active = true
+    searchContacts(archQuery).then(r => { if (active) setArchResults(r as any[]) })
+    return () => { active = false }
+  }, [archQuery])
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (archRef.current && !archRef.current.contains(e.target as Node)) setArchOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
 
   function save() {
     startTransition(async () => {
@@ -435,6 +458,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
         origin: origin || null,
         workStage: workStage || null,
         priority: priority || 'normal',
+        architectId: architectId ?? null,
       })
       setEditing(false)
       router.refresh()
@@ -503,6 +527,33 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                 <select value={priority} onChange={e => setPriority(e.target.value)} className="select w-full text-xs">
                   {PRIORITY_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select>
+              </div>
+              <div className="col-span-2" ref={archRef}>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Arquiteto(a)</label>
+                <div className="relative">
+                  <input
+                    value={archQuery || architectLabel}
+                    placeholder="Buscar arquiteto…"
+                    className="input w-full text-xs"
+                    onChange={e => { setArchQuery(e.target.value); setArchitectLabel(e.target.value); setArchOpen(true) }}
+                    onFocus={() => setArchOpen(true)}
+                  />
+                  {architectId && archQuery === '' && (
+                    <button type="button" onClick={() => { setArchitectId(null); setArchitectLabel(''); setArchQuery('') }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                  )}
+                  {archOpen && archResults.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                      {archResults.map((c: any) => (
+                        <button key={c.id} type="button"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
+                          onClick={() => { setArchitectId(c.id); setArchitectLabel(c.name); setArchQuery(''); setArchOpen(false) }}>
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex gap-2 pt-1">

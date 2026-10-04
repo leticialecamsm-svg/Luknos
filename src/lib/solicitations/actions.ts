@@ -813,7 +813,7 @@ export async function createQuoteForSolicitation(
   const { data: inserted, error } = await db.from('quotes').insert({
     client_id: data.clientId,
     solicitation_id: solicitationId,
-    status: data.status ?? 'open',
+    status: data.status ?? 'queue',
     priority: data.priority ?? 'normal',
     created_by: user.id,
   }).select('id').maybeSingle()
