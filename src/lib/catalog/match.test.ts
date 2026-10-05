@@ -87,6 +87,9 @@ describe('matchCatalog — Skylight, Spotline e Usina', () => {
     entry('1500', 'Pendente Hoop', 'Hoop', { kind: 'pendente' }),
     entry('19750-6LED3', 'Pendente Angular', 'Angular', { kind: 'pendente', diametro_cm: 19, altura_cm: 46, model: '19750-6LED3' }),
     entry('19760-1LED3', 'Abajur Angular', 'Angular', { kind: 'abajur', diametro_cm: 26, altura_cm: 52, model: '19760-1LED3' }),
+    // catálogo de tamanho realista: as palavras comuns ('cabo', 'branco') ficam comuns, as raras ('bombyx'), raras
+    ...Array.from({ length: 40 }, (_, i) => entry(`SKY-F${i}`, `Pendente Filler${i}`, 'F', { kind: 'pendente' })),
+    ...Array.from({ length: 12 }, (_, i) => ({ ...entry(`SKY-C${i}`, `CABO TECIDO ${i} - BRANCO`, null), kind: null })),
   ]
 
   it('código do XML igual à ref do catálogo', () => {
@@ -145,5 +148,30 @@ describe('matchCatalog — nome do produto no começo da nota; "luminária" gen�
   })
   it('"LUMINARIA" não impede casar com um produto de outro tipo', () => {
     expect(matchCatalog({ descricao: 'LUMINARIA LED EMBUTIDO DE SOLO FLAT PRETO 3W 2700K IP67' }, cat)?.ref).toBe('L-SOLO')
+  })
+})
+
+describe('matchCatalog — tipo como peso, abreviação e cor PT/BC', () => {
+  const cat = [
+    entry('P-PINO', 'Arandela Pino', 'De Sobrepor', { kind: 'arandela', variant: '2W 3.000K BRANCO' }),
+    entry('P-SPOT', 'Spot Trilho', null, { kind: 'spot' }),
+    entry('T-BALL', 'Tiny Magneto Luminária Ball', null, { kind: 'luminaria', variant: '3.000K PRETO' }),
+    entry('T-PRETO', 'Tiny Magneto Spot Difusor Light', null, { kind: 'spot', variant: '10W 3.000K PRETO' }),
+    entry('T-BRANCO', 'Tiny Magneto Spot Difusor Light', null, { kind: 'spot', variant: '10W 3.000K BRANCO' }),
+    ...Array.from({ length: 30 }, (_, i) => entry(`P-F${i}`, `Produto Filler${i}`, null)),
+  ]
+  it('"SPOT PINO" acha a "Arandela Pino": outro tipo pesa menos, mas não barra', () => {
+    expect(matchCatalog({ descricao: 'SPOT PINO LED DE SOBREPOR 2W 3000K 127/220V BRANCO' }, cat)?.ref).toBe('P-PINO')
+  })
+  it('"TINY MAG" = "Tiny Magneto" e PT/BC desempatam a cor', () => {
+    expect(matchCatalog({ descricao: 'TINY MAG SPOT DIFUSOR LIGHT 10W 3000K PT' }, cat)?.ref).toBe('T-PRETO')
+    expect(matchCatalog({ descricao: 'TINY MAG SPOT DIFUSOR LIGHT 10W 3000K BC/BC' }, cat)?.ref).toBe('T-BRANCO')
+  })
+  it('BC= das notas com imposto não vira cor branca', () => {
+    expect(matchCatalog({ descricao: 'TINY MAG SPOT DIFUSOR LIGHT 10W [ BC=760,38 Vr=7,60 ]' }, cat)?.ref).toBe('T-PRETO')
+  })
+  it('foto ilustrativa vem marcada', () => {
+    const fita = [entry('F1', 'Fita Led Direct', null, { source_image_url: 'catalogo-pdf#page=9#generic' }), ...cat.slice(5)]
+    expect(matchCatalog({ descricao: 'FITA LED DIRECT 12W' }, fita)).toMatchObject({ ref: 'F1', generic: true })
   })
 })

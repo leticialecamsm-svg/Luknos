@@ -275,9 +275,11 @@ def lumi(doc):
             if ls: blocks.append((tuple(b['bbox']), ls))
         titles = []
         for bb, ls in blocks:
-            big = [t for t, z in ls if z >= 20 and re.search(r'[A-Za-zÀ-ú]{3}', t) and t.lower() not in nav]
+            # título: 16-35 pt (acima disso são capas de capítulo); rótulos de especificação não são título
+            spec = re.compile(r'^(pot[êe]ncia|efici|dimens|[âa]ngulo|material|vida|prote|garantia|tens[ãa]o|irc|ip\d|conhe|lumens?|\d)', re.I)
+            big = [t for t, z in ls if 16 <= z <= 35 and re.search(r'[A-Za-zÀ-ú]{3}', t) and t.lower() not in nav and not spec.match(t)]
             if big and not code_re.match(big[0]):
-                rest = [t for t, z in ls if z < 20 and z >= 7 and not re.fullmatch(r'(IRC|\d+)', t) and not code_re.match(t) and len(t) > 3]
+                rest = [t for t, z in ls if z < 16 and z >= 7 and not re.fullmatch(r'(IRC|\d+)', t) and not code_re.match(t) and len(t) > 3]
                 titles.append((bb, ' '.join(big), rest[:2]))
         titles.sort(key=lambda t: t[0][1])
         if not titles: continue
@@ -357,6 +359,14 @@ def extract(profile, pdf_path, out_dir):
         r['source'] = profile
         r['source_product_id'] = (r['image_file'] or r['ref']).rsplit('.', 1)[0]
         rows.append(r)
+    # Fita de LED sem foto própria (o catálogo só tem foto de ambiente): usa a foto de outra fita do mesmo
+    # catálogo, marcada como ilustrativa, só para sinalizar na tela que o produto é uma fita.
+    is_strip = lambda r: bool(re.match(r'^(mini |super )?fitas?\b', r['name'], re.I))
+    strip_photo = next((r['image_file'] for r in sorted(rows, key=lambda r: r['ref']) if is_strip(r) and r['image_file'] and not r.get('generic')), None)
+    if strip_photo:
+        for r in rows:
+            if is_strip(r) and not r['image_file']:
+                r['image_file'] = strip_photo; r['generic'] = True
     rows.sort(key=lambda r: r['ref'])
     json.dump(rows, open(os.path.join(out_dir, 'rows.json'), 'w'), ensure_ascii=False, indent=1)
     return rows
@@ -380,7 +390,7 @@ def upload(rows, out_dir):
     for r in rows:
         b = {k: r.get(k) for k in COLUMNS}
         b['image_url'] = f"{url}/storage/v1/object/public/supplier-catalog/{source}/{r['image_file']}" if r['image_file'] else None
-        b['source_image_url'] = f"catalogo-pdf#page={r['page']}"
+        b['source_image_url'] = f"catalogo-pdf#page={r['page']}" + ('#generic' if r.get('generic') else '')
         body.append(b)
     # Refs com foto enviada à mão no sistema mantêm a foto (só o resto é atualizado).
     q = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?source=eq.{source}&source_image_url=eq.upload&select=ref', headers=h)

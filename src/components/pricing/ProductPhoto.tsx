@@ -38,7 +38,7 @@ export function ProductThumb({ item, onPick }: { item: SheetItem; onPick: () => 
           <p className="mt-2 text-sm font-semibold text-gray-900">{p.name}</p>
           <p className="text-xs text-gray-500">Ref. {p.ref}{p.model ? ` · ${p.model}` : ''}{p.dims ? ` · ${p.dims}` : ''}</p>
           {p.finish && <p className="text-xs text-gray-500">Acabamento {p.finish.code}. {p.finish.name}</p>}
-          <p className={cn('mt-1 text-[11px]', p.match === 'nome' ? 'text-amber-700' : 'text-gray-400')}>Foto {MATCH_LABEL[p.match]}</p>
+          <p className={cn('mt-1 text-[11px]', p.match === 'nome' || p.generic ? 'text-amber-700' : 'text-gray-400')}>{p.generic ? 'Foto ilustrativa do tipo de produto (não é a foto exata)' : `Foto ${MATCH_LABEL[p.match]}`}</p>
         </div>,
         document.body,
       )}
@@ -133,7 +133,7 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
             {current ? (
               <p className="mt-1 text-xs text-gray-600">
                 {current.name} · Ref. {current.ref}{current.model ? ` · ${current.model}` : ''}{current.dims ? ` · ${current.dims}` : ''}{current.finish ? ` · ${current.finish.code}. ${current.finish.name}` : ''}
-                <span className={cn('block', current.match === 'nome' ? 'text-amber-700' : 'text-gray-400')}>Foto {MATCH_LABEL[current.match]}</span>
+                <span className={cn('block', current.match === 'nome' || current.generic ? 'text-amber-700' : 'text-gray-400')}>{current.generic ? 'Foto ilustrativa do tipo de produto (não é a foto exata)' : `Foto ${MATCH_LABEL[current.match]}`}</span>
               </p>
             ) : <p className="mt-1 text-xs text-gray-400">Sem foto. Escolha abaixo.</p>}
             <div className="mt-2 flex flex-wrap gap-2">

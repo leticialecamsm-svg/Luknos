@@ -255,6 +255,14 @@ export async function getSupplierSheet(supplierId: string) {
   if (error) return { error: error.message }
   const catalog = await loadCatalog(supplierId)
   const byRef = new Map(catalog.map(c => [c.ref, c]))
+  // O mesmo produto aparece com código numa nota (XML) e sem código em outra (planilha): quem não tem
+  // código aprende o da mesma descrição neste fornecedor, e a foto sai pelo código, não pelo nome.
+  const descKey = (d: string) => String(d ?? '').toUpperCase().replace(/\s+/g, ' ').trim()
+  const codeByDesc = new Map<string, string>()
+  for (const r of (data ?? []) as any[]) for (const i of r.purchase_invoice_items ?? []) {
+    const code = String(i.codigo_produto ?? '').trim()
+    if (code && !codeByDesc.has(descKey(i.descricao))) codeByDesc.set(descKey(i.descricao), code)
+  }
   const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
     id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source, on_hold: !!r.on_hold,
     items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item).map((i: any) => ({
@@ -263,7 +271,7 @@ export async function getSupplierSheet(supplierId: string) {
       custo_unitario: i.custo_unitario == null ? null : Number(i.custo_unitario), preco_credito: i.preco_credito == null ? null : Number(i.preco_credito),
       imposto_ant_percent: i.imposto_ant_percent == null ? null : Number(i.imposto_ant_percent),
       maquininha: Number(i.maquininha ?? r.maquininha), comissao: Number(i.comissao ?? r.comissao), lucro: Number(i.lucro ?? r.lucro),
-      photo: catalog.length ? matchCatalog(i, catalog, byRef) : null,
+      photo: catalog.length ? matchCatalog({ ...i, codigo_produto: i.codigo_produto || codeByDesc.get(descKey(i.descricao)) || null }, catalog, byRef) : null,
     })),
   }))
   return { invoices }

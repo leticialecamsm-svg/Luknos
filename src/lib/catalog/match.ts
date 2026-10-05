@@ -25,6 +25,7 @@ export type CatalogEntry = {
 export type ItemPhoto = {
   ref: string; name: string; image_url: string | null; product_url: string | null
   finish: CatalogFinish | null; dims: string; model: string | null
+  generic?: boolean // foto ilustrativa do tipo de produto (ex.: fita de LED), não do produto
   match: 'manual' | 'codigo' | 'descricao' | 'nome'
 }
 
@@ -37,7 +38,12 @@ const COLORS: [RegExp, string][] = [
   [/^(smo|smoky|fume)$/, 'smo'], [/^(amb|amber|ambar)$/, 'amb'], [/^(chr|chrome|cromado|cromada)$/, 'chr'],
 ]
 const colorKey = (w: string) => COLORS.find(([re]) => re.test(w))?.[1] ?? null
-const descColors = (desc: string) => new Set(normText(desc).split(/[^a-z]+/).map(colorKey).filter((c): c is string => !!c))
+const descColors = (desc: string) => {
+  const set = new Set(normText(desc).split(/[^a-z]+/).map(colorKey).filter((c): c is string => !!c))
+  // Abreviações da Luminatti: 'PT/PT', 'BC/BC', '... IRC 90 PT'. 'BC=' é base de cálculo de imposto, não cor.
+  for (const m of Array.from(desc.toUpperCase().matchAll(/\b(PT|BC)\b(?!\s*=)/g))) set.add(m[1] === 'PT' ? 'bk' : 'wh')
+  return set
+}
 const compact = (s: string) => normText(s).replace(/[^a-z0-9]/g, '')
 
 // 'SL-5910L/W2 BK' -> base 'sl5910lw2', cor 'bk'; 'PZ-002/80WL1 GD+BK' -> cor 'gd+bk'
@@ -157,6 +163,14 @@ const SPEC_WORD = /^(ip\d{2}|rgb)$/
 // Palavras do nome de cada produto e o peso de cada palavra: as raras no catálogo ('bombyx')
 // pesam mais que as comuns ('branco', 'cabo'), então "PENDENTE BOMBYX BRANCO" não casa com um cabo branco.
 const nameIndexes = new WeakMap<CatalogEntry[], { hay: Map<CatalogEntry, Set<string>>; weight: Map<string, number> }>()
+// A nota abrevia ('TINY MAG'): 'mag' vale 'magneto'/'magnético' se a palavra do catálogo for bem maior.
+function termWeight(h: Set<string>, weight: Map<string, number>, t: string) {
+  if (h.has(t)) return weight.get(t) ?? 0
+  if (t.length < 3) return 0
+  for (const hw of Array.from(h)) if (hw.length >= t.length + 3 && hw.startsWith(t)) return 0.8 * (weight.get(hw) ?? 0)
+  return 0
+}
+
 export function nameIndex(catalog: CatalogEntry[]) {
   let idx = nameIndexes.get(catalog)
   if (!idx) {
@@ -178,7 +192,7 @@ export function nameIndex(catalog: CatalogEntry[]) {
 
 function toPhoto(c: CatalogEntry, match: ItemPhoto['match'], finishCode?: string | null): ItemPhoto {
   const finish = finishCode ? c.finishes.find(f => f.code === finishCode.padStart(2, '0')) ?? null : null
-  return { ref: c.ref, name: c.name, image_url: c.image_url, product_url: c.product_url, finish, dims: dimsLabel(c), model: c.model ?? null, match }
+  return { ref: c.ref, name: c.name, image_url: c.image_url, product_url: c.product_url, finish, dims: dimsLabel(c), model: c.model ?? null, generic: !!c.source_image_url?.includes('#generic'), match }
 }
 
 export function matchCatalog(
@@ -216,29 +230,27 @@ export function matchCatalog(
   // Palpite fraco (só palavras comuns do catálogo) não vale, a menos que as medidas confirmem.
   const minScore = 0.55 * Math.log(1 + catalog.length)
   let best: { c: CatalogEntry; score: number; err: number | null; color: number; focus: number } | null = null
-  // 1ª rodada: só produtos do tipo da nota. 2ª: também os de tipo desconhecido (no catálogo da Pix,
-  // o título da seção é só "Sena", sem a palavra "Spot").
-  for (const strict of kind ? [true, false] : [true]) {
-    for (const c of catalog) {
-      if (kind && (strict ? normText(c.kind ?? '') !== kind : !!c.kind)) continue
-      const h = hay.get(c)!
-      const score = terms.reduce((sum, t) => sum + (h.has(t) ? weight.get(t) ?? 0 : 0), 0)
-      if (!score) continue
-      const err = dimError(want, catalogDims(c))
-      // Medida da nota batendo com a do catálogo vale como prova; sem ela, só palavra rara.
-      // Nota que começa com o nome inteiro do produto ('DICROICA GU10…' = 'Dicróica') também vale.
-      const own = words(c.name)
-      const leads = own.length > 0 && own.every((x, i) => w[i] === x)
-      if (score < minScore && !(err != null && err <= 0.06) && !leads) continue
-      const color = colorScore(c, colors)
-      // Desempate final: parte do nome do produto que a nota cobre ('Fonte Metálica' 1/2 > 'Cabo conector fonte/fita 10mm' 1/5).
-      const focus = h.size ? terms.filter(t => h.has(t)).length / h.size : 0
-      const better = !best || score > best.score + 1e-9 ||
-        (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) &&
-          (color > best.color || (color === best.color && focus > best.focus)))))
-      if (better) best = { c, score, err, color, focus }
-    }
-    if (best) break
+  // O tipo da nota (pendente, arandela…) pesa, mas não é barreira: 'SPOT PINO' é a 'Arandela Pino' do
+  // catálogo. Mesmo tipo vale cheio; tipo desconhecido (títulos como 'Sena') 0,85; outro tipo 0,7.
+  const kindFactor = (c: CatalogEntry) => !kind ? 1 : !c.kind ? 0.85 : normText(c.kind) === kind ? 1 : 0.7
+  for (const c of catalog) {
+    const h = hay.get(c)!
+    const raw = terms.reduce((sum, t) => sum + termWeight(h, weight, t), 0)
+    if (!raw) continue
+    const score = raw * kindFactor(c)
+    const err = dimError(want, catalogDims(c))
+    // Medida da nota batendo com a do catálogo vale como prova; sem ela, só palavra rara.
+    // Nota que começa com o nome inteiro do produto ('DICROICA GU10…' = 'Dicróica') também vale.
+    const own = words(c.name)
+    const leads = own.length > 0 && own.every((x, i) => w[i] === x)
+    if (score < minScore && !(err != null && err <= 0.06) && !leads) continue
+    const color = colorScore(c, colors)
+    // Desempate final: parte do nome do produto que a nota cobre ('Fonte Metálica' 1/2 > 'Cabo conector fonte/fita 10mm' 1/5).
+    const focus = h.size ? terms.filter(t => termWeight(h, weight, t) > 0).length / h.size : 0
+    const better = !best || score > best.score + 1e-9 ||
+      (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) &&
+        (color > best.color || (color === best.color && focus > best.focus)))))
+    if (better) best = { c, score, err, color, focus }
   }
   if (!best) return null
   // Medidas na nota e no catálogo: só aceita se baterem (até ~12% de diferença média).
