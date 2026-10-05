@@ -263,6 +263,20 @@ export async function getSupplierSheet(supplierId: string) {
     const code = String(i.codigo_produto ?? '').trim()
     if (code && !codeByDesc.has(descKey(i.descricao))) codeByDesc.set(descKey(i.descricao), code)
   }
+  // Nota lançada por planilha não tem código, mas a NF-e dela costuma estar no radar de notas de entrada
+  // (nfe_received, com o XML): mesmo número de nota + mesma posição + mesma descrição = o cProd do item.
+  // Só leitura: não grava nada nas notas.
+  const codeByPos = new Map<string, string>()
+  const numeros = Array.from(new Set(((data ?? []) as any[]).map(r => String(r.numero_nota ?? '')).filter(Boolean)))
+  if (numeros.length) {
+    const { data: nfes } = await createAdminClient().from('nfe_received').select('numero_nota, items_json').in('numero_nota', numeros).not('items_json', 'is', null)
+    for (const n of (nfes ?? []) as any[]) for (const e of Array.isArray(n.items_json) ? n.items_json : []) {
+      const code = String(e.cProd ?? '').trim()
+      if (!code) continue
+      codeByPos.set(`${n.numero_nota}|${e.nItem}|${descKey(e.xProd)}`, code)
+      if (!codeByDesc.has(descKey(e.xProd))) codeByDesc.set(descKey(e.xProd), code)
+    }
+  }
   const invoices: SheetInvoice[] = (data ?? []).map((r: any) => ({
     id: r.id, numero_nota: r.numero_nota, data_emissao: r.data_emissao, uf_origem: r.uf_origem, source: r.source, on_hold: !!r.on_hold,
     items: [...(r.purchase_invoice_items ?? [])].sort((a, b) => a.numero_item - b.numero_item).map((i: any) => ({
@@ -271,7 +285,7 @@ export async function getSupplierSheet(supplierId: string) {
       custo_unitario: i.custo_unitario == null ? null : Number(i.custo_unitario), preco_credito: i.preco_credito == null ? null : Number(i.preco_credito),
       imposto_ant_percent: i.imposto_ant_percent == null ? null : Number(i.imposto_ant_percent),
       maquininha: Number(i.maquininha ?? r.maquininha), comissao: Number(i.comissao ?? r.comissao), lucro: Number(i.lucro ?? r.lucro),
-      photo: catalog.length ? matchCatalog({ ...i, codigo_produto: i.codigo_produto || codeByDesc.get(descKey(i.descricao)) || null }, catalog, byRef) : null,
+      photo: catalog.length ? matchCatalog({ ...i, codigo_produto: i.codigo_produto || codeByPos.get(`${r.numero_nota}|${i.numero_item}|${descKey(i.descricao)}`) || codeByDesc.get(descKey(i.descricao)) || null }, catalog, byRef) : null,
     })),
   }))
   return { invoices }
