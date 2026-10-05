@@ -283,6 +283,10 @@ def lumi(doc):
                 titles.append((bb, ' '.join(big), rest[:2]))
         titles.sort(key=lambda t: t[0][1])
         if not titles: continue
+        # A linha Tiny só tem o nome na capa (imagem): as páginas dela têm a etiqueta MAGNÉTICO e 24V DC.
+        ptext = page.get_text()
+        pill = any(t.strip().upper() == 'MAGNÉTICO' for _, ls in blocks for t, _ in ls)
+        series = ('Tiny Magnético' if '24V DC' in ptext else 'Magnético 48V' if '48V DC' in ptext else None) if pill else None
         imgs = product_images(page, max_frac=0.5)
         for k, (tbb, title, extra) in enumerate(titles):
             lo, hi = tbb[1] - 4, (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
@@ -316,7 +320,7 @@ def lumi(doc):
                     ean = next((t for t in seg if re.fullmatch(r'\d{13}', t)), None)
                     mat = 'Acrílico' if ls[i].endswith('AC') else None
                     parts = [title] + [x for x in (sub if sub and sub != title.upper() else None, label) if x]
-                    yield dict(ref=ls[i], name=' '.join(parts).title(), kind=kind, line=' '.join(extra).title() or None, model=ls[i], ean=ean,
+                    yield dict(ref=ls[i], name=' '.join(parts).title(), kind=kind, line=' '.join(extra + ([series] if series else [])).title() or None, model=ls[i], ean=ean,
                                variant=' '.join(x for x in (power, temp, color, mat) if x) or None, page=pn + 1,
                                cands=cands, want=(color or '').upper(), **dims)
 
