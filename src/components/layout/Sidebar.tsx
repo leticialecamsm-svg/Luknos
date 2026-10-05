@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, MessagesSquare, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
+  { href: '/crm',             label: 'CRM WhatsApp', icon: MessagesSquare },
   { href: '/site-leads',      label: 'Contatos do Site', icon: Inbox },
   { href: '/shipping',        label: 'Expedição',   icon: Package },
   { href: '/partners',        label: 'Parceiros',   icon: Users2 },
@@ -32,6 +33,7 @@ const ADMIN_NAV = [
   { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)', icon: Receipt },
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
+  { href: '/crm-instances', label: 'Números do CRM', icon: Smartphone },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
@@ -102,7 +104,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // e como cada seção tem o próprio layout, ele sumia e voltava a cada clique.
   // useLayoutEffect aplica o "recolhido" antes da tela ser pintada, sem esconder nada.
   useLayoutEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed') === 'true'
+    const stored = localStorage.getItem('sidebar-collapsed')
+    // sem preferência salva, telas estreitas (celular) começam recolhidas
+    const saved = stored === null ? window.innerWidth < 768 : stored === 'true'
     setCollapsed(saved)
     setMounted(true)
   }, [])

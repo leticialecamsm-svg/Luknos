@@ -1,10 +1,9 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { requirePageAccess } from '@/lib/access'
-import { CrmTabs } from '@/components/crm/CrmTabs'
 
-export default async function CrmLayout({ children }: { children: React.ReactNode }) {
-  const { profile, allowedPages, roleLabel } = await requirePageAccess('/crm')
+export default async function CrmInstancesLayout({ children }: { children: React.ReactNode }) {
+  const { profile, allowedPages, roleLabel } = await requirePageAccess('/crm-instances')
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -14,7 +13,6 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
         <AppHeader user={profile} roleLabel={roleLabel} />
         <main className="flex-1 min-w-0 overflow-y-auto bg-surface">
           <div className="max-w-7xl mx-auto p-6">
-            <CrmTabs />
             {children}
           </div>
         </main>

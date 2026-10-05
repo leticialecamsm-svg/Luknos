@@ -56,11 +56,11 @@ interface Msg {
 
 interface SystemUser { id: string; name: string; role: string }
 
-export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; users: SystemUser[] }) {
+export function CrmInboxPage({ currentUserId, users, initialConversationId = null }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null }) {
   const toast = useToast()
-  const [scope, setScope] = useState<ScopeTab>('mine')
+  const [scope, setScope] = useState<ScopeTab>(initialConversationId ? 'all' : 'mine')
   const [conversations, setConversations] = useState<ConversationRow[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialConversationId)
   const [messages, setMessages] = useState<Msg[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [loadingThread, setLoadingThread] = useState(false)
@@ -266,7 +266,7 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
   }, [contactQuery])
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] gap-0 bg-white">
+    <div className="flex h-[calc(100vh-10.5rem)] gap-0 bg-white">
       {/* ──────────────────────────────────────────────────────────────────────
           SIDEBAR - Conversas
           ────────────────────────────────────────────────────────────────────── */}
@@ -363,10 +363,10 @@ export function CrmInboxPage({ currentUserId, users }: { currentUserId: string; 
       <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
         {!selected && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-gray-400 text-center">
+            <div className="text-gray-400 text-center">
               <p className="text-lg font-medium text-gray-600 mb-1">Escolha uma conversa</p>
               <p className="text-sm text-gray-500">Selecione uma conversa na esquerda para começar</p>
-            </p>
+            </div>
           </div>
         )}
 

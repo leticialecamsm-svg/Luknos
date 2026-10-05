@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Server Actions do CRM / Chat multiatendente WhatsApp.
@@ -50,12 +51,23 @@ export interface CrmInstanceInput {
   default_user_id: string | null
 }
 
+// Devolve o nome de outra instância que já usa esse telefone (ou null).
+async function findInstanceWithPhone(phone: string | null | undefined, exceptId: string | null) {
+  if (!phone) return null
+  const { data } = await createAdminClient().from('crm_instances').select('id, label, phone_e164')
+  const hit = (data ?? []).find((r) => r.id !== exceptId && samePhoneDigits(r.phone_e164, phone))
+  return hit?.label ?? null
+}
+
 export async function createCrmInstance(input: CrmInstanceInput) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }
   if (!input.instance_name.trim()) return { error: 'Nome da instância é obrigatório' }
+  if (!isValidInstanceName(input.instance_name)) return { error: 'Nome da instância: não use / ? # % no nome' }
   if (!input.label.trim()) return { error: 'Nome de exibição é obrigatório' }
   if (input.phone_e164 && !E164.test(input.phone_e164)) return { error: 'Telefone precisa estar em formato +55...' }
+  const dup = await findInstanceWithPhone(input.phone_e164, null)
+  if (dup) return { error: `Esse telefone já está cadastrado em "${dup}"` }
 
   const { error } = await createAdminClient().from('crm_instances').insert({
     instance_name: input.instance_name.trim(),
@@ -71,7 +83,10 @@ export async function createCrmInstance(input: CrmInstanceInput) {
 export async function updateCrmInstance(id: string, input: CrmInstanceInput) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }
+  if (!input.label.trim()) return { error: 'Nome de exibição é obrigatório' }
   if (input.phone_e164 && !E164.test(input.phone_e164)) return { error: 'Telefone precisa estar em formato +55...' }
+  const dup = await findInstanceWithPhone(input.phone_e164, id)
+  if (dup) return { error: `Esse telefone já está cadastrado em "${dup}"` }
 
   const { error } = await createAdminClient()
     .from('crm_instances')
@@ -149,6 +164,7 @@ export interface ConversationRow {
   contact_photo_url: string | null
   assigned_user_id: string | null
   assigned_user_name: string | null
+  stage_id: string | null
   status: string
   last_message_at: string
   instance_label: string
@@ -157,7 +173,7 @@ export interface ConversationRow {
 }
 
 // scope: 'mine' (atendente logado), 'unassigned', 'all'
-export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' = 'mine') {
+export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' = 'mine', limit = 200) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] as ConversationRow[] }
 
@@ -165,13 +181,13 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
   let q = admin
     .from('crm_conversations')
     .select(`
-      id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, status, last_message_at,
+      id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, status, last_message_at,
       crm_instances(label), contacts(name),
       assigned:users!crm_conversations_assigned_user_id_fkey(name)
     `)
     .eq('status', 'open')
     .order('last_message_at', { ascending: false })
-    .limit(200)
+    .limit(limit)
 
   if (scope === 'mine') q = q.eq('assigned_user_id', auth.userId)
   if (scope === 'unassigned') q = q.is('assigned_user_id', null)
@@ -202,6 +218,7 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
     contact_photo_url: c.contact_photo_url ?? null,
     assigned_user_id: c.assigned_user_id,
     assigned_user_name: c.assigned?.name ?? null,
+    stage_id: c.stage_id ?? null,
     status: c.status,
     last_message_at: c.last_message_at,
     instance_label: c.crm_instances?.label ?? '—',
@@ -423,4 +440,120 @@ export async function syncCrmContactInfo() {
   }
 
   return { ok: true, updated, errors: errors.length ? errors : undefined }
+}
+
+
+// ─── Kanban (etapas de venda) ───────────────────────────────────────────────
+// Ler/mover cartões: qualquer staff. Criar/editar/excluir/reordenar colunas: admin.
+
+export async function getCrmStages(): Promise<CrmStage[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const { data } = await createAdminClient()
+    .from('crm_stages')
+    .select('id, name, color, position, restart_on_inbound')
+    .order('position')
+    .order('created_at')
+  return (data ?? []) as CrmStage[]
+}
+
+export async function createCrmStage(input: { name: string; color: string; restart_on_inbound?: boolean }) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const v = validateStageInput(input)
+  if ('error' in v) return { error: v.error }
+
+  const admin = createAdminClient()
+  const { data: existing } = await admin.from('crm_stages').select('name, position')
+  const rows = existing ?? []
+  if (rows.length >= MAX_STAGES) return { error: `Limite de ${MAX_STAGES} colunas atingido` }
+  if (rows.some((r) => sameStageName(r.name, v.name))) return { error: 'Já existe uma coluna com esse nome' }
+
+  const position = rows.reduce((m, r) => Math.max(m, r.position), -1) + 1
+  const { data, error } = await admin
+    .from('crm_stages')
+    .insert({ name: v.name, color: v.color, position, restart_on_inbound: v.restart_on_inbound })
+    .select('id, name, color, position, restart_on_inbound')
+    .single()
+  if (error) return { error: error.code === '23505' ? 'Já existe uma coluna com esse nome' : error.message }
+  revalidatePath('/crm')
+  return { ok: true, stage: data as CrmStage }
+}
+
+export async function updateCrmStage(id: string, input: { name: string; color: string; restart_on_inbound?: boolean }) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const v = validateStageInput(input)
+  if ('error' in v) return { error: v.error }
+
+  const admin = createAdminClient()
+  const { data: others } = await admin.from('crm_stages').select('id, name').neq('id', id)
+  if ((others ?? []).some((r) => sameStageName(r.name, v.name))) return { error: 'Já existe uma coluna com esse nome' }
+
+  const { data, error } = await admin
+    .from('crm_stages')
+    .update({ name: v.name, color: v.color, restart_on_inbound: v.restart_on_inbound })
+    .eq('id', id)
+    .select('id')
+  if (error) return { error: error.code === '23505' ? 'Já existe uma coluna com esse nome' : error.message }
+  if (!data?.length) return { error: 'Coluna não existe mais (outra pessoa pode ter excluído). Atualize a página.' }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Excluir uma coluna NÃO apaga conversas: elas voltam para a primeira coluna.
+// Não deixa excluir a última (o quadro ficaria sem onde mostrar as conversas).
+export async function deleteCrmStage(id: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { count } = await admin.from('crm_stages').select('id', { count: 'exact', head: true })
+  if ((count ?? 0) <= 1) return { error: 'O quadro precisa ter ao menos uma coluna' }
+  const { error } = await admin.from('crm_stages').delete().eq('id', id)
+  if (error) return { error: error.message }
+  // renumera as restantes (0..n-1) para não ficar buraco na ordem
+  const { data: rest } = await admin.from('crm_stages').select('id').order('position').order('created_at')
+  for (let i = 0; i < (rest ?? []).length; i++) {
+    await admin.from('crm_stages').update({ position: i }).eq('id', rest![i].id)
+  }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Recebe a lista COMPLETA de ids na nova ordem.
+export async function reorderCrmStages(orderedIds: string[]) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (new Set(orderedIds).size !== orderedIds.length) return { error: 'Ordem inválida' }
+  const admin = createAdminClient()
+  const { data: current } = await admin.from('crm_stages').select('id')
+  const known = new Set((current ?? []).map((r) => r.id))
+  if (orderedIds.length !== known.size || orderedIds.some((i) => !known.has(i))) {
+    return { error: 'As colunas mudaram enquanto você editava. Atualize a página.' }
+  }
+  for (let i = 0; i < orderedIds.length; i++) {
+    const { error } = await admin.from('crm_stages').update({ position: i }).eq('id', orderedIds[i])
+    if (error) return { error: error.message }
+  }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+export async function moveConversationToStage(conversationId: string, stageId: string | null) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  if (stageId) {
+    const { data: st } = await admin.from('crm_stages').select('id').eq('id', stageId).maybeSingle()
+    if (!st) return { error: 'Essa coluna não existe mais. Atualize a página.' }
+  }
+  const { data, error } = await admin
+    .from('crm_conversations')
+    .update({ stage_id: stageId })
+    .eq('id', conversationId)
+    .select('id')
+  if (error) return { error: error.message }
+  if (!data?.length) return { error: 'Conversa não encontrada' }
+  revalidatePath('/crm')
+  return { ok: true }
 }
