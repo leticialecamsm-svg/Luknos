@@ -133,3 +133,17 @@ describe('matchCatalog — especificação não decide o produto', () => {
     expect(matchCatalog({ descricao: 'FITA LED POP 10W 12V RGB IP20 60 LEDS/M 5M' }, cat)?.ref).toBe('P-POP')
   })
 })
+
+describe('matchCatalog — nome do produto no começo da nota; "luminária" genérica', () => {
+  const cat = [
+    entry('L-DIC', 'Dicróica', null), entry('L-DIC2', 'Mini Dicróica', null), entry('L-DIC3', 'Dicróica Rgb', null),
+    entry('L-SOLO', 'Embutido De Solo Flat', null), entry('L-4F', 'De Solo 4 Fachos', null, { kind: 'luminaria' }),
+    ...Array.from({ length: 30 }, (_, i) => entry(`L-X${i}`, `Produto ${i}`, null)),
+  ]
+  it('palavra comum no catálogo basta quando a nota começa com o nome inteiro', () => {
+    expect(matchCatalog({ descricao: 'DICROICA GU10 LED 6,5W 4000K 127/220V' }, cat)?.ref).toBe('L-DIC')
+  })
+  it('"LUMINARIA" não impede casar com um produto de outro tipo', () => {
+    expect(matchCatalog({ descricao: 'LUMINARIA LED EMBUTIDO DE SOLO FLAT PRETO 3W 2700K IP67' }, cat)?.ref).toBe('L-SOLO')
+  })
+})

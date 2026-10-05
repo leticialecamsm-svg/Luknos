@@ -251,13 +251,81 @@ def pix(doc):
                                variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=row_cands, auth=auth, **dims)
 
 
-PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix}
+def darkness(jpeg):
+    """Fração de pixels escuros (<80) no objeto: distingue a foto da versão preta da branca."""
+    im = Image.open(io.BytesIO(jpeg)).convert('L'); im.thumbnail((64, 64))
+    px = list(im.getdata())
+    return sum(1 for v in px if v < 80) / len(px)
+
+
+def lumi(doc):
+    """Seção por título grande (linhas com fonte >= 20: 'ARANDELA XBOX'), 1-2 fotos (versão branca e
+    preta), tabela de especificações e linhas de código: 'LM831 · 3.000K · BRANCO · EAN13', ou, nos
+    perfis e acessórios, '1 metro · LM1932 · EAN · LM1932AC · EAN'. A foto do código é a escura se a cor
+    é PRETO e a clara se é BRANCO."""
+    code_re = re.compile(r'^LM\d{3,5}[A-Z]{0,2}$')
+    nav = {'decorativo', 'lâmpadas', 'fitas e drivers', 'sistemas lineares', 'perfis', 'área externa', 'luminárias'}
+    for pn, page in enumerate(doc):
+        # blocos com tamanho por linha: o título é só a(s) linha(s) grandes do bloco
+        blocks = []
+        for b in page.get_text('dict')['blocks']:
+            if b['type'] != 0: continue
+            ls = [(''.join(sp['text'] for sp in l['spans']).strip(), max((sp['size'] for sp in l['spans']), default=0)) for l in b['lines']]
+            ls = [(t, z) for t, z in ls if t]
+            if ls: blocks.append((tuple(b['bbox']), ls))
+        titles = []
+        for bb, ls in blocks:
+            big = [t for t, z in ls if z >= 20 and re.search(r'[A-Za-zÀ-ú]{3}', t) and t.lower() not in nav]
+            if big and not code_re.match(big[0]):
+                rest = [t for t, z in ls if z < 20 and z >= 7 and not re.fullmatch(r'(IRC|\d+)', t) and not code_re.match(t) and len(t) > 3]
+                titles.append((bb, ' '.join(big), rest[:2]))
+        titles.sort(key=lambda t: t[0][1])
+        if not titles: continue
+        imgs = product_images(page, max_frac=0.5)
+        for k, (tbb, title, extra) in enumerate(titles):
+            lo, hi = tbb[1] - 4, (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
+            sec = [(bb, [t for t, _ in ls]) for bb, ls in blocks if lo <= bb[1] < hi]
+            sec_imgs = [i for i in imgs if lo <= (i['bbox'][1] + i['bbox'][3]) / 2 < hi]
+            cands = sorted(ranked_images(tbb, sec_imgs, 500), key=lambda i: i['bbox'][0])
+            dim_text = ''
+            for bb, ls in sec:
+                if ls[0].lower().startswith('dimens'):
+                    dim_text = ' '.join(ls[1:])
+                    for b2, l2 in sec:
+                        if b2 is not bb and re.fullmatch(r'[\d.,]+\s?mm', l2[0]) and abs(b2[0] - bb[0]) < 120 and bb[1] - 6 <= b2[1] <= bb[3] + 24:
+                            dim_text += ' ' + l2[0]
+                    break
+            power = next((ls[0] for bb, ls in sec if re.fullmatch(r'\d+(?:,\d+)?W', ls[0])), None)
+            dims = cm_from(dim_text) if dim_text else cm_from('')
+            kind = next((KINDS[w.lower()] for w in title.split() if w.lower() in KINDS), None)
+            sub_re = re.compile(r'^(PERFIL:|ACESSÓRIOS|DIFUSORES|CONECTORES|ADAPTADORES)[A-ZÀ-Ú :/\-]*$')
+            for bb, ls in sec:
+                idx = [i for i, t in enumerate(ls) if code_re.match(t)]
+                if not idx: continue
+                label_re = re.compile(r'^(\d+\s*(metros?|m)\b|Parede/Parede|Teto/Parede|Positivo|Tampas|Fixa[çc][ãa]o|Cabo|Emenda|Kit|Conector|Plug|Suporte)', re.I)
+                label = ls[0] if label_re.match(ls[0]) else None
+                # subtítulo da tabela ('PERFIL: PRETO', 'ACESSÓRIOS', 'DIFUSORES'): último bloco em maiúsculas acima da linha
+                above = [(bb[1] - b2[3], l2[0]) for b2, l2 in sec if b2[3] <= bb[1] + 2 and sub_re.match(l2[0]) and not code_re.match(l2[0])]
+                sub = min(above)[1] if above else None
+                for n, i in enumerate(idx):
+                    seg = ls[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(ls))]
+                    temp = next((t for t in seg if re.fullmatch(r'\d[.,]?\d{3}K', t)), None)
+                    color = next((t for t in seg if re.fullmatch(r'[A-ZÀ-Ú]{3,}(?:[ /][A-ZÀ-Ú]{3,})*', t) and t != 'LED'), None)
+                    ean = next((t for t in seg if re.fullmatch(r'\d{13}', t)), None)
+                    mat = 'Acrílico' if ls[i].endswith('AC') else None
+                    parts = [title] + [x for x in (sub if sub and sub != title.upper() else None, label) if x]
+                    yield dict(ref=ls[i], name=' '.join(parts).title(), kind=kind, line=' '.join(extra).title() or None, model=ls[i], ean=ean,
+                               variant=' '.join(x for x in (power, temp, color, mat) if x) or None, page=pn + 1,
+                               cands=cands, want=(color or '').upper(), **dims)
+
+
+PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix, 'lumi': lumi}
 
 
 # ---------- extração e envio ----------
 
 # cutout=True: só aceita foto recortada (borda branca). Catálogos que só têm foto de ambiente usam False.
-PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True)}
+PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True), 'lumi': dict(cutout=True)}
 
 
 def extract(profile, pdf_path, out_dir):
@@ -274,10 +342,16 @@ def extract(profile, pdf_path, out_dir):
     rows, jpegs = [], {}
     for r in found.values():
         pick = None
+        want = r.pop('want', '')
+        good = []
         for img in r.pop('cands'):
             if img['xref'] not in jpegs: jpegs[img['xref']] = image_jpeg(doc, doc[r['page'] - 1], img)
-            if not cutout or is_cutout(jpegs[img['xref']]):
-                pick = img['xref']; break
+            if not cutout or is_cutout(jpegs[img['xref']]): good.append(img['xref'])
+        if good:
+            pick = good[0]
+            if len(good) > 1 and ('PRETO' in want or 'BRANCO' in want):  # foto escura p/ preto, clara p/ branco
+                by_dark = sorted(good, key=lambda x: darkness(jpegs[x]))
+                pick = by_dark[-1] if 'PRETO' in want else by_dark[0]
         r['image_file'] = f'x{pick}.jpg' if pick else None
         if pick: open(os.path.join(out_dir, 'img', r['image_file']), 'wb').write(jpegs[pick])
         r['source'] = profile
@@ -288,7 +362,7 @@ def extract(profile, pdf_path, out_dir):
     return rows
 
 
-COLUMNS = ('source', 'ref', 'source_product_id', 'name', 'kind', 'line', 'model', 'variant',
+COLUMNS = ('source', 'ref', 'source_product_id', 'name', 'kind', 'line', 'model', 'ean', 'variant',
            'altura_cm', 'largura_cm', 'profundidade_cm', 'diametro_cm')
 
 

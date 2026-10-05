@@ -5,10 +5,11 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix'
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi'
 const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
+  if (n.includes('luminatti')) return 'lumi' // catálogo LUMI_CATALOGO_2026
   return SOURCES.find(s => n.includes(s)) ?? null
 }
 // Os que o sistema relê sozinho do site (os outros vêm de PDF, importado por script).
@@ -205,8 +206,9 @@ export function matchCatalog(
 
   // Nome + medidas: precisa bater o tipo (pendente, arandela…) e ao menos uma palavra do nome.
   const w = words(item.descricao)
-  const kind = w.find(x => KINDS.includes(x)) ?? null
-  const terms = w.filter(x => !KINDS.includes(x))
+  // 'luminária' é genérico (serve para embutido, solo, mesa…): não filtra o tipo, só entra como palavra.
+  const kind = w.find(x => KINDS.includes(x) && x !== 'luminaria') ?? null
+  const terms = w.filter(x => !KINDS.includes(x) || x === 'luminaria')
   if (!terms.length) return null
   const want = descDims(item.descricao)
   const colors = descColors(item.descricao)
@@ -224,7 +226,10 @@ export function matchCatalog(
       if (!score) continue
       const err = dimError(want, catalogDims(c))
       // Medida da nota batendo com a do catálogo vale como prova; sem ela, só palavra rara.
-      if (score < minScore && !(err != null && err <= 0.06)) continue
+      // Nota que começa com o nome inteiro do produto ('DICROICA GU10…' = 'Dicróica') também vale.
+      const own = words(c.name)
+      const leads = own.length > 0 && own.every((x, i) => w[i] === x)
+      if (score < minScore && !(err != null && err <= 0.06) && !leads) continue
       const color = colorScore(c, colors)
       // Desempate final: parte do nome do produto que a nota cobre ('Fonte Metálica' 1/2 > 'Cabo conector fonte/fita 10mm' 1/5).
       const focus = h.size ? terms.filter(t => h.has(t)).length / h.size : 0
