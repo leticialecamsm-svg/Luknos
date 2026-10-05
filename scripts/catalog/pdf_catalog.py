@@ -196,8 +196,10 @@ def pix(doc):
     color_re = re.compile(r'^(preto|branco|cinza|dourado|bronze|cobre|champagne|inox|grafite|natural|prata|aço|amarelo|verde|vermelho|azul|bege|marrom|rgb|transparente|fosco)\b', re.I)
     for pn, page in enumerate(doc):
         blocks = text_blocks(page)
+        not_product = {'vigo', 'infinity', 'fitas e fontes', 'outdoor', 'lâmpadas', 'spots', 'battery', 'painéis', 'soluções e ferramentas', 'architectural', 'duplo', 'triplo'}
         titles = sorted([(bb, ' '.join(ls)) for bb, ls, sz in blocks
-                         if sz >= 14 and re.search(r'[A-Za-zÀ-ú]{3}', ' '.join(ls)) and not re.search(r'dados|garantia|catálogo', ' '.join(ls), re.I)],
+                         if sz >= 14 and re.search(r'[A-Za-zÀ-ú]{3}', ' '.join(ls)) and not re.search(r'dados|garantia|catálogo', ' '.join(ls), re.I)
+                         and ' '.join(ls).strip().lower() not in not_product and not color_re.match(' '.join(ls).strip())],
                         key=lambda t: t[0][1])
         linha = next((l.split('Linha ', 1)[1].strip() for bb, ls, _ in blocks for l in ls if l.startswith('Linha ')), None)
         imgs = product_images(page, max_frac=0.5)
@@ -218,6 +220,7 @@ def pix(doc):
             cands = ranked_images(tbb, sec_imgs, 400) if tbb[3] else []
             words = title.split()
             kind = next((KINDS[w.lower()] for w in words if w.lower() in KINDS), None)
+            accessory_page = bool(re.search(r'emenda|conector|cabo|kit|plug|acess|interruptor|sensor|controle|receptor', title, re.I))
             for tab in tables:
                 shared = ' '.join(tab)
                 dims_m = re.search(r'\d+(?:[.,]\d+)?\s?x\s?\d+(?:[.,]\d+)?(?:\s?x\s?\d+(?:[.,]\d+)?)?\s?(?:mm|cm)', shared)
@@ -227,19 +230,25 @@ def pix(doc):
                     seg = tab[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(tab))]
                     name, kind_row = title.title(), kind
                     cl = next((l for l in sec_lines if l[2] == tab[i]), None)
-                    row = [t for yc, x0, t in sorted(sec_lines, key=lambda l: l[1]) if cl and abs(yc - cl[0]) < 4 and x0 > cl[1] + 5 and t != tab[i]]
+                    row = [t for yc, x0, t in sorted(sec_lines, key=lambda l: l[1]) if cl and abs(yc - cl[0]) < 4 and cl[1] + 5 < x0 < page.rect.width - 60 and t != tab[i]]
+                    row_cands, auth = cands, False
                     if 'MODELO' in tab:  # 'Emenda Linear 180º Fita COB', 'Cabo Conector Fonte/Fita 8mm'
-                        model = next((t for t in row if re.search(r'[A-Za-zÀ-ú]{4}', t)), None)
+                        model = next((t for t in row if re.search(r'[A-Za-zÀ-ú]{4}', t) and not color_re.match(t) and t.lower() not in not_product), None)
                         if model:
                             name = model
                             kind_row = KINDS.get(model.split()[0].lower(), model.split()[0].lower())
+                            if not accessory_page: row_cands = []  # acessório citado na página de uma fita: a foto é da fita
+                            else: auth = True  # tabela de acessórios: fonte confiável do nome e da foto
                     elif 'LARGURA' in tab:  # 'Conector Pix Mult' + '8mm'
                         width = next((t for t in row if re.fullmatch(r'\d+\s?mm', t)), None)
-                        if width: name = f'{title.title()} {width}'
+                        if width:
+                            name = f'{title.title()} {width}'
+                            if not accessory_page: row_cands = []
+                            else: auth = True
                     color = next((t for t in seg if color_re.match(t)), None)
                     temp = next((t for t in seg if re.fullmatch(r'\d{4}K', t)), None)
                     yield dict(ref=tab[i], name=name, kind=kind_row, line=(linha or '').title() or None, model=tab[i],
-                               variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=cands, **dims)
+                               variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=row_cands, auth=auth, **dims)
 
 
 PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix}
@@ -258,8 +267,10 @@ def extract(profile, pdf_path, out_dir):
     found = {}
     for r in PROFILES[profile](doc):
         cur = found.get(r['ref'])
-        # A primeira ocorrência vale, exceto se não tem foto candidata e uma posterior tem.
-        if cur is None or (not cur['cands'] and r['cands']): found[r['ref']] = r
+        # Mesma ref em várias páginas: vale a de tabela de acessórios (auth), depois a que tem foto
+        # candidata; empate fica com a primeira.
+        rank = lambda x: (bool(x.get('auth')), bool(x['cands']))
+        if cur is None or rank(r) > rank(cur): found[r['ref']] = r
     rows, jpegs = [], {}
     for r in found.values():
         pick = None

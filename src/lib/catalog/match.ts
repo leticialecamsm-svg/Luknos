@@ -145,16 +145,18 @@ function dimError(want: number[], have: number[]) {
 
 // Palavras de nome: sem números soltos (3000k, 12w), mas com medida de conector ('8mm', '10mm'),
 // e no singular ('Interruptores' = 'interruptor') para a nota casar com o título do catálogo.
-function words(s: string) {
+export function words(s: string) {
   return normText(s).split(/[^a-z0-9]+/)
     .filter(w => w.length >= 2 && (!/^\d/.test(w) || /^\d{1,2}mm$/.test(w)) && !STOP.has(w))
     .map(w => (w.length > 5 ? w.replace(/(?:es|s)$/, '') : w))
 }
 
+const SPEC_WORD = /^(ip\d{2}|rgb)$/
+
 // Palavras do nome de cada produto e o peso de cada palavra: as raras no catálogo ('bombyx')
 // pesam mais que as comuns ('branco', 'cabo'), então "PENDENTE BOMBYX BRANCO" não casa com um cabo branco.
 const nameIndexes = new WeakMap<CatalogEntry[], { hay: Map<CatalogEntry, Set<string>>; weight: Map<string, number> }>()
-function nameIndex(catalog: CatalogEntry[]) {
+export function nameIndex(catalog: CatalogEntry[]) {
   let idx = nameIndexes.get(catalog)
   if (!idx) {
     const hay = new Map<CatalogEntry, Set<string>>()
@@ -165,7 +167,8 @@ function nameIndex(catalog: CatalogEntry[]) {
       set.forEach(w => df.set(w, (df.get(w) ?? 0) + 1))
     }
     const weight = new Map<string, number>()
-    df.forEach((n, w) => weight.set(w, Math.log(1 + catalog.length / n)))
+    // Especificação (IP65, RGB) é rara nos nomes mas não identifica o produto: pesa pouco, só ajuda no desempate.
+    df.forEach((n, w) => weight.set(w, SPEC_WORD.test(w) ? 0.5 : Math.log(1 + catalog.length / n)))
     idx = { hay, weight }
     nameIndexes.set(catalog, idx)
   }
@@ -210,7 +213,7 @@ export function matchCatalog(
   const { hay, weight } = nameIndex(catalog)
   // Palpite fraco (só palavras comuns do catálogo) não vale, a menos que as medidas confirmem.
   const minScore = 0.55 * Math.log(1 + catalog.length)
-  let best: { c: CatalogEntry; score: number; err: number | null; color: number } | null = null
+  let best: { c: CatalogEntry; score: number; err: number | null; color: number; focus: number } | null = null
   // 1ª rodada: só produtos do tipo da nota. 2ª: também os de tipo desconhecido (no catálogo da Pix,
   // o título da seção é só "Sena", sem a palavra "Spot").
   for (const strict of kind ? [true, false] : [true]) {
@@ -223,9 +226,12 @@ export function matchCatalog(
       // Medida da nota batendo com a do catálogo vale como prova; sem ela, só palavra rara.
       if (score < minScore && !(err != null && err <= 0.06)) continue
       const color = colorScore(c, colors)
+      // Desempate final: parte do nome do produto que a nota cobre ('Fonte Metálica' 1/2 > 'Cabo conector fonte/fita 10mm' 1/5).
+      const focus = h.size ? terms.filter(t => h.has(t)).length / h.size : 0
       const better = !best || score > best.score + 1e-9 ||
-        (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) && color > best.color)))
-      if (better) best = { c, score, err, color }
+        (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) &&
+          (color > best.color || (color === best.color && focus > best.focus)))))
+      if (better) best = { c, score, err, color, focus }
     }
     if (best) break
   }

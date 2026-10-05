@@ -112,3 +112,24 @@ describe('matchCatalog — Skylight, Spotline e Usina', () => {
     expect(matchCatalog({ descricao: 'ABAJUR ANGULAR RD 190X460MM' }, cat)).toBeNull()
   })
 })
+
+describe('matchCatalog — empate entre produtos', () => {
+  it('no empate vale o produto cujo nome a nota mais cobre (fonte × cabo conector fonte/fita)', () => {
+    const cat = [entry('A-CABO', 'Cabo conector fonte/fita 10mm', null), entry('B-FONTE', 'Fonte Metálica', null)]
+    expect(matchCatalog({ descricao: 'FONTE SLIM 200W 12V 16,6A BIVOLT' }, cat)?.ref).toBe('B-FONTE')
+    expect(matchCatalog({ descricao: 'FONTE SLIM 200W 12V 16,6A BIVOLT' }, [...cat].reverse())?.ref).toBe('B-FONTE')
+  })
+})
+
+describe('matchCatalog — especificação não decide o produto', () => {
+  it('"IP65" e "RGB" soltos num acessório não ganham do produto certo', () => {
+    const cat = [
+      entry('P-PLUG', 'Plug para Fita COB IP65 127V/200V', null),
+      entry('P-FITA', 'Fita Pix 12V', null),
+      entry('P-POP', 'Fita Led Pop', null),
+      entry('P-EMENDA', 'Emenda L 90º Fita RGB', null),
+    ]
+    expect(matchCatalog({ descricao: 'FITA LED PIX 10W 12V 3000K IP65 2835 5M' }, cat)?.ref).toBe('P-FITA')
+    expect(matchCatalog({ descricao: 'FITA LED POP 10W 12V RGB IP20 60 LEDS/M 5M' }, cat)?.ref).toBe('P-POP')
+  })
+})
