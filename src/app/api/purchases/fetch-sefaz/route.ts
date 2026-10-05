@@ -43,19 +43,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const token = await getSefazToken()
-
-    const res = await fetch(
-      `${SEFAZ_BASE}/sfz-cobranca-dfe-api/api/detalhe-calculo-nfes?chaveNota.equals=${chave}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    // A consulta de detalhe é pública no portal Cobrança DF-e (funciona sem login).
+    // O token do login passou a ser recusado com 401 nessa rota, então vai sem
+    // autenticação; o login só entra como reserva se a SEFAZ voltar a exigir.
+    const url = `${SEFAZ_BASE}/sfz-cobranca-dfe-api/api/detalhe-calculo-nfes?chaveNota.equals=${chave}`
+    let res = await fetch(url, { cache: 'no-store' })
+    if ((res.status === 401 || res.status === 403) && process.env.SEFAZ_AL_USER && process.env.SEFAZ_AL_PASSWORD) {
+      const token = await getSefazToken()
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+    }
     if (!res.ok) {
       if (res.status === 404) return NextResponse.json({ error: 'Nota não encontrada na SEFAZ AL' }, { status: 404 })
       const corpo = (await res.text().catch(() => '')).slice(0, 300)
       console.error(`fetch-sefaz ${res.status}:`, corpo)
-      if (res.status === 401 || res.status === 403) {
-        throw new Error(`A SEFAZ AL recusou o acesso (${res.status}) mesmo após o login. Entre em contribuinte.sefaz.al.gov.br/cobrancadfe com o mesmo usuário e veja se pede troca de senha ou aceite de termo.`)
-      }
       throw new Error(`SEFAZ AL retornou ${res.status}`)
     }
 
