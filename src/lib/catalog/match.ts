@@ -143,8 +143,12 @@ function dimError(want: number[], have: number[]) {
   return sum / want.length
 }
 
+// Palavras de nome: sem números soltos (3000k, 12w), mas com medida de conector ('8mm', '10mm'),
+// e no singular ('Interruptores' = 'interruptor') para a nota casar com o título do catálogo.
 function words(s: string) {
-  return normText(s).split(/[^a-z0-9]+/).filter(w => w.length >= 2 && !/^\d/.test(w) && !STOP.has(w))
+  return normText(s).split(/[^a-z0-9]+/)
+    .filter(w => w.length >= 2 && (!/^\d/.test(w) || /^\d{1,2}mm$/.test(w)) && !STOP.has(w))
+    .map(w => (w.length > 5 ? w.replace(/(?:es|s)$/, '') : w))
 }
 
 // Palavras do nome de cada produto e o peso de cada palavra: as raras no catálogo ('bombyx')

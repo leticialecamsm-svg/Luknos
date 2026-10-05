@@ -207,6 +207,9 @@ def pix(doc):
             lo, hi = (0 if k == 0 else tbb[1] - 4), (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
             sec = sorted([(bb, ls) for bb, ls, _ in blocks if lo <= bb[1] < hi], key=lambda t: (round(t[0][1]), t[0][0]))
             tokens = [l for _, ls in sec for l in ls]
+            # linhas com posição: o nome do produto numa tabela "MODELO"/"LARGURA" está na mesma linha do código
+            sec_lines = [(round((l['bbox'][1] + l['bbox'][3]) / 2, 1), l['bbox'][0], ''.join(sp['text'] for sp in l['spans']).strip())
+                         for b in page.get_text('dict')['blocks'] if b['type'] == 0 and lo <= b['bbox'][1] < hi for l in b['lines']]
             tables, cur = [], None
             for t in tokens:
                 if t == 'CÓDIGO': cur = []; tables.append(cur)
@@ -222,9 +225,20 @@ def pix(doc):
                 idx = [i for i, t in enumerate(tab) if code_re.match(t)]
                 for n, i in enumerate(idx):
                     seg = tab[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(tab))]
+                    name, kind_row = title.title(), kind
+                    cl = next((l for l in sec_lines if l[2] == tab[i]), None)
+                    row = [t for yc, x0, t in sorted(sec_lines, key=lambda l: l[1]) if cl and abs(yc - cl[0]) < 4 and x0 > cl[1] + 5 and t != tab[i]]
+                    if 'MODELO' in tab:  # 'Emenda Linear 180º Fita COB', 'Cabo Conector Fonte/Fita 8mm'
+                        model = next((t for t in row if re.search(r'[A-Za-zÀ-ú]{4}', t)), None)
+                        if model:
+                            name = model
+                            kind_row = KINDS.get(model.split()[0].lower(), model.split()[0].lower())
+                    elif 'LARGURA' in tab:  # 'Conector Pix Mult' + '8mm'
+                        width = next((t for t in row if re.fullmatch(r'\d+\s?mm', t)), None)
+                        if width: name = f'{title.title()} {width}'
                     color = next((t for t in seg if color_re.match(t)), None)
                     temp = next((t for t in seg if re.fullmatch(r'\d{4}K', t)), None)
-                    yield dict(ref=tab[i], name=title.title(), kind=kind, line=(linha or '').title() or None, model=tab[i],
+                    yield dict(ref=tab[i], name=name, kind=kind_row, line=(linha or '').title() or None, model=tab[i],
                                variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=cands, **dims)
 
 
@@ -243,7 +257,9 @@ def extract(profile, pdf_path, out_dir):
     cutout = PROFILE_OPTS.get(profile, {}).get('cutout', True)
     found = {}
     for r in PROFILES[profile](doc):
-        found.setdefault(r['ref'], r)  # primeira ocorrência vale
+        cur = found.get(r['ref'])
+        # A primeira ocorrência vale, exceto se não tem foto candidata e uma posterior tem.
+        if cur is None or (not cur['cands'] and r['cands']): found[r['ref']] = r
     rows, jpegs = [], {}
     for r in found.values():
         pick = None
