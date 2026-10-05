@@ -62,7 +62,7 @@ def deslot(s):
 
 def cm_from(text):
     """'Ø20X25cm', '150X20X18', 'Ø300X110 (mm)' -> dict de medidas em cm."""
-    mm = bool(re.search(r'\bmm\b', text, re.I))
+    mm = bool(re.search(r'mm\b', text, re.I))
     nums = [float(n.replace(',', '.')) for n in re.findall(r'\d+(?:[.,]\d+)?', text)]
     if mm: nums = [n / 10 for n in nums]
     nums = [round(n, 2) for n in nums[:3]]
@@ -188,13 +188,53 @@ def spotline(doc):
                            cands=ranked_images(bb, imgs, 260), **cm_from(''))
 
 
-PROFILES = {'skylight': skylight, 'spotline': spotline}
+def pix(doc):
+    """Cada seção da página tem um título grande ('LUMINÁRIA PUNTO'), a foto do produto e uma ou
+    mais tabelas 'CÓDIGO | COR | TEMPERATURA | FLUXO | DIMENSÕES' com os códigos 3.650.NNNN. Fluxo,
+    potência e medidas costumam ser uma célula só para todos os códigos da tabela."""
+    code_re = re.compile(r'^3\.650\.\d{4}$')
+    color_re = re.compile(r'^(preto|branco|cinza|dourado|bronze|cobre|champagne|inox|grafite|natural|prata|aço|amarelo|verde|vermelho|azul|bege|marrom|rgb|transparente|fosco)\b', re.I)
+    for pn, page in enumerate(doc):
+        blocks = text_blocks(page)
+        titles = sorted([(bb, ' '.join(ls)) for bb, ls, sz in blocks
+                         if sz >= 14 and re.search(r'[A-Za-zÀ-ú]{3}', ' '.join(ls)) and not re.search(r'dados|garantia|catálogo', ' '.join(ls), re.I)],
+                        key=lambda t: t[0][1])
+        linha = next((l.split('Linha ', 1)[1].strip() for bb, ls, _ in blocks for l in ls if l.startswith('Linha ')), None)
+        imgs = product_images(page, max_frac=0.5)
+        if not titles:  # página só de tabela (acessórios): sem título, sem foto
+            titles = [((0, 0, 0, 0), 'Acessórios' if not linha else linha)]
+        for k, (tbb, title) in enumerate(titles):
+            lo, hi = (0 if k == 0 else tbb[1] - 4), (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
+            sec = sorted([(bb, ls) for bb, ls, _ in blocks if lo <= bb[1] < hi], key=lambda t: (round(t[0][1]), t[0][0]))
+            tokens = [l for _, ls in sec for l in ls]
+            tables, cur = [], None
+            for t in tokens:
+                if t == 'CÓDIGO': cur = []; tables.append(cur)
+                elif cur is not None: cur.append(t)
+            sec_imgs = [i for i in imgs if lo <= (i['bbox'][1] + i['bbox'][3]) / 2 < hi]
+            cands = ranked_images(tbb, sec_imgs, 400) if tbb[3] else []
+            words = title.split()
+            kind = next((KINDS[w.lower()] for w in words if w.lower() in KINDS), None)
+            for tab in tables:
+                shared = ' '.join(tab)
+                dims_m = re.search(r'\d+(?:[.,]\d+)?\s?x\s?\d+(?:[.,]\d+)?(?:\s?x\s?\d+(?:[.,]\d+)?)?\s?(?:mm|cm)', shared)
+                dims = cm_from(dims_m.group(0)) if dims_m else cm_from('')
+                idx = [i for i, t in enumerate(tab) if code_re.match(t)]
+                for n, i in enumerate(idx):
+                    seg = tab[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(tab))]
+                    color = next((t for t in seg if color_re.match(t)), None)
+                    temp = next((t for t in seg if re.fullmatch(r'\d{4}K', t)), None)
+                    yield dict(ref=tab[i], name=title.title(), kind=kind, line=(linha or '').title() or None, model=tab[i],
+                               variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=cands, **dims)
+
+
+PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix}
 
 
 # ---------- extração e envio ----------
 
 # cutout=True: só aceita foto recortada (borda branca). Catálogos que só têm foto de ambiente usam False.
-PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True)}
+PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True)}
 
 
 def extract(profile, pdf_path, out_dir):

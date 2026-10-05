@@ -5,8 +5,8 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina'
-const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina']
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix'
+const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
   return SOURCES.find(s => n.includes(s)) ?? null
@@ -204,17 +204,26 @@ export function matchCatalog(
   const want = descDims(item.descricao)
   const colors = descColors(item.descricao)
   const { hay, weight } = nameIndex(catalog)
+  // Palpite fraco (só palavras comuns do catálogo) não vale, a menos que as medidas confirmem.
+  const minScore = 0.55 * Math.log(1 + catalog.length)
   let best: { c: CatalogEntry; score: number; err: number | null; color: number } | null = null
-  for (const c of catalog) {
-    if (kind && normText(c.kind ?? '') !== kind) continue
-    const h = hay.get(c)!
-    const score = terms.reduce((sum, t) => sum + (h.has(t) ? weight.get(t) ?? 0 : 0), 0)
-    if (!score) continue
-    const err = dimError(want, catalogDims(c))
-    const color = colorScore(c, colors)
-    const better = !best || score > best.score + 1e-9 ||
-      (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) && color > best.color)))
-    if (better) best = { c, score, err, color }
+  // 1ª rodada: só produtos do tipo da nota. 2ª: também os de tipo desconhecido (no catálogo da Pix,
+  // o título da seção é só "Sena", sem a palavra "Spot").
+  for (const strict of kind ? [true, false] : [true]) {
+    for (const c of catalog) {
+      if (kind && (strict ? normText(c.kind ?? '') !== kind : !!c.kind)) continue
+      const h = hay.get(c)!
+      const score = terms.reduce((sum, t) => sum + (h.has(t) ? weight.get(t) ?? 0 : 0), 0)
+      if (!score) continue
+      const err = dimError(want, catalogDims(c))
+      // Medida da nota batendo com a do catálogo vale como prova; sem ela, só palavra rara.
+      if (score < minScore && !(err != null && err <= 0.06)) continue
+      const color = colorScore(c, colors)
+      const better = !best || score > best.score + 1e-9 ||
+        (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) && color > best.color)))
+      if (better) best = { c, score, err, color }
+    }
+    if (best) break
   }
   if (!best) return null
   // Medidas na nota e no catálogo: só aceita se baterem (até ~12% de diferença média).
