@@ -81,3 +81,15 @@ export async function upsertRows(db: AdminDb, rows: Record<string, unknown>[]) {
   }
   return { errors, count: unique.length }
 }
+
+// O banco devolve no máximo 1000 linhas por consulta: lê o que já existe de um fornecedor em páginas.
+export async function existingRows(db: AdminDb, source: string, columns: string) {
+  const out: Record<string, any>[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('supplier_catalog_products').select(columns).eq('source', source).order('ref').range(from, from + 999)
+    if (error || !data?.length) break
+    out.push(...(data as unknown as Record<string, any>[]))
+    if (data.length < 1000) break
+  }
+  return out
+}

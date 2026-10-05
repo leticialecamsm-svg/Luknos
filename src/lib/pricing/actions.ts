@@ -13,6 +13,7 @@ import { expandTerms, normText } from './synonyms'
 import { matchCatalog, catalogSourceFor, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
 import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
 import { syncUsinaCatalog } from '@/lib/catalog/usina-sync'
+import { existingRows } from '@/lib/catalog/sync-utils'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -277,10 +278,10 @@ async function catalogSource(supplierId: string) {
 
 async function loadCatalog(supplierId: string): Promise<CatalogEntry[]> {
   const source = await catalogSource(supplierId)
-  const { data } = await createAdminClient().from('supplier_catalog_products')
-    .select('ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean, variant')
-    .eq('source', source).order('name').limit(5000)
-  return (data ?? []).map((c: any) => ({
+  // Em páginas: o banco devolve no máximo 1000 linhas por consulta e a Usina tem quase 3000.
+  const data = await existingRows(createAdminClient(), source,
+    'ref, name, kind, line, altura_cm, largura_cm, profundidade_cm, diametro_cm, product_url, image_url, source_image_url, finishes, model, ean, variant')
+  return data.sort((a, b) => String(a.name).localeCompare(String(b.name))).map((c: any) => ({
     ...c, finishes: c.finishes ?? [],
     altura_cm: c.altura_cm == null ? null : Number(c.altura_cm), largura_cm: c.largura_cm == null ? null : Number(c.largura_cm),
     profundidade_cm: c.profundidade_cm == null ? null : Number(c.profundidade_cm), diametro_cm: c.diametro_cm == null ? null : Number(c.diametro_cm),
