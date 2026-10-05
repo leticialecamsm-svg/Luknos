@@ -16,11 +16,12 @@ import { groupByStage, STAGE_COLORS, STAGE_NAME_MAX, type CrmStage } from '@/lib
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useFocusTrap } from '@/components/ui/useFocusTrap'
+import { getAvatarColor } from '@/lib/crm-ui'
 import { cn } from '@/lib/utils'
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle } from 'lucide-react'
 
 const BOARD_LIMIT = 500
-type Scope = 'all' | 'mine' | 'unassigned'
+type Scope = 'mine' | 'unassigned' | 'all'
 
 function phoneFromJid(jid: string) {
   const d = jid.split('@')[0].replace(/\D/g, '')
@@ -49,7 +50,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [cards, setCards] = useState<ConversationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [scope, setScope] = useState<Scope>('all')
+  const [scope, setScope] = useState<Scope>('mine')
   const [query, setQuery] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
   const [overStage, setOverStage] = useState<string | null>(null)
@@ -149,8 +150,8 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     <div className="flex flex-col h-[calc(100vh-10.5rem)] min-h-[420px]">
       {/* barra de filtros */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="flex gap-1.5">
-          {(['all', 'mine', 'unassigned'] as const).map((k) => (
+        <div className="flex gap-2">
+          {(['mine', 'unassigned', 'all'] as const).map((k) => (
             <button
               key={k}
               onClick={() => setScope(k)}
@@ -159,7 +160,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                 scope === k ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
               )}
             >
-              {k === 'all' ? 'Todas' : k === 'mine' ? 'Minhas' : 'Sem responsável'}
+              {k === 'mine' ? 'Minhas' : k === 'unassigned' ? 'Pendentes' : 'Todas'}
             </button>
           ))}
         </div>
@@ -265,27 +266,23 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                       onDragEnd={() => { setDragId(null); setOverStage(null) }}
                       className={cn('bg-white border border-gray-200 rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing', dragId === c.id && 'opacity-40')}
                     >
-                      <div className="flex items-start gap-2.5">
+                      <div className="flex items-start gap-3">
                         {c.contact_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.contact_photo_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          <img src={c.contact_photo_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 text-xs font-semibold flex items-center justify-center shrink-0">
-                            {(c.contact_name ?? '#').trim().charAt(0).toUpperCase() || '#'}
+                          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
+                            {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <Link href={`/crm/conversas?c=${c.id}`} className="block text-sm font-medium text-gray-900 truncate hover:underline" title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
+                          <Link href={`/crm/conversas?c=${c.id}`} className="block font-semibold text-gray-900 truncate hover:underline" title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
                             {c.contact_name ?? phoneFromJid(c.remote_jid)}
                           </Link>
-                          {c.contact_name && <p className="text-[11px] text-gray-400">{phoneFromJid(c.remote_jid)}</p>}
+                          <p className="text-xs text-gray-500 truncate">{c.assigned_user_name && c.assigned_user_name !== c.instance_label ? `${c.instance_label} · ${c.assigned_user_name}` : c.assigned_user_name ? c.instance_label : `${c.instance_label} · Sem responsável`}</p>
+                          <p className="text-xs text-gray-400 line-clamp-1 mt-1">{c.last_body || 'Sem mensagens'}</p>
                         </div>
-                        <span className="text-[11px] text-gray-400 shrink-0">{timeAgo(c.last_message_at)}</span>
-                      </div>
-                      {c.last_body && <p className="mt-2 text-xs text-gray-600 line-clamp-2 break-words">{c.last_body}</p>}
-                      <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
-                        <span className="truncate">{c.instance_label}</span>
-                        <span className="ml-auto truncate">{c.assigned_user_name ?? 'Sem responsável'}</span>
+                        <span className="text-xs text-gray-400 shrink-0">{timeAgo(c.last_message_at)}</span>
                       </div>
                       <select
                         aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para`}
