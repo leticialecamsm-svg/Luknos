@@ -160,6 +160,8 @@ export function words(s: string) {
 }
 
 const SPEC_WORD = /^(ip\d{2}|rgb)$/
+// Valores técnicos ('300W', '6400K', '24V', '5A') que a nota e o nome do catálogo compartilham: desempate.
+const specTokens = (s: string) => new Set(normText(s).match(/\b\d+(?:[.,]\d+)?(?:w|k|v|a)\b/g)?.map(x => x.replace(',', '.')) ?? [])
 
 // Palavras do nome de cada produto e o peso de cada palavra: as raras no catálogo ('bombyx')
 // pesam mais que as comuns ('branco', 'cabo'), então "PENDENTE BOMBYX BRANCO" não casa com um cabo branco.
@@ -168,9 +170,11 @@ const nameIndexes = new WeakMap<CatalogEntry[], { hay: Map<CatalogEntry, Set<str
 function termWeight(h: Set<string>, weight: Map<string, number>, t: string) {
   if (h.has(t)) return weight.get(t) ?? 0
   if (t.length < 3) return 0
+  // Abreviação nunca pesa mais que a própria palavra ('LUMI.' = 'luminária' não vira palavra rara).
+  const own = weight.get(t) ?? Infinity
   for (const hw of Array.from(h)) {
-    if (hw.length >= t.length + 3 && hw.startsWith(t)) return 0.8 * (weight.get(hw) ?? 0)   // nota abrevia: 'mag' ~ 'magneto'
-    if (hw.length >= 3 && t.length >= hw.length + 3 && t.startsWith(hw)) return 0.8 * (weight.get(hw) ?? 0) // catálogo abrevia: 'red' ~ 'redonda'
+    if (hw.length >= t.length + 3 && hw.startsWith(t)) return 0.8 * Math.min(weight.get(hw) ?? 0, own)   // nota abrevia: 'mag' ~ 'magneto'
+    if (hw.length >= 3 && t.length >= hw.length + 3 && t.startsWith(hw)) return 0.8 * Math.min(weight.get(hw) ?? 0, own) // catálogo abrevia: 'red' ~ 'redonda'
   }
   return 0
 }
@@ -233,7 +237,8 @@ export function matchCatalog(
   const { hay, weight } = nameIndex(catalog)
   // Palpite fraco (só palavras comuns do catálogo) não vale, a menos que as medidas confirmem.
   const minScore = 0.55 * Math.log(1 + catalog.length)
-  let best: { c: CatalogEntry; score: number; err: number | null; color: number; focus: number } | null = null
+  let best: { c: CatalogEntry; score: number; err: number | null; color: number; focus: number; spec: number } | null = null
+  const noteSpec = specTokens(item.descricao)
   // O tipo da nota (pendente, arandela…) pesa, mas não é barreira: 'SPOT PINO' é a 'Arandela Pino' do
   // catálogo. Mesmo tipo vale cheio; tipo desconhecido (títulos como 'Sena') 0,85; outro tipo 0,7.
   const kindFactor = (c: CatalogEntry) => !kind ? 1 : !c.kind ? 0.85 : normText(c.kind) === kind ? 1 : 0.7
@@ -251,10 +256,11 @@ export function matchCatalog(
     const color = colorScore(c, colors)
     // Desempate final: parte do nome do produto que a nota cobre ('Fonte Metálica' 1/2 > 'Cabo conector fonte/fita 10mm' 1/5).
     const focus = h.size ? terms.filter(t => termWeight(h, weight, t) > 0).length / h.size : 0
+    const spec = (() => { let n = 0; specTokens(`${c.name} ${c.variant ?? ''}`).forEach(t => { if (noteSpec.has(t)) n++ }); return n })()
     const better = !best || score > best.score + 1e-9 ||
       (Math.abs(score - best.score) <= 1e-9 && ((err ?? 1) < (best.err ?? 1) || ((err ?? 1) === (best.err ?? 1) &&
-        (color > best.color || (color === best.color && focus > best.focus)))))
-    if (better) best = { c, score, err, color, focus }
+        (color > best.color || (color === best.color && (spec > best.spec || (spec === best.spec && focus > best.focus)))))))
+    if (better) best = { c, score, err, color, focus, spec }
   }
   if (!best) return null
   // Medidas na nota e no catálogo: só aceita se baterem (até ~12% de diferença média).
