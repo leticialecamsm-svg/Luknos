@@ -12,7 +12,7 @@ import { SIZE_TAG, clean, copyImage, dimsFrom, existingRows, pool, text, upsertR
 
 const BASE = 'https://usinadesign.com.br'
 const LINHAS = ['decorativo', 'externa', 'fitas-e-fontes', 'legou', 'office-slim', 'perfil']
-const BUDGET_MS = 240_000
+const BUDGET_MS = 200_000
 
 export type Card = { fam: string; tipo: string; img: string; linha: string }
 

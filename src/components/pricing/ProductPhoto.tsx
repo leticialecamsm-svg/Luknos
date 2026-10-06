@@ -113,7 +113,16 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
 
   async function sync() {
     setSyncing('Lendo o site do fornecedor… (leva 1–2 min)'); setErr(null)
-    const r = await syncSupplierCatalog(supplierId)
+    let r: Awaited<ReturnType<typeof syncSupplierCatalog>>
+    try {
+      // A rodada tem no máximo ~5 min; se o servidor for interrompido a resposta nunca chega, então não esperamos para sempre.
+      r = await Promise.race([
+        syncSupplierCatalog(supplierId),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('A rodada demorou mais que o limite e foi interrompida. Clique em Atualizar de novo (o que já foi lido fica salvo).')), 330_000)),
+      ])
+    } catch (e) {
+      setErr((e as Error).message); setSyncing(null); return
+    }
     if ('error' in r) { setErr(r.error ?? 'Erro'); setSyncing(null); return }
     await onCatalogReload()
     setSyncing(`${r.refs} referências atualizadas${r.partial ? ' (o site é grande: clique de novo para continuar)' : ''}${r.errors.length ? ` · ${r.errors.length} erro(s)` : ''}`)
