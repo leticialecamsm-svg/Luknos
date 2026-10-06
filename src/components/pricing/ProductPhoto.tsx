@@ -58,6 +58,15 @@ async function shrink(file: File): Promise<Blob> {
   return new Promise((ok, fail) => canvas.toBlob(b => (b ? ok(b) : fail(new Error('Não deu para ler a foto'))), 'image/jpeg', 0.85))
 }
 
+// Sem busca, em vez de listar o catálogo em ordem alfabética (só 'A…' cabe nos primeiros 120), mostra primeiro
+// os produtos que mais se parecem com o item da nota.
+function rankByItem(catalog: CatalogEntry[], descricao: string): CatalogEntry[] {
+  const terms = Array.from(new Set(normText(descricao).split(/[^a-z0-9]+/).filter(t => t.length >= 3 && !/^\d+$/.test(t))))
+  if (!terms.length) return catalog
+  const score = (c: CatalogEntry) => { const h = normText(`${c.name} ${c.line ?? ''} ${c.model ?? ''}`); return terms.reduce((n, t) => n + (h.includes(t) ? 1 : 0), 0) }
+  return catalog.map(c => [c, score(c)] as const).sort((a, b) => b[1] - a[1]).map(x => x[0])
+}
+
 // Escolha manual da foto de um item, a partir do catálogo do fornecedor.
 export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose, onChanged, onCatalogReload }: {
   item: SheetItem; supplierId: string; catalog: CatalogEntry[] | null; canSync?: boolean
@@ -79,9 +88,9 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
     const terms = normText(q.trim()).split(/\s+/).filter(Boolean)
     const rows = terms.length
       ? catalog.filter(c => { const h = normText(`${c.name} ${c.ref} ${c.model ?? ''} ${c.line ?? ''} ${(c.source_image_url ?? '').split('/').pop()}`); return terms.every(t => h.includes(t)) })
-      : catalog
+      : rankByItem(catalog, item.descricao)
     return rows.slice(0, 120)
-  }, [catalog, q])
+  }, [catalog, q, item.descricao])
 
   async function choose(ref: string | null) {
     setSaving(true); setErr(null)
@@ -183,6 +192,8 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
           ) : list.length === 0 ? (
             <p className="py-10 text-sm text-gray-400 text-center">Nada encontrado.</p>
           ) : (
+            <>
+            <p className="mb-3 text-xs text-gray-400">{q.trim() ? `${list.length >= 120 ? '120+' : list.length} resultados` : `Os ${list.length} mais parecidos com o item da nota, de ${catalog.length} no catálogo.`} Use a busca para achar outro.</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
               {list.map(c => (
                 <button key={c.ref} disabled={saving} onClick={() => choose(c.ref)}
@@ -196,6 +207,7 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
                 </button>
               ))}
             </div>
+            </>
           )}
         </div>
       </div>
