@@ -8,10 +8,22 @@
 // começa pelos produtos mais desatualizados.
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { SIZE_TAG, clean, copyImage, dimsFrom, existingRows, pool, text, upsertRows } from './sync-utils'
+import { SIZE_TAG, UA, clean, copyImage, dimsFrom, existingRows, pool, upsertRows } from './sync-utils'
 
 const BASE = 'https://sorteluz.com.br'
 const BUDGET_MS = 240_000
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
+
+// O site responde 500 de forma intermitente quando recebe requisições demais da Vercel: espera e tenta de novo.
+async function text(url: string): Promise<string> {
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(url, { headers: UA, cache: 'no-store' })
+    if (r.ok) { await sleep(120); return r.text() }
+    if (![429, 500, 502, 503, 504].includes(r.status)) throw new Error(`${r.status} ${url}`)
+    await sleep(1500 * 2 ** i)
+  }
+  throw new Error(`falhou ${url}`)
+}
 
 const unescapeHtml = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&gt;/g, '>').replace(/&lt;/g, '<')
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -55,11 +67,12 @@ export function parseProduct(html: string) {
 
 async function productIds(): Promise<string[]> {
   const ids = new Set<string>()
-  const cats = new Set<string>()
+  // Categorias 1..130 (o site tem ~110) mais as que aparecerem na página inicial.
+  const cats = new Set<string>(Array.from({ length: 130 }, (_, i) => String(i + 1)))
   const first = await text(`${BASE}/pesquisa.php`).catch(() => '')
   for (const m of Array.from(first.matchAll(/categoria=(\d+)/g))) cats.add(m[1])
   for (const m of Array.from(first.matchAll(/sobre-produto\.php\?id=(\d+)/g))) ids.add(m[1])
-  await pool(Array.from(cats), 3, async c => {
+  await pool(Array.from(cats), 2, async c => {
     const h = await text(`${BASE}/pesquisa.php?categoria=${c}`).catch(() => '')
     for (const m of Array.from(h.matchAll(/sobre-produto\.php\?id=(\d+)/g))) ids.add(m[1])
   })
@@ -79,7 +92,7 @@ export async function syncSorteluzCatalog() {
   const rows: Record<string, unknown>[] = []
   let done = 0
   let partial = false
-  await pool(order, 3, async id => {
+  await pool(order, 2, async id => {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const p = parseProduct(await text(`${BASE}/sobre-produto.php?id=${id}`))
