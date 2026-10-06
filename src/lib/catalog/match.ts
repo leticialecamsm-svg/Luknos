@@ -5,15 +5,15 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz' | 'avant' | 'nordecor' | 'blumenau' | 'gaya' | 'tks'
-const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz', 'avant', 'nordecor', 'blumenau', 'gaya', 'tks']
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz' | 'avant' | 'nordecor' | 'blumenau' | 'gaya' | 'tks' | 'embuled'
+const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz', 'avant', 'nordecor', 'blumenau', 'gaya', 'tks', 'embuled']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
   if (n.includes('luminatti')) return 'lumi' // catálogo LUMI_CATALOGO_2026
   return SOURCES.find(s => n.includes(s)) ?? null
 }
 // Os que o sistema relê sozinho do site (os outros vêm de PDF, importado por script).
-export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz', 'avant']
+export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz', 'avant', 'embuled']
 
 export type CatalogFinish = { code: string; name: string; url: string }
 export type CatalogEntry = {

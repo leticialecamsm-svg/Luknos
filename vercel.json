@@ -46,6 +46,14 @@
     {
       "path": "/api/cron/supplier-catalog?source=avant",
       "schedule": "45 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=embuled",
+      "schedule": "0 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=embuled",
+      "schedule": "15 11 * * 1"
     }
   ]
 }

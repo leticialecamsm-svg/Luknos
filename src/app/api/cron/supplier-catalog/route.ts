@@ -3,8 +3,9 @@ import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
 import { syncUsinaCatalog } from '@/lib/catalog/usina-sync'
 import { syncSorteluzCatalog } from '@/lib/catalog/sorteluz-sync'
 import { syncAvantCatalog } from '@/lib/catalog/avant-sync'
+import { syncEmbuledCatalog } from '@/lib/catalog/embuled-sync'
 
-// GET /api/cron/supplier-catalog?source=accord|usina|sorteluz|avant — segunda de manhã, uma rodada por site.
+// GET /api/cron/supplier-catalog?source=accord|usina|sorteluz|avant|embuled — segunda de manhã, uma rodada por site.
 // Atualiza as fotos e medidas dos catálogos usados em Cotação e Preços (passe o mouse no produto).
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
   if (source === 'usina') return NextResponse.json(await syncUsinaCatalog())
   if (source === 'sorteluz') return NextResponse.json(await syncSorteluzCatalog())
   if (source === 'avant') return NextResponse.json(await syncAvantCatalog())
+  if (source === 'embuled') return NextResponse.json(await syncEmbuledCatalog())
   if (source === 'accord') return NextResponse.json(await syncAccordCatalog())
   return NextResponse.json({ error: 'source inválido' }, { status: 400 })
 }
