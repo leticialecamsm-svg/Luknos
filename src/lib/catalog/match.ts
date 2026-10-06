@@ -5,8 +5,8 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz' | 'avant' | 'nordecor'
-const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz', 'avant', 'nordecor']
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz' | 'avant' | 'nordecor' | 'blumenau' | 'gaya' | 'tks'
+const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz', 'avant', 'nordecor', 'blumenau', 'gaya', 'tks']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
   if (n.includes('luminatti')) return 'lumi' // catálogo LUMI_CATALOGO_2026
