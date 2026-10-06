@@ -5,15 +5,15 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz'
-const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz']
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz' | 'avant' | 'nordecor'
+const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz', 'avant', 'nordecor']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
   if (n.includes('luminatti')) return 'lumi' // catálogo LUMI_CATALOGO_2026
   return SOURCES.find(s => n.includes(s)) ?? null
 }
 // Os que o sistema relê sozinho do site (os outros vêm de PDF, importado por script).
-export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz']
+export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz', 'avant']
 
 export type CatalogFinish = { code: string; name: string; url: string }
 export type CatalogEntry = {
@@ -154,7 +154,8 @@ function dimError(want: number[], have: number[]) {
 // e no singular ('Interruptores' = 'interruptor') para a nota casar com o título do catálogo.
 export function words(s: string) {
   return normText(s).split(/[^a-z0-9]+/)
-    .filter(w => w.length >= 2 && (!/^\d/.test(w) || /^\d{1,2}mm$/.test(w)) && !STOP.has(w))
+    // número solto de 4 dígitos é série/chip ('2025', '2835', '5050'); medida de conector ('8mm') também conta
+    .filter(w => w.length >= 2 && (!/^\d/.test(w) || /^\d{1,2}mm$/.test(w) || /^\d{4}$/.test(w)) && !STOP.has(w))
     .map(w => (w.length > 5 ? w.replace(/(?:es|s)$/, '') : w))
     .map(w => (w.length > 6 ? w.replace(/(?:ida|ido|idas|idos|ir)$/, '') : w)) // embutida/embutido/embutir -> embut
 }

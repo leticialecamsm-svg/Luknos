@@ -82,7 +82,7 @@ def cm_from(text):
 
 # ---------- imagens ----------
 
-def product_images(page, min_side=40, min_pixels=7000, min_area=1500, max_frac=0.3, allow_big=False):
+def product_images(page, min_side=40, min_pixels=7000, min_area=1500, max_frac=0.3, allow_big=False, max_aspect=7):
     """Imagens que parecem foto de produto: nada de linha fina, QR code, amostra de cor,
     nem fundo de ambiente (cobre grande parte da página)."""
     pa = page.rect.width * page.rect.height
@@ -92,7 +92,7 @@ def product_images(page, min_side=40, min_pixels=7000, min_area=1500, max_frac=0
         if not i['xref'] or w <= 0 or h <= 0: continue
         if min(i['width'], i['height']) < min_side or i['width'] * i['height'] < min_pixels or w * h < min_area: continue
         if w * h > max_frac * pa and not allow_big: continue
-        if max(w / h, h / w) > 7: continue
+        if max(w / h, h / w) > max_aspect: continue
         out.append(i)
     return out
 
@@ -325,13 +325,79 @@ def lumi(doc):
                                cands=cands, want=(color or '').upper(), **dims)
 
 
-PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix, 'lumi': lumi}
+def sized_blocks(page):
+    """[(bbox, [(texto, tamanho)])] — tamanho por linha, para separar o título do resto do bloco."""
+    out = []
+    for b in page.get_text('dict')['blocks']:
+        if b['type'] != 0: continue
+        ls = [(''.join(sp['text'] for sp in l['spans']).strip(), max((sp['size'] for sp in l['spans']), default=0), tuple(l['bbox'])) for l in b['lines']]
+        ls = [x for x in ls if x[0]]
+        if ls: out.append((tuple(b['bbox']), ls))
+    return out
+
+
+def coded(doc, code_re, label_max=8.5, title_min=13.0, aspect=14, spec_re=None, page_title_min=20.0):
+    """Leitor ancorado no código: cada código achado na página vira uma ref. O título é o texto grande
+    mais próximo acima dele; a foto é a imagem logo acima do código (etiqueta sob a foto), ou a mais
+    próxima. Serve a catálogos em que o código vem escrito junto da foto/cartão."""
+    nav = re.compile(r'^(catálogo|saiba mais|garantia|unidade de medida|\d+)$', re.I)
+    for pn, page in enumerate(doc):
+        blocks = sized_blocks(page)
+        imgs = product_images(page, min_side=20, min_pixels=2000, min_area=800, max_frac=0.45, max_aspect=aspect)
+        titles = []   # (bbox, texto)
+        for bb, ls in blocks:
+            if not any(z >= title_min for _, z, _ in ls): continue
+            # o bloco do título inteiro: 'spot de embutir quad.' (linha menor) + 'LOYO' (linha grande); sem 'Ref:' nem códigos
+            parts = [t for t, _, _ in ls if re.search(r'[A-Za-zÀ-ú]{3}', t) and not nav.match(t) and not code_re.search(t)
+                     and not re.match(r'^(ref|cor|tens|grau|material|pot|fluxo|temp|bocal|para|\*|ip\d)', t, re.I) and len(t) <= 46]
+            if parts: titles.append((bb, deslot(' '.join(parts[:3]))))
+        page_title = next((t for (bb, t), (_, ls) in zip(titles, [x for x in blocks if any(z >= title_min for _, z, _ in x[1])])
+                           if any(z >= page_title_min for _, z, _ in ls)), None)
+        for bb, ls in blocks:
+            for k, (t, z, lb) in enumerate(ls):
+                for m in code_re.finditer(t):
+                    code = m.group(1)
+                    cx = (lb[0] + lb[2]) / 2
+                    if pn == 0: continue  # capa ('CATÁLOGO GERAL DE PRODUTOS 2025') não tem produto
+                    own = next((tt for tb, tt in titles if tb == bb), None)   # o código está dentro do bloco do título
+                    above = [(lb[1] - tb[3], tt) for tb, tt in titles if tb[3] <= lb[1] + 6 and abs((tb[0] + tb[2]) / 2 - cx) <= 450]
+                    title = own or (min(above)[1] if above else page_title)
+                    name = title
+                    if page_title and title and page_title.lower() not in title.lower() and title is not page_title and page_title_min and False: name = f'{page_title} {title}'
+                    # cor/versão: a linha seguinte do bloco ('Preto') ou o texto depois do código ('6820 - Branco')
+                    after = t[m.end():].strip(' -–')
+                    nxt = ls[k + 1][0] if k + 1 < len(ls) else ''
+                    color = after if re.fullmatch(r'[A-Za-zÀ-ú ]{3,20}', after or '') else (nxt if re.fullmatch(r'[A-Za-zÀ-ú ]{3,20}', nxt) and not code_re.search(nxt) else None)
+                    spec = None
+                    if spec_re:
+                        card = [tt for b2, l2 in blocks for tt, _, _ in l2 if b2 != bb and b2[3] <= lb[1] + 4 and lb[1] - b2[3] < 90 and b2[0] - 10 <= cx <= b2[2] + 10]
+                        spec = ' '.join(x for tt in card for x in spec_re.findall(tt)) or None
+                    # foto: imagem logo acima do código (etiqueta embaixo da foto), senão a mais próxima
+                    ab = [i for i in imgs if i['bbox'][3] <= lb[1] + 8 and lb[1] - i['bbox'][3] < 160 and i['bbox'][0] - 25 <= cx <= i['bbox'][2] + 25]
+                    cands = sorted(ab, key=lambda i: lb[1] - i['bbox'][3]) + [i for i in ranked_images(lb, imgs, 220) if i not in ab]
+                    yield dict(ref=code, name=(name or code).title() if name and name.islower() else (name or code), kind=(KINDS.get(name.split()[0].lower()) if name else None),
+                               line=page_title, model=code, variant=' '.join(x for x in (color, spec) if x) or None, page=pn + 1, cands=cands, named=bool(title), **cm_from(''))
+
+
+def nordecor(doc):
+    """Código de 4 dígitos escrito sob a foto (etiqueta pequena) e 'Ref: 6820 - Branco' no título."""
+    # a linha É o código: '6820' (etiqueta sob a foto), 'Ref: 6820 - Branco', '6821 - Preto', '2261 - Branco | 3.000K'
+    return coded(doc, re.compile(r'^(?:Ref:\s*)?(\d{4})(?:\s*[-–]\s*\S.*)?$'), label_max=8.5, title_min=13.0)
+
+
+def avant(doc):
+    """Código 9NC de 9 dígitos: cartão de driver sob o título da família, ou código vertical junto do nome."""
+    return coded(doc, re.compile(r'(?<!\d)(\d{9})(?!\d)'), title_min=11.0, aspect=14,
+                 spec_re=re.compile(r'\b\d+(?:,\d+)?(?:W|A)\b'), page_title_min=20.0)
+
+
+PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix, 'lumi': lumi, 'nordecor': nordecor, 'avant': avant}
 
 
 # ---------- extração e envio ----------
 
 # cutout=True: só aceita foto recortada (borda branca). Catálogos que só têm foto de ambiente usam False.
-PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True), 'lumi': dict(cutout=True)}
+PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True), 'lumi': dict(cutout=True), 'nordecor': dict(cutout=True), 'avant': dict(cutout=False)}
 
 
 def extract(profile, pdf_path, out_dir):
@@ -343,7 +409,7 @@ def extract(profile, pdf_path, out_dir):
         cur = found.get(r['ref'])
         # Mesma ref em várias páginas: vale a de tabela de acessórios (auth), depois a que tem foto
         # candidata; empate fica com a primeira.
-        rank = lambda x: (bool(x.get('auth')), bool(x['cands']))
+        rank = lambda x: (bool(x.get('auth')), bool(x.get('named')), bool(x['cands']))
         if cur is None or rank(r) > rank(cur): found[r['ref']] = r
     rows, jpegs = [], {}
     for r in found.values():

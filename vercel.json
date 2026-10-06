@@ -38,6 +38,14 @@
     {
       "path": "/api/cron/supplier-catalog?source=sorteluz",
       "schedule": "15 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=avant",
+      "schedule": "30 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=avant",
+      "schedule": "45 10 * * 1"
     }
   ]
 }
