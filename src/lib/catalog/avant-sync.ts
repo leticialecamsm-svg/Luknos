@@ -72,7 +72,7 @@ export async function syncAvantCatalog() {
   const rows: Record<string, unknown>[] = []
   let done = 0
   let partial = false
-  await pool(order, 2, async slug => {
+  await pool(order, 4, async slug => {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const f = parseFamily(await text(`${BASE}/produtos/${slug}/`))
@@ -88,11 +88,12 @@ export async function syncAvantCatalog() {
       const fam = await photo(`fam-${slug}`, f.image, `fam-${slug}`)
       const base = { source: 'avant', kind, finishes: [], updated_at: new Date().toISOString(), product_url: `${BASE}/produtos/${slug}/` }
       rows.push({ ...base, ref: `fam-${slug}`, source_product_id: slug, name: f.title, line: null, model: null, variant: [f.power, f.temp].filter(Boolean).join(' ') || null, image_url: fam.url, source_image_url: fam.src })
-      for (const e of f.erp) {
+      // As fotos dos códigos da família são copiadas juntas (cada uma é um PNG grande a reduzir).
+      const erpRows = await Promise.all(f.erp.map(async e => {
         const p = await photo(e.code, e.url, e.code)
-        const img = p.url ?? fam.url
-        rows.push({ ...base, ref: e.code, source_product_id: slug, name: e.erp.replace(/-/g, ' '), line: f.title, model: e.code, variant: null, image_url: img, source_image_url: p.url ? p.src : fam.src })
-      }
+        return { ...base, ref: e.code, source_product_id: slug, name: e.erp.replace(/-/g, ' '), line: f.title, model: e.code, variant: null, image_url: p.url ?? fam.url, source_image_url: p.url ? p.src : fam.src }
+      }))
+      rows.push(...erpRows)
       done++
     } catch (err) {
       errors.push(`${slug}: ${(err as Error).message}`)
