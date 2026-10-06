@@ -30,6 +30,14 @@
     {
       "path": "/api/cron/supplier-catalog?source=usina",
       "schedule": "50 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=sorteluz",
+      "schedule": "0 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=sorteluz",
+      "schedule": "15 10 * * 1"
     }
   ]
 }

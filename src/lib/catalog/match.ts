@@ -5,15 +5,15 @@
 // nome + medidas (só sugestão).
 
 // Fornecedores com catálogo completo e a origem de cada um (os demais só têm fotos enviadas).
-export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi'
-const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix']
+export type CatalogSource = 'accord' | 'hevvy' | 'skylight' | 'spotline' | 'usina' | 'pix' | 'lumi' | 'sorteluz'
+const SOURCES: CatalogSource[] = ['accord', 'hevvy', 'skylight', 'spotline', 'usina', 'pix', 'sorteluz']
 export function catalogSourceFor(supplierName: string): CatalogSource | null {
   const n = normText(supplierName)
   if (n.includes('luminatti')) return 'lumi' // catálogo LUMI_CATALOGO_2026
   return SOURCES.find(s => n.includes(s)) ?? null
 }
 // Os que o sistema relê sozinho do site (os outros vêm de PDF, importado por script).
-export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina']
+export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz']
 
 export type CatalogFinish = { code: string; name: string; url: string }
 export type CatalogEntry = {
@@ -156,6 +156,7 @@ export function words(s: string) {
   return normText(s).split(/[^a-z0-9]+/)
     .filter(w => w.length >= 2 && (!/^\d/.test(w) || /^\d{1,2}mm$/.test(w)) && !STOP.has(w))
     .map(w => (w.length > 5 ? w.replace(/(?:es|s)$/, '') : w))
+    .map(w => (w.length > 6 ? w.replace(/(?:ida|ido|idas|idos|ir)$/, '') : w)) // embutida/embutido/embutir -> embut
 }
 
 const SPEC_WORD = /^(ip\d{2}|rgb)$/
@@ -167,7 +168,10 @@ const nameIndexes = new WeakMap<CatalogEntry[], { hay: Map<CatalogEntry, Set<str
 function termWeight(h: Set<string>, weight: Map<string, number>, t: string) {
   if (h.has(t)) return weight.get(t) ?? 0
   if (t.length < 3) return 0
-  for (const hw of Array.from(h)) if (hw.length >= t.length + 3 && hw.startsWith(t)) return 0.8 * (weight.get(hw) ?? 0)
+  for (const hw of Array.from(h)) {
+    if (hw.length >= t.length + 3 && hw.startsWith(t)) return 0.8 * (weight.get(hw) ?? 0)   // nota abrevia: 'mag' ~ 'magneto'
+    if (hw.length >= 3 && t.length >= hw.length + 3 && t.startsWith(hw)) return 0.8 * (weight.get(hw) ?? 0) // catálogo abrevia: 'red' ~ 'redonda'
+  }
   return 0
 }
 

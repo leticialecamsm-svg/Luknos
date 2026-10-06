@@ -13,6 +13,7 @@ import { expandTerms, normText } from './synonyms'
 import { matchCatalog, catalogSourceFor, type CatalogEntry, type ItemPhoto } from '@/lib/catalog/match'
 import { syncAccordCatalog } from '@/lib/catalog/accord-sync'
 import { syncUsinaCatalog } from '@/lib/catalog/usina-sync'
+import { syncSorteluzCatalog } from '@/lib/catalog/sorteluz-sync'
 import { existingRows } from '@/lib/catalog/sync-utils'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
@@ -370,7 +371,7 @@ export async function uploadItemPhoto(form: FormData) {
   return { ok: true, ref }
 }
 
-// Relê o site do fornecedor agora (o cron faz isso toda segunda). Só Accord e Usina vêm de site;
+// Relê o site do fornecedor agora (o cron faz isso toda segunda). Só Accord, Usina e Sorteluz vêm de site;
 // os demais catálogos vêm de PDF e são importados por script.
 export async function syncSupplierCatalog(supplierId: string) {
   const auth = await guard(true)
@@ -379,6 +380,7 @@ export async function syncSupplierCatalog(supplierId: string) {
     const source = await catalogSource(supplierId)
     if (source === 'accord') return { ...(await syncAccordCatalog()), partial: false }
     if (source === 'usina') return await syncUsinaCatalog()
+    if (source === 'sorteluz') return await syncSorteluzCatalog()
     return { error: 'Este fornecedor não tem site para atualizar' }
   } catch (e) { return { error: (e as Error).message } }
 }
