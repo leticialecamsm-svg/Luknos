@@ -83,7 +83,7 @@ export async function syncEmbuledCatalog() {
 
   const rows: Record<string, unknown>[] = []
   let partial = false
-  await pool(items, 4, async ({ ref, p, parent }) => {
+  await pool(items, 10, async ({ ref, p, parent }) => {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const prev = known.get(ref)

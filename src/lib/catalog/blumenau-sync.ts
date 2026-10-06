@@ -66,7 +66,7 @@ async function productSlugs(): Promise<string[]> {
   const home = await text(`${BASE}/`).catch(() => '')
   const cats = Array.from(new Set(Array.from(home.matchAll(/href="https:\/\/blumenauiluminacao\.com\.br\/(produtos\/[a-z0-9-]+)\/?"/g), m => m[1])))
   const slugs = new Set<string>()
-  await pool(cats, 4, async c => {
+  await pool(cats, 8, async c => {
     for (let p = 1; p < 40; p++) {
       const h = await text(`${BASE}/${c}${p === 1 ? '' : `/${p}`}`).catch(() => '')
       const found = Array.from(h.matchAll(/\/produtos\/detalhes\/([a-z0-9-]+)\/?"/g), m => m[1])
@@ -90,7 +90,7 @@ export async function syncBlumenauCatalog() {
 
   const rows: Record<string, unknown>[] = []
   let partial = false
-  await pool(order, 4, async slug => {
+  await pool(order, 8, async slug => {
     if (Date.now() - started > BUDGET_MS) { partial = true; return }
     try {
       const p = parseProduct(await text(`${BASE}/produtos/detalhes/${slug}/`))
