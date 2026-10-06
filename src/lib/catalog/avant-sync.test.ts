@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseFamily, parseGallery } from './avant-sync'
+import { erpKind, parseFamily, parseGallery } from './avant-sync'
 
 describe('avant — família e galeria', () => {
   const html = `<title>Fita LED Risqué TRIO - Avant</title>
@@ -16,5 +16,12 @@ describe('avant — família e galeria', () => {
   })
   it('lê o nome e a foto principal da família', () => {
     expect(parseFamily(html)).toMatchObject({ title: 'Fita LED Risqué TRIO', image: 'https://avantlux.com.br/wp-content/uploads/2024/08/trio-1.png' })
+  })
+  it('tipo pela descrição do ERP', () => {
+    expect(erpKind('LED-FITA-INT-RISQUE-TRIO-IP20')).toBe('fita')
+    expect(erpKind('ARAND-ECLIPSE-4XG9-160X30CM-PRETO')).toBe('arandela')
+    expect(erpKind('PEND-ORGANICO-REDONDO-60CM')).toBe('pendente')
+    expect(erpKind('KIT-GANCHO-HIGH-BAY-LINEAR-PRO')).toBe('gancho')
+    expect(erpKind('LED-BALIZADOR-EFFECT-WASH')).toBe('balizador')
   })
 })

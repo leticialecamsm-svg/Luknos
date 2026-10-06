@@ -26,6 +26,15 @@ async function text(url: string): Promise<string> {
   throw new Error(`falhou ${url}`)
 }
 
+// Tipo do produto pela descrição do ERP ('LED-FITA-INT-…' → fita, 'ARAND-ECLIPSE…' → arandela): o título da
+// família costuma ser o nome da linha ('Aldebaran'), que não serve de tipo.
+const ERP_KIND: Record<string, string> = { arand: 'arandela', pend: 'pendente', lum: 'luminaria', plaf: 'plafon', dic: 'lampada', col: 'coluna' }
+const SKIP_KIND = new Set(['led', 'kit', 'preto', 'branco'])
+export function erpKind(erp: string): string | null {
+  const t = norm(erp).split('-').find(x => x && !SKIP_KIND.has(x) && !/^\d/.test(x))
+  return t ? ERP_KIND[t] ?? t : null
+}
+
 export type AvantErp = { code: string; erp: string; url: string }
 
 // Imagens da galeria com código no nome: '.../2024/08/297057846-LED-FITA-INT-RISQUE-TRIO-…-e172381-1-300x300.png'.
@@ -91,7 +100,7 @@ export async function syncAvantCatalog() {
       // As fotos dos códigos da família são copiadas juntas (cada uma é um PNG grande a reduzir).
       const erpRows = await Promise.all(f.erp.map(async e => {
         const p = await photo(e.code, e.url, e.code)
-        return { ...base, ref: e.code, source_product_id: slug, name: e.erp.replace(/-/g, ' '), line: f.title, model: e.code, variant: null, image_url: p.url ?? fam.url, source_image_url: p.url ? p.src : fam.src }
+        return { ...base, ref: e.code, source_product_id: slug, name: e.erp.replace(/-/g, ' ').replace(/\s+(scaled|e\d{6,})$/i, ''), kind: erpKind(e.erp) ?? kind, line: f.title, model: e.code, variant: null, image_url: p.url ?? fam.url, source_image_url: p.url ? p.src : fam.src }
       }))
       rows.push(...erpRows)
       done++
