@@ -16,6 +16,7 @@ import { syncUsinaCatalog } from '@/lib/catalog/usina-sync'
 import { syncSorteluzCatalog } from '@/lib/catalog/sorteluz-sync'
 import { syncAvantCatalog } from '@/lib/catalog/avant-sync'
 import { syncEmbuledCatalog } from '@/lib/catalog/embuled-sync'
+import { syncBlumenauCatalog } from '@/lib/catalog/blumenau-sync'
 import { existingRows } from '@/lib/catalog/sync-utils'
 
 async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
@@ -373,7 +374,7 @@ export async function uploadItemPhoto(form: FormData) {
   return { ok: true, ref }
 }
 
-// Relê o site do fornecedor agora (o cron faz isso toda segunda). Só Accord, Usina, Sorteluz, Avant e Embuled vêm de site;
+// Relê o site do fornecedor agora (o cron faz isso toda segunda). Só Accord, Usina, Sorteluz, Avant, Embuled e Blumenau vêm de site;
 // os demais catálogos vêm de PDF e são importados por script.
 export async function syncSupplierCatalog(supplierId: string) {
   const auth = await guard(true)
@@ -385,6 +386,7 @@ export async function syncSupplierCatalog(supplierId: string) {
     if (source === 'sorteluz') return await syncSorteluzCatalog()
     if (source === 'avant') return await syncAvantCatalog()
     if (source === 'embuled') return await syncEmbuledCatalog()
+    if (source === 'blumenau') return await syncBlumenauCatalog()
     return { error: 'Este fornecedor não tem site para atualizar' }
   } catch (e) { return { error: (e as Error).message } }
 }

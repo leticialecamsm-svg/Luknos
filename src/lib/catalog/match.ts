@@ -13,7 +13,7 @@ export function catalogSourceFor(supplierName: string): CatalogSource | null {
   return SOURCES.find(s => n.includes(s)) ?? null
 }
 // Os que o sistema relê sozinho do site (os outros vêm de PDF, importado por script).
-export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz', 'avant', 'embuled']
+export const AUTO_SYNC_SOURCES: CatalogSource[] = ['accord', 'usina', 'sorteluz', 'avant', 'embuled', 'blumenau']
 
 export type CatalogFinish = { code: string; name: string; url: string }
 export type CatalogEntry = {

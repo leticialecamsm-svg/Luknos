@@ -54,6 +54,18 @@
     {
       "path": "/api/cron/supplier-catalog?source=embuled",
       "schedule": "15 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "30 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "45 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "0 12 * * 1"
     }
   ]
 }
