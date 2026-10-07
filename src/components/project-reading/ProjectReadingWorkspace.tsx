@@ -1340,7 +1340,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
     selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badges?: PieceBadge[]
-    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number; badgeYOffset?: number
+    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number; badgeYOffset?: number; subtle?: boolean
   }) {
     const offsetPx = opts?.cotaOffset ?? 16
     // Quando a medição já foi salva, o número mostrado na cota vem do
@@ -1366,18 +1366,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const midX = (a2x + b2x) / 2, midY = (a2y + b2y) / 2
       let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI
       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
-      const dimWidth = opts?.selected ? 3.5 : 2.5
+      const dimWidth = opts?.selected ? 3 : opts?.subtle ? 1.25 : 2.5
       segs.push(
         <g key={`${key}-${i}`}>
           {/* Halo branco por baixo de tudo — sem isso a cota some no meio dos
               traços que já existem no PDF original (linhas, cotas do CAD). */}
-          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
-          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
+          {!opts?.subtle && <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke="white" strokeWidth={3.5} opacity={0.95} />}
+          {!opts?.subtle && <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke="white" strokeWidth={3.5} opacity={0.95} />}
           <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="white" strokeWidth={dimWidth + 3}
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
 
-          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
-          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
+          {!opts?.subtle && <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1.25} opacity={0.7} />}
+          {!opts?.subtle && <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1.25} opacity={0.7} />}
           <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke={color} strokeWidth={dimWidth}
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
           {opts?.onClick && (
@@ -1420,40 +1420,22 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // trecho medido — a cor é sempre a mesma pra composição idêntica
   // (mesmo perfil + mesma fita, ou mesma fita sozinha) e muda assim que
   // qualquer um dos dois produtos muda.
-  function renderComposicaoRibbon(points: Point[], color: string, key: string, onClick?: (e: React.MouseEvent) => void, halfWidthPx = 6) {
+  function renderComposicaoRibbon(points: Point[], color: string, key: string, onClick?: (e: React.MouseEvent) => void, halfWidthPx = 7, selected = false) {
     const screenPts = points.map(toScreen)
     if (screenPts.length < 2) return null
-    const left: [number, number][] = []
-    const right: [number, number][] = []
-    for (let i = 0; i < screenPts.length - 1; i++) {
-      const [ax, ay] = screenPts[i]
-      const [bx, by] = screenPts[i + 1]
-      const dx = bx - ax, dy = by - ay
-      const len = Math.hypot(dx, dy) || 1
-      const nx = (-dy / len) * halfWidthPx, ny = (dx / len) * halfWidthPx
-      left.push([ax + nx, ay + ny])
-      right.push([ax - nx, ay - ny])
-      if (i === screenPts.length - 2) {
-        left.push([bx + nx, by + ny])
-        right.push([bx - nx, by - ny])
-      }
-    }
-    // Duas polilinhas abertas (uma de cada lado) em vez de um polígono
-    // fechado — um trecho em L ou que "volta" sobre si mesmo fazia o
-    // polígono se auto-cruzar, desenhando um X feio na virada.
-    const leftPts = left.map(p => p.join(',')).join(' ')
-    const rightPts = right.map(p => p.join(',')).join(' ')
+    const pts = screenPts.map(p => p.join(',')).join(' ')
+    // Efeito marca-texto: um traço grosso e translúcido da cor da composição
+    // (multiply deixa o desenho da planta aparecendo por baixo), sem
+    // contorno — em vez de duas linhas de borda que poluíam a planta.
     return (
       <g key={key}>
-        <polyline points={leftPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={rightPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={leftPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={rightPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={pts} fill="none" stroke={color} strokeOpacity={selected ? 0.55 : 0.38}
+          strokeWidth={halfWidthPx * 2} strokeLinecap="butt" strokeLinejoin="round" style={{ mixBlendMode: 'multiply' }} />
         {/* Área de clique larga sobre o trecho todo — o único alvo antes era
             a linha de cota deslocada, difícil de acertar em trechos curtos
             (ex: medida vertical). */}
         {onClick && (
-          <polyline points={screenPts.map(p => p.join(',')).join(' ')} fill="none" stroke="transparent" strokeWidth={halfWidthPx * 2 + 12}
+          <polyline points={pts} fill="none" stroke="transparent" strokeWidth={halfWidthPx * 2 + 10}
             strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer' }}
             onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); onClick(e) }} />
         )}
@@ -1704,7 +1686,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   }
                   return (
                     <g key={m.id}>
-                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`, (e: React.MouseEvent) => selectShape('measurement', m.id, e))}
+                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`, (e: React.MouseEvent) => selectShape('measurement', m.id, e), 7, selected)}
                       {renderCota(m.points, color, m.id, scale, {
                         selected,
                         onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
@@ -1713,6 +1695,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         cotaOffset: m.cota_offset ?? 16,
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
+                        subtle: isComposicao && !reaproveitamentoView,
                       })}
                       {!reaproveitamentoView && !fontesView && m.label && (m.kind === 'perfil' || (m.kind === 'fita' && !m.linked_measurement_id)) && (() => {
                         const [fx, fy] = toScreen(m.points[0])
