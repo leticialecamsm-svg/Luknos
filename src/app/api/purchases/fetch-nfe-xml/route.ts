@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
-import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { logSefazDistCall, setSefazCallStat } from '@/lib/sefaz-quota'
 import { getAgent } from '@/lib/nfe'
 
 const gunzip = promisify(zlib.gunzip)
@@ -25,11 +25,11 @@ function buildSvrsConsultaSoap(chave: string) {
   return `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Header/><soap:Body><nfeDadosMsg xmlns="${SVRS_NS}">${inner}</nfeDadosMsg></soap:Body></soap:Envelope>`
 }
 
-async function soapRequest(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+async function soapRequest(urlStr: string, body: string, headers: Record<string, string | number>, chave: string): Promise<string> {
   // Só o webservice nacional (DIST_URL) conta na cota de 20/hora — o fallback
   // SVRS é outro serviço, com limite próprio.
-  if (urlStr === DIST_URL) await logSefazDistCall()
-  return new Promise((resolve, reject) => {
+  const logId = urlStr === DIST_URL ? await logSefazDistCall('cadastro-nota', chave) : null
+  const xml = await new Promise<string>((resolve, reject) => {
     const agent = getAgent()
     const url = new URL(urlStr)
     const options: https.RequestOptions = {
@@ -48,6 +48,8 @@ async function soapRequest(urlStr: string, body: string, headers: Record<string,
     req.write(body)
     req.end()
   })
+  await setSefazCallStat(logId, get(xml, 'cStat'))
+  return xml
 }
 
 function get(xml: string, tag: string) {
@@ -135,7 +137,7 @@ export async function GET(req: NextRequest) {
     const distSoap = buildDistSoap(chave, cnpj)
     const distXml = await soapRequest(DIST_URL, distSoap, {
       'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
-    })
+    }, chave)
 
     const cStat = get(distXml, 'cStat')
     const xMotivo = get(distXml, 'xMotivo')
@@ -160,7 +162,7 @@ export async function GET(req: NextRequest) {
     const svrsXml = await soapRequest(SVRS_URL, svrsSoap, {
       'Content-Type': 'text/xml; charset=utf-8',
       'SOAPAction': `${SVRS_NS}/nfeConsultaNF`,
-    })
+    }, chave)
 
     const cStat = get(svrsXml, 'cStat')
     const xMotivo = get(svrsXml, 'xMotivo')

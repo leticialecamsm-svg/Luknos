@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
         }
 
         if (!usarMeuDanfe) {
-          const res = await consultarNFeCompleta(chave)
+          const res = await consultarNFeCompleta(chave, 'danfe')
           if (res.ok && res.xml) {
             xml = res.xml
           } else if (res.cStat === '632') {

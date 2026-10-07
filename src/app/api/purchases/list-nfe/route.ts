@@ -4,7 +4,7 @@ import zlib from 'zlib'
 import { promisify } from 'util'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { registrarCiencia } from '@/lib/nfe-manifestacao'
-import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { logSefazDistCall, setSefazCallStat } from '@/lib/sefaz-quota'
 import { getAgent } from '@/lib/nfe'
 
 const gunzip = promisify(zlib.gunzip)
@@ -21,8 +21,8 @@ function buildDistNsuSoap(ultNSU: string) {
 async function soapPost(body: string): Promise<string> {
   // Ver comentário em lib/nfe.ts: certificado inválido não deve consumir cota.
   const agent = getAgent()
-  await logSefazDistCall()
-  return new Promise((resolve, reject) => {
+  const logId = await logSefazDistCall('sincronizacao')
+  const xml = await new Promise<string>((resolve, reject) => {
     const url = new URL(DIST_URL)
     const req = https.request({
       hostname: url.hostname, path: url.pathname, method: 'POST', agent,
@@ -39,6 +39,8 @@ async function soapPost(body: string): Promise<string> {
     req.write(body)
     req.end()
   })
+  await setSefazCallStat(logId, get(xml, 'cStat'))
+  return xml
 }
 
 function get(xml: string, tag: string) {

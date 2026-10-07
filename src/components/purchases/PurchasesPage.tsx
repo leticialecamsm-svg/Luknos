@@ -1008,7 +1008,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [cooldownMinutesLeft, setCooldownMinutesLeft] = useState(0)
 
   // Cota de 20 consultas/hora da SEFAZ (compartilhada por todas as buscas nesta tela)
-  const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null)
+  const [quota, setQuota] = useState<{ used: number; limit: number; recent?: { quando: string; origem: string | null; quem: string | null; chave: string | null; cstat: string | null }[] } | null>(null)
+  const [showHistorico, setShowHistorico] = useState(false)
   async function loadQuota() {
     try {
       const res = await fetch('/api/purchases/sefaz-quota')
@@ -1053,26 +1054,32 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
     }
   }
 
-  const [refreshingPassagem, setRefreshingPassagem] = useState(false)
-  async function refreshPassagem() {
-    setRefreshingPassagem(true)
+  // Consulta o histórico de passagem de UMA nota (1 consulta da cota da SEFAZ)
+  const [refreshingChave, setRefreshingChave] = useState<string | null>(null)
+  async function refreshPassagem(nfe: NFeRecebida, e: React.MouseEvent) {
+    e.stopPropagation()
+    setRefreshingChave(nfe.chave_nfe)
     setSyncMsg('')
     try {
-      const res = await fetch('/api/purchases/refresh-passagem', { method: 'POST' })
+      const res = await fetch('/api/purchases/refresh-passagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chave: nfe.chave_nfe }),
+      })
       const data = await res.json()
-      if (res.ok) {
-        let msg = `Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`
-        if (data.updated === 0 && data.checked > 0) {
-          if (data.ultimoMotivo) msg += ` — ${data.ultimoMotivo}`
-          else if (data.semEvento === data.checked) msg += ' — nenhuma tinha evento de passagem disponível'
-        }
-        setSyncMsg(msg)
+      if (!res.ok) { setSyncMsg(`Erro: ${data.error}`); return }
+      if (data.updated) {
+        setSyncMsg(`Passagem atualizada: ${data.uf}.`)
         await loadNfesRecebidas()
+      } else if (data.semEvento) {
+        setSyncMsg('Nenhum evento de passagem disponível pra esta nota ainda.')
       } else {
-        setSyncMsg(`Erro: ${data.error}`)
+        setSyncMsg('Sem novidade: a última passagem já era essa.')
       }
+    } catch (err: any) {
+      setSyncMsg(`Erro: ${err.message}`)
     } finally {
-      setRefreshingPassagem(false)
+      setRefreshingChave(null)
       loadQuota()
     }
   }
@@ -1145,20 +1152,43 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         {tab === 'recebidas' && (
           <div className="flex items-center gap-2">
             {quota && (
-              <span
-                className={cn(
-                  'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
-                  quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-surface-secondary text-gray-500'
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowHistorico(v => !v)}
+                  className={cn(
+                    'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
+                    quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-surface-secondary text-gray-500'
+                  )}
+                  title="Consultas ao webservice nacional da SEFAZ usadas na última hora — o limite é por CNPJ e vale pra todos os sistemas que usam o certificado. Clique pra ver quem consultou."
+                >
+                  {quota.used}/{quota.limit} consultas SEFAZ nessa hora
+                </button>
+                {showHistorico && (
+                  <div className="absolute right-0 top-full mt-2 z-30 w-[26rem] max-w-[90vw] bg-white border border-surface-border rounded-xl shadow-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-gray-700">Últimas consultas feitas por este sistema</p>
+                      <button type="button" onClick={() => setShowHistorico(false)} className="text-gray-400 hover:text-gray-600 text-base leading-none">×</button>
+                    </div>
+                    {(quota.recent ?? []).length === 0 ? (
+                      <p className="text-xs text-gray-400 py-2">Nenhuma consulta registrada ainda.</p>
+                    ) : (
+                      <ul className="space-y-1.5 max-h-72 overflow-auto">
+                        {(quota.recent ?? []).map((c, i) => (
+                          <li key={i} className="text-xs text-gray-600 flex items-baseline gap-2">
+                            <span className="tabular-nums text-gray-400 shrink-0">{new Date(c.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Maceio' })}</span>
+                            <span className="font-semibold text-gray-700 shrink-0">{c.quem ?? 'sem usuário'}</span>
+                            <span className="truncate">{({ sincronizacao: 'buscar novas NFs', produtos: 'produtos da nota', danfe: 'DANFE', passagem: 'passagem', 'cadastro-nota': 'cadastro de nota' } as Record<string, string>)[c.origem ?? ''] ?? 'antes do registro'}{c.chave ? ` · …${c.chave.slice(-8)}` : ''}</span>
+                            {c.cstat && <span className={cn('ml-auto shrink-0 tabular-nums', c.cstat === '656' ? 'text-red-600 font-semibold' : 'text-gray-400')}>{c.cstat}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-[11px] text-gray-400 mt-2 leading-snug">Consultas de outros sistemas que usam o mesmo certificado (ERP, contador) também gastam a cota, mas não aparecem aqui.</p>
+                  </div>
                 )}
-                title="Consultas ao webservice nacional da SEFAZ (NFeDistribuicaoDFe) usadas na última hora — limite é por CNPJ, compartilhado entre todas as buscas"
-              >
-                {quota.used}/{quota.limit} consultas SEFAZ nessa hora
-              </span>
+              </div>
             )}
-            <button onClick={refreshPassagem} disabled={refreshingPassagem} className="btn-secondary flex items-center gap-2" title="Consulta o histórico completo de cada nota recente pra recuperar registros de passagem antigos (limitado por causa da cota da SEFAZ)">
-              <RefreshCw className={cn('w-4 h-4', refreshingPassagem && 'animate-spin')} />
-              {refreshingPassagem ? 'Atualizando...' : 'Atualizar passagens'}
-            </button>
             <button
               onClick={syncNfes}
               disabled={syncingNfes || cooldownMinutesLeft > 0}
@@ -1254,6 +1284,16 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                         </span>
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
+                      )}
+                      {!nfe.entregue && (
+                        <button
+                          onClick={e => refreshPassagem(nfe, e)}
+                          disabled={refreshingChave !== null}
+                          className="text-gray-400 hover:text-gray-600 disabled:opacity-40 shrink-0"
+                          title="Atualizar a passagem só desta nota (gasta 1 consulta da SEFAZ)"
+                        >
+                          <RefreshCw className={cn('w-3.5 h-3.5', refreshingChave === nfe.chave_nfe && 'animate-spin')} />
+                        </button>
                       )}
                       <button
                         onClick={e => toggleEntregue(nfe, e)}

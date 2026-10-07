@@ -1,7 +1,7 @@
 import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
-import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { logSefazDistCall, setSefazCallStat, type OrigemSefaz } from '@/lib/sefaz-quota'
 
 const gunzip = promisify(zlib.gunzip)
 
@@ -76,12 +76,12 @@ export function buildDistChaveSoap(chave: string) {
   return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="${DIST_NS}"><nfeDadosMsg>${inner}</nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>`
 }
 
-export async function soapPost(urlStr: string, body: string, headers: Record<string, string | number>): Promise<string> {
+export async function soapPost(urlStr: string, body: string, headers: Record<string, string | number>, origem: OrigemSefaz, chave?: string): Promise<string> {
   // Monta o agent ANTES de registrar na cota: se o certificado estiver inválido,
   // nem chegamos a falar com a SEFAZ, então isso não deve contar como consulta.
   const agent = getAgent()
-  await logSefazDistCall() // toda chamada aqui consome da cota de 20/hora da SEFAZ
-  return new Promise((resolve, reject) => {
+  const logId = await logSefazDistCall(origem, chave) // toda chamada aqui consome da cota de 20/hora da SEFAZ
+  const xml = await new Promise<string>((resolve, reject) => {
     const url = new URL(urlStr)
     const req = https.request({
       hostname: url.hostname, path: url.pathname, method: 'POST', agent,
@@ -95,6 +95,8 @@ export async function soapPost(urlStr: string, body: string, headers: Record<str
     req.write(body)
     req.end()
   })
+  await setSefazCallStat(logId, tag(xml, 'cStat'))
+  return xml
 }
 
 export function tag(xml: string, name: string) {
@@ -166,11 +168,11 @@ export async function unzipDoc(b64: string): Promise<string> {
 // Consulta a NF-e completa por chave via DistDFe (consChNFe).
 // ATENÇÃO: limitado a 20 consultas/hora por CNPJ pela SEFAZ. Use com parcimônia.
 // xml = nfeProc (NF-e + protocolo de autorização), usado pra gerar o DANFE.
-export async function consultarNFeCompleta(chave: string): Promise<{ ok: boolean; cStat: string; xMotivo: string; nfe?: NFeParsed; xml?: string }> {
+export async function consultarNFeCompleta(chave: string, origem: OrigemSefaz = 'produtos'): Promise<{ ok: boolean; cStat: string; xMotivo: string; nfe?: NFeParsed; xml?: string }> {
   const soap = buildDistChaveSoap(chave)
   const xml = await soapPost(DIST_URL, soap, {
     'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
-  })
+  }, origem, chave)
 
   const cStat = tag(xml, 'cStat')
   const xMotivo = tag(xml, 'xMotivo')
@@ -205,11 +207,11 @@ export interface EventoPassagem { uf: string; data: string; descricao: string }
 // pra aquela nota (não só os novos, como a sincronização por NSU) — é o jeito de
 // recuperar retroativamente eventos de passagem de notas mais antigas.
 // ATENÇÃO: consome da mesma cota de 20 consultas/hora por CNPJ da SEFAZ.
-export async function consultarEventosPassagem(chave: string): Promise<{ eventos: EventoPassagem[]; cStat: string; xMotivo: string; schemasEncontrados: string[]; todosEventos: string[] }> {
+export async function consultarEventosPassagem(chave: string, origem: OrigemSefaz = 'passagem'): Promise<{ eventos: EventoPassagem[]; cStat: string; xMotivo: string; schemasEncontrados: string[]; todosEventos: string[] }> {
   const soap = buildDistChaveSoap(chave)
   const xml = await soapPost(DIST_URL, soap, {
     'Content-Type': `application/soap+xml; charset=utf-8; action="${DIST_NS}/nfeDistDFeInteresse"`,
-  })
+  }, origem, chave)
 
   const cStat = tag(xml, 'cStat')
   const xMotivo = tag(xml, 'xMotivo')
