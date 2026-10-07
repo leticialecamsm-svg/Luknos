@@ -810,6 +810,36 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     container.scrollTo({ left: cx - container.clientWidth / 2, top: cy - container.clientHeight / 2, behavior: 'smooth' })
   }
 
+  // Leva a planta até um item (medição/símbolo) e já o seleciona abrindo o
+  // card — usado pelos avisos da aba Resultado, pra ir direto ao item com
+  // pendência em vez de procurar na planta.
+  async function focusOnItem(page: number, points: Point[], sel: { kind: EntityKind; id: string }) {
+    const container = canvasRef.current?.parentElement?.parentElement
+    if (!container || points.length === 0) return
+    setTool('select')
+    const xs = points.map(p => p[0]), ys = points.map(p => p[1])
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
+    const bboxW = Math.max(1, maxX - minX), bboxH = Math.max(1, maxY - minY)
+    const fit = Math.min((container.clientWidth - 160) / bboxW, (container.clientHeight - 160) / bboxH)
+    const targetScale = Math.min(3, Math.max(1, fit))
+    const mudou = page !== pageNum || Math.abs(targetScale - renderScale) > 0.001
+    if (mudou) {
+      const v0 = renderVersionRef.current
+      if (page !== pageNum) setPageNum(page)
+      setRenderScale(targetScale)
+      await new Promise<void>(resolve => {
+        const iv = setInterval(() => { if (renderVersionRef.current > v0) { clearInterval(iv); resolve() } }, 30)
+      })
+    }
+    const cx = (minX + maxX) / 2 * targetScale, cy = (minY + maxY) / 2 * targetScale
+    container.scrollTo({ left: cx - container.clientWidth / 2, top: cy - container.clientHeight / 2, behavior: 'auto' })
+    setTimeout(() => {
+      setSelection(sel)
+      const r = container.getBoundingClientRect()
+      setPopoverAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+    }, 80)
+  }
+
   async function rotatePage() {
     const current = rotationMap[String(pageNum)] ?? 0
     const next = (current + 90) % 360
@@ -1922,7 +1952,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             )}
             {tab === 'resultado' && (
               <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies}
-                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} onDecideBarras={decideBarras} />
+                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} onDecideBarras={decideBarras} onFocusItem={focusOnItem} />
             )}
           </div>
         )}
@@ -3188,11 +3218,12 @@ function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: stri
 
 const fmtM = (n: number) => String(round2(n)).replace('.', ',')
 
-function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment, onDecideBarras }: {
+function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment, onDecideBarras, onFocusItem }: {
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]; measurements: Measurement[]
   powerSupplies: PowerSupply[]; perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
   onFocusEnvironment: (env: Environment) => void
   onDecideBarras: (groupKey: string, decisao: 'mixed' | 'padrao' | null) => void
+  onFocusItem: (page: number, points: Point[], sel: { kind: EntityKind; id: string }) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
@@ -3226,13 +3257,25 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
   const medicoesSemAmbiente = [...perfis, ...fitas].filter(m => !m.environment_id)
   const simbolosSemAmbiente = symbols.filter(s => !s.environment_id)
   const simbolosSemLegenda = symbols.filter(s => !s.legend_item_id)
-  const avisos: string[] = []
-  if (fitasSemW.length) avisos.push(`${fitasSemW.length} fita(s) sem consumo (W/m) — a fonte não é calculada`)
-  if (fitasSemFonte.length) avisos.push(`${fitasSemFonte.length} fita(s) sem fonte posicionada — as fontes dessas não entram no resumo`)
-  if (semModelo.length) avisos.push(`${semModelo.length} perfil/fita sem modelo — aparece como "Sem modelo"`)
-  if (medicoesSemAmbiente.length) avisos.push(`${medicoesSemAmbiente.length} perfil/fita sem ambiente — não entra em nenhum ambiente abaixo`)
-  if (simbolosSemAmbiente.length) avisos.push(`${simbolosSemAmbiente.length} símbolo(s) fora de qualquer ambiente — não entra(m) no resumo`)
-  if (simbolosSemLegenda.length) avisos.push(`${simbolosSemLegenda.length} símbolo(s) sem item de legenda`)
+  // Cada aviso lista os itens com pendência — clicar leva direto até o item
+  // na planta e abre o card dele.
+  type ItemAviso = { label: string; ir: () => void }
+  const envNome = (id: string | null) => environments.find(e => e.id === id)?.name
+  const itemMedicao = (m: Measurement): ItemAviso => ({
+    label: `${m.label || MEASURE_LABEL[m.kind]}${envNome(m.environment_id) ? ` · ${envNome(m.environment_id)}` : ''}`,
+    ir: () => onFocusItem(m.page, m.points, { kind: 'measurement', id: m.id }),
+  })
+  const itemSimbolo = (sy: SymbolOccurrence): ItemAviso => ({
+    label: legendItems.find(l => l.id === sy.legend_item_id)?.description || 'Símbolo',
+    ir: () => onFocusItem(sy.page, [[sy.x, sy.y]], { kind: 'symbol', id: sy.id }),
+  })
+  const avisos: { texto: string; itens: ItemAviso[] }[] = []
+  if (fitasSemW.length) avisos.push({ texto: 'Fita sem consumo (W/m) — a fonte não é calculada', itens: fitasSemW.map(itemMedicao) })
+  if (fitasSemFonte.length) avisos.push({ texto: 'Fita sem fonte posicionada — a fonte dela não entra no resumo', itens: fitasSemFonte.map(itemMedicao) })
+  if (semModelo.length) avisos.push({ texto: 'Perfil/fita sem modelo — aparece como "Sem modelo"', itens: semModelo.map(itemMedicao) })
+  if (medicoesSemAmbiente.length) avisos.push({ texto: 'Perfil/fita sem ambiente — não entra em nenhum ambiente abaixo', itens: medicoesSemAmbiente.map(itemMedicao) })
+  if (simbolosSemAmbiente.length) avisos.push({ texto: 'Símbolo fora de qualquer ambiente — não entra no resumo', itens: simbolosSemAmbiente.map(itemSimbolo) })
+  if (simbolosSemLegenda.length) avisos.push({ texto: 'Símbolo sem item de legenda', itens: simbolosSemLegenda.map(itemSimbolo) })
   const tudoCerto = pendentes.length === 0 && avisos.length === 0
 
   const totalLum = symbols.filter(s => s.environment_id).length
@@ -3295,9 +3338,22 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
         ))}
 
         {avisos.length > 0 && (
-          <ul className="space-y-1">
-            {avisos.map((a, i) => <li key={i} className="text-xs text-amber-800 leading-snug">• {a}</li>)}
-          </ul>
+          <div className="space-y-2">
+            {avisos.map((a, i) => (
+              <div key={i}>
+                <p className="text-xs text-amber-800 leading-snug">{a.itens.length} · {a.texto}</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {a.itens.slice(0, 12).map((it, j) => (
+                    <button key={j} onClick={it.ir} title="Ir até o item na planta"
+                      className="text-[11px] font-medium text-amber-900 bg-white border border-amber-300 hover:bg-amber-100 rounded-md px-2 py-0.5">
+                      📍 {it.label}
+                    </button>
+                  ))}
+                  {a.itens.length > 12 && <span className="text-[11px] text-amber-700 self-center">+{a.itens.length - 12}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
         {resolvidas.length > 0 && (
