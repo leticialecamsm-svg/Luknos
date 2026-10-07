@@ -3269,7 +3269,16 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
     label: legendItems.find(l => l.id === sy.legend_item_id)?.description || 'Símbolo',
     ir: () => onFocusItem(sy.page, [[sy.x, sy.y]], { kind: 'symbol', id: sy.id }),
   })
+  // Duas fitas com as pontas praticamente no mesmo lugar = provável medida
+  // duplicada (ex: mediu a fita e depois o perfil, que cria outra fita) —
+  // soma metro e rolo em dobro e só uma delas costuma ter a fonte.
+  const fitasSobrepostas = fitas.filter((a, i) => fitas.some((b, j) => {
+    if (i === j || a.page !== b.page || a.points.length < 2 || b.points.length < 2) return false
+    const a0 = a.points[0], an = a.points[a.points.length - 1], b0 = b.points[0], bn = b.points[b.points.length - 1]
+    return Math.min(distance(a0, b0) + distance(an, bn), distance(a0, bn) + distance(an, b0)) < 20
+  }))
   const avisos: { texto: string; itens: ItemAviso[] }[] = []
+  if (fitasSobrepostas.length) avisos.push({ texto: 'Fitas sobrepostas no mesmo lugar (provável medida duplicada) — metro e rolo contam em dobro; apague a que sobrar', itens: fitasSobrepostas.map(itemMedicao) })
   if (fitasSemW.length) avisos.push({ texto: 'Fita sem consumo (W/m) — a fonte não é calculada', itens: fitasSemW.map(itemMedicao) })
   if (fitasSemFonte.length) avisos.push({ texto: 'Fita sem fonte posicionada — a fonte dela não entra no resumo', itens: fitasSemFonte.map(itemMedicao) })
   if (semModelo.length) avisos.push({ texto: 'Perfil/fita sem modelo — aparece como "Sem modelo"', itens: semModelo.map(itemMedicao) })
