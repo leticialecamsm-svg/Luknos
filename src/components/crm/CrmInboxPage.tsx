@@ -4,10 +4,18 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 import { getAvatarColor } from '@/lib/crm-ui'
+import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
+import { WhatsappIcon } from './WhatsappIcon'
+import { DealValue } from './DealValue'
 import {
   getCrmConversations,
   getCrmMessages,
   reassignConversation,
+  setConversationValue,
+  getConversationAccessInfo,
+  shareConversation,
+  unshareConversation,
+  type ConversationAccessInfo,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
@@ -59,6 +67,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const filter = useInstanceFilter()
+  const selectedKey = filter.selected.join(',')
   const [syncingContacts, setSyncingContacts] = useState(false)
 
   const handleSyncContacts = () => {
@@ -84,11 +94,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refreshList = useCallback((silent = false) => {
+    if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
     if (!silent) setLoadingList(true)
-    getCrmConversations(scope)
+    getCrmConversations(scope, 200, selectedKey ? selectedKey.split(',') : undefined)
       .then((r) => setConversations(r.items ?? []))
       .finally(() => { if (!silent) setLoadingList(false) })
-  }, [scope])
+  }, [scope, selectedKey, filter.loaded])
 
   const refreshThread = useCallback((id: string, silent = false) => {
     if (!silent) setLoadingThread(true)
@@ -270,6 +281,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               <RefreshCw className={cn('w-4 h-4', syncingContacts && 'animate-spin')} />
             </button>
           </div>
+          <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-3" />
           <div className="flex gap-2">
             {(['mine', 'unassigned', 'all'] as const).map((key) => (
               <button
@@ -331,7 +343,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     <p className="font-semibold text-gray-900 truncate">
                       {c.contact_name ?? c.remote_jid.split('@')[0]}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">{c.instance_label}</p>
+                    <p className="flex items-center gap-1 text-xs text-gray-500 truncate">
+                      <WhatsappIcon className="w-3 h-3 text-green-600 shrink-0" />
+                      <span className="truncate">{c.instance_label}</span>
+                    </p>
                     <p className="text-xs text-gray-400 line-clamp-1 mt-1">
                       {c.last_body || 'Sem mensagens'}
                     </p>
@@ -359,21 +374,36 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         {selected && (
           <>
             {/* Header da conversa */}
-            <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(selected.id)} text-white text-sm font-bold flex items-center justify-center`}>
+            <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`w-12 h-12 shrink-0 rounded-full bg-gradient-to-br ${getAvatarColor(selected.id)} text-white text-sm font-bold flex items-center justify-center`}>
                   {(selected.contact_name ?? selected.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-gray-900 truncate">
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
-                  <p className="text-sm text-gray-500">{selected.instance_label}</p>
+                  <p className="flex items-center gap-1 text-sm text-gray-500">
+                    <WhatsappIcon className="w-3.5 h-3.5 text-green-600" />{selected.instance_label}
+                  </p>
+                </div>
+                <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
+                  <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
+                  <DealValue
+                    size="md"
+                    cents={selected.deal_cents}
+                    onSave={async (v) => {
+                      const r = await setConversationValue(selected.id, v)
+                      if ('error' in r && r.error) return r.error
+                      refreshList(true)
+                      return null
+                    }}
+                  />
                 </div>
               </div>
 
               {/* Ações */}
-              <div className="flex gap-2">
+              <div className="flex gap-1 shrink-0">
                 <button
                   onClick={() => setShowLinkContact(true)}
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -382,6 +412,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </button>
                 <button
                   onClick={() => setShowReassign(true)}
+                  title="Transferir ou liberar esta conversa"
+                  aria-label="Transferir ou liberar esta conversa"
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <UserCog className="w-4 h-4" />
@@ -508,6 +540,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <ReassignModal
           conversationId={selected.id}
           currentUserId={selected.assigned_user_id ?? ''}
+          selfId={currentUserId}
           onClose={() => setShowReassign(false)}
           onSuccess={() => { setShowReassign(false); refreshList() }}
           users={users}
@@ -633,66 +666,127 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
 function ReassignModal({
   conversationId,
   currentUserId,
+  selfId,
   onClose,
   onSuccess,
   users,
 }: {
   conversationId: string
   currentUserId: string
+  selfId: string
   onClose: () => void
   onSuccess: () => void
   users: SystemUser[]
 }) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
+  const [tab, setTab] = useState<'transfer' | 'share'>('transfer')
+  const [info, setInfo] = useState<ConversationAccessInfo | { error: string } | null>(null)
+
+  const loadInfo = useCallback(() => { getConversationAccessInfo(conversationId).then(setInfo) }, [conversationId])
+  useEffect(() => { loadInfo() }, [loadInfo])
+
+  const ok = info && !('error' in info) ? info : null
+  const canManage = ok?.can_manage ?? false
+  const sharedIds = new Set(ok?.shared.map((x) => x.user_id) ?? [])
+  const others = users.filter((u) => u.id !== selfId)
 
   const handleReassign = (userId: string | null) => {
     startTransition(async () => {
       const res = await reassignConversation(conversationId, userId)
       if (res.error) toast.error('ERRO', res.error)
-      else { toast.success('ATUALIZADO!', 'Conversa atribuída'); onSuccess() }
+      else { toast.success('TRANSFERIDA!', 'Atendimento transferido'); onSuccess() }
+    })
+  }
+
+  const handleShare = (userId: string, on: boolean) => {
+    startTransition(async () => {
+      const res = on ? await shareConversation(conversationId, userId) : await unshareConversation(conversationId, userId)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success(on ? 'LIBERADA!' : 'LIBERAÇÃO RETIRADA', on ? 'A pessoa já pode ver e responder esta conversa' : ''); loadInfo() }
     })
   }
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-gray-900">Atribuir conversa</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div role="dialog" aria-modal="true" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-900">Transferir ou liberar</h3>
+          <button onClick={onClose} aria-label="Fechar" className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="space-y-2">
-          <button
-            onClick={() => handleReassign(null)}
-            disabled={pending}
-            className={cn(
-              'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
-              !currentUserId
-                ? 'bg-gray-200 text-gray-900 font-medium'
-                : 'hover:bg-gray-100 text-gray-700'
-            )}
-          >
-            Sem atribuição
-          </button>
-          {users.map((u) => (
+        <div className="flex gap-2 mb-3">
+          {([['transfer', 'Transferir atendimento'], ['share', 'Liberar só esta conversa']] as const).map(([k, label]) => (
             <button
-              key={u.id}
-              onClick={() => handleReassign(u.id)}
-              disabled={pending}
-              className={cn(
-                'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
-                currentUserId === u.id
-                  ? 'bg-gray-200 text-gray-900 font-medium'
-                  : 'hover:bg-gray-100 text-gray-700'
-              )}
+              key={k}
+              onClick={() => setTab(k)}
+              className={cn('flex-1 px-2 py-1.5 text-xs font-medium rounded-full transition-colors', tab === k ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
             >
-              {u.name}
+              {label}
             </button>
           ))}
         </div>
+
+        {info === null && <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto my-6" />}
+        {info && 'error' in info && <p role="alert" className="text-sm text-red-600">{info.error}</p>}
+
+        {ok && !canManage && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Só quem atende esta conversa (ou administra este WhatsApp) pode transferi-la ou liberá-la.
+          </p>
+        )}
+
+        {ok && canManage && tab === 'transfer' && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">A outra pessoa passa a ser a atendente. {ok.instance_private ? 'Quem não administra este WhatsApp deixa de ver a conversa.' : ''}</p>
+            <button
+              onClick={() => handleReassign(null)}
+              disabled={pending}
+              className={cn('w-full text-left px-3 py-2 rounded-lg text-sm transition-colors', !currentUserId ? 'bg-gray-200 text-gray-900 font-medium' : 'hover:bg-gray-100 text-gray-700')}
+            >
+              Sem atribuição
+            </button>
+            {users.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => handleReassign(u.id)}
+                disabled={pending || u.id === currentUserId}
+                className={cn('w-full text-left px-3 py-2 rounded-lg text-sm transition-colors', currentUserId === u.id ? 'bg-gray-200 text-gray-900 font-medium' : 'hover:bg-gray-100 text-gray-700')}
+              >
+                {u.name}{currentUserId === u.id ? ' (atual)' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {ok && canManage && tab === 'share' && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">
+              A pessoa vê e responde <b>só esta conversa</b>; o resto deste WhatsApp continua restrito e você segue como atendente.
+              {!ok.instance_private && ' (Este WhatsApp é aberto à equipe; a liberação vale para quando ele for privado.)'}
+            </p>
+            {others.filter((u) => u.id !== currentUserId).map((u) => {
+              const on = sharedIds.has(u.id)
+              return (
+                <div key={u.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50">
+                  <span className="flex-1 text-sm text-gray-800">{u.name}</span>
+                  <button
+                    onClick={() => handleShare(u.id, !on)}
+                    disabled={pending}
+                    className={cn('px-3 py-1 text-xs font-medium rounded-full', on ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-gray-900 text-white hover:bg-gray-700')}
+                  >
+                    {on ? 'Retirar' : 'Liberar'}
+                  </button>
+                </div>
+              )
+            })}
+            {others.filter((u) => u.id !== currentUserId).length === 0 && (
+              <p className="text-sm text-gray-500">Nenhuma outra pessoa com acesso ao CRM. Libere “CRM WhatsApp” em Administração → Usuários.</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

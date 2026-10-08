@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -14,13 +15,26 @@ import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, valida
 // contato: qualquer staff (reaproveita RLS wa_is_staff() do banco).
 // ───────────────────────────────────────────────────────────────────────────
 
+function hasCrmPage(pages: string[] | null | undefined) {
+  return (pages ?? []).some((p) => p === '/crm' || '/crm'.startsWith(p + '/'))
+}
+
+// Staff do CRM = usuário ativo que é admin OU tem a página /crm liberada (pelo
+// papel ou individualmente em /admin/users). Antes bastava estar ativo.
 async function ensureStaff() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' as const }
-  const { data: profile } = await supabase.from('users').select('role, active, name').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('role, active, name, extra_pages').eq('id', user.id).single()
   if (!profile || profile.active === false) return { error: 'Sem permissão' as const }
-  return { userId: user.id, name: profile.name as string, isAdmin: profile.role === 'admin' }
+  const isAdmin = profile.role === 'admin'
+  if (!isAdmin) {
+    const { data: role } = await createAdminClient().from('roles').select('allowed_pages').eq('name', profile.role).maybeSingle()
+    if (!hasCrmPage(role?.allowed_pages) && !hasCrmPage(profile.extra_pages as string[] | null)) {
+      return { error: 'Sem permissão' as const }
+    }
+  }
+  return { userId: user.id, name: profile.name as string, isAdmin }
 }
 
 async function ensureAdmin() {
@@ -37,11 +51,41 @@ const E164 = /^\+[1-9]\d{6,14}$/
 export async function getCrmInstances() {
   const auth = await ensureAdmin()
   if ('error' in auth) return []
-  const { data } = await createAdminClient()
-    .from('crm_instances')
-    .select('id, instance_name, phone_e164, label, default_user_id, is_active, users:default_user_id(name)')
-    .order('label')
-  return data ?? []
+  const admin = createAdminClient()
+  const [{ data }, { data: members }] = await Promise.all([
+    admin
+      .from('crm_instances')
+      .select('id, instance_name, phone_e164, label, default_user_id, is_active, is_private, users:default_user_id(name)')
+      .order('label'),
+    admin.from('crm_instance_members').select('instance_id, user_id'),
+  ])
+  return (data ?? []).map((i: any) => ({
+    ...i,
+    member_ids: (members ?? []).filter((m) => m.instance_id === i.id).map((m) => m.user_id as string),
+  }))
+}
+
+// Privacidade do número: privado = só dono, membros, atendente da conversa e
+// quem receber uma conversa liberada. Quem está em memberIds vê TODAS as
+// conversas desse número. Admin não ganha acesso automático.
+export async function setCrmInstanceAccess(id: string, isPrivate: boolean, memberIds: string[]) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const ids = Array.from(new Set(memberIds))
+  if (ids.length) {
+    const allowed = new Set((await crmCapableUsers()).map((u) => u.id))
+    if (ids.some((u) => !allowed.has(u))) return { error: 'Só quem tem acesso ao CRM pode ser membro' }
+  }
+  const { error } = await admin.from('crm_instances').update({ is_private: isPrivate }).eq('id', id)
+  if (error) return { error: error.message }
+  await admin.from('crm_instance_members').delete().eq('instance_id', id)
+  if (ids.length) {
+    const { error: e2 } = await admin.from('crm_instance_members').insert(ids.map((user_id) => ({ instance_id: id, user_id })))
+    if (e2) return { error: e2.message }
+  }
+  revalidatePath('/crm-instances'); revalidatePath('/crm')
+  return { ok: true }
 }
 
 export interface CrmInstanceInput {
@@ -143,21 +187,191 @@ export async function getCrmInstanceConnectionState(instanceName: string) {
   return { state: (r.state as string) ?? 'unknown' }
 }
 
+// Usuários ativos que conseguem abrir o CRM (admin, ou /crm liberado no papel
+// ou individualmente). Só eles podem receber/compartilhar conversas.
+async function crmCapableUsers() {
+  const admin = createAdminClient()
+  const [{ data: users }, { data: roles }] = await Promise.all([
+    admin.from('users').select('id, name, role, extra_pages').eq('active', true).order('name'),
+    admin.from('roles').select('name, allowed_pages'),
+  ])
+  const roleOk = new Set((roles ?? []).filter((r) => hasCrmPage(r.allowed_pages)).map((r) => r.name))
+  return (users ?? [])
+    .filter((u) => u.role === 'admin' || roleOk.has(u.role) || hasCrmPage(u.extra_pages as string[] | null))
+    .map((u) => ({ id: u.id as string, name: u.name as string, role: u.role as string }))
+}
+
 export async function getSystemUsersForCrm() {
   const auth = await ensureStaff()
   if ('error' in auth) return []
-  const { data } = await createAdminClient()
-    .from('users')
-    .select('id, name, role')
-    .eq('active', true)
-    .order('name')
-  return data ?? []
+  return crmCapableUsers()
+}
+
+// ─── Acesso (número privado / conversa liberada) ────────────────────────────
+
+type Admin = ReturnType<typeof createAdminClient>
+
+interface Scope {
+  // instâncias que o usuário enxerga por inteiro (públicas, ou privadas onde é dono/membro)
+  instanceIds: string[]
+  // conversas avulsas liberadas para ele
+  sharedConvIds: string[]
+  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null }[]
+  memberOf: Set<string>
+}
+
+async function loadScope(admin: Admin, userId: string): Promise<Scope> {
+  const [{ data: instances }, { data: mem }, { data: shared }] = await Promise.all([
+    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id'),
+    admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
+    admin.from('crm_conversation_access').select('conversation_id').eq('user_id', userId),
+  ])
+  const memberOf = new Set((mem ?? []).map((m) => m.instance_id as string))
+  const list = (instances ?? []) as Scope['instances']
+  return {
+    instances: list,
+    memberOf,
+    sharedConvIds: (shared ?? []).map((s) => s.conversation_id as string),
+    instanceIds: list.filter((i) => !i.is_private || i.default_user_id === userId || memberOf.has(i.id)).map((i) => i.id),
+  }
+}
+
+// Mesma regra do banco (crm_can_see_conversation). canManage = pode transferir,
+// liberar e tirar a liberação: dono/membro do número ou atendente atual.
+async function conversationAccess(admin: Admin, userId: string, conversationId: string) {
+  const { data: c } = await admin
+    .from('crm_conversations')
+    .select('id, instance_id, assigned_user_id')
+    .eq('id', conversationId)
+    .maybeSingle()
+  if (!c) return { ok: false as const, error: 'Conversa não encontrada' }
+  const { data: inst } = await admin.from('crm_instances').select('is_private, default_user_id').eq('id', c.instance_id).single()
+  const isPrivate = !!inst?.is_private
+  const [{ data: member }, { data: shared }] = await Promise.all([
+    admin.from('crm_instance_members').select('user_id').eq('instance_id', c.instance_id).eq('user_id', userId).maybeSingle(),
+    admin.from('crm_conversation_access').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
+  ])
+  const isOwnerOrMember = inst?.default_user_id === userId || !!member
+  const isAssigned = c.assigned_user_id === userId
+  const canSee = !isPrivate || isOwnerOrMember || isAssigned || !!shared
+  if (!canSee) return { ok: false as const, error: 'Você não tem acesso a esta conversa' }
+  return {
+    ok: true as const,
+    isPrivate,
+    assignedUserId: c.assigned_user_id as string | null,
+    instanceId: c.instance_id as string,
+    // em número aberto qualquer atendente pode transferir; em privado só quem "manda" nele
+    canManage: !isPrivate || isOwnerOrMember || isAssigned,
+  }
+}
+
+// WhatsApps que o usuário enxerga (para o seletor do Quadro e das Conversas).
+export async function getCrmInstanceOptions() {
+  const auth = await ensureStaff()
+  if ('error' in auth) return [] as { id: string; label: string; is_private: boolean }[]
+  const admin = createAdminClient()
+  const scope = await loadScope(admin, auth.userId)
+  // número privado em que só tem conversas avulsas também aparece
+  const extra = new Set<string>()
+  if (scope.sharedConvIds.length) {
+    const { data } = await admin.from('crm_conversations').select('instance_id').in('id', scope.sharedConvIds)
+    for (const r of data ?? []) extra.add(r.instance_id as string)
+  }
+  const { data: assignedRows } = await admin
+    .from('crm_conversations').select('instance_id').eq('assigned_user_id', auth.userId)
+  for (const r of assignedRows ?? []) extra.add(r.instance_id as string)
+  return scope.instances
+    .filter((i) => scope.instanceIds.includes(i.id) || extra.has(i.id))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+    .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private }))
+}
+
+export interface ConversationAccessInfo {
+  can_manage: boolean
+  instance_private: boolean
+  assigned_user_id: string | null
+  shared: { user_id: string; name: string }[]
+}
+
+export async function getConversationAccessInfo(conversationId: string): Promise<ConversationAccessInfo | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { data } = await admin
+    .from('crm_conversation_access')
+    .select('user_id, users:user_id(name)')
+    .eq('conversation_id', conversationId)
+  return {
+    can_manage: acc.canManage,
+    instance_private: acc.isPrivate,
+    assigned_user_id: acc.assignedUserId,
+    shared: (data ?? []).map((r: any) => ({ user_id: r.user_id, name: r.users?.name ?? '—' })),
+  }
+}
+
+async function systemNote(admin: Admin, conversationId: string, body: string) {
+  await admin.from('crm_messages').insert({
+    conversation_id: conversationId, direction: 'outbound', is_system: true, message_type: 'text', body,
+  })
+}
+
+// Libera UMA conversa para outra pessoa responder, sem transferir nem abrir o número todo.
+export async function shareConversation(conversationId: string, userId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode liberá-la' }
+  if (userId === auth.userId) return { error: 'Você já tem acesso a esta conversa' }
+  const target = (await crmCapableUsers()).find((u) => u.id === userId)
+  if (!target) return { error: 'Essa pessoa não tem acesso ao CRM. Libere "CRM WhatsApp" em Administração → Usuários.' }
+  if (acc.assignedUserId === userId) return { error: 'Essa pessoa já atende esta conversa' }
+  const { error } = await admin
+    .from('crm_conversation_access')
+    .upsert({ conversation_id: conversationId, user_id: userId, granted_by: auth.userId }, { onConflict: 'conversation_id,user_id' })
+  if (error) return { error: error.message }
+  await systemNote(admin, conversationId, `Conversa liberada para ${target.name} por ${auth.name}.`)
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+export async function unshareConversation(conversationId: string, userId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode retirar a liberação' }
+  const { data: u } = await admin.from('users').select('name').eq('id', userId).maybeSingle()
+  const { error } = await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', userId)
+  if (error) return { error: error.message }
+  await systemNote(admin, conversationId, `Liberação de ${u?.name ?? 'usuário'} retirada por ${auth.name}.`)
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Valor em negociação desta conversa (centavos; null = sem valor).
+export async function setConversationValue(conversationId: string, cents: number | null) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (cents !== null && (!Number.isInteger(cents) || cents < 0 || cents > MAX_DEAL_CENTS)) return { error: 'Valor inválido' }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin.from('crm_conversations').update({ deal_value: centsToDb(cents) }).eq('id', conversationId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
 }
 
 // ─── Inbox ──────────────────────────────────────────────────────────────────
 
 export interface ConversationRow {
   id: string
+  instance_id: string
   remote_jid: string
   contact_id: string | null
   contact_name_cache: string | null
@@ -165,6 +379,7 @@ export interface ConversationRow {
   assigned_user_id: string | null
   assigned_user_name: string | null
   stage_id: string | null
+  deal_cents: number | null
   status: string
   last_message_at: string
   instance_label: string
@@ -172,16 +387,24 @@ export interface ConversationRow {
   last_body: string | null
 }
 
-// scope: 'mine' (atendente logado), 'unassigned', 'all'
-export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' = 'mine', limit = 200) {
+// scope: 'mine' (atendente logado, inclui as liberadas para ele), 'unassigned', 'all'
+// instanceIds: filtra por WhatsApp (vazio/undefined = todos os que ele enxerga)
+export async function getCrmConversations(
+  scope: 'mine' | 'unassigned' | 'all' = 'mine',
+  limit = 200,
+  instanceIds?: string[],
+) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] as ConversationRow[] }
 
   const admin = createAdminClient()
+  const vis = await loadScope(admin, auth.userId)
+  const inList = (xs: string[]) => `(${xs.join(',')})`
+
   let q = admin
     .from('crm_conversations')
     .select(`
-      id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, status, last_message_at,
+      id, instance_id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
       crm_instances(label), contacts(name),
       assigned:users!crm_conversations_assigned_user_id_fkey(name)
     `)
@@ -189,8 +412,25 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
     .order('last_message_at', { ascending: false })
     .limit(limit)
 
-  if (scope === 'mine') q = q.eq('assigned_user_id', auth.userId)
-  if (scope === 'unassigned') q = q.is('assigned_user_id', null)
+  // 1) o que ele pode ver (número aberto/dele, atribuída a ele, ou liberada)
+  const visible = [
+    ...(vis.instanceIds.length ? [`instance_id.in.${inList(vis.instanceIds)}`] : []),
+    `assigned_user_id.eq.${auth.userId}`,
+    ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
+  ].join(',')
+
+  if (scope === 'mine') {
+    const mine = [
+      `assigned_user_id.eq.${auth.userId}`,
+      ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
+    ].join(',')
+    q = q.or(mine)
+  } else {
+    q = q.or(visible)
+    if (scope === 'unassigned') q = q.is('assigned_user_id', null)
+  }
+
+  if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
 
   const { data, error } = await q
   if (error) return { error: error.message, items: [] as ConversationRow[] }
@@ -212,6 +452,7 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
 
   const items: ConversationRow[] = (data ?? []).map((c: any) => ({
     id: c.id,
+    instance_id: c.instance_id,
     remote_jid: c.remote_jid,
     contact_id: c.contact_id,
     contact_name_cache: c.contact_name_cache,
@@ -219,6 +460,7 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
     assigned_user_id: c.assigned_user_id,
     assigned_user_name: c.assigned?.name ?? null,
     stage_id: c.stage_id ?? null,
+    deal_cents: dbValueToCents(c.deal_value),
     status: c.status,
     last_message_at: c.last_message_at,
     instance_label: c.crm_instances?.label ?? '—',
@@ -232,7 +474,10 @@ export async function getCrmConversations(scope: 'mine' | 'unassigned' | 'all' =
 export async function getCrmMessages(conversationId: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] }
-  const { data, error } = await createAdminClient()
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error, items: [] }
+  const { data, error } = await admin
     .from('crm_messages')
     .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, sender:users!crm_messages_sender_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
@@ -246,25 +491,29 @@ export async function getCrmMessages(conversationId: string) {
   }
 }
 
+// Transferir o atendimento. Em número privado só quem atende/administra o número
+// pode transferir, e o destino precisa ter acesso ao CRM.
 export async function reassignConversation(conversationId: string, newUserId: string | null) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode transferi-la' }
 
-  const { data: newUser } = newUserId ? await admin.from('users').select('name').eq('id', newUserId).maybeSingle() : { data: null }
-  const { error } = await admin
-    .from('crm_conversations')
-    .update({ assigned_user_id: newUserId })
-    .eq('id', conversationId)
+  let newName: string | null = null
+  if (newUserId) {
+    const target = (await crmCapableUsers()).find((u) => u.id === newUserId)
+    if (!target) return { error: 'Essa pessoa não tem acesso ao CRM. Libere "CRM WhatsApp" em Administração → Usuários.' }
+    newName = target.name
+  }
+  const { error } = await admin.from('crm_conversations').update({ assigned_user_id: newUserId }).eq('id', conversationId)
   if (error) return { error: error.message }
+  // quem recebeu o atendimento não precisa mais da liberação avulsa
+  if (newUserId) await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', newUserId)
 
-  await admin.from('crm_messages').insert({
-    conversation_id: conversationId,
-    direction: 'outbound',
-    is_system: true,
-    message_type: 'text',
-    body: `Conversa transferida para ${newUser?.name ?? 'outro atendente'} por ${auth.name}.`,
-  })
+  await systemNote(admin, conversationId,
+    newUserId ? `Conversa transferida para ${newName} por ${auth.name}.` : `Conversa deixada sem responsável por ${auth.name}.`)
 
   revalidatePath('/crm')
   return { ok: true }
@@ -273,7 +522,10 @@ export async function reassignConversation(conversationId: string, newUserId: st
 export async function linkConversationContact(conversationId: string, contactId: string | null) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
-  const { error } = await createAdminClient()
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin
     .from('crm_conversations')
     // vincular a um contato de verdade limpa o apelido manual (contact_id
     // manda no nome exibido, via join em getCrmConversations).
@@ -291,7 +543,10 @@ export async function setConversationDisplayName(conversationId: string, name: s
   if ('error' in auth) return { error: auth.error }
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Nome vazio' }
-  const { error } = await createAdminClient()
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin
     .from('crm_conversations')
     .update({ contact_id: null, contact_name_cache: trimmed })
     .eq('id', conversationId)
@@ -320,6 +575,8 @@ export async function createCrmAttachmentUpload(input: { conversationId: string;
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   if (input.sizeBytes > CRM_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 16 MB' }
+  const acc = await conversationAccess(createAdminClient(), auth.userId, input.conversationId)
+  if (!acc.ok) return { error: acc.error }
 
   const safe = input.fileName.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
   const storagePath = `${input.conversationId}/${Date.now()}_${safe}`
@@ -341,6 +598,8 @@ export async function sendCrmMessage(input: {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   if (!input.text?.trim() && !input.storagePath) return { error: 'Mensagem vazia' }
+  const acc = await conversationAccess(createAdminClient(), auth.userId, input.conversationId)
+  if (!acc.ok) return { error: acc.error }
 
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`
   try {
@@ -372,6 +631,10 @@ export async function sendCrmMessage(input: {
 export async function getCrmAttachmentUrl(storagePath: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
+  // o caminho começa com o id da conversa: confere o acesso a ela
+  const convId = storagePath.split('/')[0]
+  const acc = await conversationAccess(createAdminClient(), auth.userId, convId)
+  if (!acc.ok) return { error: acc.error }
   const { data, error } = await createAdminClient().storage
     .from('crm-attachments')
     .createSignedUrl(storagePath, 300)
@@ -543,6 +806,8 @@ export async function moveConversationToStage(conversationId: string, stageId: s
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
   if (stageId) {
     const { data: st } = await admin.from('crm_stages').select('id').eq('id', stageId).maybeSingle()
     if (!st) return { error: 'Essa coluna não existe mais. Atualize a página.' }

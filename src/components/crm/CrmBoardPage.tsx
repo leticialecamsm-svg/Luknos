@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   getCrmConversations,
+  setConversationValue,
   getCrmStages,
   createCrmStage,
   updateCrmStage,
@@ -17,6 +18,10 @@ import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useFocusTrap } from '@/components/ui/useFocusTrap'
 import { getAvatarColor } from '@/lib/crm-ui'
+import { formatCents, sumCents } from '@/lib/crm-money'
+import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
+import { WhatsappIcon } from './WhatsappIcon'
+import { DealValue } from './DealValue'
 import { cn } from '@/lib/utils'
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle } from 'lucide-react'
 
@@ -56,17 +61,20 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [overStage, setOverStage] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ stage: CrmStage | null } | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  const filter = useInstanceFilter()
+  const selectedKey = filter.selected.join(',')
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
 
   const load = useCallback(async (silent = false) => {
+    if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
     if (!silent) setLoading(true)
-    const [st, conv] = await Promise.all([getCrmStages(), getCrmConversations(scope, BOARD_LIMIT)])
+    const [st, conv] = await Promise.all([getCrmStages(), getCrmConversations(scope, BOARD_LIMIT, selectedKey ? selectedKey.split(',') : undefined)])
     if (busy.current > 0) return // chegou no meio de uma escrita: descarta p/ não "piscar" estado antigo
     if (conv.error) setLoadError(conv.error)
     else { setLoadError(null); setCards(conv.items ?? []) }
     setStages(st)
     if (!silent) setLoading(false)
-  }, [scope])
+  }, [scope, selectedKey, filter.loaded])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -115,6 +123,20 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  // Salva o valor da negociação (otimista; volta ao anterior se o servidor recusar).
+  async function saveValue(cardId: string, cents: number | null): Promise<string | null> {
+    const prev = cards.find((c) => c.id === cardId)?.deal_cents ?? null
+    setCards((cs) => cs.map((c) => (c.id === cardId ? { ...c, deal_cents: cents } : c)))
+    busy.current++
+    const r = await setConversationValue(cardId, cents)
+    busy.current--
+    if ('error' in r && r.error) {
+      setCards((cs) => cs.map((c) => (c.id === cardId ? { ...c, deal_cents: prev } : c)))
+      return r.error
+    }
+    return null
+  }
+
   async function moveStage(id: string, dir: -1 | 1) {
     const idx = orderedStages.findIndex((s) => s.id === id)
     const to = idx + dir
@@ -150,6 +172,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     <div className="flex flex-col h-[calc(100vh-10.5rem)] min-h-[420px]">
       {/* barra de filtros */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
+        <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="max-w-[16rem]" />
         <div className="flex gap-2">
           {(['mine', 'unassigned', 'all'] as const).map((k) => (
             <button
@@ -232,7 +255,8 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                   overStage === s.id ? 'border-gray-900 bg-gray-100' : 'border-gray-200',
                 )}
               >
-                <header className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200" style={{ borderTop: `3px solid ${s.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                <header className="px-3 py-2.5 border-b border-gray-200" style={{ borderTop: `3px solid ${s.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                  <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm text-gray-900 truncate" title={s.name}>{s.name}</span>
                   <span className="text-xs text-gray-500 bg-white border border-gray-200 rounded-full px-2">{items.length}</span>
                   {isAdmin && (
@@ -255,6 +279,8 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </div>
                   )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-500" title="Soma dos valores das conversas desta coluna">{formatCents(sumCents(items.map((c) => c.deal_cents)))}</p>
                 </header>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                   {items.length === 0 && <p className="text-xs text-gray-400 text-center py-6">Nenhuma conversa</p>}
@@ -279,10 +305,18 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                           <Link href={`/crm/conversas?c=${c.id}`} className="block font-semibold text-gray-900 truncate hover:underline" title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
                             {c.contact_name ?? phoneFromJid(c.remote_jid)}
                           </Link>
-                          <p className="text-xs text-gray-500 truncate">{c.assigned_user_name && c.assigned_user_name !== c.instance_label ? `${c.instance_label} · ${c.assigned_user_name}` : c.assigned_user_name ? c.instance_label : `${c.instance_label} · Sem responsável`}</p>
+                          <p className="flex items-center gap-1 text-xs text-gray-500 truncate" title={`WhatsApp: ${c.instance_label}`}>
+                            <WhatsappIcon className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                            <span className="truncate">{c.instance_label}</span>
+                          </p>
+                          <p className="text-xs text-gray-400 truncate">{c.assigned_user_name ?? 'Sem responsável'}</p>
                           <p className="text-xs text-gray-400 line-clamp-1 mt-1">{c.last_body || 'Sem mensagens'}</p>
                         </div>
                         <span className="text-xs text-gray-400 shrink-0">{timeAgo(c.last_message_at)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-[11px] text-gray-400">Valor</span>
+                        <DealValue cents={c.deal_cents} onSave={(v) => saveValue(c.id, v)} />
                       </div>
                       <select
                         aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para`}

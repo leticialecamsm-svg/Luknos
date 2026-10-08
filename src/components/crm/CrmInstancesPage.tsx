@@ -6,13 +6,14 @@ import {
   createCrmInstance,
   updateCrmInstance,
   setCrmInstanceActive,
+  setCrmInstanceAccess,
   connectCrmInstance,
   getCrmInstanceConnectionState,
 } from '@/lib/crm-actions'
 import { useToast } from '@/components/ui/Toast'
 import { useFocusTrap } from '@/components/ui/useFocusTrap'
 import { cn } from '@/lib/utils'
-import { Plus, QrCode, Loader2, Pencil, Power, X, CheckCircle2 } from 'lucide-react'
+import { Plus, QrCode, Loader2, Pencil, Power, X, Lock, ShieldCheck } from 'lucide-react'
 
 interface Instance {
   id: string
@@ -21,6 +22,8 @@ interface Instance {
   label: string
   default_user_id: string | null
   is_active: boolean
+  is_private: boolean
+  member_ids: string[]
   users?: { name: string } | null
 }
 interface SysUser { id: string; name: string }
@@ -39,6 +42,7 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
   const [form, setForm] = useState<{ inst: Instance | null } | null>(null)
   const [qr, setQr] = useState<{ inst: Instance; img?: string; pairing?: string | null; loading: boolean; error?: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [access, setAccess] = useState<Instance | null>(null)
   const qrRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -112,8 +116,10 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
                 </p>
               </div>
               <span title={states[i.id] === 'unknown' ? 'Não foi possível consultar a Evolution agora. Tente recarregar; se persistir, confira a conexão do servidor.' : undefined} className={cn('text-xs px-2 py-0.5 rounded-full', st.cls)}>{states[i.id] ? st.text : 'Verificando…'}</span>
+              {i.is_private && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"><Lock className="w-3 h-3" /> Privado</span>}
               {!i.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700">Inativo</span>}
               <button onClick={() => openQr(i)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"><QrCode className="w-4 h-4" /> Conectar</button>
+              <button onClick={() => setAccess(i)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"><ShieldCheck className="w-4 h-4" /> Acesso</button>
               <button onClick={() => setForm({ inst: i })} aria-label={`Editar ${i.label}`} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><Pencil className="w-4 h-4" /></button>
               <button onClick={() => toggleActive(i)} disabled={busyId === i.id} aria-label={i.is_active ? `Desativar ${i.label}` : `Ativar ${i.label}`} title={i.is_active ? 'Desativar' : 'Ativar'} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 disabled:opacity-50"><Power className="w-4 h-4" /></button>
             </div>
@@ -122,6 +128,8 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
       </div>
 
       {form && <InstanceForm inst={form.inst} users={users} onClose={() => setForm(null)} onSaved={(created) => { setForm(null); router.refresh(); if (created) toast.success('NÚMERO CADASTRADO', 'Agora clique em Conectar para ler o QR Code.') }} />}
+
+      {access && <AccessModal inst={access} users={users} onClose={() => setAccess(null)} onSaved={() => { setAccess(null); router.refresh(); toast.success('ACESSO ATUALIZADO') }} />}
 
       {qr && <QrTrap refEl={qrRef} onClose={() => setQr(null)} />}
       {qr && (
@@ -208,4 +216,64 @@ function InstanceForm({ inst, users, onClose, onSaved }: { inst: Instance | null
 function QrTrap({ refEl, onClose }: { refEl: React.RefObject<HTMLDivElement>; onClose: () => void }) {
   useFocusTrap(refEl, onClose)
   return null
+}
+
+function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users: SysUser[]; onClose: () => void; onSaved: () => void }) {
+  const [isPrivate, setIsPrivate] = useState(inst.is_private)
+  const [members, setMembers] = useState<string[]>(inst.member_ids)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const ref = useRef<HTMLFormElement>(null)
+  useFocusTrap(ref, onClose, !saving)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (saving) return
+    setSaving(true); setError(null)
+    const r = await setCrmInstanceAccess(inst.id, isPrivate, members)
+    setSaving(false)
+    if ('error' in r && r.error) { setError(r.error); return }
+    onSaved()
+  }
+
+  const toggle = (id: string) => setMembers((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]))
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
+      <form ref={ref} onSubmit={submit} role="dialog" aria-modal="true" aria-label={`Acesso a ${inst.label}`} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
+        <h3 className="font-semibold text-gray-900">Acesso — {inst.label}</h3>
+
+        <label className="flex items-start gap-2.5 text-sm">
+          <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} className="mt-0.5" />
+          <span>
+            <b className="text-gray-900">Número privado</b>
+            <span className="block text-gray-500">Ninguém vê as conversas, nem administradores, exceto o atendente padrão, os membros abaixo, quem for o atendente de uma conversa e quem receber uma conversa liberada.</span>
+          </span>
+        </label>
+
+        {isPrivate && (
+          <div>
+            <p className="text-sm text-gray-700 mb-1">Membros (veem <b>todas</b> as conversas deste número)</p>
+            <p className="text-xs text-gray-500 mb-2">O atendente padrão ({(inst.users as any)?.name ?? 'ninguém'}) já tem acesso. Para dar acesso a <b>uma conversa só</b>, use “Liberar” dentro da conversa.</p>
+            <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+              {users.map((u) => (
+                <label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+                  <input type="checkbox" checked={members.includes(u.id)} onChange={() => toggle(u.id)} /> {u.name}
+                </label>
+              ))}
+              {users.length === 0 && <p className="px-3 py-2 text-sm text-gray-500">Nenhum usuário com acesso ao CRM.</p>}
+            </div>
+          </div>
+        )}
+
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={saving} className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200">Cancelar</button>
+          <button type="submit" disabled={saving} className="px-3 py-1.5 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-60 inline-flex items-center gap-1.5">
+            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Salvar
+          </button>
+        </div>
+      </form>
+    </div>
+  )
 }
