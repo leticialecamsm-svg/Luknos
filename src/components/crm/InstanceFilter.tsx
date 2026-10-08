@@ -63,7 +63,7 @@ export function InstanceFilter({
   }, [open])
 
   const all = selected.length === 0
-  const label = all
+  const label = options.length === 0 ? 'WhatsApps' : all
     ? options.length === 1 ? options[0].label : `Todos os WhatsApps (${options.length})`
     : selected.length === 1 ? (options.find((o) => o.id === selected[0])?.label ?? '1 WhatsApp') : `${selected.length} WhatsApps`
 

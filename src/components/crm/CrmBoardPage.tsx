@@ -22,8 +22,9 @@ import { formatCents, sumCents } from '@/lib/crm-money'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
 import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
+import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft } from 'lucide-react'
 
 const BOARD_LIMIT = 500
 type Scope = 'mine' | 'unassigned' | 'all'
@@ -61,6 +62,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [overStage, setOverStage] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ stage: CrmStage | null } | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [moveFor, setMoveFor] = useState<string | null>(null)
   const filter = useInstanceFilter()
   const selectedKey = filter.selected.join(',')
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
@@ -82,13 +84,13 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     return () => clearInterval(t)
   }, [load, dragId])
   useEffect(() => {
-    if (!menuFor) return
-    const close = () => setMenuFor(null)
+    if (!menuFor && !moveFor) return
+    const close = () => { setMenuFor(null); setMoveFor(null) }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
     window.addEventListener('click', close)
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('click', close); window.removeEventListener('keydown', onKey) }
-  }, [menuFor])
+  }, [menuFor, moveFor])
 
   const visibleCards = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('pt-BR')
@@ -309,23 +311,45 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                             <WhatsappIcon className="w-3.5 h-3.5 text-green-600 shrink-0" />
                             <span className="truncate">{c.instance_label}</span>
                           </p>
-                          <p className="text-xs text-gray-400 truncate">{c.assigned_user_name ?? 'Sem responsável'}</p>
                           <p className="text-xs text-gray-400 line-clamp-1 mt-1">{c.last_body || 'Sem mensagens'}</p>
                         </div>
-                        <span className="text-xs text-gray-400 shrink-0">{timeAgo(c.last_message_at)}</span>
+                        <div className="relative shrink-0 flex flex-col items-end gap-1">
+                          <span className="text-xs text-gray-400">{timeAgo(c.last_message_at)}</span>
+                          <button
+                            type="button"
+                            aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para outra coluna`}
+                            aria-haspopup="menu"
+                            title="Mover para outra coluna"
+                            onClick={(e) => { e.stopPropagation(); setMoveFor(moveFor === c.id ? null : c.id) }}
+                            className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                          >
+                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                          </button>
+                          {moveFor === c.id && (
+                            <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-full mt-1 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+                              <p className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400">Mover para</p>
+                              {orderedStages.filter((o) => o.id !== s.id).map((o) => (
+                                <button key={o.id} role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left" onClick={() => { setMoveFor(null); moveCard(c.id, o.id) }}>
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.color }} />{o.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-[11px] text-gray-400">Valor</span>
+                      <div className="mt-2 flex items-center justify-between gap-2">
                         <DealValue cents={c.deal_cents} onSave={(v) => saveValue(c.id, v)} />
+                        <div className="flex items-center -space-x-1.5">
+                          {c.assigned_user_avatar ? (
+                            <Avatar user={c.assigned_user_avatar} size="xs" className="ring-2 ring-white" title={`Responsável: ${c.assigned_user_avatar.name}`} />
+                          ) : (
+                            <span title="Sem responsável" className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-[10px] text-gray-400 flex items-center justify-center bg-white">?</span>
+                          )}
+                          {c.last_reply_user && c.last_reply_user.id !== c.assigned_user_id && (
+                            <Avatar user={c.last_reply_user} size="xs" className="ring-2 ring-white" title={`Última resposta: ${c.last_reply_user.name}`} />
+                          )}
+                        </div>
                       </div>
-                      <select
-                        aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para`}
-                        value={s.id}
-                        onChange={(e) => moveCard(c.id, e.target.value)}
-                        className="mt-2 w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-600"
-                      >
-                        {orderedStages.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                      </select>
                     </article>
                   ))}
                 </div>

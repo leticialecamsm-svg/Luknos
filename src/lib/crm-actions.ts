@@ -369,6 +369,13 @@ export async function setConversationValue(conversationId: string, cents: number
 
 // ─── Inbox ──────────────────────────────────────────────────────────────────
 
+export interface CrmPerson {
+  id: string
+  name: string
+  avatar_url: string | null
+  avatar_color: string | null
+}
+
 export interface ConversationRow {
   id: string
   instance_id: string
@@ -378,6 +385,9 @@ export interface ConversationRow {
   contact_photo_url: string | null
   assigned_user_id: string | null
   assigned_user_name: string | null
+  assigned_user_avatar: CrmPerson | null
+  // quem respondeu por último (humano, pelo sistema ou pelo celular do número); null se ninguém ainda
+  last_reply_user: CrmPerson | null
   stage_id: string | null
   deal_cents: number | null
   status: string
@@ -406,7 +416,7 @@ export async function getCrmConversations(
     .select(`
       id, instance_id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
       crm_instances(label), contacts(name),
-      assigned:users!crm_conversations_assigned_user_id_fkey(name)
+      assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)
     `)
     .eq('status', 'open')
     .order('last_message_at', { ascending: false })
@@ -437,17 +447,27 @@ export async function getCrmConversations(
 
   const ids = (data ?? []).map((c: any) => c.id)
   const lastByConv = new Map<string, string | null>()
+  const lastReplyByConv = new Map<string, string>()
   if (ids.length) {
     const { data: lastMsgs } = await admin
       .from('crm_messages')
-      .select('conversation_id, body, message_type, created_at')
+      .select('conversation_id, body, message_type, created_at, direction, sender_user_id, is_system')
       .in('conversation_id', ids)
       .order('created_at', { ascending: false })
     for (const m of lastMsgs ?? []) {
-      if (!lastByConv.has(m.conversation_id)) {
+      if (!lastByConv.has(m.conversation_id) && !m.is_system) {
         lastByConv.set(m.conversation_id, m.body || (m.message_type !== 'text' ? '📎 arquivo' : null))
       }
+      if (!lastReplyByConv.has(m.conversation_id) && m.direction === 'outbound' && !m.is_system && m.sender_user_id) {
+        lastReplyByConv.set(m.conversation_id, m.sender_user_id)
+      }
     }
+  }
+  const replyIds = Array.from(new Set(lastReplyByConv.values()))
+  const people = new Map<string, CrmPerson>()
+  if (replyIds.length) {
+    const { data: us } = await admin.from('users').select('id, name, avatar_url, avatar_color').in('id', replyIds)
+    for (const u of us ?? []) people.set(u.id, { id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null })
   }
 
   const items: ConversationRow[] = (data ?? []).map((c: any) => ({
@@ -459,6 +479,10 @@ export async function getCrmConversations(
     contact_photo_url: c.contact_photo_url ?? null,
     assigned_user_id: c.assigned_user_id,
     assigned_user_name: c.assigned?.name ?? null,
+    assigned_user_avatar: c.assigned_user_id && c.assigned
+      ? { id: c.assigned_user_id, name: c.assigned.name, avatar_url: c.assigned.avatar_url ?? null, avatar_color: c.assigned.avatar_color ?? null }
+      : null,
+    last_reply_user: people.get(lastReplyByConv.get(c.id) ?? '') ?? null,
     stage_id: c.stage_id ?? null,
     deal_cents: dbValueToCents(c.deal_value),
     status: c.status,
