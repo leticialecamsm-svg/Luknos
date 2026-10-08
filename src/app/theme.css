@@ -6,9 +6,9 @@
 :root {
   /* Corpo de texto usa Poppins (igual ao Viver de IA); títulos usam Geist
      via --font-heading, aplicado em h1-h6 no globals.css. */
-  --font-sans: var(--font-poppins), 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: var(--font-geist-sans), 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: var(--font-geist-mono), 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: var(--font-poppins, 'Poppins'), 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font-geist-sans, 'Inter'), 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono, 'JetBrains Mono'), 'JetBrains Mono', ui-monospace, monospace;
 
   --color-background-base: #ffffff;
   --color-background-surface: #ffffff;
