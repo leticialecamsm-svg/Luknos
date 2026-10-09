@@ -2156,3 +2156,105 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
   const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
   return { conversation_id: c.id, title: name, body: preview.length > 160 ? preview.slice(0, 157) + '…' : preview, photo: c.contact_photo_url ?? null }
 }
+
+// ─── Figurinhas ─────────────────────────────────────────────────────────────
+
+export interface CrmSticker { id: string; name: string | null; url: string }
+
+const STICKER_MAX_BYTES = 800 * 1024 // figurinha do WhatsApp é pequena (512×512 .webp)
+
+// Biblioteca da equipe: as mais recentes primeiro, com link temporário para exibir.
+export async function getCrmStickers(): Promise<CrmSticker[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const admin = createAdminClient()
+  const { data } = await admin.from('crm_stickers').select('id, name, storage_path').order('created_at', { ascending: false }).limit(120)
+  const rows = data ?? []
+  if (!rows.length) return []
+  const { data: signed } = await admin.storage.from('crm-attachments').createSignedUrls(rows.map((r) => r.storage_path as string), 3600)
+  const byPath = new Map((signed ?? []).map((x) => [x.path as string, x.signedUrl as string]))
+  return rows.filter((r) => byPath.get(r.storage_path as string)).map((r) => ({ id: r.id as string, name: (r.name as string | null) ?? null, url: byPath.get(r.storage_path as string)! }))
+}
+
+// Prepara o envio direto do navegador para o armazenamento (a imagem já vem convertida em .webp).
+export async function createStickerUpload(sizeBytes: number) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (sizeBytes > STICKER_MAX_BYTES) return { error: 'Figurinha acima de 800 KB' }
+  const path = `stickers/${crypto.randomUUID()}.webp`
+  const { data, error } = await createAdminClient().storage.from('crm-attachments').createSignedUploadUrl(path)
+  if (error || !data) return { error: error?.message ?? 'Não foi possível preparar o envio' }
+  return { path: data.path, token: data.token }
+}
+
+export async function addCrmSticker(storagePath: string, name?: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!/^stickers\/[0-9a-f-]{36}\.webp$/.test(storagePath)) return { error: 'Arquivo inválido' }
+  const { error } = await createAdminClient().from('crm_stickers').insert({
+    name: name?.trim().slice(0, 60) || null,
+    storage_path: storagePath,
+    created_by: auth.actedBy?.id ?? auth.userId,
+  })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// Guarda na biblioteca uma figurinha que veio numa conversa (recebida ou enviada).
+export async function saveMessageAsSticker(messageId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: m } = await admin.from('crm_messages').select('id, conversation_id, storage_path, mime_type, deleted_at').eq('id', messageId).maybeSingle()
+  if (!m || m.deleted_at || !m.storage_path) return { error: 'Mensagem não encontrada' }
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  if (!(m.mime_type ?? '').includes('webp')) return { error: 'Só figurinhas (.webp) podem ser guardadas' }
+  const { data: dup } = await admin.from('crm_stickers').select('id').eq('storage_path', m.storage_path).maybeSingle()
+  if (dup) return { ok: true, already: true }
+  const { error } = await admin.from('crm_stickers').insert({ storage_path: m.storage_path, created_by: auth.actedBy?.id ?? auth.userId })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+export async function deleteCrmSticker(id: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: st } = await admin.from('crm_stickers').select('id, created_by, storage_path').eq('id', id).maybeSingle()
+  if (!st) return { ok: true }
+  if (!auth.isAdmin && st.created_by !== auth.userId) return { error: 'Só quem adicionou (ou um administrador) remove a figurinha' }
+  await admin.from('crm_stickers').delete().eq('id', id)
+  // o arquivo só some se foi enviado direto para a biblioteca (os de conversa continuam na conversa)
+  if ((st.storage_path as string).startsWith('stickers/')) await admin.storage.from('crm-attachments').remove([st.storage_path as string])
+  return { ok: true }
+}
+
+export async function sendCrmSticker(conversationId: string, stickerId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { data: st } = await admin.from('crm_stickers').select('storage_path').eq('id', stickerId).maybeSingle()
+  if (!st) return { error: 'Figurinha não encontrada' }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({
+        action: 'send_sticker',
+        conversation_id: conversationId,
+        sender_user_id: auth.userId,
+        acted_by_user_id: auth.actedBy?.id ?? null,
+        storage_path: st.storage_path,
+      }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.sent) return { error: body?.error ?? 'Não foi possível enviar a figurinha' }
+    revalidatePath('/crm')
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível enviar a figurinha' }
+  }
+}

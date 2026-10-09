@@ -31,6 +31,7 @@ import {
   markConversationRead,
   markConversationUnread,
   reactToMessage,
+  saveMessageAsSticker,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -55,11 +56,12 @@ import { setOpenConversationId } from '@/lib/crm-open-conversation'
 import { subscribeCrmMessages } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
+import { StickerPicker } from './StickerPicker'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -108,6 +110,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showReassign, setShowReassign] = useState(false)
   const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showSendContact, setShowSendContact] = useState(false)
+  const [showStickers, setShowStickers] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
   const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
@@ -115,7 +118,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [followupOpen, setFollowupOpen] = useState(false)
   const loadLabels = useCallback(() => { getCrmLabels().then(setLabelCatalog) }, [])
   useEffect(() => { loadLabels() }, [loadLabels])
-  useEffect(() => { setReplyTo(null); setFollowupOpen(false) }, [selectedId])
+  useEffect(() => { setReplyTo(null); setFollowupOpen(false); setShowStickers(false) }, [selectedId])
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
@@ -207,12 +210,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const openedRef = useRef<string | null>(null)
   const prevCountRef = useRef(0)
   const [newBelow, setNewBelow] = useState(0) // mensagens que chegaram enquanto você lia o histórico
+  const lastUserScrollRef = useRef(0)
   const onThreadScroll = () => {
     const el = threadRef.current
     if (!el) return
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40 // só "no fim" de verdade
     if (stickRef.current) setNewBelow((n) => (n ? 0 : n))
   }
+  // Quem está rolando a tela (roda do mouse, dedo, teclado) está lendo: a tela não pode se mexer sozinha.
+  const markReading = () => { lastUserScrollRef.current = Date.now() }
   useEffect(() => { openedRef.current = null; prevCountRef.current = 0; stickRef.current = true; setNewBelow(0) }, [selectedId])
   useEffect(() => {
     const el = threadRef.current
@@ -228,7 +234,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       return () => { clearTimeout(t1); clearTimeout(t2) }
     }
     const last = messages[messages.length - 1]
-    if (messages.length > prev && (stickRef.current || last.direction === 'outbound')) {
+    const reading = Date.now() - lastUserScrollRef.current < 6000 && last.direction !== 'outbound'
+    if (messages.length > prev && !reading && (stickRef.current || last.direction === 'outbound')) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     } else if (messages.length > prev) {
       setNewBelow((n) => n + (messages.length - prev))
@@ -755,7 +762,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div ref={threadRef} onScroll={onThreadScroll} className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div ref={threadRef} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto p-4 space-y-3">
               {loadingThread && (
                 <div className="text-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
@@ -779,6 +786,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
                   onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  onSaveSticker={async () => {
+                    const r = await saveMessageAsSticker(m.id)
+                    if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL GUARDAR', r.error)
+                    else toast.success('FIGURINHA GUARDADA', 'Já está na biblioteca da equipe')
+                  }}
                   onReact={async (emoji) => {
                     const r = await reactToMessage(m.id, emoji)
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL REAGIR', r.error)
@@ -874,6 +886,26 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 >
                   <ContactRound className="w-5 h-5" />
                 </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowStickers((v) => !v)}
+                    disabled={pending || sendingVoice}
+                    className={cn('p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showStickers && 'bg-gray-100')}
+                    title="Figurinhas"
+                    aria-label="Figurinhas"
+                    aria-expanded={showStickers}
+                  >
+                    <StickerIcon className="w-5 h-5" />
+                  </button>
+                  {showStickers && selected && (
+                    <StickerPicker
+                      conversationId={selected.id}
+                      onClose={() => setShowStickers(false)}
+                      onSent={() => { refreshThread(selected.id, true); refreshList(true) }}
+                    />
+                  )}
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -996,7 +1028,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function MessageBubble({
-  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, canDelete, onDelete,
+  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, canDelete, onDelete,
 }: {
   msg: Msg
   url?: string
@@ -1007,6 +1039,7 @@ function MessageBubble({
   parent: Msg | null
   onReply: () => void
   onReact: (emoji: string) => void
+  onSaveSticker: () => void
   canDelete: boolean
   onDelete: () => void
 }) {
@@ -1082,6 +1115,7 @@ function MessageBubble({
     ? (parent.direction === 'outbound' ? (parent.sender_name ?? 'Nós') : (isGroup ? (parent.participant_name ?? 'Participante') : contact.name))
     : null
   const canReply = !!msg.provider_message_id
+  const canSaveSticker = msg.message_type === 'image' && !!msg.storage_path && (msg.mime_type ?? '').includes('webp')
 
   return (
     <div id={`msg-${msg.id}`} className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
@@ -1098,7 +1132,7 @@ function MessageBubble({
             : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
         )}
       >
-        {(canReply || canDelete) && (
+        {(canReply || canDelete || canSaveSticker) && (
           <div className="absolute top-1 right-1">
             <button
               type="button"
@@ -1130,6 +1164,7 @@ function MessageBubble({
                   </div>
                 )}
                 {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
+                {canSaveSticker && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onSaveSticker() }}><StickerIcon className="w-4 h-4" /> Salvar como figurinha</button>}
                 {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
               </div>
             )}
