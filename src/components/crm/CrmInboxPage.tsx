@@ -48,6 +48,7 @@ import { uploadCrmFile } from '@/lib/crm-upload'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
+import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock,
@@ -142,6 +143,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     if (!silent) setLoadingList(true)
     const ids = selectedKey ? selectedKey.split(',') : undefined
     getCrmScopeCounts(ids).then(setCounts)
+    window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu
     getCrmConversations(scope, 200, ids)
       .then((r) => setConversations(r.items ?? []))
       .finally(() => { if (!silent) setLoadingList(false) })

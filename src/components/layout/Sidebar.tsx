@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, MessagesSquare, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import type { User } from '@/types'
 
 const NAV = [
@@ -54,6 +55,10 @@ const LogoIcon = () => (
     <path d="M33.9998 15.0053C31.2216 14.5437 28.1299 13.5568 25.9321 11.5103C23.9273 9.9546 21.9528 6.86412 20.2998 4.27693C18.8015 1.93167 17.5673 4.8373e-09 16.8143 4.8373e-09C15.9279 -7.70888e-05 15.6795 0.921353 15.2945 2.34881C14.8282 4.07802 14.1616 6.54979 11.9182 9.02555C9.37007 11.6996 8.27788 12.2268 7.77734 12.4621C7.77734 12.4621 10.0041 12.6984 10.5957 12.4621C12.6238 11.6522 14.0877 9.88276 15.3948 8.30283C15.7282 7.8997 16.0515 7.5089 16.3713 7.14958L16.8141 8.48813C16.8801 8.78473 16.9231 9.08477 16.9663 9.3862C17.3464 12.0389 17.7416 14.7974 33.9998 16.2171V15.0053Z" fill="#CBA455"/>
   </svg>
 )
+
+function visibleNavHasCrm(isAdmin: boolean, canAccessNav: (href: string) => boolean) {
+  return isAdmin || canAccessNav('/crm')
+}
 
 export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string }) {
   const pathname = usePathname()
@@ -137,6 +142,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   const canAccessNav = (href: string) =>
     canAccess(href) || (href === '/dashboard/tasks' && canAccess('/schedules'))
 
+  // contador de conversas do CRM aguardando resposta (só quem tem o item no menu)
+  const crmAwaiting = useCrmAwaiting(visibleNavHasCrm(isAdmin, canAccessNav))
+
   // Treinamento é aberto a todos os logados (cada um vê só as trilhas atribuídas)
   const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || item.href === '/politicas' || canAccessNav(item.href))
   const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href))
@@ -177,11 +185,26 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                     active ? 'bg-gradient-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                   )}
                 >
-                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="relative inline-flex">
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    {collapsed && item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0 && (
+                      <span className={cn('absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center', crmAwaiting.mine_urgent > 0 ? 'bg-red-500' : 'bg-amber-500')}>
+                        {crmAwaiting.mine > 9 ? '9+' : crmAwaiting.mine}
+                      </span>
+                    )}
+                  </span>
                   {!collapsed && (
                     <>
                       {item.label}
-                      {active && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
+                      {item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0 && (
+                        <span
+                          title={`${crmAwaiting.mine} conversa(s) sua(s) aguardando resposta${crmAwaiting.mine_urgent ? ` — ${crmAwaiting.mine_urgent} urgente(s), há mais de 3 h` : ''}`}
+                          className={cn('ml-auto min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white', crmAwaiting.mine_urgent > 0 ? 'bg-red-500' : 'bg-amber-500')}
+                        >
+                          {crmAwaiting.mine > 99 ? '99+' : crmAwaiting.mine}
+                        </span>
+                      )}
+                      {active && !(item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0) && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
                     </>
                   )}
                 </Link>

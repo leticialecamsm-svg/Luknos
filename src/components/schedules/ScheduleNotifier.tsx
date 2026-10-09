@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { getSchedules } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Bell, X, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
+import { formatWaiting } from '@/lib/crm-awaiting'
 
 const TYPE_LABEL: Record<string, string> = { visita: 'Visita', reuniao: 'Reunião', follow_up: 'Follow-up', lembrete: 'Lembrete' }
 
@@ -74,6 +77,37 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
     return () => clearInterval(timer)
   }, [toast])
 
+  // WhatsApp (CRM): conversas aguardando resposta
+  const crm = useCrmAwaiting(mode === 'header')
+  const crmCount = crm ? crm.mine + crm.unassigned : 0
+  const crmUrgent = crm ? crm.mine_urgent + crm.unassigned_urgent : 0
+
+  // aviso (uma vez por espera) quando uma conversa SUA passa de 3 h sem resposta
+  useEffect(() => {
+    if (!crm) return
+    const fresh = crm.items.filter((i) => i.mine && i.urgent && !fired(`crm:${i.id}:${i.waiting_since}`))
+    if (!fresh.length) return
+    fresh.forEach((i) => markFired(`crm:${i.id}:${i.waiting_since}`))
+    if (fresh.length === 1) toast.error('URGENTE — SEM RESPOSTA', `${fresh[0].name} espera ${formatWaiting(fresh[0].waiting_since).replace('há ', 'há ')} no WhatsApp`)
+    else toast.error('URGENTE — SEM RESPOSTA', `${fresh.length} conversas suas esperam há mais de 3 h no WhatsApp`)
+  }, [crm, toast])
+
+  // contador no título da aba: "(3) Dashboard"
+  useEffect(() => {
+    if (mode !== 'header') return
+    const prefix = crmCount > 0 ? `(${crmCount}) ` : ''
+    const apply = () => {
+      const base = document.title.replace(/^\(\d+\)\s/, '')
+      if (document.title !== prefix + base) document.title = prefix + base
+    }
+    apply()
+    const el = document.querySelector('title')
+    if (!el) return
+    const obs = new MutationObserver(apply)
+    obs.observe(el, { childList: true, characterData: true, subtree: true })
+    return () => { obs.disconnect(); document.title = document.title.replace(/^\(\d+\)\s/, '') }
+  }, [mode, crmCount])
+
   const unread = notifs.length
 
   if (mode === 'sidebar') {
@@ -141,9 +175,9 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
           title="Notificações"
         >
           <Bell className="w-[18px] h-[18px]" />
-          {unread > 0 && (
-            <span className="absolute top-1 right-1.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-              {unread > 9 ? '9+' : unread}
+          {unread + crmCount > 0 && (
+            <span className={cn('absolute top-1 right-1.5 min-w-[14px] h-[14px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center', crmUrgent > 0 || unread > 0 ? 'bg-red-500' : 'bg-amber-500')}>
+              {unread + crmCount > 9 ? '9+' : unread + crmCount}
             </span>
           )}
         </button>
@@ -156,7 +190,38 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
               )}
             </div>
             <div className="max-h-96 overflow-y-auto">
-              {notifs.length === 0 ? (
+              {crm && crm.items.length > 0 && (
+                <div className="border-b border-surface-border">
+                  <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-navy-muted">
+                    WhatsApp aguardando resposta
+                  </p>
+                  {crm.items.slice(0, 8).map((i) => (
+                    <Link
+                      key={i.id}
+                      href={`/crm/conversas?c=${i.id}`}
+                      onClick={() => setOpen(false)}
+                      className="block px-4 py-2 hover:bg-[rgba(10,31,59,0.04)]"
+                    >
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-navy">
+                        <span className={cn('w-2 h-2 rounded-full shrink-0', i.urgent ? 'bg-red-500' : 'bg-amber-400')} />
+                        <span className="truncate">{i.name}</span>
+                        <span className={cn('ml-auto shrink-0 text-[11px] font-semibold', i.urgent ? 'text-red-600' : 'text-navy-muted')}>
+                          {i.urgent ? 'URGENTE · ' : ''}{formatWaiting(i.waiting_since)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-navy-muted truncate pl-3.5">
+                        {i.unanswered > 1 ? `${i.unanswered} mensagens · ` : ''}{i.preview}{!i.mine ? ' · sem atendente' : ''}
+                      </p>
+                    </Link>
+                  ))}
+                  {crm.items.length > 8 && (
+                    <Link href="/crm/conversas" onClick={() => setOpen(false)} className="block px-4 py-2 text-xs text-navy-muted hover:text-navy">
+                      Ver todas ({crmCount})
+                    </Link>
+                  )}
+                </div>
+              )}
+              {notifs.length === 0 && !(crm && crm.items.length > 0) ? (
                 <div className="px-4 py-8 text-center text-sm text-gray-400">
                   <CalendarClock className="w-6 h-6 mx-auto mb-2 text-gray-300" />
                   Nenhuma notificação

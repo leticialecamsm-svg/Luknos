@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, isGroupJid } from '@/lib/crm-preview'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
+import { isUrgentWait } from '@/lib/crm-awaiting'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -1832,4 +1833,85 @@ export async function getMyFollowups(): Promise<MyFollowup[]> {
     contact_name: r.crm_conversations.contacts?.name ?? r.crm_conversations.contact_name_cache ?? r.crm_conversations.remote_jid.split('@')[0],
     instance_label: r.crm_conversations.crm_instances?.label ?? '—',
   }))
+}
+
+// ─── Aguardando resposta (contador do menu e sino) ──────────────────────────
+
+export interface AwaitingItem {
+  id: string
+  name: string
+  instance_label: string
+  waiting_since: string
+  unanswered: number
+  preview: string
+  mine: boolean
+  urgent: boolean
+}
+
+export interface AwaitingSummary {
+  mine: number
+  mine_urgent: number
+  unassigned: number
+  unassigned_urgent: number
+  items: AwaitingItem[]
+}
+
+// Conversas (não grupos) em que o cliente foi o último a falar. "Minhas" = atribuídas a quem
+// está atuando ou liberadas para ele; "pendentes" = sem atendente. Retorna null sem acesso ao CRM.
+export async function getCrmAwaiting(): Promise<AwaitingSummary | null> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return null
+  const admin = createAdminClient()
+  const vis = await loadScope(admin, auth.userId)
+  const inList = (xs: string[]) => `(${xs.join(',')})`
+  const visible = [
+    ...(vis.instanceIds.length ? [`instance_id.in.${inList(vis.instanceIds)}`] : []),
+    `assigned_user_id.eq.${auth.userId}`,
+    ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
+  ].join(',')
+
+  let q = admin
+    .from('crm_conversations')
+    .select('id, remote_jid, contact_name_cache, assigned_user_id, contacts(name), crm_instances(label)')
+    .eq('status', 'open')
+    .not('remote_jid', 'like', GROUP_LIKE)
+    .or(visible)
+    .order('last_message_at', { ascending: false })
+    .limit(500)
+  if (vis.hiddenConvIds.length) q = q.not('id', 'in', inList(vis.hiddenConvIds))
+  if (auth.actedBy) {
+    const blocked = await blockedInstanceIds(admin, auth.actedBy.id)
+    if (blocked.length) q = q.not('instance_id', 'in', inList(blocked))
+  }
+  const { data: convs } = await q
+  const rows = (convs ?? []) as any[]
+  const empty: AwaitingSummary = { mine: 0, mine_urgent: 0, unassigned: 0, unassigned_urgent: 0, items: [] }
+  if (!rows.length) return empty
+
+  const { data: info } = await admin.rpc('crm_awaiting_info', { conv_ids: rows.map((r) => r.id) })
+  const byId = new Map<string, any>((info ?? []).map((i: any) => [i.conversation_id, i]))
+  const out: AwaitingSummary = { ...empty }
+  const items: AwaitingItem[] = []
+  for (const r of rows) {
+    const w = byId.get(r.id)
+    if (!w) continue
+    const mine = r.assigned_user_id === auth.userId || vis.sharedConvIds.includes(r.id)
+    if (!mine && r.assigned_user_id) continue // é de outra pessoa
+    const urgent = isUrgentWait(w.waiting_since)
+    if (mine) { out.mine++; if (urgent) out.mine_urgent++ } else { out.unassigned++; if (urgent) out.unassigned_urgent++ }
+    items.push({
+      id: r.id,
+      name: r.contacts?.name ?? r.contact_name_cache ?? r.remote_jid.split('@')[0],
+      instance_label: r.crm_instances?.label ?? '—',
+      waiting_since: w.waiting_since,
+      unanswered: w.unanswered,
+      preview: messagePreview({ message_type: w.message_type, body: w.body }),
+      mine,
+      urgent,
+    })
+  }
+  // as minhas primeiro; dentro de cada grupo, as que esperam há mais tempo
+  items.sort((a, b) => Number(b.mine) - Number(a.mine) || a.waiting_since.localeCompare(b.waiting_since))
+  out.items = items.slice(0, 30)
+  return out
 }
