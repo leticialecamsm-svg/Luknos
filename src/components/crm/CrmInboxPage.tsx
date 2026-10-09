@@ -54,10 +54,12 @@ import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import { formatListTime } from '@/lib/crm-time'
 import { GroupPicker } from './GroupPicker'
+import { SendContactModal } from './SendContactModal'
+import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -105,6 +107,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [pending, startTransition] = useTransition()
   const [showReassign, setShowReassign] = useState(false)
   const [showGroupPicker, setShowGroupPicker] = useState(false)
+  const [showSendContact, setShowSendContact] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
   const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
@@ -778,6 +781,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 >
                   {pending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSendContact(true)}
+                  disabled={pending || sendingVoice}
+                  className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                  title="Enviar contato do sistema"
+                  aria-label="Enviar contato"
+                >
+                  <ContactRound className="w-5 h-5" />
+                </button>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -865,6 +878,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           contactQuery={contactQuery}
           setContactQuery={setContactQuery}
           contactResults={contactResults}
+        />
+      )}
+
+      {showSendContact && selected && (
+        <SendContactModal
+          conversationId={selected.id}
+          onClose={() => setShowSendContact(false)}
+          onSent={() => { setShowSendContact(false); refreshThread(selected.id, true); refreshList(true) }}
         />
       )}
 
@@ -958,7 +979,8 @@ function MessageBubble({
     </span>
   ) : senderAvatar
 
-  const caption = msg.body && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
+  const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
+  const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
 
   if (msg.deleted_at) {
     return (
@@ -1109,6 +1131,20 @@ function MessageBubble({
         )}
 
         {caption && <div className="mt-1.5"><WaText text={caption} /></div>}
+
+        {card && (
+          <div className="space-y-1.5 min-w-[14rem]">
+            {card.map((p, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-xl bg-black/5 px-3 py-2">
+                <span className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white flex items-center justify-center"><ContactRound className="w-4 h-4" /></span>
+                <span className="min-w-0">
+                  <span className="block font-semibold text-sm truncate">{p.name}</span>
+                  {p.phone && <span className="block text-xs opacity-70">{prettyPhone(p.phone)}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {msg.message_type === 'other' && !msg.body && (
           <p className="text-xs italic text-gray-400">Mensagem não suportada</p>

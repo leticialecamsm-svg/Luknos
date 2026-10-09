@@ -874,15 +874,17 @@ export async function changeConversationContact(conversationId: string, contactI
 export async function setConversationDisplayName(conversationId: string, name: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
-  const trimmed = name.trim()
-  if (!trimmed) return { error: 'Nome vazio' }
+  const trimmed = name.replace(/\s+/g, ' ').trim()
+  if (trimmed.length > 80) return { error: 'Nome muito longo (máximo 80 letras)' }
   const admin = createAdminClient()
   const acc = await convAccess(admin, auth, conversationId)
   if (!acc.ok) return { error: acc.error }
-  const { error } = await admin
-    .from('crm_conversations')
-    .update({ contact_id: null, contact_name_cache: trimmed, contact_link_source: 'manual' })
-    .eq('id', conversationId)
+  // Nome dado à mão fica travado: o nome do perfil do WhatsApp não sobrescreve mais.
+  // Nome vazio destrava (volta ao nome automático do WhatsApp).
+  const update = trimmed
+    ? { contact_id: null, contact_name_cache: trimmed, contact_link_source: 'manual', name_locked: true }
+    : { name_locked: false }
+  const { error } = await admin.from('crm_conversations').update(update).eq('id', conversationId)
   if (error) return { error: error.message }
   revalidatePath('/crm')
   return { ok: true }
@@ -1012,7 +1014,7 @@ export async function syncCrmContactInfo() {
 
   const { data: convs, error: convErr } = await admin
     .from('crm_conversations')
-    .select('id, remote_jid, contact_id, contact_name_cache, crm_instances(instance_name, is_active)')
+    .select('id, remote_jid, contact_id, contact_name_cache, name_locked, crm_instances(instance_name, is_active)')
     .eq('status', 'open')
     .limit(300)
 
@@ -1048,7 +1050,7 @@ export async function syncCrmContactInfo() {
 
       const updates: Record<string, string | null> = {}
       const resolvedName = r.name ?? r.pushName ?? null
-      if (resolvedName && resolvedName !== conv.contact_name_cache && !conv.contact_id) {
+      if (resolvedName && resolvedName !== conv.contact_name_cache && !conv.contact_id && !conv.name_locked) {
         updates.contact_name_cache = resolvedName
       }
       if (r.photo_url) updates.contact_photo_url = r.photo_url
@@ -2054,5 +2056,40 @@ export async function reactToMessage(messageId: string, emoji: string) {
     return { ok: true }
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível reagir' }
+  }
+}
+
+// ─── Enviar contato (cartão) ────────────────────────────────────────────────
+
+// Envia um ou mais contatos cadastrados no sistema como cartão de contato do WhatsApp.
+export async function sendContactCards(conversationId: string, contactIds: string[]) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const ids = Array.from(new Set(contactIds)).slice(0, 5)
+  if (!ids.length) return { error: 'Escolha ao menos um contato' }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { data: rows } = await admin.from('contacts').select('id, name, phone, company, email').in('id', ids)
+  const contacts = (rows ?? []).filter((c: any) => c.name?.trim() && onlyDigits(c.phone ?? '').length >= 8)
+  if (!contacts.length) return { error: 'Esse contato não tem telefone cadastrado para enviar' }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({
+        action: 'send_contact',
+        conversation_id: conversationId,
+        sender_user_id: auth.userId,
+        acted_by_user_id: auth.actedBy?.id ?? null,
+        contacts: contacts.map((c: any) => ({ name: c.name, phone: c.phone, company: c.company ?? null, email: c.email ?? null })),
+      }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.sent) return { error: body?.error ?? 'Não foi possível enviar o contato' }
+    revalidatePath('/crm')
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível enviar o contato' }
   }
 }
