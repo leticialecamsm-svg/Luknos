@@ -255,7 +255,7 @@ function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users:
           <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} className="mt-0.5" />
           <span>
             <b className="text-gray-900">Número privado</b>
-            <span className="block text-gray-500">Ninguém vê as conversas, nem administradores, exceto o atendente padrão, os membros abaixo, quem for o atendente de uma conversa e quem receber uma conversa liberada.</span>
+            <span className="block text-gray-500">Esconde as conversas de quem não é administrador. Continuam vendo: administradores, o atendente padrão, os membros abaixo, quem for o atendente de uma conversa e quem receber uma conversa liberada.</span>
           </span>
         </label>
 

@@ -96,9 +96,9 @@ export async function getCrmInstances() {
   }))
 }
 
-// Privacidade do número: privado = só dono, membros, atendente da conversa e
-// quem receber uma conversa liberada. Quem está em memberIds vê TODAS as
-// conversas desse número. Admin não ganha acesso automático.
+// Privacidade do número: privado = esconde de quem NÃO é administrador. Veem: administradores,
+// o atendente padrão, os membros (memberIds), o atendente de cada conversa e quem recebeu uma
+// conversa liberada.
 export async function setCrmInstanceAccess(id: string, isPrivate: boolean, memberIds: string[]) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }
@@ -297,7 +297,13 @@ interface Scope {
   memberOf: Set<string>
 }
 
+async function isAdminUser(admin: Admin, userId: string): Promise<boolean> {
+  const { data } = await admin.from('users').select('role').eq('id', userId).maybeSingle()
+  return data?.role === 'admin'
+}
+
 async function loadScope(admin: Admin, userId: string): Promise<Scope> {
+  const userIsAdmin = await isAdminUser(admin, userId)
   const [{ data: instances }, { data: mem }, { data: shared }] = await Promise.all([
     admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at'),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
@@ -309,13 +315,16 @@ async function loadScope(admin: Admin, userId: string): Promise<Scope> {
     instances: list,
     memberOf,
     sharedConvIds: (shared ?? []).map((s) => s.conversation_id as string),
-    instanceIds: list.filter((i) => !i.is_private || i.default_user_id === userId || memberOf.has(i.id)).map((i) => i.id),
+    // administrador enxerga todos os números (inclusive privados); os demais, só os abertos ou os seus
+    instanceIds: list.filter((i) => userIsAdmin || !i.is_private || i.default_user_id === userId || memberOf.has(i.id)).map((i) => i.id),
   }
 }
 
 // Números privados em que o administrador NÃO tem acesso próprio (dono/membro).
 // Ao atuar como outra pessoa eles ficam fora: "atuar como" não é uma porta dos fundos.
 async function blockedInstanceIds(admin: Admin, adminUserId: string): Promise<string[]> {
+  // Administradores veem todos os números por direito próprio, então "atuar como" não bloqueia nenhum.
+  if (await isAdminUser(admin, adminUserId)) return []
   const [{ data: priv }, { data: mem }] = await Promise.all([
     admin.from('crm_instances').select('id, default_user_id').eq('is_private', true),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', adminUserId),
@@ -345,6 +354,15 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
   if (!c) return { ok: false as const, error: 'Conversa não encontrada' }
   const { data: inst } = await admin.from('crm_instances').select('is_private, default_user_id').eq('id', c.instance_id).single()
   const isPrivate = !!inst?.is_private
+  if (isPrivate && (await isAdminUser(admin, userId))) {
+    return {
+      ok: true as const,
+      isPrivate,
+      assignedUserId: c.assigned_user_id as string | null,
+      instanceId: c.instance_id as string,
+      canManage: true,
+    }
+  }
   const [{ data: member }, { data: shared }] = await Promise.all([
     admin.from('crm_instance_members').select('user_id').eq('instance_id', c.instance_id).eq('user_id', userId).maybeSingle(),
     admin.from('crm_conversation_access').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
