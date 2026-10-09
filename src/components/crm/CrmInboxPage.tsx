@@ -55,6 +55,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const toast = useToast()
   const [scope, setScope] = useState<ScopeTab>(initialConversationId ? 'all' : 'mine')
   const [conversations, setConversations] = useState<ConversationRow[]>([])
+  const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId)
   const [messages, setMessages] = useState<Msg[]>([])
   const [loadingList, setLoadingList] = useState(true)
@@ -140,6 +141,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }, [selectedId, refreshList, refreshThread])
 
   const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
+
+  // busca por nome, telefone (3+ números) ou texto da última mensagem
+  const q = query.trim().toLocaleLowerCase('pt-BR')
+  const qDigits = q.replace(/\D/g, '')
+  const shortDigits = /^[\d\s()+-]+$/.test(q) && qDigits.length > 0 && qDigits.length < 3
+  const visibleConversations = !q ? conversations : conversations.filter((c) =>
+    (c.contact_name ?? '').toLocaleLowerCase('pt-BR').includes(q) ||
+    (c.last_body ?? '').toLocaleLowerCase('pt-BR').includes(q) ||
+    (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
+  )
 
   const handleFile = (files: FileList | null) => {
     if (!files) return
@@ -286,6 +297,22 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             </button>
           </div>
           <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-3" />
+          <div className="relative mb-3">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar nome, telefone ou mensagem"
+              aria-label="Buscar conversa"
+              className="w-full pl-9 pr-8 py-2 text-sm bg-gray-100 rounded-full border-0 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {shortDigits && <p role="status" className="text-xs text-amber-700 mb-2">Digite ao menos 3 números para buscar por telefone</p>}
           <div className="flex gap-2">
             {(['mine', 'unassigned', 'all'] as const).map((key) => (
               <button
@@ -314,10 +341,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto" />
             </div>
           )}
-          {!loadingList && conversations.length === 0 && (
+          {!loadingList && visibleConversations.length === 0 && (
             <div className="text-sm text-gray-500 p-4 text-center space-y-2">
-              <p>Nenhuma conversa aqui</p>
-              {scope === 'mine' && counts.unassigned > 0 && (
+              <p>{q ? `Nenhuma conversa encontrada para “${query.trim()}”` : 'Nenhuma conversa aqui'}</p>
+              {!q && scope === 'mine' && counts.unassigned > 0 && (
                 <button className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 underline" onClick={() => setScope('unassigned')}>
                   Há {counts.unassigned} conversa(s) sem responsável — ver pendentes
                 </button>
@@ -325,7 +352,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             </div>
           )}
           <div className="p-2 space-y-1">
-            {conversations.map((c) => (
+            {visibleConversations.map((c) => (
               <button
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
