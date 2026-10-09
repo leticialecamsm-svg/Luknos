@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  getCrmConversations,
-  getCrmScopeCounts,
+  getCrmSnapshot,
   setConversationValue,
   getCrmStages,
   createCrmStage,
@@ -78,18 +77,19 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
     if (!silent) setLoading(true)
     const ids = selectedKey ? selectedKey.split(',') : undefined
-    const [st, conv, cnt] = await Promise.all([getCrmStages(), getCrmConversations(scope, BOARD_LIMIT, ids), getCrmScopeCounts(ids)])
-    setCounts(cnt)
+    const snap = await getCrmSnapshot(scope, BOARD_LIMIT, ids, true)
+    setCounts(snap.counts)
     if (busy.current > 0) return // chegou no meio de uma escrita: descarta p/ não "piscar" estado antigo
-    if (conv.error) setLoadError(conv.error)
-    else { setLoadError(null); setCards(conv.items ?? []) }
+    if (snap.error) setLoadError(snap.error)
+    else { setLoadError(null); setCards(snap.items ?? []) }
+    const st = snap.stages ?? []
     setStages(st)
     if (!silent) setLoading(false)
   }, [scope, selectedKey, filter.loaded])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    const t = setInterval(() => { if (!document.hidden && !dragId) load(true) }, 10000)
+    const t = setInterval(() => { if (!document.hidden && !dragId) load(true) }, 30000)
     return () => clearInterval(t)
   }, [load, dragId])
   useEffect(() => {

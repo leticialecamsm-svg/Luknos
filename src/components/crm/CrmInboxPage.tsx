@@ -1,7 +1,6 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
@@ -21,8 +20,7 @@ import { applyFormat } from '@/lib/wa-format'
 import { FormatToolbar } from './FormatToolbar'
 import { Avatar } from '@/components/ui/Avatar'
 import {
-  getCrmConversations,
-  getCrmScopeCounts,
+  getCrmSnapshot,
   getCrmMessages,
   reassignConversation,
   setConversationValue,
@@ -53,6 +51,8 @@ import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import { formatListTime } from '@/lib/crm-time'
+import { setOpenConversationId } from '@/lib/crm-open-conversation'
+import { subscribeCrmMessages } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
@@ -120,7 +120,6 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
-  const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -151,27 +150,90 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const recordStreamRef = useRef<MediaStream | null>(null)
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Atualizações da lista/conversa: uma por vez, sem repintar quando nada mudou e sem
+  // sobrepor chamadas (as ações do servidor entram numa fila: empilhar atrasa tudo).
+  const listInFlight = useRef(false)
+  const listDirty = useRef(false)
+  const lastListSig = useRef('')
+  const refreshListRef = useRef<(silent?: boolean) => void>(() => {})
   const refreshList = useCallback((silent = false) => {
     if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
+    if (listInFlight.current) { listDirty.current = true; return }
+    listInFlight.current = true
     if (!silent) setLoadingList(true)
     const ids = selectedKey ? selectedKey.split(',') : undefined
-    getCrmScopeCounts(ids).then(setCounts)
     window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu
-    getCrmConversations(scope, 200, ids)
-      .then((r) => setConversations(r.items ?? []))
-      .finally(() => { if (!silent) setLoadingList(false) })
+    getCrmSnapshot(scope, 200, ids)
+      .then((r) => {
+        setCounts((prev) => (JSON.stringify(prev) === JSON.stringify(r.counts) ? prev : r.counts))
+        const sig = `${scope}|${selectedKey}|${JSON.stringify(r.items ?? [])}`
+        if (sig !== lastListSig.current) { lastListSig.current = sig; setConversations(r.items ?? []) }
+      })
+      .finally(() => {
+        listInFlight.current = false
+        if (!silent) setLoadingList(false)
+        if (listDirty.current) { listDirty.current = false; setTimeout(() => refreshListRef.current(true), 300) }
+      })
   }, [scope, selectedKey, filter.loaded])
+  refreshListRef.current = refreshList
 
+  const selectedIdRef = useRef<string | null>(selectedId)
+  selectedIdRef.current = selectedId
+  const lastThreadSig = useRef('')
   const refreshThread = useCallback((id: string, silent = false) => {
     if (!silent) setLoadingThread(true)
     getCrmMessages(id)
-      .then((r) => setMessages((r.items as Msg[]) ?? []))
+      .then((r) => {
+        if (selectedIdRef.current !== id) return // trocou de conversa no meio do caminho
+        const items = (r.items as Msg[]) ?? []
+        const sig = id + '|' + items.map((m) => `${m.id}${m.deleted_at ? 'd' : ''}${m.storage_path ? 's' : ''}${m.reactions?.map((x) => x.emoji + x.count).join('') ?? ''}`).join(',')
+        if (sig !== lastThreadSig.current) { lastThreadSig.current = sig; setMessages(items) }
+      })
       .finally(() => { if (!silent) setLoadingThread(false) })
   }, [])
 
+  // Avisa o resto do sistema qual conversa está à vista (não notificar o que já se está lendo)
+  useEffect(() => { setOpenConversationId(selectedId); return () => setOpenConversationId(null) }, [selectedId])
+
+  // Ao trocar de conversa: zera a anterior e carrega a nova.
+  useEffect(() => { lastThreadSig.current = ''; setMessages([]) }, [selectedId])
   useEffect(() => { refreshList() }, [refreshList])
   useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  // Rolagem: abre no fim; mensagem nova só desce a tela se você já estava no fim (ou se foi
+  // você quem enviou). Se você subiu para ler o histórico, a tela fica onde está.
+  const threadRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)
+  const openedRef = useRef<string | null>(null)
+  const prevCountRef = useRef(0)
+  const [newBelow, setNewBelow] = useState(0) // mensagens que chegaram enquanto você lia o histórico
+  const onThreadScroll = () => {
+    const el = threadRef.current
+    if (!el) return
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140
+    if (stickRef.current) setNewBelow((n) => (n ? 0 : n))
+  }
+  useEffect(() => { openedRef.current = null; prevCountRef.current = 0; stickRef.current = true; setNewBelow(0) }, [selectedId])
+  useEffect(() => {
+    const el = threadRef.current
+    if (!el || !messages.length) return
+    const prev = prevCountRef.current
+    prevCountRef.current = messages.length
+    if (openedRef.current !== selectedId) {
+      openedRef.current = selectedId
+      el.scrollTop = el.scrollHeight
+      // mídias carregam depois e empurram o conteúdo: reajusta enquanto você não rolou
+      const t1 = setTimeout(() => { if (stickRef.current && threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight }, 400)
+      const t2 = setTimeout(() => { if (stickRef.current && threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight }, 1500)
+      return () => { clearTimeout(t1); clearTimeout(t2) }
+    }
+    const last = messages[messages.length - 1]
+    if (messages.length > prev && (stickRef.current || last.direction === 'outbound')) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else if (messages.length > prev) {
+      setNewBelow((n) => n + (messages.length - prev))
+    }
+  }, [messages, selectedId])
   // URLs das mídias da conversa aberta (miniaturas, vídeos, áudios), buscadas em lote
   useEffect(() => {
     if (!selectedId) return
@@ -194,27 +256,38 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     el.style.height = Math.min(el.scrollHeight, 144) + 'px'
   }, [text])
 
+  // Atualização em tempo real (Supabase) com poucos disparos: junta eventos próximos (debounce)
+  // e só recarrega a conversa aberta quando o evento é dela. O relógio é só uma rede de segurança.
   useEffect(() => {
-    const t = setInterval(() => {
+    let listTimer: ReturnType<typeof setTimeout> | null = null
+    let threadTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleList = () => { if (listTimer) clearTimeout(listTimer); listTimer = setTimeout(() => refreshList(true), 700) }
+    const scheduleThread = () => { if (threadTimer) clearTimeout(threadTimer); threadTimer = setTimeout(() => { if (selectedId) refreshThread(selectedId, true) }, 500) }
+
+    const unsubscribe = subscribeCrmMessages('crm:all', '*', (payload) => {
+      scheduleList()
+      const cid = (payload.new as { conversation_id?: string } | null)?.conversation_id
+      if (selectedId && (!cid || cid === selectedId)) scheduleThread()
+    })
+
+    const safety = setInterval(() => {
+      if (document.hidden) return
       refreshList(true)
       if (selectedId) refreshThread(selectedId, true)
-    }, 6000)
-    return () => clearInterval(t)
-  }, [selectedId, refreshList, refreshThread])
-
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase.channel('crm:all')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'crm_messages',
-      }, () => {
-        refreshList(true)
-        if (selectedId) refreshThread(selectedId, true)
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    }, 45000)
+    const onVisible = () => {
+      if (document.hidden) return
+      refreshList(true)
+      if (selectedId) refreshThread(selectedId, true)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      if (listTimer) clearTimeout(listTimer)
+      if (threadTimer) clearTimeout(threadTimer)
+      clearInterval(safety)
+      document.removeEventListener('visibilitychange', onVisible)
+      unsubscribe()
+    }
   }, [selectedId, refreshList, refreshThread])
 
   const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
@@ -682,7 +755,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div ref={threadRef} onScroll={onThreadScroll} className="flex-1 overflow-y-auto p-4 space-y-3">
               {loadingThread && (
                 <div className="text-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
@@ -721,8 +794,18 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 />
                 </Fragment>
               ))}
-              <div ref={bottomRef} />
             </div>
+
+            {newBelow > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' }); setNewBelow(0) }}
+                  className="absolute -top-12 right-5 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-semibold shadow-lg hover:bg-emerald-700"
+                >
+                  <ChevronDown className="w-4 h-4" /> {newBelow} nova{newBelow > 1 ? 's' : ''} mensagem{newBelow > 1 ? 'ns' : ''}
+                </button>
+              </div>
+            )}
 
             {/* Composer */}
             {recording ? (

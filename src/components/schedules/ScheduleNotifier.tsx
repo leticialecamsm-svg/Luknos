@@ -8,6 +8,7 @@ import { Bell, X, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import { formatWaiting } from '@/lib/crm-awaiting'
+import { useCrmDesktopNotify } from '@/lib/use-crm-desktop-notify'
 
 const TYPE_LABEL: Record<string, string> = { visita: 'Visita', reuniao: 'Reunião', follow_up: 'Follow-up', lembrete: 'Lembrete' }
 
@@ -80,6 +81,7 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
   // WhatsApp (CRM): conversas aguardando resposta
   const crm = useCrmAwaiting(mode === 'header')
   const crmCount = crm ? crm.mine + crm.unassigned : 0
+  const desk = useCrmDesktopNotify(mode === 'header' && !!crm)
   const crmUrgent = crm ? crm.mine_urgent + crm.unassigned_urgent : 0
 
   // aviso (uma vez por espera) quando uma conversa SUA passa de 3 h sem resposta
@@ -235,6 +237,32 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
                 ))
               )}
             </div>
+            {crm && desk.permission !== 'unsupported' && (
+              <div className="border-t border-surface-border px-4 py-3 text-xs text-navy-muted">
+                <p className="font-semibold text-navy mb-1">Avisos de novas mensagens</p>
+                {desk.permission === 'denied' ? (
+                  <p>Bloqueados no navegador. Libere as notificações deste site nas configurações do Chrome para receber o banner no canto da tela.</p>
+                ) : (
+                  <>
+                    <p className="mb-2">Quando chegar mensagem de uma conversa sua, aparece um aviso no canto da tela, em qualquer página do sistema.</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {desk.permission === 'default' && (
+                        <button onClick={desk.requestPermission} className="px-3 py-1.5 rounded-full bg-navy text-white font-medium hover:opacity-90">Ativar avisos na tela</button>
+                      )}
+                      <button
+                        onClick={() => desk.setEnabled(!desk.enabled)}
+                        role="switch"
+                        aria-checked={desk.enabled}
+                        className={cn('px-3 py-1.5 rounded-full font-medium border', desk.enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200')}
+                      >
+                        {desk.enabled ? 'Avisos ligados' : 'Avisos desligados'}
+                      </button>
+                      <button onClick={desk.test} className="px-3 py-1.5 rounded-full border border-surface-border hover:bg-[rgba(10,31,59,0.04)]">Testar</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

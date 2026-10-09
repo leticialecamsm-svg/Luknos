@@ -36,19 +36,31 @@ const ACT_AS_COOKIE = 'crm_act_as'
 // as dele — e actedBy guarda o administrador real, para o registro e o aviso.
 // isAdmin continua sendo o do usuário REAL (gerenciar colunas/números segue valendo);
 // viewAsAdmin é o papel de quem está sendo representado.
+// Cache curto do perfil/papel (30 s): cada chamada de ação passava por 2-3 consultas só para
+// descobrir quem é e se tem acesso. A autenticação em si (getUser) continua sendo conferida toda vez.
+const STAFF_CACHE_MS = 30_000
+const staffCache = new Map<string, { at: number; profile: { role: string; active: boolean | null; name: string }; crmAllowed: boolean }>()
+
 async function ensureStaff() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' as const }
-  const { data: profile } = await supabase.from('users').select('role, active, name, extra_pages').eq('id', user.id).single()
-  if (!profile || profile.active === false) return { error: 'Sem permissão' as const }
-  const isAdmin = profile.role === 'admin'
-  if (!isAdmin) {
-    const { data: role } = await createAdminClient().from('roles').select('allowed_pages').eq('name', profile.role).maybeSingle()
-    if (!hasCrmPage(role?.allowed_pages) && !hasCrmPage(profile.extra_pages as string[] | null)) {
-      return { error: 'Sem permissão' as const }
+  let cached = staffCache.get(user.id)
+  if (!cached || Date.now() - cached.at > STAFF_CACHE_MS) {
+    const { data: p } = await supabase.from('users').select('role, active, name, extra_pages').eq('id', user.id).single()
+    if (!p) { staffCache.delete(user.id); return { error: 'Sem permissão' as const } }
+    let crmAllowed = p.role === 'admin' || hasCrmPage(p.extra_pages as string[] | null)
+    if (!crmAllowed && p.active !== false) {
+      const { data: role } = await createAdminClient().from('roles').select('allowed_pages').eq('name', p.role).maybeSingle()
+      crmAllowed = hasCrmPage(role?.allowed_pages)
     }
+    cached = { at: Date.now(), profile: { role: p.role as string, active: p.active as boolean | null, name: p.name as string }, crmAllowed }
+    staffCache.set(user.id, cached)
   }
+  const profile = cached.profile
+  if (profile.active === false) return { error: 'Sem permissão' as const }
+  const isAdmin = profile.role === 'admin'
+  if (!isAdmin && !cached.crmAllowed) return { error: 'Sem permissão' as const }
 
   const actAs = isAdmin ? cookies().get(ACT_AS_COOKIE)?.value : undefined
   if (actAs && actAs !== user.id) {
@@ -2092,4 +2104,55 @@ export async function sendContactCards(conversationId: string, contactIds: strin
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível enviar o contato' }
   }
+}
+
+// ─── Atualização da tela em uma só chamada ──────────────────────────────────
+
+// Lista + contadores (+ colunas do Quadro) numa única ação. As ações do servidor entram numa
+// fila por usuário; fazer 3 chamadas separadas a cada atualização engarrafava os cliques.
+export async function getCrmSnapshot(scope: ListScope = 'mine', limit = 200, instanceIds?: string[], withStages = false) {
+  const [conv, counts, stages] = await Promise.all([
+    getCrmConversations(scope, limit, instanceIds),
+    getCrmScopeCounts(instanceIds),
+    withStages ? getCrmStages() : Promise.resolve(null),
+  ])
+  return { items: conv.items, error: 'error' in conv ? conv.error : undefined, counts, stages }
+}
+
+// ─── Aviso de mensagem nova (canto da tela) ─────────────────────────────────
+
+export interface IncomingNotice {
+  conversation_id: string
+  title: string
+  body: string
+  photo: string | null
+}
+
+// Decide se uma mensagem recém-chegada deve gerar aviso para quem está logado: só mensagens do
+// cliente, em conversa individual aberta, atribuída a ele (ou liberada para ele). Quem está
+// "atuando como" outra pessoa não recebe os avisos dela.
+export async function getIncomingNotification(messageId: string): Promise<IncomingNotice | null> {
+  const auth = await ensureStaff()
+  if ('error' in auth || auth.actedBy) return null
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, direction, is_system, deleted_at, message_type, body, file_name')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m || m.direction !== 'inbound' || m.is_system || m.deleted_at) return null
+  const { data: c } = await admin
+    .from('crm_conversations')
+    .select('id, remote_jid, status, assigned_user_id, contact_name_cache, contact_photo_url, contacts(name)')
+    .eq('id', m.conversation_id)
+    .maybeSingle()
+  if (!c || c.status !== 'open' || isGroupJid(c.remote_jid)) return null
+  if (c.assigned_user_id !== auth.userId) {
+    const { data: shared } = await admin
+      .from('crm_conversation_access').select('user_id').eq('conversation_id', c.id).eq('user_id', auth.userId).maybeSingle()
+    if (!shared) return null
+  }
+  const name = (c as any).contacts?.name ?? c.contact_name_cache ?? c.remote_jid.split('@')[0]
+  const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
+  return { conversation_id: c.id, title: name, body: preview.length > 160 ? preview.slice(0, 157) + '…' : preview, photo: c.contact_photo_url ?? null }
 }
