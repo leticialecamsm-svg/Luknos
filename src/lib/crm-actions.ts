@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
+import { messagePreview, canDeleteForEveryone, isGroupJid } from '@/lib/crm-preview'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -481,11 +482,15 @@ export interface CrmPerson {
   avatar_color: string | null
 }
 
+export interface CrmLabel { id: string; name: string; color: string }
+
 export interface ConversationRow {
   id: string
   instance_id: string
   remote_jid: string
+  is_group: boolean
   contact_id: string | null
+  contact_type: string | null // categoria do contato vinculado (cliente, arquiteto…)
   contact_name_cache: string | null
   contact_photo_url: string | null
   assigned_user_id: string | null
@@ -493,6 +498,7 @@ export interface ConversationRow {
   assigned_user_avatar: CrmPerson | null
   // quem respondeu por último (humano, pelo sistema ou pelo celular do número); null se ninguém ainda
   last_reply_user: CrmPerson | null
+  labels: CrmLabel[]
   stage_id: string | null
   deal_cents: number | null
   status: string
@@ -500,12 +506,17 @@ export interface ConversationRow {
   instance_label: string
   contact_name: string | null
   last_body: string | null
+  last_direction: 'inbound' | 'outbound' | null // de quem foi a última mensagem
 }
 
-// scope: 'mine' (atendente logado, inclui as liberadas para ele), 'unassigned', 'all'
+type ListScope = 'mine' | 'unassigned' | 'all' | 'groups'
+const GROUP_LIKE = '%@g.us'
+
+// scope: 'mine' (atendente logado, inclui as liberadas para ele), 'unassigned', 'all' e
+// 'groups' (só grupos do WhatsApp — os outros escopos e o Quadro NUNCA mostram grupos).
 // instanceIds: filtra por WhatsApp (vazio/undefined = todos os que ele enxerga)
 export async function getCrmConversations(
-  scope: 'mine' | 'unassigned' | 'all' = 'mine',
+  scope: ListScope = 'mine',
   limit = 200,
   instanceIds?: string[],
 ) {
@@ -520,7 +531,7 @@ export async function getCrmConversations(
     .from('crm_conversations')
     .select(`
       id, instance_id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
-      crm_instances(label), contacts(name),
+      crm_instances(label), contacts(name, type),
       assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)
     `)
     .eq('status', 'open')
@@ -534,15 +545,20 @@ export async function getCrmConversations(
     ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
   ].join(',')
 
-  if (scope === 'mine') {
-    const mine = [
-      `assigned_user_id.eq.${auth.userId}`,
-      ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
-    ].join(',')
-    q = q.or(mine)
+  if (scope === 'groups') {
+    q = q.or(visible).like('remote_jid', GROUP_LIKE)
   } else {
-    q = q.or(visible)
-    if (scope === 'unassigned') q = q.is('assigned_user_id', null)
+    q = q.not('remote_jid', 'like', GROUP_LIKE)
+    if (scope === 'mine') {
+      const mine = [
+        `assigned_user_id.eq.${auth.userId}`,
+        ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
+      ].join(',')
+      q = q.or(mine)
+    } else {
+      q = q.or(visible)
+      if (scope === 'unassigned') q = q.is('assigned_user_id', null)
+    }
   }
 
   if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
@@ -555,60 +571,71 @@ export async function getCrmConversations(
   if (error) return { error: error.message, items: [] as ConversationRow[] }
 
   const ids = (data ?? []).map((c: any) => c.id)
-  const lastByConv = new Map<string, string | null>()
-  const lastReplyByConv = new Map<string, string>()
+  const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null }>()
+  const labelsBy = new Map<string, CrmLabel[]>()
   if (ids.length) {
-    const { data: lastMsgs } = await admin
-      .from('crm_messages')
-      .select('conversation_id, body, message_type, created_at, direction, sender_user_id, is_system')
-      .in('conversation_id', ids)
-      .order('created_at', { ascending: false })
-    for (const m of lastMsgs ?? []) {
-      if (!lastByConv.has(m.conversation_id) && !m.is_system) {
-        lastByConv.set(m.conversation_id, m.body || (m.message_type !== 'text' ? '📎 arquivo' : null))
-      }
-      if (!lastReplyByConv.has(m.conversation_id) && m.direction === 'outbound' && !m.is_system && m.sender_user_id) {
-        lastReplyByConv.set(m.conversation_id, m.sender_user_id)
-      }
+    const [{ data: infos }, { data: ls }] = await Promise.all([
+      admin.rpc('crm_last_info', { conv_ids: ids }),
+      admin.from('crm_conversation_labels').select('conversation_id, crm_labels(id, name, color)').in('conversation_id', ids),
+    ])
+    for (const r of (infos ?? []) as any[]) {
+      lastInfo.set(r.conversation_id, {
+        preview: r.created_at ? messagePreview({ message_type: r.message_type, body: r.body, file_name: r.file_name, deleted: r.deleted }) : null,
+        direction: r.direction ?? null,
+        replyUser: r.last_reply_user ?? null,
+      })
+    }
+    for (const r of (ls ?? []) as any[]) {
+      if (!r.crm_labels) continue
+      const arr = labelsBy.get(r.conversation_id) ?? []
+      arr.push(r.crm_labels as CrmLabel)
+      labelsBy.set(r.conversation_id, arr)
     }
   }
-  const replyIds = Array.from(new Set(lastReplyByConv.values()))
+  const replyIds = Array.from(new Set(Array.from(lastInfo.values()).map((v) => v.replyUser).filter(Boolean) as string[]))
   const people = new Map<string, CrmPerson>()
   if (replyIds.length) {
     const { data: us } = await admin.from('users').select('id, name, avatar_url, avatar_color').in('id', replyIds)
     for (const u of us ?? []) people.set(u.id, { id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null })
   }
 
-  const items: ConversationRow[] = (data ?? []).map((c: any) => ({
-    id: c.id,
-    instance_id: c.instance_id,
-    remote_jid: c.remote_jid,
-    contact_id: c.contact_id,
-    contact_name_cache: c.contact_name_cache,
-    contact_photo_url: c.contact_photo_url ?? null,
-    assigned_user_id: c.assigned_user_id,
-    assigned_user_name: c.assigned?.name ?? null,
-    assigned_user_avatar: c.assigned_user_id && c.assigned
-      ? { id: c.assigned_user_id, name: c.assigned.name, avatar_url: c.assigned.avatar_url ?? null, avatar_color: c.assigned.avatar_color ?? null }
-      : null,
-    last_reply_user: people.get(lastReplyByConv.get(c.id) ?? '') ?? null,
-    stage_id: c.stage_id ?? null,
-    deal_cents: dbValueToCents(c.deal_value),
-    status: c.status,
-    last_message_at: c.last_message_at,
-    instance_label: c.crm_instances?.label ?? '—',
-    contact_name: c.contacts?.name ?? c.contact_name_cache ?? null,
-    last_body: lastByConv.get(c.id) ?? null,
-  }))
+  const items: ConversationRow[] = (data ?? []).map((c: any) => {
+    const li = lastInfo.get(c.id)
+    return {
+      id: c.id,
+      instance_id: c.instance_id,
+      remote_jid: c.remote_jid,
+      is_group: isGroupJid(c.remote_jid),
+      contact_id: c.contact_id,
+      contact_type: c.contacts?.type ?? null,
+      contact_name_cache: c.contact_name_cache,
+      contact_photo_url: c.contact_photo_url ?? null,
+      assigned_user_id: c.assigned_user_id,
+      assigned_user_name: c.assigned?.name ?? null,
+      assigned_user_avatar: c.assigned_user_id && c.assigned
+        ? { id: c.assigned_user_id, name: c.assigned.name, avatar_url: c.assigned.avatar_url ?? null, avatar_color: c.assigned.avatar_color ?? null }
+        : null,
+      last_reply_user: people.get(li?.replyUser ?? '') ?? null,
+      labels: (labelsBy.get(c.id) ?? []).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+      stage_id: c.stage_id ?? null,
+      deal_cents: dbValueToCents(c.deal_value),
+      status: c.status,
+      last_message_at: c.last_message_at,
+      instance_label: c.crm_instances?.label ?? '—',
+      contact_name: c.contacts?.name ?? c.contact_name_cache ?? null,
+      last_body: li?.preview ?? null,
+      last_direction: li?.direction ?? null,
+    }
+  })
 
   return { items }
 }
 
-// Quantas conversas há em cada aba (Minhas / Pendentes / Todas), com a mesma regra
-// de visibilidade da lista. Serve para avisar de conversas novas sem responsável.
+// Quantas conversas há em cada aba (Minhas / Pendentes / Todas / Grupos), com a mesma
+// regra de visibilidade da lista. Serve para avisar de conversas novas sem responsável.
 export async function getCrmScopeCounts(instanceIds?: string[]) {
   const auth = await ensureStaff()
-  if ('error' in auth) return { mine: 0, unassigned: 0, all: 0 }
+  if ('error' in auth) return { mine: 0, unassigned: 0, all: 0, groups: 0 }
   const admin = createAdminClient()
   const vis = await loadScope(admin, auth.userId)
   const inList = (xs: string[]) => `(${xs.join(',')})`
@@ -627,12 +654,14 @@ export async function getCrmScopeCounts(instanceIds?: string[]) {
     if (blocked.length) q = q.not('instance_id', 'in', inList(blocked))
     return q
   }
-  const [m, u, a] = await Promise.all([
-    base().or(mine),
-    base().or(visible).is('assigned_user_id', null),
-    base().or(visible),
+  const people = () => base().not('remote_jid', 'like', GROUP_LIKE)
+  const [m, u, a, g] = await Promise.all([
+    people().or(mine),
+    people().or(visible).is('assigned_user_id', null),
+    people().or(visible),
+    base().or(visible).like('remote_jid', GROUP_LIKE),
   ])
-  return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0 }
+  return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0, groups: g.count ?? 0 }
 }
 
 export async function getCrmMessages(conversationId: string) {
@@ -643,20 +672,28 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, participant_name, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
   return {
-    items: (data ?? []).map((m: any) => ({
-      ...m,
-      sender_name: m.sender?.name ?? null,
-      sender_avatar_url: m.sender?.avatar_url ?? null,
-      sender_avatar_color: m.sender?.avatar_color ?? null,
-      acted_by_name: m.acted?.name ?? null,
-      acted_by_avatar_url: m.acted?.avatar_url ?? null,
-      acted_by_avatar_color: m.acted?.avatar_color ?? null,
-    })),
+    items: (data ?? []).map((m: any) => {
+      const deleted = !!m.deleted_at
+      return {
+        ...m,
+        // mensagem apagada: o conteúdo não volta mais para a tela
+        body: deleted ? null : m.body,
+        storage_path: deleted ? null : m.storage_path,
+        file_name: deleted ? null : m.file_name,
+        sender_name: m.sender?.name ?? null,
+        sender_avatar_url: m.sender?.avatar_url ?? null,
+        sender_avatar_color: m.sender?.avatar_color ?? null,
+        acted_by_name: m.acted?.name ?? null,
+        acted_by_avatar_url: m.acted?.avatar_url ?? null,
+        acted_by_avatar_color: m.acted?.avatar_color ?? null,
+        deleted_by_name: m.deleter?.name ?? null,
+      }
+    }),
   }
 }
 
@@ -700,7 +737,39 @@ export async function linkConversationContact(conversationId: string, contactId:
     .from('crm_conversations')
     // vincular a um contato de verdade limpa o apelido manual (contact_id
     // manda no nome exibido, via join em getCrmConversations).
-    .update({ contact_id: contactId, contact_name_cache: null })
+    .update({ contact_id: contactId, contact_name_cache: null, contact_link_source: 'manual' })
+    .eq('id', conversationId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Trocar (ou desfazer) o contato vinculado — para corrigir um vínculo automático errado.
+// Desvincular mantém o nome atual na conversa e impede o sistema de vincular de novo sozinho.
+export async function changeConversationContact(conversationId: string, contactId: string | null) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { data: conv } = await admin
+    .from('crm_conversations')
+    .select('contact_name_cache, remote_jid, contacts(name)')
+    .eq('id', conversationId)
+    .single()
+  if (!conv) return { error: 'Conversa não encontrada' }
+  if (isGroupJid(conv.remote_jid)) return { error: 'Grupos não têm contato vinculado' }
+
+  if (contactId) {
+    const { data: k } = await admin.from('contacts').select('id').eq('id', contactId).maybeSingle()
+    if (!k) return { error: 'Contato não encontrado' }
+  }
+  const previousName = (conv as any).contacts?.name ?? conv.contact_name_cache ?? null
+  const { error } = await admin
+    .from('crm_conversations')
+    .update(contactId
+      ? { contact_id: contactId, contact_name_cache: null, contact_link_source: 'manual' }
+      : { contact_id: null, contact_name_cache: previousName, contact_link_source: 'manual' })
     .eq('id', conversationId)
   if (error) return { error: error.message }
   revalidatePath('/crm')
@@ -719,7 +788,7 @@ export async function setConversationDisplayName(conversationId: string, name: s
   if (!acc.ok) return { error: acc.error }
   const { error } = await admin
     .from('crm_conversations')
-    .update({ contact_id: null, contact_name_cache: trimmed })
+    .update({ contact_id: null, contact_name_cache: trimmed, contact_link_source: 'manual' })
     .eq('id', conversationId)
   if (error) return { error: error.message }
   revalidatePath('/crm')
@@ -735,6 +804,13 @@ export async function searchContactsForCrm(query: string) {
     .select('id, name, phone, type')
     .ilike('name', `%${query.trim()}%`)
     .limit(10)
+  // também por telefone (3+ números)
+  const digits = query.replace(/\D/g, '')
+  if (digits.length >= 3) {
+    const { data: byPhone } = await createAdminClient().from('contacts').select('id, name, phone, type').ilike('phone', `%${digits}%`).limit(10)
+    const seen = new Set((data ?? []).map((d) => d.id))
+    return [...(data ?? []), ...(byPhone ?? []).filter((d) => !seen.has(d.id))].slice(0, 12)
+  }
   return data ?? []
 }
 
@@ -765,12 +841,29 @@ export async function sendCrmMessage(input: {
   fileName?: string
   mimeType?: string
   isVoiceNote?: boolean
+  replyToMessageId?: string // responder (citar) uma mensagem desta conversa
 }) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   if (!input.text?.trim() && !input.storagePath) return { error: 'Mensagem vazia' }
-  const acc = await convAccess(createAdminClient(), auth, input.conversationId)
+  const adminDb = createAdminClient()
+  const acc = await convAccess(adminDb, auth, input.conversationId)
   if (!acc.ok) return { error: acc.error }
+
+  let quotedProviderId: string | null = null
+  let quotedText: string | null = null
+  if (input.replyToMessageId) {
+    const { data: parent } = await adminDb
+      .from('crm_messages')
+      .select('provider_message_id, message_type, body, file_name, deleted_at, conversation_id')
+      .eq('id', input.replyToMessageId)
+      .maybeSingle()
+    if (!parent || parent.conversation_id !== input.conversationId) return { error: 'A mensagem a responder não foi encontrada nesta conversa' }
+    if (parent.deleted_at) return { error: 'Não dá para responder uma mensagem apagada' }
+    if (!parent.provider_message_id) return { error: 'Esta mensagem não pode ser respondida (sem identificador do WhatsApp)' }
+    quotedProviderId = parent.provider_message_id
+    quotedText = messagePreview({ message_type: parent.message_type, body: parent.body, file_name: parent.file_name })
+  }
 
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`
   try {
@@ -790,6 +883,8 @@ export async function sendCrmMessage(input: {
         file_name: input.fileName ?? null,
         mime_type: input.mimeType ?? null,
         is_voice_note: input.isVoiceNote ?? false,
+        quoted_provider_id: quotedProviderId,
+        quoted_text: quotedText,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -1009,6 +1104,8 @@ export interface PanelMedia {
 }
 
 export interface ContactPanelData {
+  is_group: boolean
+  link_source: 'phone' | 'name' | 'manual' | null
   phone_digits: string
   display_name: string
   instance_label: string
@@ -1042,7 +1139,7 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
 
   const { data: c } = await admin
     .from('crm_conversations')
-    .select(`id, instance_id, remote_jid, contact_id, contact_name_cache, assigned_user_id, stage_id, deal_value, created_at,
+    .select(`id, instance_id, remote_jid, contact_id, contact_name_cache, contact_link_source, assigned_user_id, stage_id, deal_value, created_at,
       crm_instances(label), contacts(id, name, type, company, email, phone, notes),
       assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)`)
     .eq('id', conversationId)
@@ -1052,8 +1149,11 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
   const digits = onlyDigits(conv.remote_jid.split('@')[0])
 
   // contato do sistema: o vinculado, ou — se não houver — um com o mesmo telefone (sugestão)
+  const isGroup = isGroupJid(conv.remote_jid)
   let contact: ContactPanelData['contact'] = null
-  if (conv.contacts) {
+  if (isGroup) {
+    contact = null
+  } else if (conv.contacts) {
     contact = { ...conv.contacts, linked: true }
   } else {
     const { data: all } = await admin.from('contacts').select('id, name, type, company, email, phone, notes').not('phone', 'is', null)
@@ -1164,6 +1264,8 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
 
   const st = conv.stage_id ? stageRows.find((x) => x.id === conv.stage_id) : stageRows[0]
   return {
+    is_group: isGroup,
+    link_source: (conv.contact_link_source as 'phone' | 'name' | 'manual' | null) ?? null,
     phone_digits: digits,
     display_name: conv.contacts?.name ?? conv.contact_name_cache ?? digits,
     instance_label: conv.crm_instances?.label ?? '—',
@@ -1338,4 +1440,124 @@ export async function getConversationAttachmentUrls(conversationId: string, path
   const urls: Record<string, string> = {}
   for (const x of data ?? []) if (x.signedUrl && x.path) urls[x.path] = x.signedUrl
   return { urls }
+}
+
+
+// ─── Apagar para todos ──────────────────────────────────────────────────────
+
+// Só mensagens nossas, enviadas há até 2 dias. Quem apaga: quem enviou (ou o admin).
+export async function deleteCrmMessage(messageId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, direction, sender_user_id, provider_message_id, deleted_at, created_at, is_system')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m || m.is_system) return { error: 'Mensagem não encontrada' }
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  if (m.direction !== 'outbound') return { error: 'Só é possível apagar mensagens que nós enviamos' }
+  if (m.deleted_at) return { ok: true }
+  if (!canDeleteForEveryone(m as any)) {
+    return { error: 'O WhatsApp só permite apagar para todos até 2 dias depois do envio (ou a mensagem não tem identificador).' }
+  }
+  if (m.sender_user_id && m.sender_user_id !== auth.userId && !auth.isAdmin) {
+    return { error: 'Só quem enviou a mensagem (ou um administrador) pode apagá-la' }
+  }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'delete', message_id: messageId, deleted_by_user_id: auth.actedBy?.id ?? auth.userId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.deleted) return { error: body?.error ?? 'Não foi possível apagar a mensagem' }
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível apagar a mensagem' }
+  }
+}
+
+// ─── Etiquetas ──────────────────────────────────────────────────────────────
+
+export async function getCrmLabels(): Promise<CrmLabel[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const { data } = await createAdminClient().from('crm_labels').select('id, name, color').order('name')
+  return (data ?? []) as CrmLabel[]
+}
+
+function validLabel(input: { name: string; color: string }) {
+  const name = input.name.replace(/\s+/g, ' ').trim()
+  if (!name) return { error: 'Dê um nome para a etiqueta' as const }
+  if (name.length > 30) return { error: 'Nome muito longo (máximo 30 caracteres)' as const }
+  if (!/^#[0-9a-fA-F]{6}$/.test(input.color)) return { error: 'Cor inválida' as const }
+  return { name, color: input.color.toLowerCase() }
+}
+
+export async function createCrmLabel(input: { name: string; color: string }) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const v = validLabel(input)
+  if ('error' in v) return { error: v.error }
+  const { data, error } = await createAdminClient().from('crm_labels').insert(v).select('id, name, color').single()
+  if (error) return { error: error.code === '23505' ? 'Já existe uma etiqueta com esse nome' : error.message }
+  revalidatePath('/crm')
+  return { ok: true, label: data as CrmLabel }
+}
+
+export async function updateCrmLabel(id: string, input: { name: string; color: string }) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const v = validLabel(input)
+  if ('error' in v) return { error: v.error }
+  const { data, error } = await createAdminClient().from('crm_labels').update(v).eq('id', id).select('id')
+  if (error) return { error: error.code === '23505' ? 'Já existe uma etiqueta com esse nome' : error.message }
+  if (!data?.length) return { error: 'Etiqueta não existe mais. Atualize a página.' }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+export async function deleteCrmLabel(id: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient().from('crm_labels').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Define o conjunto de etiquetas da conversa (substitui o anterior).
+export async function setConversationLabels(conversationId: string, labelIds: string[]) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const ids = Array.from(new Set(labelIds))
+  if (ids.length > 10) return { error: 'No máximo 10 etiquetas por conversa' }
+  if (ids.length) {
+    const { data: ok } = await admin.from('crm_labels').select('id').in('id', ids)
+    if ((ok ?? []).length !== ids.length) return { error: 'Alguma etiqueta não existe mais. Atualize a página.' }
+  }
+  const { error: delErr } = await admin.from('crm_conversation_labels').delete().eq('conversation_id', conversationId)
+  if (delErr) return { error: delErr.message }
+  if (ids.length) {
+    const { error } = await admin.from('crm_conversation_labels').insert(ids.map((label_id) => ({ conversation_id: conversationId, label_id })))
+    if (error) return { error: error.message }
+  }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+export async function getConversationLabelIds(conversationId: string): Promise<string[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return []
+  const { data } = await admin.from('crm_conversation_labels').select('label_id').eq('conversation_id', conversationId)
+  return (data ?? []).map((r) => r.label_id as string)
 }

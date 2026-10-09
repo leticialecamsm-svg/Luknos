@@ -9,6 +9,9 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
+import { ConvTags } from './ConvTags'
+import { LabelPicker } from './LabelPicker'
+import { canDeleteForEveryone, messagePreview } from '@/lib/crm-preview'
 import { AudioPlayer } from './AudioPlayer'
 import { FileBadge } from './FileBadge'
 import { MediaLightbox, type LightboxItem } from './MediaLightbox'
@@ -25,6 +28,9 @@ import {
   shareConversation,
   unshareConversation,
   type ConversationAccessInfo,
+  type CrmLabel,
+  getCrmLabels,
+  deleteCrmMessage,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
@@ -40,10 +46,10 @@ import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon,
 } from 'lucide-react'
 
-type ScopeTab = 'mine' | 'unassigned' | 'all'
+type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
 
 interface Msg {
   id: string
@@ -52,6 +58,12 @@ interface Msg {
   sender_name: string | null
   sender_avatar_url?: string | null
   sender_avatar_color?: string | null
+  provider_message_id?: string | null
+  reply_to_provider_id?: string | null
+  reply_to_preview?: string | null
+  deleted_at?: string | null
+  deleted_by_name?: string | null
+  participant_name?: string | null
   acted_by_name?: string | null
   acted_by_avatar_url?: string | null
   acted_by_avatar_color?: string | null
@@ -66,7 +78,7 @@ interface Msg {
 
 interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
 
-export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null }) {
+export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null, isAdmin = false }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null; isAdmin?: boolean }) {
   const toast = useToast()
   const [scope, setScope] = useState<ScopeTab>(initialConversationId ? 'all' : 'mine')
   const [conversations, setConversations] = useState<ConversationRow[]>([])
@@ -80,6 +92,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showReassign, setShowReassign] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
+  const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
+  const [replyTo, setReplyTo] = useState<Msg | null>(null)
+  const loadLabels = useCallback(() => { getCrmLabels().then(setLabelCatalog) }, [])
+  useEffect(() => { loadLabels() }, [loadLabels])
+  useEffect(() => { setReplyTo(null) }, [selectedId])
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
@@ -88,7 +105,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0 })
+  const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0, groups: 0 })
   const filter = useInstanceFilter()
   const selectedKey = filter.selected.join(',')
   const [syncingContacts, setSyncingContacts] = useState(false)
@@ -209,9 +226,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           storagePath: up.storagePath,
           fileName: file.name,
           mimeType: file.type,
+          replyToMessageId: replyTo?.id,
         })
         if (res.error) toast.error('ERRO', res.error)
-        else refreshThread(selectedId)
+        else { setReplyTo(null); refreshThread(selectedId) }
       })
     })
   }
@@ -219,11 +237,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const handleSend = () => {
     if (!text.trim() || !selectedId) return
     const msg = text
+    const reply = replyTo
     setText('')
     startTransition(async () => {
-      const res = await sendCrmMessage({ conversationId: selectedId, text: msg })
-      if (res.error) toast.error('ERRO', res.error)
-      else refreshThread(selectedId)
+      const res = await sendCrmMessage({ conversationId: selectedId, text: msg, replyToMessageId: reply?.id })
+      if (res.error) {
+        toast.error('ERRO', res.error)
+        setText((cur) => cur || msg) // não perde o que foi digitado
+      } else { setReplyTo(null); refreshThread(selectedId) }
     })
   }
 
@@ -305,10 +326,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       fileName: file.name,
       mimeType: file.type,
       isVoiceNote: true,
+      replyToMessageId: replyTo?.id,
     })
     setSendingVoice(false)
     if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
-    else refreshThread(selectedId)
+    else { setReplyTo(null); refreshThread(selectedId) }
   }
 
   async function openAttachment(path: string) {
@@ -359,7 +381,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           </div>
           {shortDigits && <p role="status" className="text-xs text-amber-700 mb-2">Digite ao menos 3 números para buscar por telefone</p>}
           <div className="flex gap-2">
-            {(['mine', 'unassigned', 'all'] as const).map((key) => (
+            {(['mine', 'unassigned', 'all', 'groups'] as const).map((key) => (
               <button
                 key={key}
                 onClick={() => setScope(key)}
@@ -370,7 +392,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 )}
               >
-                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : 'Todas'}
+                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Grupos'}
                 {counts[key] > 0 && (
                   <span className={cn('ml-1.5 text-xs rounded-full px-1.5 py-0.5', scope === key ? 'bg-white/20' : key === 'unassigned' ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-600')}>{counts[key]}</span>
                 )}
@@ -418,6 +440,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       className="w-10 h-10 rounded-full object-cover shrink-0"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                     />
+                  ) : c.is_group ? (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white flex items-center justify-center shrink-0" title="Grupo">
+                      <GroupIcon className="w-5 h-5" />
+                    </div>
                   ) : (
                     <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
                       {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
@@ -435,8 +461,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         <span className="truncate">{c.instance_label}</span>
                       </span>
                     </p>
-                    <p className="text-xs text-gray-400 line-clamp-1 mt-1">
-                      {stripFormatting(c.last_body) || 'Sem mensagens'}
+                    <ConvTags type={c.contact_type} labels={c.labels} className="mt-1" />
+                    <p className={cn('flex items-center gap-1 text-xs mt-1', c.last_direction === 'inbound' ? 'text-gray-700 font-medium' : 'text-gray-400')}>
+                      {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
+                      {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
+                      <span className="line-clamp-1">{c.last_body || 'Sem mensagens'}</span>
                     </p>
                   </div>
                 </div>
@@ -476,8 +505,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       <WhatsappIcon className="w-3.5 h-3.5" />{selected.instance_label}
                     </span>
                   </p>
+                  <ConvTags type={selected.contact_type} labels={selected.labels} className="mt-1" />
                 </div>
-                <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
+                {!selected.is_group && <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
                   <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
                   <DealValue
                     size="md"
@@ -489,11 +519,19 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       return null
                     }}
                   />
-                </div>
+                </div>}
               </div>
 
               {/* Ações */}
               <div className="flex gap-1 shrink-0">
+                <LabelPicker
+                  conversationId={selected.id}
+                  all={labelCatalog}
+                  selectedIds={selected.labels.map((l) => l.id)}
+                  isAdmin={isAdmin}
+                  onChanged={() => refreshList(true)}
+                  onCatalogChanged={loadLabels}
+                />
                 <button
                   onClick={() => setShowInfo((v) => !v)}
                   title="Dados do contato"
@@ -503,12 +541,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 >
                   <Info className="w-4 h-4" />
                 </button>
-                <button
+                {!selected.is_group && <button
                   onClick={() => setShowLinkContact(true)}
+                  title="Vincular contato / dar um nome"
+                  aria-label="Vincular contato"
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <Link2 className="w-4 h-4" />
-                </button>
+                </button>}
                 <button
                   onClick={() => setShowReassign(true)}
                   title="Transferir ou liberar esta conversa"
@@ -535,6 +575,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onOpenMedia={() => setLightboxId(m.id)}
                   onOpenAttachment={openAttachment}
                   contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
+                  isGroup={selected.is_group}
+                  parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
+                  onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  canDelete={canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  onDelete={async () => {
+                    if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
+                    const r = await deleteCrmMessage(m.id)
+                    if (r.error) toast.error('NÃO FOI POSSÍVEL APAGAR', r.error)
+                    else { toast.success('MENSAGEM APAGADA'); refreshThread(selectedId!) }
+                  }}
                 />
               ))}
               <div ref={bottomRef} />
@@ -575,6 +625,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </div>
             ) : (
               <div className="p-4 pt-2 border-t border-gray-200 bg-white">
+              {replyTo && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg bg-gray-100 border-l-4 border-sky-500 px-3 py-2" role="status">
+                  <Reply className="w-4 h-4 mt-0.5 text-sky-600 shrink-0" />
+                  <div className="min-w-0 flex-1 text-sm">
+                    <p className="font-semibold text-sky-700 text-xs">Respondendo a {replyTo.direction === 'outbound' ? (replyTo.sender_name ?? 'nós') : (selected.is_group ? (replyTo.participant_name ?? selected.contact_name) : (selected.contact_name ?? 'contato'))}</p>
+                    <p className="text-gray-600 truncate">{messagePreview({ message_type: replyTo.message_type, body: replyTo.body, file_name: replyTo.file_name }) || '…'}</p>
+                  </div>
+                  <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancelar resposta" className="p-1 rounded hover:bg-gray-200 text-gray-500"><X className="w-4 h-4" /></button>
+                </div>
+              )}
               <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} disabled={pending || sendingVoice} />
               <div className="flex items-end gap-2 mt-1">
                 {/* Ícone de anexo */}
@@ -649,6 +709,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             conversationId={selected.id}
             onClose={() => setShowInfo(false)}
             onChanged={() => refreshList(true)}
+            isAdmin={isAdmin}
           />
         </div>
       )}
@@ -695,15 +756,29 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function MessageBubble({
-  msg, url, onOpenMedia, onOpenAttachment, contact,
+  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, canDelete, onDelete,
 }: {
   msg: Msg
   url?: string
   onOpenMedia: () => void
   onOpenAttachment: (p: string) => void
   contact: { id: string; name: string; photo: string | null }
+  isGroup: boolean
+  parent: Msg | null
+  onReply: () => void
+  canDelete: boolean
+  onDelete: () => void
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
+  const [menu, setMenu] = useState(false)
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(false)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    document.addEventListener('click', close)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey) }
+  }, [menu])
   const isOutbound = msg.direction === 'outbound'
   const time = new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
@@ -718,12 +793,17 @@ function MessageBubble({
     ? acted
       ? `${msg.acted_by_name} (administrador) enviou em nome de ${msg.sender_name}`
       : (msg.sender_name ?? 'Enviada pelo celular do WhatsApp')
-    : contact.name
+    : (isGroup ? (msg.participant_name ?? 'Participante do grupo') : contact.name)
+  const speaker = !isOutbound && isGroup ? (msg.participant_name ?? 'Participante') : null
 
   const senderAvatar = isOutbound ? (
     msg.sender_name
       ? <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} title={acted ? `Assinatura: ${msg.sender_name}` : msg.sender_name} />
       : <span title={who} className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center shrink-0">?</span>
+  ) : isGroup ? (
+    <span title={speaker ?? ''} className={`w-7 h-7 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
+      {(speaker ?? '?').charAt(0).toUpperCase()}
+    </span>
   ) : contact.photo ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={contact.photo} alt={contact.name} title={contact.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
@@ -743,13 +823,31 @@ function MessageBubble({
 
   const caption = msg.body && ['image', 'video', 'document'].includes(msg.message_type) ? msg.body : null
 
+  if (msg.deleted_at) {
+    return (
+      <div id={`msg-${msg.id}`} className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
+        {!isOutbound && avatar}
+        <div className="max-w-md rounded-2xl px-4 py-2 text-sm border border-dashed border-gray-300 bg-white/60 text-gray-500 italic">
+          🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}
+          <p className="text-xs not-italic mt-0.5">{time}</p>
+        </div>
+        {isOutbound && avatar}
+      </div>
+    )
+  }
+
+  const parentName = parent
+    ? (parent.direction === 'outbound' ? (parent.sender_name ?? 'Nós') : (isGroup ? (parent.participant_name ?? 'Participante') : contact.name))
+    : null
+  const canReply = !!msg.provider_message_id
+
   return (
-    <div className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
+    <div id={`msg-${msg.id}`} className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
       {!isOutbound && avatar}
       <div
         title={who}
         className={cn(
-          'max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+          'group relative max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
           isOutbound
             ? acted
               ? 'bg-[#FFF4DC] text-[#3b2a05] border border-amber-300 rounded-br-md'
@@ -757,6 +855,41 @@ function MessageBubble({
             : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
         )}
       >
+        {(canReply || canDelete) && (
+          <div className="absolute top-1 right-1">
+            <button
+              type="button"
+              aria-label="Opções da mensagem"
+              aria-haspopup="menu"
+              onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}
+              className="p-1 rounded-full bg-white/80 text-gray-500 hover:text-gray-900 opacity-0 group-hover:opacity-100 focus:opacity-100 shadow-sm"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            {menu && (
+              <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-7 z-30 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm text-gray-800 not-italic">
+                {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
+                {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {speaker && <p className="text-xs font-semibold text-sky-700 mb-0.5">{speaker}</p>}
+
+        {msg.reply_to_provider_id && (
+          <button
+            type="button"
+            onClick={() => parent && document.getElementById(`msg-${parent.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            className="mb-1.5 w-full text-left rounded-lg bg-black/5 border-l-4 border-sky-500 px-2.5 py-1.5"
+          >
+            <span className="block text-xs font-semibold text-sky-700">{parentName ?? 'Mensagem citada'}</span>
+            <span className="block text-xs text-gray-600 line-clamp-2">
+              {parent ? (messagePreview({ message_type: parent.message_type, body: parent.body, file_name: parent.file_name, deleted: !!parent.deleted_at }) || '…') : (msg.reply_to_preview || 'Mensagem anterior')}
+            </span>
+          </button>
+        )}
+
         {acted && (
           <p className="flex items-center gap-1 text-[11px] font-medium text-amber-800 mb-1">
             <UserCog className="w-3 h-3" /> {msg.acted_by_name} respondeu como {msg.sender_name}

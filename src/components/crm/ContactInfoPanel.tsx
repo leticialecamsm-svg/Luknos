@@ -9,6 +9,11 @@ import {
   createContactFromConversation,
   setContactCategory,
   setContactNotes,
+  changeConversationContact,
+  searchContactsForCrm,
+  getCrmLabels,
+  getConversationLabelIds,
+  type CrmLabel,
   type ContactPanelData,
   type PanelMedia,
 } from '@/lib/crm-actions'
@@ -16,9 +21,11 @@ import { CONTACT_TYPES, CONTACT_TYPE_LABEL, isSpecifierType, QUOTE_STATUS_LABEL,
 import { formatCents } from '@/lib/crm-money'
 import { getAvatarColor } from '@/lib/crm-ui'
 import { Avatar } from '@/components/ui/Avatar'
+import { LabelPicker } from './LabelPicker'
+import { LabelChip } from './ConvTags'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
-import { Tag, X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film } from 'lucide-react'
+import { Search, Tag, X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film } from 'lucide-react'
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
@@ -29,17 +36,25 @@ const brl = (n: number | null | undefined) => (n === null || n === undefined ? '
 type MediaTab = 'images' | 'documents' | 'audios' | 'videos' | 'links'
 
 export function ContactInfoPanel({
-  conversationId, onClose, onChanged,
+  conversationId, onClose, onChanged, isAdmin = false,
 }: {
   conversationId: string
   onClose: () => void
   onChanged: () => void
+  isAdmin?: boolean
 }) {
   const toast = useToast()
   const [data, setData] = useState<ContactPanelData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<MediaTab>('images')
   const [linking, setLinking] = useState(false)
+  const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
+  const [labelIds, setLabelIds] = useState<string[]>([])
+  const loadLabels = useCallback(() => {
+    getCrmLabels().then(setLabelCatalog)
+    getConversationLabelIds(conversationId).then(setLabelIds)
+  }, [conversationId])
+  useEffect(() => { loadLabels() }, [loadLabels])
 
   const load = useCallback((pickTab = false) => {
     getContactPanel(conversationId).then((r) => {
@@ -99,7 +114,7 @@ export function ContactInfoPanel({
                 {data.display_name.charAt(0).toUpperCase()}
               </div>
               <h4 className="mt-3 text-lg font-semibold text-gray-900 break-words">{data.display_name}</h4>
-              <p className="text-gray-500">{formatPhoneBR(data.phone_digits)}</p>
+              <p className="text-gray-500">{data.is_group ? 'Grupo do WhatsApp' : formatPhoneBR(data.phone_digits)}</p>
               <p className="mt-1 text-xs text-gray-400">WhatsApp: {data.instance_label}</p>
               <div className="mt-3 flex flex-wrap justify-center gap-2 text-xs">
                 {data.contact && (
@@ -121,6 +136,27 @@ export function ContactInfoPanel({
               </div>
             </section>
 
+            {/* etiquetas */}
+            <section className="p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Etiquetas</h5>
+                <LabelPicker
+                  conversationId={conversationId}
+                  all={labelCatalog}
+                  selectedIds={labelIds}
+                  isAdmin={isAdmin}
+                  compact
+                  onChanged={(ids) => { setLabelIds(ids); onChanged() }}
+                  onCatalogChanged={() => { getCrmLabels().then(setLabelCatalog); onChanged() }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5 min-h-[1.25rem]">
+                {labelCatalog.filter((l) => labelIds.includes(l.id)).map((l) => <LabelChip key={l.id} label={l} className="text-xs px-2 py-1" />)}
+                {labelIds.length === 0 && <span className="text-sm text-gray-400">Nenhuma etiqueta</span>}
+              </div>
+            </section>
+
+            {!data.is_group && <>
             {/* contato no sistema */}
             <section className="p-4 space-y-3">
               <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Contato no sistema</h5>
@@ -128,6 +164,7 @@ export function ContactInfoPanel({
                 <ContactBlock
                   key={data.contact.id}
                   contact={data.contact}
+                  linkSource={data.link_source}
                   conversationId={conversationId}
                   linking={linking}
                   onLink={() => linkSuggested(data.contact!.id)}
@@ -144,6 +181,7 @@ export function ContactInfoPanel({
 
             {/* orçamentos */}
             <QuotesSection data={data} />
+            </>}
 
             {/* histórico */}
             <section className="p-4 space-y-2">
@@ -248,10 +286,17 @@ function FileList({ items, icon: Icon, empty, onOpen }: { items: PanelMedia[]; i
   )
 }
 
+const SOURCE_LABEL: Record<string, string> = {
+  phone: 'Vinculado automaticamente pelo telefone',
+  name: 'Vinculado automaticamente pelo nome',
+  manual: 'Vinculado manualmente',
+}
+
 function ContactBlock({
-  contact, conversationId, linking, onLink, onSaved,
+  contact, linkSource, conversationId, linking, onLink, onSaved,
 }: {
   contact: NonNullable<ContactPanelData['contact']>
+  linkSource: 'phone' | 'name' | 'manual' | null
   conversationId: string
   linking: boolean
   onLink: () => void
@@ -282,6 +327,10 @@ function ContactBlock({
   return (
     <div className="text-sm space-y-2">
       <p className="font-medium text-gray-900">{contact.name}</p>
+      {contact.linked && linkSource && (
+        <p className={cn('text-[11px]', linkSource === 'manual' ? 'text-gray-400' : 'text-emerald-700')}>{SOURCE_LABEL[linkSource]}</p>
+      )}
+      {contact.linked && <ChangeContact conversationId={conversationId} currentId={contact.id} onChanged={onSaved} />}
       {contact.company && <p className="text-gray-600">{contact.company}</p>}
       {contact.email && <p className="text-gray-600 break-all">{contact.email}</p>}
 
@@ -455,5 +504,59 @@ function QuotesSection({ data }: { data: ContactPanelData }) {
         </>
       )}
     </section>
+  )
+}
+
+// Corrigir um vínculo automático errado: trocar por outro contato ou desvincular.
+function ChangeContact({ conversationId, currentId, onChanged }: { conversationId: string; currentId: string; onChanged: () => void }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<{ id: string; name: string; phone: string | null; type: string }[]>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!open || q.trim().length < 2) { setResults([]); return }
+    const t = setTimeout(() => { searchContactsForCrm(q).then((r) => setResults(r as any)) }, 250)
+    return () => clearTimeout(t)
+  }, [q, open])
+
+  async function apply(contactId: string | null) {
+    if (busy) return
+    if (contactId === null && !window.confirm('Desvincular este contato? O sistema não vai vincular de novo sozinho.')) return
+    setBusy(true)
+    const r = await changeConversationContact(conversationId, contactId)
+    setBusy(false)
+    if (r.error) toast.error('ERRO', r.error)
+    else { toast.success(contactId ? 'CONTATO TROCADO' : 'CONTATO DESVINCULADO'); setOpen(false); setQ(''); onChanged() }
+  }
+
+  if (!open) {
+    return (
+      <div className="flex gap-3 text-xs">
+        <button onClick={() => setOpen(true)} className="underline text-gray-600 hover:text-gray-900">Não é este contato? Trocar</button>
+        <button onClick={() => apply(null)} className="underline text-gray-400 hover:text-red-600">Desvincular</button>
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-gray-200 p-2 space-y-2">
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou telefone" aria-label="Buscar contato"
+          className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300" />
+      </div>
+      <ul className="max-h-40 overflow-y-auto">
+        {results.filter((r) => r.id !== currentId).map((r) => (
+          <li key={r.id}>
+            <button disabled={busy} onClick={() => apply(r.id)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm">
+              {r.name} <span className="text-xs text-gray-400">· {CONTACT_TYPE_LABEL[r.type] ?? r.type}{r.phone ? ` · ${r.phone}` : ''}</span>
+            </button>
+          </li>
+        ))}
+        {q.trim().length >= 2 && results.filter((r) => r.id !== currentId).length === 0 && <li className="px-2 py-1.5 text-xs text-gray-400">Nenhum contato encontrado</li>}
+      </ul>
+      <button onClick={() => { setOpen(false); setQ('') }} className="text-xs text-gray-500 underline">Cancelar</button>
+    </div>
   )
 }

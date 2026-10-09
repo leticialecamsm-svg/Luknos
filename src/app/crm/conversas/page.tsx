@@ -12,5 +12,5 @@ export default async function Page({ searchParams }: { searchParams: { c?: strin
   const { data: { user } } = await createClient().auth.getUser()
   const [users, acting] = await Promise.all([getSystemUsersForCrm(), getActingContext()])
   const initialId = searchParams.c && UUID.test(searchParams.c) ? searchParams.c : null
-  return <CrmInboxPage currentUserId={acting.acting?.id ?? user!.id} users={users as any} initialConversationId={initialId} actingAsName={acting.acting?.name ?? null} />
+  return <CrmInboxPage currentUserId={acting.acting?.id ?? user!.id} users={users as any} initialConversationId={initialId} actingAsName={acting.acting?.name ?? null} isAdmin={acting.can_act} />
 }
