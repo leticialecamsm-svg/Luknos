@@ -25,6 +25,7 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
+import { stripFormatting } from '@/lib/wa-format'
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft } from 'lucide-react'
 
 const BOARD_LIMIT = 500
@@ -326,7 +327,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                               <span className="truncate">{c.instance_label}</span>
                             </span>
                           </p>
-                          <p className="text-xs text-gray-400 line-clamp-1 mt-1">{c.last_body || 'Sem mensagens'}</p>
+                          <p className="text-xs text-gray-400 line-clamp-1 mt-1">{stripFormatting(c.last_body) || 'Sem mensagens'}</p>
                         </div>
                         <div className="relative shrink-0 flex flex-col items-end gap-1">
                           <span className="text-xs text-gray-400">{timeAgo(c.last_message_at)}</span>

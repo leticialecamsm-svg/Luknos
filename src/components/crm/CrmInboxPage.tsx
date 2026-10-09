@@ -8,6 +8,10 @@ import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
 import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
+import { WaText } from './WaText'
+import { applyFormat } from '@/lib/wa-format'
+import { FormatToolbar } from './FormatToolbar'
+import { Avatar } from '@/components/ui/Avatar'
 import {
   getCrmConversations,
   getCrmScopeCounts,
@@ -29,6 +33,7 @@ import {
 import { uploadCrmFile } from '@/lib/crm-upload'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
+import { stripFormatting } from '@/lib/wa-format'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info,
@@ -41,6 +46,8 @@ interface Msg {
   direction: 'inbound' | 'outbound'
   sender_user_id: string | null
   sender_name: string | null
+  sender_avatar_url?: string | null
+  sender_avatar_color?: string | null
   message_type: string
   body: string | null
   storage_path: string | null
@@ -69,6 +76,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0 })
@@ -118,6 +126,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => { refreshList() }, [refreshList])
   useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  // o campo cresce com o texto (até ~6 linhas)
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 144) + 'px'
+  }, [text])
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -393,7 +408,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       </span>
                     </p>
                     <p className="text-xs text-gray-400 line-clamp-1 mt-1">
-                      {c.last_body || 'Sem mensagens'}
+                      {stripFormatting(c.last_body) || 'Sem mensagens'}
                     </p>
                   </div>
                 </div>
@@ -485,7 +500,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </div>
               )}
               {messages.map((m) => (
-                <MessageBubble key={m.id} msg={m} onOpenAttachment={openAttachment} />
+                <MessageBubble
+                  key={m.id}
+                  msg={m}
+                  onOpenAttachment={openAttachment}
+                  contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
+                />
               ))}
               <div ref={bottomRef} />
             </div>
@@ -524,7 +544,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </button>
               </div>
             ) : (
-              <div className="p-4 border-t border-gray-200 bg-white flex items-end gap-2">
+              <div className="p-4 pt-2 border-t border-gray-200 bg-white">
+              <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} disabled={pending || sendingVoice} />
+              <div className="flex items-end gap-2 mt-1">
                 {/* Ícone de anexo */}
                 <button
                   type="button"
@@ -544,12 +566,23 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
                 {/* Input */}
                 <textarea
+                  ref={textareaRef}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return }
+                    // atalhos: Ctrl/Cmd+B negrito, Ctrl/Cmd+I itálico
+                    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'b' || e.key === 'i')) {
+                      e.preventDefault()
+                      const el = e.currentTarget
+                      const ed = applyFormat(text, el.selectionStart, el.selectionEnd, e.key === 'b' ? 'bold' : 'italic')
+                      setText(ed.value)
+                      requestAnimationFrame(() => { el.setSelectionRange(ed.start, ed.end) })
+                    }
+                  }}
                   placeholder="Escreva uma mensagem…"
                   rows={1}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-0"
+                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
                 />
 
                 {/* Microfone ou enviar */}
@@ -572,6 +605,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     <Mic className="w-5 h-5" />
                   </button>
                 )}
+              </div>
               </div>
             )}
           </>
@@ -621,7 +655,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // Componentes auxiliares
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
-function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: (p: string) => void }) {
+function MessageBubble({
+  msg, onOpenAttachment, contact,
+}: {
+  msg: Msg
+  onOpenAttachment: (p: string) => void
+  contact: { id: string; name: string; photo: string | null }
+}) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [audioError, setAudioError] = useState(false)
   const [audioLoading, setAudioLoading] = useState(false)
@@ -648,22 +688,37 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
     return <div className="text-center py-2 text-xs text-gray-400">{msg.body}</div>
   }
 
+  // quem enviou: atendente (nosso lado) ou o contato
+  const who = isOutbound
+    ? (msg.sender_name ?? 'Enviada pelo celular do WhatsApp')
+    : contact.name
+  const avatar = isOutbound ? (
+    msg.sender_name
+      ? <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} title={msg.sender_name} />
+      : <span title={who} className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center shrink-0">?</span>
+  ) : contact.photo ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={contact.photo} alt={contact.name} title={contact.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
+  ) : (
+    <span title={contact.name} className={`w-7 h-7 rounded-full bg-gradient-to-br ${getAvatarColor(contact.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
+      {contact.name.charAt(0).toUpperCase()}
+    </span>
+  )
+
   return (
-    <div className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}>
+    <div className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
+      {!isOutbound && avatar}
       <div
+        title={who}
         className={cn(
-          'max-w-xs rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+          'max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
           isOutbound
-            ? 'bg-gray-900 text-white'
-            : 'bg-white text-gray-900 border border-gray-200'
+            ? 'bg-[#E6EEF8] text-[#0A1F3B] border border-[#D3E0F2] rounded-br-md'
+            : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
         )}
       >
-        {!isOutbound && msg.sender_name && (
-          <p className="text-xs font-semibold text-gray-500 mb-1">{msg.sender_name}</p>
-        )}
-
         {msg.message_type === 'text' && msg.body && (
-          <p className="whitespace-pre-wrap">{msg.body}</p>
+          <WaText text={msg.body} />
         )}
 
         {msg.message_type === 'audio' && (
@@ -688,7 +743,7 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
                 <a
                   href={audioUrl}
                   download={msg.file_name || 'audio.oga'}
-                  className={cn('text-xs underline mt-1 block', isOutbound ? 'text-gray-300' : 'text-blue-600')}
+                  className="text-xs underline mt-1 block text-blue-700"
                 >
                   🎙️ Baixar áudio
                 </a>
@@ -697,7 +752,7 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
           ) : (
             <div className="flex items-center gap-2 text-sm min-w-[160px]">
               <span>🎙️</span>
-              <span className={isOutbound ? 'text-gray-300' : 'text-gray-500'}>
+              <span className="text-gray-500">
                 {audioError ? 'Áudio indisponível' : 'Mensagem de voz'}
               </span>
             </div>
@@ -707,25 +762,21 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
         {['image', 'document'].includes(msg.message_type) && msg.storage_path && (
           <button
             onClick={() => msg.storage_path && onOpenAttachment(msg.storage_path)}
-            className={cn(
-              'underline text-sm',
-              isOutbound ? 'text-gray-200' : 'text-blue-600'
-            )}
+            className="underline text-sm text-blue-700"
           >
             {msg.file_name || 'Arquivo'}
           </button>
         )}
 
         {msg.message_type === 'other' && (
-          <p className={cn('text-xs italic', isOutbound ? 'text-gray-400' : 'text-gray-400')}>
+          <p className="text-xs italic text-gray-400">
             Mensagem não suportada
           </p>
         )}
 
-        <p className={cn('text-xs mt-1 opacity-70', isOutbound ? 'text-gray-300' : 'text-gray-500')}>
-          {time}
-        </p>
+        <p className="text-xs mt-1 text-gray-500">{time}</p>
       </div>
+      {isOutbound && avatar}
     </div>
   )
 }

@@ -6,16 +6,19 @@ import {
   getContactPanel,
   getCrmAttachmentUrl,
   linkConversationContact,
+  createContactFromConversation,
+  setContactCategory,
+  setContactNotes,
   type ContactPanelData,
   type PanelMedia,
 } from '@/lib/crm-actions'
-import { CONTACT_TYPE_LABEL, QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, formatPhoneBR } from '@/lib/crm-panel'
+import { CONTACT_TYPES, CONTACT_TYPE_LABEL, QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, formatPhoneBR } from '@/lib/crm-panel'
 import { formatCents } from '@/lib/crm-money'
 import { getAvatarColor } from '@/lib/crm-ui'
 import { Avatar } from '@/components/ui/Avatar'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
-import { X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film } from 'lucide-react'
+import { Tag, X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film } from 'lucide-react'
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
@@ -99,6 +102,11 @@ export function ContactInfoPanel({
               <p className="text-gray-500">{formatPhoneBR(data.phone_digits)}</p>
               <p className="mt-1 text-xs text-gray-400">WhatsApp: {data.instance_label}</p>
               <div className="mt-3 flex flex-wrap justify-center gap-2 text-xs">
+                {data.contact && (
+                  <span className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full font-medium', data.contact.type === 'other' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-800')}>
+                    <Tag className="w-3 h-3" />{data.contact.type === 'other' ? 'Sem categoria' : CONTACT_TYPE_LABEL[data.contact.type] ?? data.contact.type}
+                  </span>
+                )}
                 {data.stage && (
                   <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-100 text-gray-700">
                     <span className="w-2 h-2 rounded-full" style={{ background: data.stage.color }} />{data.stage.name}
@@ -114,28 +122,23 @@ export function ContactInfoPanel({
             </section>
 
             {/* contato no sistema */}
-            <section className="p-4 space-y-2">
+            <section className="p-4 space-y-3">
               <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Contato no sistema</h5>
               {data.contact ? (
-                <div className="text-sm space-y-1">
-                  <p className="font-medium text-gray-900">{data.contact.name}
-                    <span className="ml-2 text-xs font-normal text-gray-500">{CONTACT_TYPE_LABEL[data.contact.type] ?? data.contact.type}</span>
-                  </p>
-                  {data.contact.company && <p className="text-gray-600">{data.contact.company}</p>}
-                  {data.contact.email && <p className="text-gray-600 break-all">{data.contact.email}</p>}
-                  {data.contact.phone && <p className="text-gray-500">{formatPhoneBR(data.contact.phone.replace(/\D/g, '').length <= 11 ? '55' + data.contact.phone.replace(/\D/g, '') : data.contact.phone)}</p>}
-                  {data.contact.notes && <p className="text-gray-500 italic whitespace-pre-wrap">{data.contact.notes}</p>}
-                  {!data.contact.linked && (
-                    <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-amber-900 text-xs">
-                      Encontrei este contato pelo telefone, mas a conversa ainda não está vinculada a ele.
-                      <button disabled={linking} onClick={() => linkSuggested(data.contact!.id)} className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-900 text-white font-medium hover:bg-gray-700 disabled:opacity-60">
-                        {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Vincular a esta conversa
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <ContactBlock
+                  key={data.contact.id}
+                  contact={data.contact}
+                  conversationId={conversationId}
+                  linking={linking}
+                  onLink={() => linkSuggested(data.contact!.id)}
+                  onSaved={() => { load(); onChanged() }}
+                />
               ) : (
-                <p className="text-sm text-gray-500">Nenhum contato cadastrado com este telefone. Use o botão de vincular no topo da conversa.</p>
+                <NewContactForm
+                  conversationId={conversationId}
+                  defaultName={data.display_name === data.phone_digits ? '' : data.display_name}
+                  onCreated={() => { load(); onChanged() }}
+                />
               )}
             </section>
 
@@ -274,5 +277,141 @@ function FileList({ items, icon: Icon, empty, onOpen }: { items: PanelMedia[]; i
         </li>
       ))}
     </ul>
+  )
+}
+
+function ContactBlock({
+  contact, conversationId, linking, onLink, onSaved,
+}: {
+  contact: NonNullable<ContactPanelData['contact']>
+  conversationId: string
+  linking: boolean
+  onLink: () => void
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const [type, setType] = useState(contact.type)
+  const [savingType, setSavingType] = useState(false)
+  const [notes, setNotes] = useState(contact.notes ?? '')
+  const [savingNotes, setSavingNotes] = useState(false)
+
+  async function changeType(next: string) {
+    const prev = type
+    setType(next); setSavingType(true)
+    const r = await setContactCategory(conversationId, contact.id, next)
+    setSavingType(false)
+    if (r.error) { setType(prev); toast.error('ERRO', r.error) } else { toast.success('CATEGORIA ATUALIZADA'); onSaved() }
+  }
+
+  async function saveNotes() {
+    if (notes.trim() === (contact.notes ?? '').trim()) return
+    setSavingNotes(true)
+    const r = await setContactNotes(conversationId, contact.id, notes)
+    setSavingNotes(false)
+    if (r.error) toast.error('ERRO', r.error); else { toast.success('OBSERVAÇÕES SALVAS'); onSaved() }
+  }
+
+  return (
+    <div className="text-sm space-y-2">
+      <p className="font-medium text-gray-900">{contact.name}</p>
+      {contact.company && <p className="text-gray-600">{contact.company}</p>}
+      {contact.email && <p className="text-gray-600 break-all">{contact.email}</p>}
+
+      <div>
+        <label htmlFor="contact-type" className="block text-xs text-gray-500 mb-1">Categoria</label>
+        <div className="flex items-center gap-2">
+          <select id="contact-type" value={type} disabled={savingType} onChange={(e) => changeType(e.target.value)}
+            className={cn('flex-1 border rounded-lg px-2 py-1.5 text-sm bg-white', type === 'other' ? 'border-amber-300' : 'border-gray-300')}>
+            {CONTACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.value === 'other' ? 'Outro / sem categoria' : t.label}</option>)}
+          </select>
+          {savingType && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+        </div>
+        {type === 'other' && <p className="mt-1 text-xs text-amber-700">Este contato está sem categoria definida. Escolha uma acima.</p>}
+      </div>
+
+      <div>
+        <label htmlFor="contact-notes" className="block text-xs text-gray-500 mb-1">Observações</label>
+        <textarea id="contact-notes" value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} rows={3} maxLength={2000}
+          placeholder="Adicione notas sobre este cliente…"
+          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y" />
+        {savingNotes && <p className="text-xs text-gray-400">Salvando…</p>}
+      </div>
+
+      {!contact.linked && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-amber-900 text-xs">
+          Encontrei este contato pelo telefone, mas a conversa ainda não está vinculada a ele.
+          <button disabled={linking} onClick={onLink} className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-900 text-white font-medium hover:bg-gray-700 disabled:opacity-60">
+            {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Vincular a esta conversa
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NewContactForm({ conversationId, defaultName, onCreated }: { conversationId: string; defaultName: string; onCreated: () => void }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(defaultName)
+  const [type, setType] = useState('')
+  const [company, setCompany] = useState('')
+  const [email, setEmail] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (saving) return
+    if (!type) { setError('Escolha a categoria do contato'); return }
+    setSaving(true); setError(null)
+    const r = await createContactFromConversation(conversationId, { name, type, company, email })
+    setSaving(false)
+    if (r.error) { setError(r.error); return }
+    toast.success('CONTATO CADASTRADO', 'Já vinculado a esta conversa')
+    onCreated()
+  }
+
+  if (!open) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-gray-500">Nenhum contato cadastrado com este telefone.</p>
+        <button onClick={() => setOpen(true)} className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-gray-900 text-white text-sm font-medium hover:bg-gray-700">
+          <UserPlus className="w-4 h-4" /> Cadastrar como contato
+        </button>
+      </div>
+    )
+  }
+
+  const input = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
+  return (
+    <form onSubmit={submit} className="space-y-2 text-sm">
+      <div>
+        <label htmlFor="nc-name" className="block text-xs text-gray-500 mb-1">Nome</label>
+        <input id="nc-name" className={input} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus />
+      </div>
+      <div>
+        <label htmlFor="nc-type" className="block text-xs text-gray-500 mb-1">Categoria</label>
+        <select id="nc-type" className={cn(input, 'bg-white')} value={type} onChange={(e) => { setType(e.target.value); setError(null) }}>
+          <option value="">Escolha…</option>
+          {CONTACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="nc-company" className="block text-xs text-gray-500 mb-1">Empresa (opcional)</label>
+        <input id="nc-company" className={input} value={company} onChange={(e) => setCompany(e.target.value)} />
+      </div>
+      <div>
+        <label htmlFor="nc-email" className="block text-xs text-gray-500 mb-1">E-mail (opcional)</label>
+        <input id="nc-email" type="email" className={input} value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={() => setOpen(false)} disabled={saving} className="flex-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200">Cancelar</button>
+        <button type="submit" disabled={saving} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-60">
+          {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Cadastrar
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-400">O telefone da conversa entra automaticamente e a conversa fica vinculada ao novo contato.</p>
+    </form>
   )
 }

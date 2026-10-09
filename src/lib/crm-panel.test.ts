@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { samePhone, phoneVariants, formatPhoneBR, extractLinks } from './crm-panel'
+import { samePhone, phoneVariants, formatPhoneBR, extractLinks, isContactType, formatPhoneForContact, CONTACT_TYPES } from './crm-panel'
 
 describe('samePhone (celular BR com/sem 9º dígito e DDI)', () => {
   it('mesmo número em formatos diferentes', () => {
@@ -40,5 +40,18 @@ describe('extractLinks', () => {
   })
   it('não pega link dentro de parênteses fechando', () => {
     expect(extractLinks('(https://a.com/x)')).toEqual(['https://a.com/x'])
+  })
+})
+
+describe('categorias de contato', () => {
+  it('todas as categorias do sistema', () => {
+    expect(CONTACT_TYPES.map((t) => t.value)).toEqual(['client', 'architect', 'designer', 'electrician', 'engineer', 'plasterer', 'other'])
+    expect(isContactType('architect')).toBe(true)
+    expect(isContactType('hacker')).toBe(false)
+    expect(isContactType(undefined)).toBe(false)
+  })
+  it('telefone no padrão do cadastro', () => {
+    expect(formatPhoneForContact('558296717950')).toBe('55 82 9671-7950')
+    expect(formatPhoneForContact('5582996717950')).toBe('55 82 99671-7950')
   })
 })

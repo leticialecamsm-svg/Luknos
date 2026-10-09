@@ -68,3 +68,35 @@ export const CONTACT_TYPE_LABEL: Record<string, string> = {
   plasterer: 'Gesseiro',
   other: 'Outro',
 }
+
+// Categorias de contato do sistema (enum contact_type), na ordem de exibição.
+export const CONTACT_TYPES = [
+  { value: 'client', label: 'Cliente' },
+  { value: 'architect', label: 'Arquiteto(a)' },
+  { value: 'designer', label: 'Designer' },
+  { value: 'electrician', label: 'Eletricista' },
+  { value: 'engineer', label: 'Engenheiro(a)' },
+  { value: 'plasterer', label: 'Gesseiro' },
+  { value: 'other', label: 'Outro' },
+] as const
+
+export type ContactTypeValue = (typeof CONTACT_TYPES)[number]['value']
+
+export function isContactType(v: unknown): v is ContactTypeValue {
+  return typeof v === 'string' && CONTACT_TYPES.some((t) => t.value === v)
+}
+
+// Mesmo padrão do cadastro de contatos do sistema: "55 82 9671-7950".
+export function formatPhoneForContact(raw: string | null | undefined): string {
+  const d = onlyDigits(raw)
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
+    const num = d.slice(4)
+    return `55 ${d.slice(2, 4)} ${num.slice(0, num.length - 4)}-${num.slice(-4)}`
+  }
+  return d
+}
+
+// Comissão padrão de parceiros por categoria (igual ao cadastro de /partners).
+export const DEFAULT_COMMISSION_BY_TYPE: Record<string, number> = {
+  architect: 10, engineer: 5, electrician: 3, plasterer: 3, designer: 3, other: 3,
+}

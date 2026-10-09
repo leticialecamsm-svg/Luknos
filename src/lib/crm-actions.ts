@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { extractLinks, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
+import { DEFAULT_COMMISSION_BY_TYPE, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -585,7 +585,7 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, sender:users!crm_messages_sender_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
@@ -593,6 +593,8 @@ export async function getCrmMessages(conversationId: string) {
     items: (data ?? []).map((m: any) => ({
       ...m,
       sender_name: m.sender?.name ?? null,
+      sender_avatar_url: m.sender?.avatar_url ?? null,
+      sender_avatar_color: m.sender?.avatar_color ?? null,
     })),
   }
 }
@@ -1104,4 +1106,97 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
     media,
     links,
   }
+}
+
+
+// ─── Contato a partir da conversa (painel "Dados do contato") ───────────────
+
+// O contato precisa ser o vinculado à conversa ou o que tem o mesmo telefone.
+async function contactBelongsToConversation(admin: Admin, conversationId: string, contactId: string) {
+  const { data: c } = await admin.from('crm_conversations').select('contact_id, remote_jid').eq('id', conversationId).single()
+  if (!c) return false
+  if (c.contact_id === contactId) return true
+  const { data: k } = await admin.from('contacts').select('phone').eq('id', contactId).maybeSingle()
+  return !!k && samePhone(k.phone, c.remote_jid.split('@')[0])
+}
+
+export async function createContactFromConversation(
+  conversationId: string,
+  input: { name: string; type: string; company?: string; email?: string },
+) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+
+  const name = input.name.replace(/\s+/g, ' ').trim()
+  if (!name) return { error: 'Informe o nome do contato' }
+  if (name.length > 120) return { error: 'Nome muito longo (máximo 120 caracteres)' }
+  if (!isContactType(input.type)) return { error: 'Escolha a categoria do contato' }
+  const email = input.email?.trim() || null
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'E-mail inválido' }
+
+  const { data: conv } = await admin.from('crm_conversations').select('remote_jid').eq('id', conversationId).single()
+  const digits = onlyDigits(conv?.remote_jid.split('@')[0])
+
+  // não duplica: se já existe contato com esse telefone, é para vincular
+  const { data: withPhone } = await admin.from('contacts').select('id, name, phone').not('phone', 'is', null)
+  const dup = (withPhone ?? []).find((k) => samePhone(k.phone, digits))
+  if (dup) return { error: `Já existe o contato "${dup.name}" com este telefone. Vincule-o em vez de criar outro.` }
+
+  const { data: created, error } = await admin
+    .from('contacts')
+    .insert({
+      name,
+      phone: formatPhoneForContact(digits),
+      email,
+      type: input.type,
+      company: input.company?.trim() || null,
+      created_by: auth.userId,
+      assigned_to: auth.userId,
+      commission_rate: input.type === 'client' ? null : DEFAULT_COMMISSION_BY_TYPE[input.type] ?? null,
+    })
+    .select('id')
+    .single()
+  if (error || !created) return { error: error?.message ?? 'Não foi possível cadastrar' }
+
+  const { error: linkErr } = await admin.from('crm_conversations').update({ contact_id: created.id, contact_name_cache: null }).eq('id', conversationId)
+  if (linkErr) return { error: linkErr.message }
+  revalidatePath('/crm'); revalidatePath('/partners')
+  return { ok: true, contactId: created.id as string }
+}
+
+export async function setContactCategory(conversationId: string, contactId: string, type: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!isContactType(type)) return { error: 'Categoria inválida' }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (!(await contactBelongsToConversation(admin, conversationId, contactId))) return { error: 'Este contato não pertence a esta conversa' }
+
+  const { data: cur } = await admin.from('contacts').select('commission_rate').eq('id', contactId).single()
+  const updates: Record<string, unknown> = { type }
+  // parceiro sem taxa definida ganha a taxa padrão da categoria (igual ao cadastro)
+  if (type !== 'client' && (cur?.commission_rate === null || cur?.commission_rate === undefined)) {
+    updates.commission_rate = DEFAULT_COMMISSION_BY_TYPE[type] ?? null
+  }
+  const { error } = await admin.from('contacts').update(updates).eq('id', contactId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm'); revalidatePath('/partners')
+  return { ok: true }
+}
+
+export async function setContactNotes(conversationId: string, contactId: string, notes: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (notes.length > 2000) return { error: 'Observações muito longas (máximo 2000 caracteres)' }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (!(await contactBelongsToConversation(admin, conversationId, contactId))) return { error: 'Este contato não pertence a esta conversa' }
+  const { error } = await admin.from('contacts').update({ notes: notes.trim() || null }).eq('id', contactId)
+  if (error) return { error: error.message }
+  return { ok: true }
 }
