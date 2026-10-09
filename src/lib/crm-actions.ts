@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, isGroupJid } from '@/lib/crm-preview'
+import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -525,6 +526,7 @@ export interface ConversationRow {
   contact_name: string | null
   last_body: string | null
   last_direction: 'inbound' | 'outbound' | null // de quem foi a última mensagem
+  next_followup: { id: string; due_at: string; assignee_id: string; note: string | null } | null
 }
 
 type ListScope = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -591,11 +593,18 @@ export async function getCrmConversations(
   const ids = (data ?? []).map((c: any) => c.id)
   const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null }>()
   const labelsBy = new Map<string, CrmLabel[]>()
+  const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
   if (ids.length) {
-    const [{ data: infos }, { data: ls }] = await Promise.all([
+    const [{ data: infos }, { data: ls }, { data: fus }] = await Promise.all([
       admin.rpc('crm_last_info', { conv_ids: ids }),
       admin.from('crm_conversation_labels').select('conversation_id, crm_labels(id, name, color)').in('conversation_id', ids),
+      admin.from('tasks').select('id, crm_conversation_id, due_date, user_id, description').in('crm_conversation_id', ids).neq('status', 'done').order('due_date', { ascending: true }),
     ])
+    for (const f of (fus ?? []) as any[]) {
+      if (f.due_date && !followupBy.has(f.crm_conversation_id)) {
+        followupBy.set(f.crm_conversation_id, { id: f.id, due_at: f.due_date, assignee_id: f.user_id, note: f.description ?? null })
+      }
+    }
     for (const r of (infos ?? []) as any[]) {
       lastInfo.set(r.conversation_id, {
         preview: r.created_at ? messagePreview({ message_type: r.message_type, body: r.body, file_name: r.file_name, deleted: r.deleted }) : null,
@@ -643,6 +652,7 @@ export async function getCrmConversations(
       contact_name: c.contacts?.name ?? c.contact_name_cache ?? null,
       last_body: li?.preview ?? null,
       last_direction: li?.direction ?? null,
+      next_followup: followupBy.get(c.id) ?? null,
     }
   })
 
@@ -1578,4 +1588,206 @@ export async function getConversationLabelIds(conversationId: string): Promise<s
   if (!acc.ok) return []
   const { data } = await admin.from('crm_conversation_labels').select('label_id').eq('conversation_id', conversationId)
   return (data ?? []).map((r) => r.label_id as string)
+}
+
+
+// ─── Follow-up (lembrete dentro da conversa) ────────────────────────────────
+// Cada follow-up é uma tarefa de "Tarefas e Agenda" ligada à conversa (tasks.crm_conversation_id):
+// concluir aqui ou lá é a mesma coisa.
+
+export interface FollowupItem {
+  id: string
+  conversation_id: string
+  due_at: string
+  note: string | null
+  status: string
+  completed_at: string | null
+  assignee: CrmPerson | null
+  created_by_name: string | null
+}
+
+const TZ = 'America/Maceio'
+function fmtDueBR(iso: string) {
+  return new Date(iso).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' às')
+}
+
+function validateFollowupInput(input: { dueAt?: string; note?: string | null }, requireDue: boolean) {
+  let due: Date | null = null
+  if (input.dueAt !== undefined) {
+    due = new Date(input.dueAt)
+    if (Number.isNaN(due.getTime())) return { error: 'Data e hora inválidas' as const }
+    if (due.getTime() < Date.now() - 5 * 60 * 1000) return { error: 'Escolha uma data e hora no futuro' as const }
+    if (due.getTime() > Date.now() + 2 * 365 * 24 * 3600 * 1000) return { error: 'Data distante demais (máximo 2 anos)' as const }
+  } else if (requireDue) return { error: 'Escolha quando fazer o follow-up' as const }
+  const note = input.note === undefined ? undefined : (input.note ?? '').trim()
+  if (note && note.length > FOLLOWUP_NOTE_MAX) return { error: `A descrição pode ter no máximo ${FOLLOWUP_NOTE_MAX} caracteres` as const }
+  return { due, note }
+}
+
+export async function getConversationFollowups(conversationId: string): Promise<FollowupItem[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return []
+  const { data, error } = await admin
+    .from('tasks')
+    .select('id, crm_conversation_id, due_date, description, status, completed_at, user_id, created_by')
+    .eq('crm_conversation_id', conversationId)
+    .order('due_date', { ascending: true })
+    .limit(50)
+  if (error) { console.error('getConversationFollowups', error.message); return [] }
+  const rows = (data ?? []) as any[]
+  // tasks.user_id aponta para auth.users (não para public.users): busca os nomes à parte
+  const peopleIds = Array.from(new Set(rows.flatMap((r) => [r.user_id, r.created_by]).filter(Boolean)))
+  const { data: us } = peopleIds.length ? await admin.from('users').select('id, name, avatar_url, avatar_color').in('id', peopleIds) : { data: [] as any[] }
+  const byId = new Map((us ?? []).map((u: any) => [u.id, u]))
+  const open = rows.filter((r) => r.status !== 'done')
+  const done = rows.filter((r) => r.status === 'done').sort((a, b) => String(b.completed_at ?? '').localeCompare(String(a.completed_at ?? ''))).slice(0, 3)
+  return [...open, ...done].map((r) => {
+    const a: any = byId.get(r.user_id)
+    return {
+      id: r.id,
+      conversation_id: r.crm_conversation_id,
+      due_at: r.due_date,
+      note: r.description ?? null,
+      status: r.status,
+      completed_at: r.completed_at ?? null,
+      assignee: a ? { id: a.id, name: a.name, avatar_url: a.avatar_url ?? null, avatar_color: a.avatar_color ?? null } : null,
+      created_by_name: (byId.get(r.created_by) as any)?.name ?? null,
+    }
+  })
+}
+
+export async function createFollowup(conversationId: string, input: { dueAt: string; note?: string; assigneeId?: string | null }) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const v = validateFollowupInput(input, true)
+  if ('error' in v) return { error: v.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+
+  const { data: conv } = await admin
+    .from('crm_conversations')
+    .select('contact_name_cache, remote_jid, assigned_user_id, contacts(name)')
+    .eq('id', conversationId)
+    .single()
+  if (!conv) return { error: 'Conversa não encontrada' }
+  const name = (conv as any).contacts?.name ?? conv.contact_name_cache ?? conv.remote_jid.split('@')[0]
+
+  const assigneeId = input.assigneeId || conv.assigned_user_id || auth.userId
+  const { data: target } = await admin.from('users').select('id, name').eq('id', assigneeId).eq('active', true).maybeSingle()
+  if (!target) return { error: 'Essa pessoa não está ativa no sistema' }
+  if (target.id !== auth.userId) {
+    const access = await conversationAccess(admin, target.id, conversationId)
+    if (!access.ok) return { error: `${target.name} não tem acesso a esta conversa. Transfira ou libere a conversa antes.` }
+  }
+
+  const { data, error } = await admin.from('tasks').insert({
+    user_id: target.id,
+    created_by: auth.actedBy?.id ?? auth.userId,
+    title: `Follow-up: ${name}`.slice(0, 120),
+    description: v.note || null,
+    priority: 'mid',
+    status: 'todo',
+    due_date: v.due!.toISOString(),
+    checklist: [],
+    crm_conversation_id: conversationId,
+  }).select('id').single()
+  if (error) return { error: error.message }
+
+  await systemNote(admin, conversationId, `Follow-up agendado para ${fmtDueBR(v.due!.toISOString())} (responsável: ${target.name}) por ${whoLabel(auth)}.`)
+  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  return { ok: true, id: data.id as string }
+}
+
+async function loadFollowupTask(admin: Admin, auth: { userId: string; actedBy: { id: string } | null }, taskId: string) {
+  const { data: t } = await admin.from('tasks').select('id, crm_conversation_id, user_id, status').eq('id', taskId).maybeSingle()
+  if (!t || !t.crm_conversation_id) return { error: 'Follow-up não encontrado' as const }
+  const acc = await convAccess(admin, auth, t.crm_conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  return { task: t as { id: string; crm_conversation_id: string; user_id: string; status: string } }
+}
+
+export async function updateFollowup(taskId: string, input: { dueAt?: string; note?: string | null; assigneeId?: string }) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const v = validateFollowupInput(input, false)
+  if ('error' in v) return { error: v.error }
+  const admin = createAdminClient()
+  const l = await loadFollowupTask(admin, auth, taskId)
+  if ('error' in l) return { error: l.error }
+
+  const updates: Record<string, unknown> = {}
+  if (v.due) updates.due_date = v.due.toISOString()
+  if (v.note !== undefined) updates.description = v.note || null
+  if (input.assigneeId && input.assigneeId !== l.task.user_id) {
+    const { data: target } = await admin.from('users').select('id, name').eq('id', input.assigneeId).eq('active', true).maybeSingle()
+    if (!target) return { error: 'Essa pessoa não está ativa no sistema' }
+    const access = await conversationAccess(admin, target.id, l.task.crm_conversation_id)
+    if (!access.ok) return { error: `${target.name} não tem acesso a esta conversa. Transfira ou libere a conversa antes.` }
+    updates.user_id = target.id
+  }
+  if (Object.keys(updates).length === 0) return { ok: true }
+  const { error } = await admin.from('tasks').update(updates).eq('id', taskId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  return { ok: true }
+}
+
+export async function completeFollowup(taskId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const l = await loadFollowupTask(admin, auth, taskId)
+  if ('error' in l) return { error: l.error }
+  const { error } = await admin.from('tasks').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', taskId)
+  if (error) return { error: error.message }
+  await systemNote(admin, l.task.crm_conversation_id, `Follow-up concluído por ${whoLabel(auth)}.`)
+  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  return { ok: true }
+}
+
+export async function deleteFollowup(taskId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const l = await loadFollowupTask(admin, auth, taskId)
+  if ('error' in l) return { error: l.error }
+  const { error } = await admin.from('tasks').delete().eq('id', taskId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  return { ok: true }
+}
+
+export interface MyFollowup {
+  id: string
+  conversation_id: string
+  due_at: string
+  note: string | null
+  contact_name: string
+  instance_label: string
+}
+
+// Follow-ups abertos do usuário (quem está atuando), do mais antigo ao mais novo.
+export async function getMyFollowups(): Promise<MyFollowup[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const { data } = await createAdminClient()
+    .from('tasks')
+    .select('id, crm_conversation_id, due_date, description, crm_conversations(contact_name_cache, remote_jid, contacts(name), crm_instances(label))')
+    .eq('user_id', auth.userId)
+    .not('crm_conversation_id', 'is', null)
+    .neq('status', 'done')
+    .order('due_date', { ascending: true })
+    .limit(100)
+  return ((data ?? []) as any[]).filter((r) => r.due_date && r.crm_conversations).map((r) => ({
+    id: r.id,
+    conversation_id: r.crm_conversation_id,
+    due_at: r.due_date,
+    note: r.description ?? null,
+    contact_name: r.crm_conversations.contacts?.name ?? r.crm_conversations.contact_name_cache ?? r.crm_conversations.remote_jid.split('@')[0],
+    instance_label: r.crm_conversations.crm_instances?.label ?? '—',
+  }))
 }

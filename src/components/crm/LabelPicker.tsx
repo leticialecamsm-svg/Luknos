@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createCrmLabel, deleteCrmLabel, setConversationLabels, type CrmLabel } from '@/lib/crm-actions'
+import { createCrmLabel, deleteCrmLabel, updateCrmLabel, setConversationLabels, type CrmLabel } from '@/lib/crm-actions'
 import { STAGE_COLORS } from '@/lib/crm-stages'
 import { useToast } from '@/components/ui/Toast'
 import { LabelChip } from './ConvTags'
 import { cn } from '@/lib/utils'
-import { Tag, Check, Plus, Trash2, Loader2 } from 'lucide-react'
+import { Tag, Check, Plus, Trash2, Loader2, Pencil } from 'lucide-react'
 
 // Etiquetas da conversa. Qualquer atendente aplica/tira; só administrador cria e exclui etiquetas.
 export function LabelPicker({
@@ -28,6 +28,8 @@ export function LabelPicker({
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(STAGE_COLORS[0])
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ id: string; name: string; color: string } | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -63,6 +65,17 @@ export function LabelPicker({
     onCatalogChanged(); onChanged(next)
   }
 
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editing || busy) return
+    setBusy(true); setEditError(null)
+    const r = await updateCrmLabel(editing.id, { name: editing.name, color: editing.color })
+    setBusy(false)
+    if (r.error) { setEditError(r.error); return }
+    setEditing(null)
+    onCatalogChanged() // a etiqueta é a mesma em todas as conversas e WhatsApps
+  }
+
   async function remove(l: CrmLabel) {
     if (busy || !window.confirm(`Excluir a etiqueta “${l.name}”? Ela some de todas as conversas.`)) return
     setBusy(true)
@@ -94,12 +107,40 @@ export function LabelPicker({
           <ul className="max-h-56 overflow-y-auto">
             {all.map((l) => {
               const on = selectedIds.includes(l.id)
+              if (editing?.id === l.id) {
+                return (
+                  <li key={l.id} className="p-1.5">
+                    <form onSubmit={saveEdit} className="space-y-2 rounded-lg border border-gray-200 p-2">
+                      <input value={editing.name} onChange={(e) => { setEditing({ ...editing, name: e.target.value }); setEditError(null) }} maxLength={30} aria-label="Nome da etiqueta" autoFocus
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
+                      <div className="flex gap-1.5 flex-wrap">
+                        {STAGE_COLORS.map((c) => (
+                          <button type="button" key={c} onClick={() => setEditing({ ...editing, color: c })} aria-label={`Cor ${c}`} aria-pressed={editing.color === c}
+                            className={cn('w-5 h-5 rounded-full border-2', editing.color === c ? 'border-gray-900' : 'border-transparent')} style={{ background: c }} />
+                        ))}
+                      </div>
+                      {editError && <p role="alert" className="text-xs text-red-600">{editError}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setEditing(null); setEditError(null) }} className="flex-1 px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs">Cancelar</button>
+                        <button type="submit" disabled={busy} className="flex-1 px-2 py-1 rounded-lg bg-gray-900 text-white text-xs inline-flex items-center justify-center gap-1 disabled:opacity-60">
+                          {busy && <Loader2 className="w-3 h-3 animate-spin" />} Salvar
+                        </button>
+                      </div>
+                    </form>
+                  </li>
+                )
+              }
               return (
                 <li key={l.id} className="flex items-center gap-1 group">
                   <button type="button" onClick={() => toggle(l.id)} disabled={busy} className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 text-left">
                     <Check className={cn('w-4 h-4 shrink-0', on ? 'text-gray-900' : 'opacity-0')} />
                     <LabelChip label={l} className="text-xs px-2 py-1" />
                   </button>
+                  {isAdmin && (
+                    <button type="button" onClick={() => { setEditing({ id: l.id, name: l.name, color: l.color }); setEditError(null) }} aria-label={`Editar etiqueta ${l.name}`} title="Editar nome e cor" className="p-1.5 rounded text-gray-300 hover:text-gray-700 hover:bg-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   {isAdmin && (
                     <button type="button" onClick={() => remove(l)} aria-label={`Excluir etiqueta ${l.name}`} className="p-1.5 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus:opacity-100">
                       <Trash2 className="w-3.5 h-3.5" />

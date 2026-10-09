@@ -24,9 +24,11 @@ import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
 import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ConvTags } from './ConvTags'
+import { DUE_STYLE } from './FollowupPopover'
+import { dueState, formatDue } from '@/lib/crm-followup'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft, CheckCheck, ArrowDownLeft } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft, CheckCheck, ArrowDownLeft, CalendarClock } from 'lucide-react'
 
 const BOARD_LIMIT = 500
 type Scope = 'mine' | 'unassigned' | 'all'
@@ -328,6 +330,11 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                             </span>
                           </p>
                           <ConvTags type={c.contact_type} labels={c.labels} className="mt-1" />
+                          {c.next_followup && (
+                            <p className={cn('inline-flex items-center gap-1 text-[11px] font-medium mt-1 px-1.5 py-0.5 rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
+                              <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
+                            </p>
+                          )}
                           <p className={cn('flex items-center gap-1 text-xs mt-1', c.last_direction === 'inbound' ? 'text-gray-700 font-medium' : 'text-gray-400')}>
                             {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                             {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { ActingAsBar } from './ActingAsBar'
+import { FollowupNotifier } from './FollowupNotifier'
 
 const TABS = [
   { href: '/crm', label: 'Quadro' },
@@ -32,6 +33,7 @@ export function CrmTabs() {
           </Link>
         )
       })}
+      <FollowupNotifier />
     </nav>
     </>
   )

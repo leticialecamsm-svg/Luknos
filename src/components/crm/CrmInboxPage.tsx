@@ -10,6 +10,8 @@ import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
 import { ConvTags } from './ConvTags'
+import { FollowupPopover, DUE_STYLE } from './FollowupPopover'
+import { dueState, formatDue } from '@/lib/crm-followup'
 import { LabelPicker } from './LabelPicker'
 import { canDeleteForEveryone, messagePreview } from '@/lib/crm-preview'
 import { AudioPlayer } from './AudioPlayer'
@@ -31,6 +33,7 @@ import {
   type CrmLabel,
   getCrmLabels,
   deleteCrmMessage,
+  completeFollowup,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
@@ -46,7 +49,7 @@ import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -94,9 +97,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
   const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
   const [replyTo, setReplyTo] = useState<Msg | null>(null)
+  const [followupOpen, setFollowupOpen] = useState(false)
   const loadLabels = useCallback(() => { getCrmLabels().then(setLabelCatalog) }, [])
   useEffect(() => { loadLabels() }, [loadLabels])
-  useEffect(() => { setReplyTo(null) }, [selectedId])
+  useEffect(() => { setReplyTo(null); setFollowupOpen(false) }, [selectedId])
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
@@ -380,13 +384,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             )}
           </div>
           {shortDigits && <p role="status" className="text-xs text-amber-700 mb-2">Digite ao menos 3 números para buscar por telefone</p>}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {(['mine', 'unassigned', 'all', 'groups'] as const).map((key) => (
               <button
                 key={key}
                 onClick={() => setScope(key)}
                 className={cn(
-                  'flex-1 px-3 py-1.5 text-sm font-medium rounded-full transition-colors',
+                  'flex-1 whitespace-nowrap px-2.5 py-1.5 text-sm font-medium rounded-full transition-colors',
                   scope === key
                     ? 'bg-gray-900 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -462,6 +466,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       </span>
                     </p>
                     <ConvTags type={c.contact_type} labels={c.labels} className="mt-1" />
+                    {c.next_followup && (
+                      <p className={cn('inline-flex items-center gap-1 text-[11px] font-medium mt-1 px-1.5 py-0.5 rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
+                        <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
+                      </p>
+                    )}
                     <p className={cn('flex items-center gap-1 text-xs mt-1', c.last_direction === 'inbound' ? 'text-gray-700 font-medium' : 'text-gray-400')}>
                       {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                       {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
@@ -524,6 +533,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
               {/* Ações */}
               <div className="flex gap-1 shrink-0">
+                <FollowupPopover
+                  conversationId={selected.id}
+                  users={users}
+                  defaultAssigneeId={selected.assigned_user_id}
+                  open={followupOpen}
+                  onOpenChange={setFollowupOpen}
+                  onChanged={() => refreshList(true)}
+                />
                 <LabelPicker
                   conversationId={selected.id}
                   all={labelCatalog}
@@ -559,6 +576,26 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </button>
               </div>
             </div>
+
+            {selected.next_followup && (() => {
+              const f = selected.next_followup!
+              const st = dueState(f.due_at)
+              return (
+                <div className={cn('flex items-start gap-2.5 px-4 py-2 border-b text-sm', DUE_STYLE[st])} role="status">
+                  <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">{st === 'overdue' ? 'Follow-up atrasado' : 'Follow-up'} · {formatDue(f.due_at)}</p>
+                    {f.note && <p className="text-gray-800 whitespace-pre-wrap break-words line-clamp-3">{f.note}</p>}
+                  </div>
+                  <button onClick={async () => {
+                    const r = await completeFollowup(f.id)
+                    if ('error' in r && r.error) toast.error('ERRO', r.error)
+                    else { toast.success('FOLLOW-UP CONCLUÍDO'); refreshList(true); refreshThread(selected.id, true) }
+                  }} className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/80 hover:bg-white border border-current/20 text-xs font-medium">Concluir</button>
+                  <button onClick={() => setFollowupOpen(true)} className="shrink-0 px-2.5 py-1 rounded-full bg-white/80 hover:bg-white border border-current/20 text-xs font-medium">Ver</button>
+                </div>
+              )
+            })()}
 
             {/* Mensagens */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
