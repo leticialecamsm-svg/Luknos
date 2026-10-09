@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import { formatWaiting } from '@/lib/crm-awaiting'
 import { useCrmDesktopNotify } from '@/lib/use-crm-desktop-notify'
+import { CrmNoticeStack } from '@/components/crm/CrmNoticeStack'
 
 const TYPE_LABEL: Record<string, string> = { visita: 'Visita', reuniao: 'Reunião', follow_up: 'Follow-up', lembrete: 'Lembrete' }
 
@@ -171,6 +172,7 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
   if (mode === 'header') {
     return (
       <div className="relative">
+        <CrmNoticeStack notices={desk.notices} onOpen={desk.open} onClose={desk.dismiss} />
         <button
           onClick={() => setOpen(o => !o)}
           className="relative w-9 h-9 rounded-full flex items-center justify-center text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.04)] transition-colors"
@@ -244,10 +246,10 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
                   <p>Bloqueados no navegador. Libere as notificações deste site nas configurações do Chrome para receber o banner no canto da tela.</p>
                 ) : (
                   <>
-                    <p className="mb-2">Quando chegar mensagem de uma conversa sua, aparece um aviso no canto da tela, em qualquer página do sistema.</p>
+                    <p className="mb-2">Quando chegar mensagem de uma conversa sua, aparece um aviso no canto da tela, em qualquer página do sistema. Com a aba em segundo plano, o banner do sistema avisa (precisa estar ativado).</p>
                     <div className="flex flex-wrap items-center gap-2">
                       {desk.permission === 'default' && (
-                        <button onClick={desk.requestPermission} className="px-3 py-1.5 rounded-full bg-navy text-white font-medium hover:opacity-90">Ativar avisos na tela</button>
+                        <button onClick={desk.requestPermission} className="px-3 py-1.5 rounded-full bg-navy text-white font-medium hover:opacity-90">Ativar banner do sistema</button>
                       )}
                       <button
                         onClick={() => desk.setEnabled(!desk.enabled)}

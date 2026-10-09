@@ -33,6 +33,8 @@ import {
   reactToMessage,
   saveMessageAsSticker,
   getGroupParticipants,
+  setConversationPinned,
+  setConversationSignature,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -63,7 +65,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -375,6 +377,28 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
+  const handlePin = () => {
+    if (!selected) return
+    const id = selected.id
+    const next = !selected.pinned
+    startTransition(async () => {
+      const r = await setConversationPinned(id, next)
+      if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL FIXAR', r.error)
+      else { toast.success(next ? 'CONVERSA FIXADA' : 'CONVERSA DESAFIXADA', next ? 'Ela fica no topo da sua lista' : ''); refreshList(true) }
+    })
+  }
+
+  const handleToggleSignature = () => {
+    if (!selected) return
+    const id = selected.id
+    const hide = !selected.hide_signature
+    startTransition(async () => {
+      const r = await setConversationSignature(id, hide)
+      if ('error' in r && r.error) toast.error('ERRO', r.error)
+      else { toast.success(hide ? 'SEM ASSINATURA' : 'COM ASSINATURA', hide ? 'As mensagens desta conversa vão sem o seu nome no começo' : 'As mensagens voltam a levar o nome de quem enviou'); refreshList(true) }
+    })
+  }
+
   const lightboxItems: LightboxItem[] = messages
     .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && m.storage_path && attUrls[m.storage_path])
     .map((m) => ({ id: m.id, url: attUrls[m.storage_path as string], kind: m.message_type as 'image' | 'video', name: m.file_name }))
@@ -651,8 +675,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                         {c.contact_name ?? c.remote_jid.split('@')[0]}
                       </p>
-                      <span className={cn('shrink-0 text-[11px] whitespace-nowrap', isUnread(c) ? 'font-semibold text-emerald-600' : 'text-gray-400')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
+                      <span className="shrink-0 inline-flex items-center gap-1">
+                      {c.pinned && <Pin className="w-3 h-3 text-amber-600 rotate-45" aria-label="Fixada" />}
+                      <span className={cn('text-[11px] whitespace-nowrap', isUnread(c) ? 'font-semibold text-emerald-600' : 'text-gray-400')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
                         {formatListTime(c.last_at ?? c.last_message_at)}
+                      </span>
                       </span>
                     </div>
                     <p className="mt-0.5">
@@ -755,6 +782,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onChanged={() => refreshList(true)}
                   onCatalogChanged={loadLabels}
                 />
+                <button
+                  onClick={handlePin}
+                  disabled={pending}
+                  title={selected.pinned ? 'Desafixar do topo' : 'Fixar no topo da lista'}
+                  aria-label={selected.pinned ? 'Desafixar conversa' : 'Fixar conversa'}
+                  aria-pressed={selected.pinned}
+                  className={cn('px-3 py-2 text-sm rounded-lg transition-colors', selected.pinned ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-gray-700 hover:bg-gray-100')}
+                >
+                  {selected.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                </button>
                 <button
                   onClick={handleMarkUnread}
                   disabled={pending}
@@ -958,6 +995,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     />
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={handleToggleSignature}
+                  disabled={pending || sendingVoice}
+                  className={cn('p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
+                  title={selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para voltar a assinar)' : 'Mensagens vão com o seu nome no começo (clique para enviar sem assinatura)'}
+                  aria-label="Assinatura"
+                  aria-pressed={!!selected?.hide_signature}
+                >
+                  <span className="relative inline-flex">
+                    <PenLine className="w-5 h-5" />
+                    {selected?.hide_signature && <span className="absolute left-0 right-0 top-1/2 h-0.5 -rotate-45 bg-amber-700 rounded" />}
+                  </span>
+                </button>
                 <input
                   ref={fileInputRef}
                   type="file"

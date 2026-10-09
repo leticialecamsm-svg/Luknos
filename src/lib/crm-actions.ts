@@ -561,6 +561,8 @@ export interface ConversationRow {
   remote_jid: string
   is_group: boolean
   is_restricted: boolean
+  hide_signature: boolean // enviar sem a assinatura "*Nome:*" nesta conversa
+  pinned: boolean // fixada no topo (por atendente)
   unread_count: number // mensagens do contato ainda não abertas por quem está vendo
   marked_unread: boolean // marcada manualmente como não lida
   contact_id: string | null
@@ -606,7 +608,7 @@ export async function getCrmConversations(
   let q = admin
     .from('crm_conversations')
     .select(`
-      id, instance_id, remote_jid, is_restricted, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
+      id, instance_id, remote_jid, is_restricted, hide_signature, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
       crm_instances(label), contacts(name, type),
       assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)
     `)
@@ -652,13 +654,16 @@ export async function getCrmConversations(
   const labelsBy = new Map<string, CrmLabel[]>()
   const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
   const unreadBy = new Map<string, { unread: number; marked: boolean }>()
+  const pinsBy = new Map<string, string>() // conversa -> quando fixou
   if (ids.length) {
-    const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }] = await Promise.all([
+    const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }, { data: pins }] = await Promise.all([
       admin.rpc('crm_last_info', { conv_ids: ids }),
       admin.from('crm_conversation_labels').select('conversation_id, crm_labels(id, name, color)').in('conversation_id', ids),
       admin.from('tasks').select('id, crm_conversation_id, due_date, user_id, description').in('crm_conversation_id', ids).neq('status', 'done').order('due_date', { ascending: true }),
       admin.rpc('crm_unread_counts', { uid: auth.userId, conv_ids: ids }),
+      admin.from('crm_conversation_pins').select('conversation_id, pinned_at').eq('user_id', auth.userId).in('conversation_id', ids),
     ])
+    for (const pn of (pins ?? []) as any[]) pinsBy.set(pn.conversation_id, pn.pinned_at)
     for (const u of (unr ?? []) as any[]) unreadBy.set(u.conversation_id, { unread: u.unread ?? 0, marked: !!u.marked_unread })
     for (const f of (fus ?? []) as any[]) {
       if (f.due_date && !followupBy.has(f.crm_conversation_id)) {
@@ -695,6 +700,8 @@ export async function getCrmConversations(
       remote_jid: c.remote_jid,
       is_group: isGroupJid(c.remote_jid),
       is_restricted: !!c.is_restricted,
+      hide_signature: !!c.hide_signature,
+      pinned: pinsBy.has(c.id),
       unread_count: unreadBy.get(c.id)?.unread ?? 0,
       marked_unread: unreadBy.get(c.id)?.marked ?? false,
       contact_id: c.contact_id,
@@ -720,6 +727,8 @@ export async function getCrmConversations(
       next_followup: followupBy.get(c.id) ?? null,
     }
   })
+  // fixadas primeiro (a que foi fixada por último no topo); o resto segue a ordem normal
+  items.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (a.pinned && b.pinned ? (pinsBy.get(b.id) ?? '').localeCompare(pinsBy.get(a.id) ?? '') : 0))
 
   return { items }
 }
@@ -2130,6 +2139,9 @@ export interface IncomingNotice {
   title: string
   body: string
   photo: string | null
+  instance_label: string
+  color_index: number // cor do WhatsApp de origem (a mesma do Quadro e das Conversas)
+  at: string // hora da mensagem
 }
 
 // Decide se uma mensagem recém-chegada deve gerar aviso para quem está logado: só mensagens do
@@ -2141,13 +2153,13 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
   const admin = createAdminClient()
   const { data: m } = await admin
     .from('crm_messages')
-    .select('id, conversation_id, direction, is_system, deleted_at, message_type, body, file_name')
+    .select('id, conversation_id, direction, is_system, deleted_at, message_type, body, file_name, created_at')
     .eq('id', messageId)
     .maybeSingle()
   if (!m || m.direction !== 'inbound' || m.is_system || m.deleted_at) return null
   const { data: c } = await admin
     .from('crm_conversations')
-    .select('id, remote_jid, status, assigned_user_id, contact_name_cache, contact_photo_url, contacts(name)')
+    .select('id, remote_jid, status, instance_id, assigned_user_id, contact_name_cache, contact_photo_url, contacts(name), crm_instances(label)')
     .eq('id', m.conversation_id)
     .maybeSingle()
   if (!c || c.status !== 'open' || isGroupJid(c.remote_jid)) return null
@@ -2158,7 +2170,17 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
   }
   const name = (c as any).contacts?.name ?? c.contact_name_cache ?? c.remote_jid.split('@')[0]
   const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
-  return { conversation_id: c.id, title: name, body: preview.length > 160 ? preview.slice(0, 157) + '…' : preview, photo: c.contact_photo_url ?? null }
+  const { data: insts } = await admin.from('crm_instances').select('id, created_at').order('created_at', { ascending: true })
+  const colorIndex = Math.max(0, (insts ?? []).findIndex((i) => i.id === c.instance_id))
+  return {
+    conversation_id: c.id,
+    title: name,
+    body: preview.length > 160 ? preview.slice(0, 157) + '…' : preview,
+    photo: c.contact_photo_url ?? null,
+    instance_label: (c as any).crm_instances?.label ?? '—',
+    color_index: colorIndex,
+    at: m.created_at as string,
+  }
 }
 
 // ─── Figurinhas ─────────────────────────────────────────────────────────────
@@ -2334,4 +2356,40 @@ export async function sendReceivedSticker(conversationId: string, messageId: str
   const { data: st } = await admin.from('crm_stickers').select('id').eq('storage_path', m.storage_path).maybeSingle()
   if (!st) return { error: 'Figurinha não encontrada' }
   return sendCrmSticker(conversationId, st.id as string)
+}
+
+// ─── Fixar conversa e assinatura ────────────────────────────────────────────
+
+const MAX_PINS = 10
+
+// Fixa/desafixa no topo da lista de quem está logado (não muda nada para os outros atendentes).
+export async function setConversationPinned(conversationId: string, pinned: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  if (pinned) {
+    const { count } = await admin.from('crm_conversation_pins').select('conversation_id', { count: 'exact', head: true }).eq('user_id', auth.userId)
+    if ((count ?? 0) >= MAX_PINS) return { error: `Você já tem ${MAX_PINS} conversas fixadas. Desafixe uma para fixar outra.` }
+    const { error } = await admin.from('crm_conversation_pins').upsert({ conversation_id: conversationId, user_id: auth.userId, pinned_at: new Date().toISOString() }, { onConflict: 'conversation_id,user_id' })
+    if (error) return { error: error.message }
+  } else {
+    await admin.from('crm_conversation_pins').delete().eq('conversation_id', conversationId).eq('user_id', auth.userId)
+  }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Enviar (ou não) a assinatura "*Nome:*" no começo das mensagens desta conversa.
+export async function setConversationSignature(conversationId: string, hide: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin.from('crm_conversations').update({ hide_signature: hide }).eq('id', conversationId)
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
 }
