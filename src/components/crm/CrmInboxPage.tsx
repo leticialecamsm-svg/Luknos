@@ -929,7 +929,7 @@ function MessageBubble({
     </span>
   ) : senderAvatar
 
-  const caption = msg.body && ['image', 'video', 'document'].includes(msg.message_type) ? msg.body : null
+  const caption = msg.body && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
 
   if (msg.deleted_at) {
     return (
@@ -1062,7 +1062,7 @@ function MessageBubble({
 
         {caption && <div className="mt-1.5"><WaText text={caption} /></div>}
 
-        {msg.message_type === 'other' && (
+        {msg.message_type === 'other' && !msg.body && (
           <p className="text-xs italic text-gray-400">Mensagem não suportada</p>
         )}
 
