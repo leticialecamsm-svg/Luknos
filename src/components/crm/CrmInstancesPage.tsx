@@ -26,7 +26,7 @@ interface Instance {
   member_ids: string[]
   users?: { name: string } | null
 }
-interface SysUser { id: string; name: string }
+interface SysUser { id: string; name: string; role?: string; role_label?: string; has_crm?: boolean }
 
 const STATE_LABEL: Record<string, { text: string; cls: string }> = {
   open: { text: 'Conectado', cls: 'bg-green-100 text-green-700' },
@@ -114,6 +114,11 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
                 <p className="text-xs text-gray-500 truncate">
                   {i.phone_e164 ?? 'sem telefone'} · instância “{i.instance_name}” · atendente padrão: {(i.users as any)?.name ?? '—'}
                 </p>
+                {i.is_private && (
+                  <p className="text-xs text-gray-500 truncate">
+                    Membros: {i.member_ids.length ? i.member_ids.map((id) => users.find((u) => u.id === id)?.name ?? '—').join(', ') : 'nenhum (além do atendente padrão)'}
+                  </p>
+                )}
               </div>
               <span title={states[i.id] === 'unknown' ? 'Não foi possível consultar a Evolution agora. Tente recarregar; se persistir, confira a conexão do servidor.' : undefined} className={cn('text-xs px-2 py-0.5 rounded-full', st.cls)}>{states[i.id] ? st.text : 'Verificando…'}</span>
               {i.is_private && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"><Lock className="w-3 h-3" /> Privado</span>}
@@ -198,7 +203,7 @@ function InstanceForm({ inst, users, onClose, onSaved }: { inst: Instance | null
           <label htmlFor="i-user" className="block text-sm text-gray-700 mb-1">Atendente padrão</label>
           <select id="i-user" className={input} value={userId} onChange={(e) => setUserId(e.target.value)}>
             <option value="">— ninguém (conversas ficam pendentes) —</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}{u.role_label ? ` — ${u.role_label}` : ''}</option>)}
           </select>
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -258,10 +263,12 @@ function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users:
             <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
               {users.map((u) => (
                 <label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
-                  <input type="checkbox" checked={members.includes(u.id)} onChange={() => toggle(u.id)} /> {u.name}
+                  <input type="checkbox" checked={members.includes(u.id)} onChange={() => toggle(u.id)} />
+                  <span className="flex-1">{u.name} <span className="text-xs text-gray-400">· {u.role_label ?? u.role}</span></span>
+                  {u.has_crm === false && <span className="text-[11px] text-amber-700">ganha acesso ao CRM</span>}
                 </label>
               ))}
-              {users.length === 0 && <p className="px-3 py-2 text-sm text-gray-500">Nenhum usuário com acesso ao CRM.</p>}
+              {users.length === 0 && <p className="px-3 py-2 text-sm text-gray-500">Nenhum usuário ativo cadastrado.</p>}
             </div>
           </div>
         )}

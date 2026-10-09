@@ -5,8 +5,9 @@ import { getCrmInstanceOptions } from '@/lib/crm-actions'
 import { cn } from '@/lib/utils'
 import { ChevronDown, Check, Lock } from 'lucide-react'
 import { WhatsappIcon } from './WhatsappIcon'
+import { instanceColor } from '@/lib/crm-ui'
 
-export interface InstanceOption { id: string; label: string; is_private: boolean }
+export interface InstanceOption { id: string; label: string; is_private: boolean; color_index: number }
 
 const KEY = 'crm-instance-filter'
 
@@ -39,7 +40,8 @@ export function useInstanceFilter() {
     try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* ignore */ }
   }, [options.length])
 
-  return { options, loaded, selected, setSelected }
+  const colorOf = useCallback((id: string) => instanceColor(options.find((o) => o.id === id)?.color_index), [options])
+  return { options, loaded, selected, setSelected, colorOf }
 }
 
 export function InstanceFilter({
@@ -99,6 +101,7 @@ export function InstanceFilter({
             return (
               <button key={o.id} type="button" role="option" aria-selected={on} onClick={() => toggle(o.id)} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
                 <Check className={cn('w-4 h-4 shrink-0', on && !all ? 'text-gray-900' : 'opacity-0')} />
+                <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', instanceColor(o.color_index).dot)} />
                 <span className="truncate flex-1 text-left">{o.label}</span>
                 {o.is_private && <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="Privado" />}
               </button>

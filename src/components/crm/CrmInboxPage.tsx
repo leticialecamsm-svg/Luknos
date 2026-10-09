@@ -48,7 +48,7 @@ interface Msg {
   created_at: string
 }
 
-interface SystemUser { id: string; name: string; role: string }
+interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
 
 export function CrmInboxPage({ currentUserId, users, initialConversationId = null }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null }) {
   const toast = useToast()
@@ -343,9 +343,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     <p className="font-semibold text-gray-900 truncate">
                       {c.contact_name ?? c.remote_jid.split('@')[0]}
                     </p>
-                    <p className="flex items-center gap-1 text-xs text-gray-500 truncate">
-                      <WhatsappIcon className="w-3 h-3 text-green-600 shrink-0" />
-                      <span className="truncate">{c.instance_label}</span>
+                    <p className="mt-0.5">
+                      <span className={cn('inline-flex max-w-full items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
+                        <WhatsappIcon className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{c.instance_label}</span>
+                      </span>
                     </p>
                     <p className="text-xs text-gray-400 line-clamp-1 mt-1">
                       {c.last_body || 'Sem mensagens'}
@@ -383,8 +385,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <h3 className="font-semibold text-gray-900 truncate">
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
-                  <p className="flex items-center gap-1 text-sm text-gray-500">
-                    <WhatsappIcon className="w-3.5 h-3.5 text-green-600" />{selected.instance_label}
+                  <p>
+                    <span className={cn('inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border', filter.colorOf(selected.instance_id).chip)}>
+                      <WhatsappIcon className="w-3.5 h-3.5" />{selected.instance_label}
+                    </span>
                   </p>
                 </div>
                 <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
@@ -663,6 +667,17 @@ function MessageBubble({ msg, onOpenAttachment }: { msg: Msg; onOpenAttachment: 
   )
 }
 
+function UserLabel({ u }: { u: SystemUser }) {
+  return (
+    <span className="flex flex-col leading-tight">
+      <span>{u.name}</span>
+      <span className="text-[11px] text-gray-400">
+        {u.role_label ?? u.role}{u.has_crm === false ? ' · recebe acesso ao CRM' : ''}
+      </span>
+    </span>
+  )
+}
+
 function ReassignModal({
   conversationId,
   currentUserId,
@@ -753,9 +768,9 @@ function ReassignModal({
                 key={u.id}
                 onClick={() => handleReassign(u.id)}
                 disabled={pending || u.id === currentUserId}
-                className={cn('w-full text-left px-3 py-2 rounded-lg text-sm transition-colors', currentUserId === u.id ? 'bg-gray-200 text-gray-900 font-medium' : 'hover:bg-gray-100 text-gray-700')}
+                className={cn('w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between gap-2', currentUserId === u.id ? 'bg-gray-200 text-gray-900 font-medium' : 'hover:bg-gray-100 text-gray-700')}
               >
-                {u.name}{currentUserId === u.id ? ' (atual)' : ''}
+                <UserLabel u={u} />{currentUserId === u.id && <span className="text-[11px] text-gray-500">(atual)</span>}
               </button>
             ))}
           </div>
@@ -771,7 +786,7 @@ function ReassignModal({
               const on = sharedIds.has(u.id)
               return (
                 <div key={u.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50">
-                  <span className="flex-1 text-sm text-gray-800">{u.name}</span>
+                  <span className="flex-1 text-sm text-gray-800"><UserLabel u={u} /></span>
                   <button
                     onClick={() => handleShare(u.id, !on)}
                     disabled={pending}
@@ -783,7 +798,7 @@ function ReassignModal({
               )
             })}
             {others.filter((u) => u.id !== currentUserId).length === 0 && (
-              <p className="text-sm text-gray-500">Nenhuma outra pessoa com acesso ao CRM. Libere “CRM WhatsApp” em Administração → Usuários.</p>
+              <p className="text-sm text-gray-500">Nenhum outro usuário ativo cadastrado.</p>
             )}
           </div>
         )}

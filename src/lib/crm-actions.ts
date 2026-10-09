@@ -74,8 +74,13 @@ export async function setCrmInstanceAccess(id: string, isPrivate: boolean, membe
   const admin = createAdminClient()
   const ids = Array.from(new Set(memberIds))
   if (ids.length) {
-    const allowed = new Set((await crmCapableUsers()).map((u) => u.id))
-    if (ids.some((u) => !allowed.has(u))) return { error: 'Só quem tem acesso ao CRM pode ser membro' }
+    const users = await allActiveUsers()
+    const chosen = ids.map((id) => users.find((u) => u.id === id))
+    if (chosen.some((u) => !u)) return { error: 'Usuário inválido ou inativo' }
+    for (const u of chosen as CrmUser[]) {
+      const err = await grantCrmAccessIfNeeded(auth.isAdmin, u)
+      if (err) return { error: err }
+    }
   }
   const { error } = await admin.from('crm_instances').update({ is_private: isPrivate }).eq('id', id)
   if (error) return { error: error.message }
@@ -113,6 +118,12 @@ export async function createCrmInstance(input: CrmInstanceInput) {
   const dup = await findInstanceWithPhone(input.phone_e164, null)
   if (dup) return { error: `Esse telefone já está cadastrado em "${dup}"` }
 
+  if (input.default_user_id) {
+    const u = (await allActiveUsers()).find((x) => x.id === input.default_user_id)
+    if (!u) return { error: 'Atendente padrão inválido ou inativo' }
+    const gErr = await grantCrmAccessIfNeeded(true, u)
+    if (gErr) return { error: gErr }
+  }
   const { error } = await createAdminClient().from('crm_instances').insert({
     instance_name: input.instance_name.trim(),
     phone_e164: input.phone_e164 || null,
@@ -131,6 +142,12 @@ export async function updateCrmInstance(id: string, input: CrmInstanceInput) {
   if (input.phone_e164 && !E164.test(input.phone_e164)) return { error: 'Telefone precisa estar em formato +55...' }
   const dup = await findInstanceWithPhone(input.phone_e164, id)
   if (dup) return { error: `Esse telefone já está cadastrado em "${dup}"` }
+  if (input.default_user_id) {
+    const u = (await allActiveUsers()).find((x) => x.id === input.default_user_id)
+    if (!u) return { error: 'Atendente padrão inválido ou inativo' }
+    const gErr = await grantCrmAccessIfNeeded(true, u)
+    if (gErr) return { error: gErr }
+  }
 
   const { error } = await createAdminClient()
     .from('crm_instances')
@@ -187,24 +204,53 @@ export async function getCrmInstanceConnectionState(instanceName: string) {
   return { state: (r.state as string) ?? 'unknown' }
 }
 
-// Usuários ativos que conseguem abrir o CRM (admin, ou /crm liberado no papel
-// ou individualmente). Só eles podem receber/compartilhar conversas.
-async function crmCapableUsers() {
+export interface CrmUser {
+  id: string
+  name: string
+  role: string
+  role_label: string
+  has_crm: boolean // já tem a página /crm (admin, papel ou liberação individual)
+}
+
+// TODOS os usuários ativos do sistema (vendedores etc.), marcando quem já tem
+// acesso ao CRM. Quem for escolhido (atendente padrão, membro, transferência ou
+// liberação) e ainda não tiver acesso ganha a página /crm automaticamente — só
+// administradores podem disparar isso (ver grantCrmAccessIfNeeded).
+async function allActiveUsers(): Promise<CrmUser[]> {
   const admin = createAdminClient()
   const [{ data: users }, { data: roles }] = await Promise.all([
     admin.from('users').select('id, name, role, extra_pages').eq('active', true).order('name'),
-    admin.from('roles').select('name, allowed_pages'),
+    admin.from('roles').select('name, label, allowed_pages'),
   ])
-  const roleOk = new Set((roles ?? []).filter((r) => hasCrmPage(r.allowed_pages)).map((r) => r.name))
-  return (users ?? [])
-    .filter((u) => u.role === 'admin' || roleOk.has(u.role) || hasCrmPage(u.extra_pages as string[] | null))
-    .map((u) => ({ id: u.id as string, name: u.name as string, role: u.role as string }))
+  const roleMap = new Map((roles ?? []).map((r) => [r.name as string, r]))
+  return (users ?? []).map((u) => {
+    const r = roleMap.get(u.role as string)
+    return {
+      id: u.id as string,
+      name: u.name as string,
+      role: u.role as string,
+      role_label: (r?.label as string) ?? (u.role as string),
+      has_crm: u.role === 'admin' || hasCrmPage(r?.allowed_pages as string[] | null) || hasCrmPage(u.extra_pages as string[] | null),
+    }
+  })
+}
+
+// Garante que o usuário escolhido consiga abrir o CRM. Não-admin não pode liberar
+// a página para terceiros (evitaria ganhar acesso aos números abertos à equipe).
+async function grantCrmAccessIfNeeded(actorIsAdmin: boolean, target: CrmUser): Promise<string | null> {
+  if (target.has_crm) return null
+  if (!actorIsAdmin) return `${target.name} ainda não tem acesso ao CRM. Peça a um administrador para liberar.`
+  const admin = createAdminClient()
+  const { data } = await admin.from('users').select('extra_pages').eq('id', target.id).single()
+  const pages = Array.from(new Set([...((data?.extra_pages as string[] | null) ?? []), '/crm']))
+  const { error } = await admin.from('users').update({ extra_pages: pages }).eq('id', target.id)
+  return error ? error.message : null
 }
 
 export async function getSystemUsersForCrm() {
   const auth = await ensureStaff()
-  if ('error' in auth) return []
-  return crmCapableUsers()
+  if ('error' in auth) return [] as CrmUser[]
+  return allActiveUsers()
 }
 
 // ─── Acesso (número privado / conversa liberada) ────────────────────────────
@@ -216,13 +262,13 @@ interface Scope {
   instanceIds: string[]
   // conversas avulsas liberadas para ele
   sharedConvIds: string[]
-  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null }[]
+  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string }[]
   memberOf: Set<string>
 }
 
 async function loadScope(admin: Admin, userId: string): Promise<Scope> {
   const [{ data: instances }, { data: mem }, { data: shared }] = await Promise.all([
-    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id'),
+    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at'),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
     admin.from('crm_conversation_access').select('conversation_id').eq('user_id', userId),
   ])
@@ -268,7 +314,7 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
 // WhatsApps que o usuário enxerga (para o seletor do Quadro e das Conversas).
 export async function getCrmInstanceOptions() {
   const auth = await ensureStaff()
-  if ('error' in auth) return [] as { id: string; label: string; is_private: boolean }[]
+  if ('error' in auth) return [] as { id: string; label: string; is_private: boolean; color_index: number }[]
   const admin = createAdminClient()
   const scope = await loadScope(admin, auth.userId)
   // número privado em que só tem conversas avulsas também aparece
@@ -280,10 +326,14 @@ export async function getCrmInstanceOptions() {
   const { data: assignedRows } = await admin
     .from('crm_conversations').select('instance_id').eq('assigned_user_id', auth.userId)
   for (const r of assignedRows ?? []) extra.add(r.instance_id as string)
+  // cor estável: posição do número na ordem de criação, entre todos (não só os visíveis)
+  const colorIndex = new Map(
+    [...scope.instances].sort((a, b) => a.created_at.localeCompare(b.created_at)).map((i, n) => [i.id, n]),
+  )
   return scope.instances
     .filter((i) => scope.instanceIds.includes(i.id) || extra.has(i.id))
     .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-    .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private }))
+    .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private, color_index: colorIndex.get(i.id) ?? 0 }))
 }
 
 export interface ConversationAccessInfo {
@@ -326,8 +376,10 @@ export async function shareConversation(conversationId: string, userId: string) 
   if (!acc.ok) return { error: acc.error }
   if (!acc.canManage) return { error: 'Só quem atende esta conversa pode liberá-la' }
   if (userId === auth.userId) return { error: 'Você já tem acesso a esta conversa' }
-  const target = (await crmCapableUsers()).find((u) => u.id === userId)
-  if (!target) return { error: 'Essa pessoa não tem acesso ao CRM. Libere "CRM WhatsApp" em Administração → Usuários.' }
+  const target = (await allActiveUsers()).find((u) => u.id === userId)
+  if (!target) return { error: 'Usuário inválido ou inativo' }
+  const grantErr = await grantCrmAccessIfNeeded(auth.isAdmin, target)
+  if (grantErr) return { error: grantErr }
   if (acc.assignedUserId === userId) return { error: 'Essa pessoa já atende esta conversa' }
   const { error } = await admin
     .from('crm_conversation_access')
@@ -527,8 +579,10 @@ export async function reassignConversation(conversationId: string, newUserId: st
 
   let newName: string | null = null
   if (newUserId) {
-    const target = (await crmCapableUsers()).find((u) => u.id === newUserId)
-    if (!target) return { error: 'Essa pessoa não tem acesso ao CRM. Libere "CRM WhatsApp" em Administração → Usuários.' }
+    const target = (await allActiveUsers()).find((u) => u.id === newUserId)
+    if (!target) return { error: 'Usuário inválido ou inativo' }
+    const grantErr = await grantCrmAccessIfNeeded(auth.isAdmin, target)
+    if (grantErr) return { error: grantErr }
     newName = target.name
   }
   const { error } = await admin.from('crm_conversations').update({ assigned_user_id: newUserId }).eq('id', conversationId)

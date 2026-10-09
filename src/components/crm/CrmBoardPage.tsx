@@ -292,7 +292,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                       draggable
                       onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; setDragId(c.id) }}
                       onDragEnd={() => { setDragId(null); setOverStage(null) }}
-                      className={cn('bg-white border border-gray-200 rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing', dragId === c.id && 'opacity-40')}
+                      className={cn('bg-white border border-gray-200 border-l-4 rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing', filter.colorOf(c.instance_id).bar, dragId === c.id && 'opacity-40')}
                     >
                       <div className="flex items-start gap-3">
                         {c.contact_photo_url ? (
@@ -307,9 +307,11 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                           <Link href={`/crm/conversas?c=${c.id}`} className="block font-semibold text-gray-900 truncate hover:underline" title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
                             {c.contact_name ?? phoneFromJid(c.remote_jid)}
                           </Link>
-                          <p className="flex items-center gap-1 text-xs text-gray-500 truncate" title={`WhatsApp: ${c.instance_label}`}>
-                            <WhatsappIcon className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                            <span className="truncate">{c.instance_label}</span>
+                          <p className="mt-0.5">
+                            <span title={`WhatsApp: ${c.instance_label}`} className={cn('inline-flex max-w-full items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
+                              <WhatsappIcon className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{c.instance_label}</span>
+                            </span>
                           </p>
                           <p className="text-xs text-gray-400 line-clamp-1 mt-1">{c.last_body || 'Sem mensagens'}</p>
                         </div>
