@@ -35,8 +35,10 @@ export function useCrmDesktopNotify(active: boolean) {
 
   // Mostra o aviso: cartão claro no canto da tela (aba à vista) ou banner do sistema (aba escondida).
   const show = useCallback((info: IncomingNotice) => {
-    const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
-    if (hidden && permissionRef.current === 'granted') {
+    // "Longe" = outra aba, outra janela ou outro programa na frente: aí vale o banner do sistema,
+    // como no WhatsApp Web. Com o sistema à frente, o cartão aparece na própria página.
+    const away = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())
+    if (away && permissionRef.current === 'granted') {
       try {
         const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
         const n = new Notification(`${info.title} · ${info.instance_label}`, { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id })
@@ -46,6 +48,29 @@ export function useCrmDesktopNotify(active: boolean) {
     }
     const key = `${info.conversation_id}-${Date.now()}`
     setNotices((cur) => [{ ...info, key }, ...cur.filter((x) => x.conversation_id !== info.conversation_id)].slice(0, 3))
+  }, [])
+
+  // Uma vez só (até a pessoa responder): convida a ativar o banner do sistema. O Chrome só deixa
+  // pedir a permissão a partir de um clique, por isso o convite é um cartão com botão.
+  useEffect(() => {
+    if (!active || permission !== 'default') return
+    try { if (localStorage.getItem('crm-notify-ask') === '1') return } catch { /* ignore */ }
+    const t = setTimeout(() => {
+      setNotices((cur) => (cur.some((n) => n.kind === 'ask') ? cur : [{
+        conversation_id: '__ask', title: 'Avisos de novas mensagens', body: 'Quer receber o aviso no canto da tela, igual ao WhatsApp Web, mesmo quando estiver em outra aba ou programa?',
+        photo: null, instance_label: '', color_index: 0, at: new Date().toISOString(), key: 'ask', kind: 'ask' as const,
+      }, ...cur].slice(0, 3)))
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [active, permission])
+
+  const answerAsk = useCallback(async (accept: boolean) => {
+    try { localStorage.setItem('crm-notify-ask', '1') } catch { /* ignore */ }
+    setNotices((cur) => cur.filter((n) => n.kind !== 'ask'))
+    if (accept && typeof Notification !== 'undefined') {
+      const p = await Notification.requestPermission()
+      setPermission(p); permissionRef.current = p
+    }
   }, [])
 
   const dismiss = useCallback((key: string) => setNotices((cur) => cur.filter((n) => n.key !== key)), [])
@@ -85,5 +110,5 @@ export function useCrmDesktopNotify(active: boolean) {
 
   const test = useCallback(() => show({ conversation_id: 'teste', title: 'Aviso de teste', body: 'É assim que as novas mensagens vão aparecer.', photo: null, instance_label: 'Seu WhatsApp', color_index: 0, at: new Date().toISOString() }), [show])
 
-  return { permission, enabled, setEnabled, requestPermission, test, notices, dismiss, open }
+  return { permission, enabled, setEnabled, requestPermission, test, notices, dismiss, open, answerAsk }
 }

@@ -172,7 +172,7 @@ export function ScheduleNotifier({ mode = 'fixed' }: { mode?: 'fixed' | 'sidebar
   if (mode === 'header') {
     return (
       <div className="relative">
-        <CrmNoticeStack notices={desk.notices} onOpen={desk.open} onClose={desk.dismiss} />
+        <CrmNoticeStack notices={desk.notices} onOpen={desk.open} onClose={desk.dismiss} onAnswerAsk={desk.answerAsk} />
         <button
           onClick={() => setOpen(o => !o)}
           className="relative w-9 h-9 rounded-full flex items-center justify-center text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.04)] transition-colors"

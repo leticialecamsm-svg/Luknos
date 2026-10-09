@@ -8,13 +8,26 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 
-export interface NoticeItem extends IncomingNotice { key: string }
+export interface NoticeItem extends IncomingNotice { key: string; kind?: 'ask' }
 
 const SHOW_MS = 9000
 
 function hhmm(iso: string): string {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(d)
+}
+
+function AskCard({ n, onAnswer }: { n: NoticeItem; onAnswer: (accept: boolean) => void }) {
+  return (
+    <div role="dialog" aria-label={n.title} className="w-full rounded-xl border border-[#BFDDF5] bg-[#F0F7FE] shadow-xl p-4">
+      <p className="font-semibold text-[#1F5C8A]">{n.title}</p>
+      <p className="mt-1 text-sm text-gray-800">{n.body}</p>
+      <div className="mt-3 flex gap-2">
+        <button onClick={() => onAnswer(true)} className="flex-1 px-3 py-1.5 rounded-full bg-[#1F5C8A] text-white text-sm font-medium hover:opacity-90">Ativar avisos</button>
+        <button onClick={() => onAnswer(false)} className="px-3 py-1.5 rounded-full bg-white border border-[#BFDDF5] text-[#1F5C8A] text-sm hover:bg-[#E6F1FB]">Agora não</button>
+      </div>
+    </div>
+  )
 }
 
 function Card({ n, onOpen, onClose }: { n: NoticeItem; onOpen: () => void; onClose: () => void }) {
@@ -63,13 +76,15 @@ function Card({ n, onOpen, onClose }: { n: NoticeItem; onOpen: () => void; onClo
 
 // Avisos de mensagem nova no canto superior direito, em qualquer página (clarinhos, com avatar,
 // WhatsApp de origem, mensagem e horário). Vão para o <body> para não ficarem presos no cabeçalho.
-export function CrmNoticeStack({ notices, onOpen, onClose }: { notices: NoticeItem[]; onOpen: (n: NoticeItem) => void; onClose: (key: string) => void }) {
+export function CrmNoticeStack({ notices, onOpen, onClose, onAnswerAsk }: { notices: NoticeItem[]; onOpen: (n: NoticeItem) => void; onClose: (key: string) => void; onAnswerAsk: (accept: boolean) => void }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
   if (!mounted || notices.length === 0) return null
   return createPortal(
     <div className="fixed top-16 right-4 z-[70] flex flex-col gap-2 w-[22rem] max-w-[92vw]" aria-live="polite">
-      {notices.map((n) => <Card key={n.key} n={n} onOpen={() => onOpen(n)} onClose={() => onClose(n.key)} />)}
+      {notices.map((n) => n.kind === 'ask'
+        ? <AskCard key={n.key} n={n} onAnswer={onAnswerAsk} />
+        : <Card key={n.key} n={n} onOpen={() => onOpen(n)} onClose={() => onClose(n.key)} />)}
     </div>,
     document.body,
   )
