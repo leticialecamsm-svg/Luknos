@@ -11,6 +11,23 @@ const PREF_KEY = 'crm-desktop-notify'
 
 export type NotifyPermission = NotificationPermission | 'unsupported'
 
+// Banner do Chrome. Preferimos o service worker (notificação "persistente", como o WhatsApp Web):
+// é o método que o Chrome no Mac entrega de forma confiável. Se não der, cai no aviso simples da página.
+async function showBanner(title: string, options: NotificationOptions, onClick: () => void) {
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = (await navigator.serviceWorker.getRegistration('/')) ?? (await navigator.serviceWorker.register('/sw.js'))
+      await navigator.serviceWorker.ready
+      await reg.showNotification(title, options)
+      return
+    }
+  } catch { /* tenta o método simples */ }
+  try {
+    const n = new Notification(title, options)
+    n.onclick = () => { onClick(); n.close() }
+  } catch { /* sem banner */ }
+}
+
 // Aviso de mensagem nova atribuída a quem está logado, em qualquer página do sistema:
 // notificação do navegador (o banner no canto da tela, como o WhatsApp Web) quando permitida;
 // senão, um aviso dentro da página. Não avisa de conversa que já está aberta e à vista.
@@ -39,11 +56,10 @@ export function useCrmDesktopNotify(active: boolean) {
   const show = useCallback((info: IncomingNotice) => {
     const away = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())
     if (permissionRef.current === 'granted') {
-      try {
-        const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
-        const n = new Notification(`${info.title} · ${info.instance_label}`, { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id })
-        n.onclick = () => { window.focus(); if (info.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`); n.close() }
-      } catch { /* sem banner: fica o cartão */ }
+      const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
+      const title = `${info.title} · ${info.instance_label}`
+      const options: NotificationOptions = { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id, data: { url: `/crm/conversas?c=${info.conversation_id}` } }
+      void showBanner(title, options, () => { window.focus(); if (info.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`) })
       if (away) return // com o sistema escondido só o banner faz sentido
     }
     const key = `${info.conversation_id}-${Date.now()}`
@@ -78,6 +94,16 @@ export function useCrmDesktopNotify(active: boolean) {
     dismiss(n.key)
     if (n.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${n.conversation_id}`)
   }, [dismiss])
+
+  // Clique no banner (vindo do service worker): abre a conversa
+  useEffect(() => {
+    if (!active || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'crm-open' && typeof e.data.url === 'string') routerRef.current.push(e.data.url) }
+    navigator.serviceWorker.addEventListener('message', onMsg)
+    // já deixa o service worker pronto quando a permissão existe
+    if (permissionRef.current === 'granted') navigator.serviceWorker.register('/sw.js').catch(() => {})
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg)
+  }, [active, permission])
 
   // "show" fica numa ref: se ele mudasse a cada renderização, o canal seria refeito toda hora.
   const showRef = useRef(show)
