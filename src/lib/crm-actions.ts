@@ -547,6 +547,35 @@ export async function getCrmConversations(
   return { items }
 }
 
+// Quantas conversas há em cada aba (Minhas / Pendentes / Todas), com a mesma regra
+// de visibilidade da lista. Serve para avisar de conversas novas sem responsável.
+export async function getCrmScopeCounts(instanceIds?: string[]) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { mine: 0, unassigned: 0, all: 0 }
+  const admin = createAdminClient()
+  const vis = await loadScope(admin, auth.userId)
+  const inList = (xs: string[]) => `(${xs.join(',')})`
+  const sharedClause = vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []
+  const visible = [
+    ...(vis.instanceIds.length ? [`instance_id.in.${inList(vis.instanceIds)}`] : []),
+    `assigned_user_id.eq.${auth.userId}`,
+    ...sharedClause,
+  ].join(',')
+  const mine = [`assigned_user_id.eq.${auth.userId}`, ...sharedClause].join(',')
+
+  const base = () => {
+    let q = admin.from('crm_conversations').select('id', { count: 'exact', head: true }).eq('status', 'open')
+    if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
+    return q
+  }
+  const [m, u, a] = await Promise.all([
+    base().or(mine),
+    base().or(visible).is('assigned_user_id', null),
+    base().or(visible),
+  ])
+  return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0 }
+}
+
 export async function getCrmMessages(conversationId: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] }

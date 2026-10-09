@@ -114,6 +114,9 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
                 <p className="text-xs text-gray-500 truncate">
                   {i.phone_e164 ?? 'sem telefone'} · instância “{i.instance_name}” · atendente padrão: {(i.users as any)?.name ?? '—'}
                 </p>
+                {!i.default_user_id && (
+                  <p className="text-xs text-amber-700">Sem atendente padrão: as conversas novas deste número entram em <b>Pendentes</b>. Defina em ✏️ Editar.</p>
+                )}
                 {i.is_private && (
                   <p className="text-xs text-gray-500 truncate">
                     Membros: {i.member_ids.length ? i.member_ids.map((id) => users.find((u) => u.id === id)?.name ?? '—').join(', ') : 'nenhum (além do atendente padrão)'}

@@ -9,6 +9,7 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import {
   getCrmConversations,
+  getCrmScopeCounts,
   getCrmMessages,
   reassignConversation,
   setConversationValue,
@@ -67,6 +68,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0 })
   const filter = useInstanceFilter()
   const selectedKey = filter.selected.join(',')
   const [syncingContacts, setSyncingContacts] = useState(false)
@@ -96,7 +98,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const refreshList = useCallback((silent = false) => {
     if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
     if (!silent) setLoadingList(true)
-    getCrmConversations(scope, 200, selectedKey ? selectedKey.split(',') : undefined)
+    const ids = selectedKey ? selectedKey.split(',') : undefined
+    getCrmScopeCounts(ids).then(setCounts)
+    getCrmConversations(scope, 200, ids)
       .then((r) => setConversations(r.items ?? []))
       .finally(() => { if (!silent) setLoadingList(false) })
   }, [scope, selectedKey, filter.loaded])
@@ -295,6 +299,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 )}
               >
                 {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : 'Todas'}
+                {counts[key] > 0 && (
+                  <span className={cn('ml-1.5 text-xs rounded-full px-1.5 py-0.5', scope === key ? 'bg-white/20' : key === 'unassigned' ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-600')}>{counts[key]}</span>
+                )}
               </button>
             ))}
           </div>
@@ -308,7 +315,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             </div>
           )}
           {!loadingList && conversations.length === 0 && (
-            <p className="text-sm text-gray-500 p-4 text-center">Nenhuma conversa aqui</p>
+            <div className="text-sm text-gray-500 p-4 text-center space-y-2">
+              <p>Nenhuma conversa aqui</p>
+              {scope === 'mine' && counts.unassigned > 0 && (
+                <button className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 underline" onClick={() => setScope('unassigned')}>
+                  Há {counts.unassigned} conversa(s) sem responsável — ver pendentes
+                </button>
+              )}
+            </div>
           )}
           <div className="p-2 space-y-1">
             {conversations.map((c) => (

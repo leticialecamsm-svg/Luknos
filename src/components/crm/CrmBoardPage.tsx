@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   getCrmConversations,
+  getCrmScopeCounts,
   setConversationValue,
   getCrmStages,
   createCrmStage,
@@ -63,6 +64,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [editing, setEditing] = useState<{ stage: CrmStage | null } | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [moveFor, setMoveFor] = useState<string | null>(null)
+  const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0 })
   const filter = useInstanceFilter()
   const selectedKey = filter.selected.join(',')
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
@@ -70,7 +72,9 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const load = useCallback(async (silent = false) => {
     if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
     if (!silent) setLoading(true)
-    const [st, conv] = await Promise.all([getCrmStages(), getCrmConversations(scope, BOARD_LIMIT, selectedKey ? selectedKey.split(',') : undefined)])
+    const ids = selectedKey ? selectedKey.split(',') : undefined
+    const [st, conv, cnt] = await Promise.all([getCrmStages(), getCrmConversations(scope, BOARD_LIMIT, ids), getCrmScopeCounts(ids)])
+    setCounts(cnt)
     if (busy.current > 0) return // chegou no meio de uma escrita: descarta p/ não "piscar" estado antigo
     if (conv.error) setLoadError(conv.error)
     else { setLoadError(null); setCards(conv.items ?? []) }
@@ -186,6 +190,9 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
               )}
             >
               {k === 'mine' ? 'Minhas' : k === 'unassigned' ? 'Pendentes' : 'Todas'}
+              {counts[k] > 0 && (
+                <span className={cn('ml-1.5 text-xs rounded-full px-1.5 py-0.5', scope === k ? 'bg-white/20' : k === 'unassigned' ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-600')}>{counts[k]}</span>
+              )}
             </button>
           ))}
         </div>
@@ -216,6 +223,12 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
         )}
       </div>
 
+      {!loading && scope === 'mine' && counts.mine === 0 && counts.unassigned > 0 && (
+        <div className="mb-2 flex items-center gap-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Você não tem conversas atribuídas, mas há <b>{counts.unassigned}</b> sem responsável.
+          <button className="underline font-medium" onClick={() => setScope('unassigned')}>Ver pendentes</button>
+        </div>
+      )}
       {cards.length >= BOARD_LIMIT && (
         <div className="mb-2 flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <AlertTriangle className="w-4 h-4 shrink-0" />
