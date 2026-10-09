@@ -296,6 +296,8 @@ interface Scope {
   sharedConvIds: string[]
   instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string }[]
   memberOf: Set<string>
+  // conversas restritas (grupos) que ele NÃO pode ver: nem atendente, nem liberado
+  hiddenConvIds: string[]
 }
 
 async function isAdminUser(admin: Admin, userId: string): Promise<boolean> {
@@ -312,10 +314,19 @@ async function loadScope(admin: Admin, userId: string): Promise<Scope> {
   ])
   const memberOf = new Set((mem ?? []).map((m) => m.instance_id as string))
   const list = (instances ?? []) as Scope['instances']
+  const sharedIds = (shared ?? []).map((s) => s.conversation_id as string)
+  let hiddenConvIds: string[] = []
+  if (!userIsAdmin) {
+    const { data: restricted } = await admin.from('crm_conversations').select('id, assigned_user_id').eq('is_restricted', true)
+    hiddenConvIds = (restricted ?? [])
+      .filter((r) => r.assigned_user_id !== userId && !sharedIds.includes(r.id as string))
+      .map((r) => r.id as string)
+  }
   return {
     instances: list,
     memberOf,
-    sharedConvIds: (shared ?? []).map((s) => s.conversation_id as string),
+    hiddenConvIds,
+    sharedConvIds: sharedIds,
     // administrador enxerga todos os números (inclusive privados); os demais, só os abertos ou os seus
     instanceIds: list.filter((i) => userIsAdmin || !i.is_private || i.default_user_id === userId || memberOf.has(i.id)).map((i) => i.id),
   }
@@ -349,16 +360,18 @@ async function convAccess(admin: Admin, auth: { userId: string; actedBy: { id: s
 async function conversationAccess(admin: Admin, userId: string, conversationId: string) {
   const { data: c } = await admin
     .from('crm_conversations')
-    .select('id, instance_id, assigned_user_id')
+    .select('id, instance_id, assigned_user_id, is_restricted')
     .eq('id', conversationId)
     .maybeSingle()
   if (!c) return { ok: false as const, error: 'Conversa não encontrada' }
   const { data: inst } = await admin.from('crm_instances').select('is_private, default_user_id').eq('id', c.instance_id).single()
   const isPrivate = !!inst?.is_private
-  if (isPrivate && (await isAdminUser(admin, userId))) {
+  const restricted = !!c.is_restricted
+  if ((isPrivate || restricted) && (await isAdminUser(admin, userId))) {
     return {
       ok: true as const,
       isPrivate,
+      restricted,
       assignedUserId: c.assigned_user_id as string | null,
       instanceId: c.instance_id as string,
       canManage: true,
@@ -370,15 +383,16 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
   ])
   const isOwnerOrMember = inst?.default_user_id === userId || !!member
   const isAssigned = c.assigned_user_id === userId
-  const canSee = !isPrivate || isOwnerOrMember || isAssigned || !!shared
+  const canSee = isAssigned || !!shared || (!restricted && (!isPrivate || isOwnerOrMember))
   if (!canSee) return { ok: false as const, error: 'Você não tem acesso a esta conversa' }
   return {
     ok: true as const,
     isPrivate,
+    restricted,
     assignedUserId: c.assigned_user_id as string | null,
     instanceId: c.instance_id as string,
     // em número aberto qualquer atendente pode transferir; em privado só quem "manda" nele
-    canManage: !isPrivate || isOwnerOrMember || isAssigned,
+    canManage: restricted ? isAssigned : !isPrivate || isOwnerOrMember || isAssigned,
   }
 }
 
@@ -412,6 +426,9 @@ export async function getCrmInstanceOptions() {
 export interface ConversationAccessInfo {
   can_manage: boolean
   instance_private: boolean
+  restricted: boolean
+  is_group: boolean
+  can_restrict: boolean
   assigned_user_id: string | null
   shared: { user_id: string; name: string }[]
 }
@@ -426,9 +443,13 @@ export async function getConversationAccessInfo(conversationId: string): Promise
     .from('crm_conversation_access')
     .select('user_id, users:user_id(name)')
     .eq('conversation_id', conversationId)
+  const { data: conv } = await admin.from('crm_conversations').select('remote_jid').eq('id', conversationId).maybeSingle()
   return {
     can_manage: acc.canManage,
     instance_private: acc.isPrivate,
+    restricted: acc.restricted,
+    is_group: isGroupJid(conv?.remote_jid ?? ''),
+    can_restrict: auth.isAdmin,
     assigned_user_id: acc.assignedUserId,
     shared: (data ?? []).map((r: any) => ({ user_id: r.user_id, name: r.users?.name ?? '—' })),
   }
@@ -438,6 +459,23 @@ async function systemNote(admin: Admin, conversationId: string, body: string) {
   await admin.from('crm_messages').insert({
     conversation_id: conversationId, direction: 'outbound', is_system: true, message_type: 'text', body,
   })
+}
+
+// Restringe um grupo: só administradores, o atendente e quem for liberado passam a vê-lo.
+export async function setConversationRestricted(conversationId: string, restricted: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!auth.isAdmin) return { error: 'Só administradores controlam o acesso aos grupos' }
+  const admin = createAdminClient()
+  const { data: c } = await admin.from('crm_conversations').select('id, remote_jid').eq('id', conversationId).maybeSingle()
+  if (!c) return { error: 'Conversa não encontrada' }
+  const { error } = await admin.from('crm_conversations').update({ is_restricted: restricted }).eq('id', conversationId)
+  if (error) return { error: error.message }
+  await systemNote(admin, conversationId, restricted
+    ? `Acesso restrito por ${whoLabel(auth)}: só administradores e pessoas liberadas veem esta conversa.`
+    : `Restrição removida por ${whoLabel(auth)}: volta a seguir o acesso do WhatsApp.`)
+  revalidatePath('/crm')
+  return { ok: true }
 }
 
 // Libera UMA conversa para outra pessoa responder, sem transferir nem abrir o número todo.
@@ -508,6 +546,7 @@ export interface ConversationRow {
   instance_id: string
   remote_jid: string
   is_group: boolean
+  is_restricted: boolean
   contact_id: string | null
   contact_type: string | null // categoria do contato vinculado (cliente, arquiteto…)
   contact_name_cache: string | null
@@ -550,7 +589,7 @@ export async function getCrmConversations(
   let q = admin
     .from('crm_conversations')
     .select(`
-      id, instance_id, remote_jid, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
+      id, instance_id, remote_jid, is_restricted, contact_id, contact_name_cache, contact_photo_url, assigned_user_id, stage_id, deal_value, status, last_message_at,
       crm_instances(label), contacts(name, type),
       assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)
     `)
@@ -582,6 +621,7 @@ export async function getCrmConversations(
   }
 
   if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
+  if (vis.hiddenConvIds.length) q = q.not('id', 'in', inList(vis.hiddenConvIds))
   if (auth.actedBy) {
     const blocked = await blockedInstanceIds(admin, auth.actedBy.id)
     if (blocked.length) q = q.not('instance_id', 'in', inList(blocked))
@@ -633,6 +673,7 @@ export async function getCrmConversations(
       instance_id: c.instance_id,
       remote_jid: c.remote_jid,
       is_group: isGroupJid(c.remote_jid),
+      is_restricted: !!c.is_restricted,
       contact_id: c.contact_id,
       contact_type: c.contacts?.type ?? null,
       contact_name_cache: c.contact_name_cache,
@@ -680,6 +721,7 @@ export async function getCrmScopeCounts(instanceIds?: string[]) {
     let q = admin.from('crm_conversations').select('id', { count: 'exact', head: true }).eq('status', 'open')
     if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
     if (blocked.length) q = q.not('instance_id', 'in', inList(blocked))
+    if (vis.hiddenConvIds.length) q = q.not('id', 'in', inList(vis.hiddenConvIds))
     return q
   }
   const people = () => base().not('remote_jid', 'like', GROUP_LIKE)
@@ -1242,7 +1284,7 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
   const stageName = new Map(stageRows.map((st) => [st.id, st.name]))
   const blockedPanel = auth.actedBy ? await blockedInstanceIds(admin, auth.actedBy.id) : []
   const otherConversations = (others ?? [])
-    .filter((o: any) => !blockedPanel.includes(o.instance_id))
+    .filter((o: any) => !blockedPanel.includes(o.instance_id) && !vis.hiddenConvIds.includes(o.id))
     .filter((o: any) => vis.instanceIds.includes(o.instance_id) || o.assigned_user_id === auth.userId || vis.sharedConvIds.includes(o.id))
     .map((o: any) => ({ id: o.id, instance_label: o.crm_instances?.label ?? '—', created_at: o.created_at, last_message_at: o.last_message_at, stage_name: o.stage_id ? stageName.get(o.stage_id) ?? null : null }))
 

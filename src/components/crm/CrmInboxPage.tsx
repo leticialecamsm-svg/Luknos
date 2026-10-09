@@ -29,6 +29,7 @@ import {
   getConversationAccessInfo,
   shareConversation,
   unshareConversation,
+  setConversationRestricted,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -49,7 +50,7 @@ import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -457,6 +458,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   {/* Info */}
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-gray-900 truncate">
+                      {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                       {c.contact_name ?? c.remote_jid.split('@')[0]}
                     </p>
                     <p className="mt-0.5">
@@ -507,6 +509,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-semibold text-gray-900 truncate">
+                    {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
                   <p>
@@ -781,6 +784,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           selfId={currentUserId}
           onClose={() => setShowReassign(false)}
           onSuccess={() => { setShowReassign(false); refreshList() }}
+          onChanged={() => refreshList(true)}
           users={users}
         />
       )}
@@ -1019,6 +1023,7 @@ function ReassignModal({
   selfId,
   onClose,
   onSuccess,
+  onChanged,
   users,
 }: {
   conversationId: string
@@ -1026,6 +1031,7 @@ function ReassignModal({
   selfId: string
   onClose: () => void
   onSuccess: () => void
+  onChanged: () => void
   users: SystemUser[]
 }) {
   const toast = useToast()
@@ -1111,11 +1117,37 @@ function ReassignModal({
           </div>
         )}
 
+        {ok && ok.is_group && ok.can_restrict && tab === 'share' && (
+          <label className="flex items-start gap-2.5 mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={ok.restricted}
+              disabled={pending}
+              onChange={(e) => {
+                const on = e.target.checked
+                startTransition(async () => {
+                  const res = await setConversationRestricted(conversationId, on)
+                  if (res.error) toast.error('ERRO', res.error)
+                  else { toast.success(on ? 'GRUPO RESTRITO' : 'RESTRIÇÃO REMOVIDA'); loadInfo(); onChanged() }
+                })
+              }}
+            />
+            <span className="text-sm text-amber-900">
+              <b>Restringir este grupo</b><br />
+              <span className="text-xs">Só administradores, o atendente e as pessoas liberadas abaixo veem o grupo, mesmo quem tem acesso ao WhatsApp.</span>
+            </span>
+          </label>
+        )}
+        {ok && ok.is_group && !ok.can_restrict && ok.restricted && tab === 'share' && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">Grupo restrito por um administrador.</p>
+        )}
+
         {ok && canManage && tab === 'share' && (
           <div className="space-y-2">
             <p className="text-xs text-gray-500">
               A pessoa vê e responde <b>só esta conversa</b>; o resto deste WhatsApp continua restrito e você segue como atendente.
-              {!ok.instance_private && ' (Este WhatsApp é aberto à equipe; a liberação vale para quando ele for privado.)'}
+              {!ok.instance_private && !ok.restricted && ' (Este WhatsApp é aberto à equipe; a liberação vale para quando ele for privado.)'}
             </p>
             {others.filter((u) => u.id !== currentUserId).map((u) => {
               const on = sharedIds.has(u.id)
