@@ -53,6 +53,8 @@ function timeAgo(iso: string) {
   return d < 30 ? `${d} d` : new Date(iso).toLocaleDateString('pt-BR')
 }
 
+const unreadNow = (c: { unread_count: number; marked_unread: boolean }) => c.unread_count > 0 || c.marked_unread
+
 export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -320,7 +322,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <Link href={`/crm/conversas?c=${c.id}`} className="block font-semibold text-gray-900 truncate hover:underline" title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
+                          <Link href={`/crm/conversas?c=${c.id}`} className={cn('block truncate hover:underline', unreadNow(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')} title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
                             {c.contact_name ?? phoneFromJid(c.remote_jid)}
                           </Link>
                           <p className="mt-0.5">
@@ -335,7 +337,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                               <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
                             </p>
                           )}
-                          <p className={cn('flex items-center gap-1 text-xs mt-1', c.last_direction === 'inbound' ? 'text-gray-700 font-medium' : 'text-gray-400')}>
+                          <p className={cn('flex items-center gap-1 text-xs mt-1', unreadNow(c) ? 'text-gray-900 font-semibold' : c.last_direction === 'inbound' ? 'text-gray-600' : 'text-gray-400')}>
                             {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                             {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
                             <span className="line-clamp-1">{c.last_body || 'Sem mensagens'}</span>
@@ -343,6 +345,14 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                         </div>
                         <div className="relative shrink-0 flex flex-col items-end gap-1">
                           <span className="text-xs text-gray-400">{timeAgo(c.last_message_at)}</span>
+                          {unreadNow(c) && (
+                            <span
+                              className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center"
+                              title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
+                            >
+                              {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+                            </span>
+                          )}
                           <button
                             type="button"
                             aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para outra coluna`}

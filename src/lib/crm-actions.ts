@@ -548,6 +548,8 @@ export interface ConversationRow {
   remote_jid: string
   is_group: boolean
   is_restricted: boolean
+  unread_count: number // mensagens do contato ainda não abertas por quem está vendo
+  marked_unread: boolean // marcada manualmente como não lida
   contact_id: string | null
   contact_type: string | null // categoria do contato vinculado (cliente, arquiteto…)
   contact_name_cache: string | null
@@ -635,12 +637,15 @@ export async function getCrmConversations(
   const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null }>()
   const labelsBy = new Map<string, CrmLabel[]>()
   const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
+  const unreadBy = new Map<string, { unread: number; marked: boolean }>()
   if (ids.length) {
-    const [{ data: infos }, { data: ls }, { data: fus }] = await Promise.all([
+    const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }] = await Promise.all([
       admin.rpc('crm_last_info', { conv_ids: ids }),
       admin.from('crm_conversation_labels').select('conversation_id, crm_labels(id, name, color)').in('conversation_id', ids),
       admin.from('tasks').select('id, crm_conversation_id, due_date, user_id, description').in('crm_conversation_id', ids).neq('status', 'done').order('due_date', { ascending: true }),
+      admin.rpc('crm_unread_counts', { uid: auth.userId, conv_ids: ids }),
     ])
+    for (const u of (unr ?? []) as any[]) unreadBy.set(u.conversation_id, { unread: u.unread ?? 0, marked: !!u.marked_unread })
     for (const f of (fus ?? []) as any[]) {
       if (f.due_date && !followupBy.has(f.crm_conversation_id)) {
         followupBy.set(f.crm_conversation_id, { id: f.id, due_at: f.due_date, assignee_id: f.user_id, note: f.description ?? null })
@@ -675,6 +680,8 @@ export async function getCrmConversations(
       remote_jid: c.remote_jid,
       is_group: isGroupJid(c.remote_jid),
       is_restricted: !!c.is_restricted,
+      unread_count: unreadBy.get(c.id)?.unread ?? 0,
+      marked_unread: unreadBy.get(c.id)?.marked ?? false,
       contact_id: c.contact_id,
       contact_type: c.contacts?.type ?? null,
       contact_name_cache: c.contact_name_cache,
@@ -1914,4 +1921,38 @@ export async function getCrmAwaiting(): Promise<AwaitingSummary | null> {
   items.sort((a, b) => Number(b.mine) - Number(a.mine) || a.waiting_since.localeCompare(b.waiting_since))
   out.items = items.slice(0, 30)
   return out
+}
+
+// ─── Lida / não lida (por atendente) ────────────────────────────────────────
+
+// Abrir a conversa a marca como lida. Quem está "atuando como" outra pessoa NÃO mexe
+// na leitura dela (olhar não pode apagar o aviso do atendente).
+export async function markConversationRead(conversationId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (auth.actedBy) return { ok: true, skipped: true }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin
+    .from('crm_conversation_reads')
+    .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: false }, { onConflict: 'conversation_id,user_id' })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// "Marcar como não lida": volta a destacar a conversa (com a bolinha) até ser aberta de novo.
+export async function markConversationUnread(conversationId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (auth.actedBy) return { error: 'Ao atuar como outra pessoa, a leitura dela não é alterada' }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const { error } = await admin
+    .from('crm_conversation_reads')
+    .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: true }, { onConflict: 'conversation_id,user_id' })
+  if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 import { getAvatarColor } from '@/lib/crm-ui'
@@ -30,6 +30,8 @@ import {
   shareConversation,
   unshareConversation,
   setConversationRestricted,
+  markConversationRead,
+  markConversationUnread,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -51,7 +53,7 @@ import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -80,6 +82,8 @@ interface Msg {
   is_system: boolean
   created_at: string
 }
+
+const isUnread = (c: { unread_count: number; marked_unread: boolean }) => c.unread_count > 0 || c.marked_unread
 
 interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
 
@@ -206,9 +210,43 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
 
+  // Abrir a conversa a marca como lida; chegou mensagem com ela aberta, marca de novo.
+  // O contador que ela tinha ao ser aberta fica guardado para o aviso "N mensagens não lidas".
+  const openedUnreadRef = useRef<{ id: string; n: number; prev: number } | null>(null)
+  useEffect(() => {
+    if (!selected) return
+    const cur = openedUnreadRef.current
+    if (cur?.id !== selected.id) openedUnreadRef.current = { id: selected.id, n: selected.unread_count, prev: selected.unread_count }
+    else {
+      if (selected.unread_count > cur.prev) cur.n += selected.unread_count - cur.prev
+      cur.prev = selected.unread_count
+    }
+    if (selected.unread_count === 0 && !selected.marked_unread) return
+    markConversationRead(selected.id).then(() => refreshList(true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, selected?.unread_count, selected?.marked_unread])
+  useEffect(() => { if (!selectedId) openedUnreadRef.current = null }, [selectedId])
+
+  const handleMarkUnread = () => {
+    if (!selected) return
+    const id = selected.id
+    startTransition(async () => {
+      const r = await markConversationUnread(id)
+      if ('error' in r && r.error) toast.error('ERRO', r.error)
+      else { toast.success('MARCADA COMO NÃO LIDA'); setSelectedId(null); refreshList(true) }
+    })
+  }
+
   const lightboxItems: LightboxItem[] = messages
     .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && m.storage_path && attUrls[m.storage_path])
     .map((m) => ({ id: m.id, url: attUrls[m.storage_path as string], kind: m.message_type as 'image' | 'video', name: m.file_name }))
+  // primeira mensagem do contato que ainda não tinha sido lida quando a conversa foi aberta
+  const openedUnread = openedUnreadRef.current?.id === selectedId ? openedUnreadRef.current?.n ?? 0 : 0
+  const firstUnreadId = (() => {
+    if (!openedUnread) return null
+    const inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_system && !m.deleted_at)
+    return inbound.length >= openedUnread ? inbound[inbound.length - openedUnread].id : inbound[0]?.id ?? null
+  })()
   const lightboxIndex = lightboxId ? lightboxItems.findIndex((x) => x.id === lightboxId) : -1
 
   // busca por nome, telefone (3+ números) ou texto da última mensagem
@@ -431,10 +469,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
                 className={cn(
-                  'w-full text-left p-3 rounded-lg transition-all',
+                  'w-full text-left p-3 rounded-lg transition-all border-l-4',
+                  filter.colorOf(c.instance_id).bar,
                   selectedId === c.id
-                    ? 'bg-gray-100 border-l-4 border-gray-900'
-                    : 'hover:bg-gray-50'
+                    ? 'bg-gray-100 ring-1 ring-gray-200'
+                    : isUnread(c) ? 'bg-emerald-50/60 hover:bg-emerald-50' : 'hover:bg-gray-50'
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -459,7 +498,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
                   {/* Info */}
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-gray-900 truncate">
+                    <p className={cn('truncate', isUnread(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')}>
                       {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                       {c.contact_name ?? c.remote_jid.split('@')[0]}
                     </p>
@@ -475,12 +514,21 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
                       </p>
                     )}
-                    <p className={cn('flex items-center gap-1 text-xs mt-1', c.last_direction === 'inbound' ? 'text-gray-700 font-medium' : 'text-gray-400')}>
+                    <p className={cn('flex items-center gap-1 text-xs mt-1', isUnread(c) ? 'text-gray-900 font-semibold' : c.last_direction === 'inbound' ? 'text-gray-600' : 'text-gray-400')}>
                       {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                       {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
                       <span className="line-clamp-1">{c.last_body || 'Sem mensagens'}</span>
                     </p>
                   </div>
+                  {isUnread(c) && (
+                    <span
+                      className="shrink-0 self-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center"
+                      title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
+                      aria-label={c.unread_count > 0 ? `${c.unread_count} mensagens não lidas` : 'Marcada como não lida'}
+                    >
+                      {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+                    </span>
+                  )}
                 </div>
               </button>
             ))}
@@ -555,6 +603,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onCatalogChanged={loadLabels}
                 />
                 <button
+                  onClick={handleMarkUnread}
+                  disabled={pending}
+                  title="Marcar como não lida"
+                  aria-label="Marcar como não lida"
+                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <MailOpen className="w-4 h-4" />
+                </button>
+                <button
                   onClick={() => setShowInfo((v) => !v)}
                   title="Dados do contato"
                   aria-label="Dados do contato"
@@ -610,8 +667,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </div>
               )}
               {messages.map((m) => (
+                <Fragment key={m.id}>
+                {m.id === firstUnreadId && (
+                  <div className="flex items-center gap-3 text-xs font-semibold text-emerald-700" role="separator">
+                    <span className="flex-1 border-t border-emerald-300" />
+                    {openedUnread} mensage{openedUnread === 1 ? 'm' : 'ns'} não lida{openedUnread === 1 ? '' : 's'}
+                    <span className="flex-1 border-t border-emerald-300" />
+                  </div>
+                )}
                 <MessageBubble
-                  key={m.id}
                   msg={m}
                   url={m.storage_path ? attUrls[m.storage_path] : undefined}
                   onOpenMedia={() => setLightboxId(m.id)}
@@ -628,6 +692,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else { toast.success('MENSAGEM APAGADA'); refreshThread(selectedId!) }
                   }}
                 />
+                </Fragment>
               ))}
               <div ref={bottomRef} />
             </div>
