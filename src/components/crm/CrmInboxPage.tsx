@@ -51,6 +51,8 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
+import { formatListTime } from '@/lib/crm-time'
+import { GroupPicker } from './GroupPicker'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen,
@@ -99,6 +101,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [text, setText] = useState('')
   const [pending, startTransition] = useTransition()
   const [showReassign, setShowReassign] = useState(false)
+  const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
   const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
@@ -444,6 +447,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </button>
             ))}
           </div>
+          {scope === 'groups' && isAdmin && (
+            <button
+              onClick={() => setShowGroupPicker(true)}
+              className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              <UsersIcon className="w-4 h-4" /> Escolher grupos
+            </button>
+          )}
         </div>
 
         {/* Lista */}
@@ -498,10 +509,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
                   {/* Info */}
                   <div className="min-w-0 flex-1">
-                    <p className={cn('truncate', isUnread(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')}>
-                      {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
-                      {c.contact_name ?? c.remote_jid.split('@')[0]}
-                    </p>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className={cn('truncate', isUnread(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')}>
+                        {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+                        {c.contact_name ?? c.remote_jid.split('@')[0]}
+                      </p>
+                      <span className={cn('shrink-0 text-[11px] whitespace-nowrap', isUnread(c) ? 'font-semibold text-emerald-600' : 'text-gray-400')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
+                        {formatListTime(c.last_at ?? c.last_message_at)}
+                      </span>
+                    </div>
                     <p className="mt-0.5">
                       <span className={cn('inline-flex max-w-full items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
                         <WhatsappIcon className="w-3 h-3 shrink-0" />
@@ -842,6 +858,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           setContactQuery={setContactQuery}
           contactResults={contactResults}
         />
+      )}
+
+      {showGroupPicker && (
+        <GroupPicker onClose={() => setShowGroupPicker(false)} onChanged={() => { refreshList(true); setSelectedId((id) => (id && !conversations.find((c) => c.id === id) ? null : id)) }} />
       )}
 
       {showReassign && selected && (

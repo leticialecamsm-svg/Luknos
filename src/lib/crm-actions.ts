@@ -567,6 +567,7 @@ export interface ConversationRow {
   instance_label: string
   contact_name: string | null
   last_body: string | null
+  last_at: string | null // hora da última mensagem (não conta avisos do sistema)
   last_direction: 'inbound' | 'outbound' | null // de quem foi a última mensagem
   next_followup: { id: string; due_at: string; assignee_id: string; note: string | null } | null
 }
@@ -634,7 +635,7 @@ export async function getCrmConversations(
   if (error) return { error: error.message, items: [] as ConversationRow[] }
 
   const ids = (data ?? []).map((c: any) => c.id)
-  const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null }>()
+  const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null; at: string | null }>()
   const labelsBy = new Map<string, CrmLabel[]>()
   const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
   const unreadBy = new Map<string, { unread: number; marked: boolean }>()
@@ -656,6 +657,7 @@ export async function getCrmConversations(
         preview: r.created_at ? messagePreview({ message_type: r.message_type, body: r.body, file_name: r.file_name, deleted: r.deleted }) : null,
         direction: r.direction ?? null,
         replyUser: r.last_reply_user ?? null,
+        at: r.created_at ?? null,
       })
     }
     for (const r of (ls ?? []) as any[]) {
@@ -700,6 +702,7 @@ export async function getCrmConversations(
       instance_label: c.crm_instances?.label ?? '—',
       contact_name: c.contacts?.name ?? c.contact_name_cache ?? null,
       last_body: li?.preview ?? null,
+      last_at: li?.at ?? null,
       last_direction: li?.direction ?? null,
       next_followup: followupBy.get(c.id) ?? null,
     }
@@ -1953,6 +1956,59 @@ export async function markConversationUnread(conversationId: string) {
     .from('crm_conversation_reads')
     .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: true }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
+  revalidatePath('/crm')
+  return { ok: true }
+}
+
+// ─── Escolha dos grupos que viram conversa ──────────────────────────────────
+
+export interface CrmGroupRow {
+  id: string
+  name: string
+  instance_id: string
+  instance_label: string
+  enabled: boolean
+  last_seen_at: string
+}
+
+// Todos os grupos que cada número já "viu". Só administradores escolhem quais entram no CRM.
+export async function getCrmGroups(): Promise<{ items: CrmGroupRow[] } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  if (!auth.isAdmin) return { error: 'Só administradores escolhem os grupos' }
+  const { data, error } = await createAdminClient()
+    .from('crm_groups')
+    .select('id, name, jid, instance_id, enabled, last_seen_at, crm_instances(label)')
+    .order('last_seen_at', { ascending: false })
+  if (error) return { error: error.message }
+  return {
+    items: ((data ?? []) as any[]).map((g) => ({
+      id: g.id,
+      name: g.name ?? 'Grupo sem nome',
+      instance_id: g.instance_id,
+      instance_label: g.crm_instances?.label ?? '—',
+      enabled: !!g.enabled,
+      last_seen_at: g.last_seen_at,
+    })),
+  }
+}
+
+// Ativa/desativa um grupo. Desativado: some do CRM e não recebe mais mensagens (o histórico
+// fica guardado); ativado de novo: volta com o histórico.
+export async function setCrmGroupEnabled(groupId: string, enabled: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!auth.isAdmin) return { error: 'Só administradores escolhem os grupos' }
+  const admin = createAdminClient()
+  const { data: g } = await admin.from('crm_groups').select('id, instance_id, jid').eq('id', groupId).maybeSingle()
+  if (!g) return { error: 'Grupo não encontrado' }
+  const { error } = await admin.from('crm_groups').update({ enabled }).eq('id', groupId)
+  if (error) return { error: error.message }
+  await admin
+    .from('crm_conversations')
+    .update({ status: enabled ? 'open' : 'closed' })
+    .eq('instance_id', g.instance_id)
+    .eq('remote_jid', g.jid)
   revalidatePath('/crm')
   return { ok: true }
 }
