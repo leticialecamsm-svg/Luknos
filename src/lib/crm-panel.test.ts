@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { samePhone, phoneVariants, formatPhoneBR, extractLinks, isContactType, formatPhoneForContact, CONTACT_TYPES } from './crm-panel'
+import { samePhone, phoneVariants, formatPhoneBR, extractLinks, isContactType, formatPhoneForContact, CONTACT_TYPES, isOpenQuote, isSpecifierType } from './crm-panel'
 
 describe('samePhone (celular BR com/sem 9º dígito e DDI)', () => {
   it('mesmo número em formatos diferentes', () => {
@@ -53,5 +53,22 @@ describe('categorias de contato', () => {
   it('telefone no padrão do cadastro', () => {
     expect(formatPhoneForContact('558296717950')).toBe('55 82 9671-7950')
     expect(formatPhoneForContact('5582996717950')).toBe('55 82 99671-7950')
+  })
+})
+
+describe('orçamento em aberto / especificador', () => {
+  it('em aberto: sem negociação, fria, morna, sem previsão', () => {
+    expect(isOpenQuote(null)).toBe(true)
+    for (const t of ['cold', 'warm', 'no_forecast']) expect(isOpenQuote({ temperature: t })).toBe(true)
+  })
+  it('fechado e perdido não são em aberto', () => {
+    expect(isOpenQuote({ temperature: 'closed' })).toBe(false)
+    expect(isOpenQuote({ temperature: 'lost' })).toBe(false)
+  })
+  it('especificadores', () => {
+    for (const t of ['architect', 'designer', 'electrician', 'engineer', 'plasterer']) expect(isSpecifierType(t)).toBe(true)
+    expect(isSpecifierType('client')).toBe(false)
+    expect(isSpecifierType('other')).toBe(false)
+    expect(isSpecifierType(null)).toBe(false)
   })
 })

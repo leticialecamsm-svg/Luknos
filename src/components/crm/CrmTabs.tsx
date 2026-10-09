@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { ActingAsBar } from './ActingAsBar'
 
 const TABS = [
   { href: '/crm', label: 'Quadro' },
@@ -12,6 +13,8 @@ const TABS = [
 export function CrmTabs() {
   const pathname = usePathname()
   return (
+    <>
+    <ActingAsBar />
     <nav aria-label="CRM" className="flex gap-1 mb-3 border-b border-gray-200">
       {TABS.map((t) => {
         const active = t.href === '/crm' ? pathname === '/crm' : pathname.startsWith(t.href)
@@ -30,5 +33,6 @@ export function CrmTabs() {
         )
       })}
     </nav>
+    </>
   )
 }

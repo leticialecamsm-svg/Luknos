@@ -9,6 +9,9 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
+import { AudioPlayer } from './AudioPlayer'
+import { FileBadge } from './FileBadge'
+import { MediaLightbox, type LightboxItem } from './MediaLightbox'
 import { applyFormat } from '@/lib/wa-format'
 import { FormatToolbar } from './FormatToolbar'
 import { Avatar } from '@/components/ui/Avatar'
@@ -27,6 +30,7 @@ import {
   searchContactsForCrm,
   sendCrmMessage,
   getCrmAttachmentUrl,
+  getConversationAttachmentUrls,
   syncCrmContactInfo,
   type ConversationRow,
 } from '@/lib/crm-actions'
@@ -36,7 +40,7 @@ import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all'
@@ -48,6 +52,9 @@ interface Msg {
   sender_name: string | null
   sender_avatar_url?: string | null
   sender_avatar_color?: string | null
+  acted_by_name?: string | null
+  acted_by_avatar_url?: string | null
+  acted_by_avatar_color?: string | null
   message_type: string
   body: string | null
   storage_path: string | null
@@ -59,7 +66,7 @@ interface Msg {
 
 interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
 
-export function CrmInboxPage({ currentUserId, users, initialConversationId = null }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null }) {
+export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null }) {
   const toast = useToast()
   const [scope, setScope] = useState<ScopeTab>(initialConversationId ? 'all' : 'mine')
   const [conversations, setConversations] = useState<ConversationRow[]>([])
@@ -72,6 +79,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [pending, startTransition] = useTransition()
   const [showReassign, setShowReassign] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  const [attUrls, setAttUrls] = useState<Record<string, string>>({})
+  const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
@@ -126,6 +135,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => { refreshList() }, [refreshList])
   useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  // URLs das mídias da conversa aberta (miniaturas, vídeos, áudios), buscadas em lote
+  useEffect(() => {
+    if (!selectedId) return
+    const missing = messages.filter((m) => m.storage_path && !attUrls[m.storage_path]).map((m) => m.storage_path as string)
+    if (missing.length === 0) return
+    let alive = true
+    getConversationAttachmentUrls(selectedId, missing).then((r) => {
+      if (alive && r.urls && Object.keys(r.urls).length) setAttUrls((prev) => ({ ...prev, ...r.urls }))
+    })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, selectedId])
+  useEffect(() => { setLightboxId(null) }, [selectedId])
+
   // o campo cresce com o texto (até ~6 linhas)
   useEffect(() => {
     const el = textareaRef.current
@@ -158,6 +181,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }, [selectedId, refreshList, refreshThread])
 
   const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
+
+  const lightboxItems: LightboxItem[] = messages
+    .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && m.storage_path && attUrls[m.storage_path])
+    .map((m) => ({ id: m.id, url: attUrls[m.storage_path as string], kind: m.message_type as 'image' | 'video', name: m.file_name }))
+  const lightboxIndex = lightboxId ? lightboxItems.findIndex((x) => x.id === lightboxId) : -1
 
   // busca por nome, telefone (3+ números) ou texto da última mensagem
   const q = query.trim().toLocaleLowerCase('pt-BR')
@@ -503,6 +531,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <MessageBubble
                   key={m.id}
                   msg={m}
+                  url={m.storage_path ? attUrls[m.storage_path] : undefined}
+                  onOpenMedia={() => setLightboxId(m.id)}
                   onOpenAttachment={openAttachment}
                   contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
                 />
@@ -580,7 +610,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       requestAnimationFrame(() => { el.setSelectionRange(ed.start, ed.end) })
                     }
                   }}
-                  placeholder="Escreva uma mensagem…"
+                  placeholder={actingAsName ? `Respondendo como ${actingAsName}…` : 'Escreva uma mensagem…'}
                   rows={1}
                   className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
                 />
@@ -623,6 +653,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         </div>
       )}
 
+      {lightboxIndex >= 0 && (
+        <MediaLightbox
+          items={lightboxItems}
+          index={lightboxIndex}
+          onIndex={(i) => setLightboxId(lightboxItems[i]?.id ?? null)}
+          onClose={() => setLightboxId(null)}
+        />
+      )}
+
       {/* Modais... */}
       {showLinkContact && selected && (
         <LinkContactModal
@@ -656,31 +695,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function MessageBubble({
-  msg, onOpenAttachment, contact,
+  msg, url, onOpenMedia, onOpenAttachment, contact,
 }: {
   msg: Msg
+  url?: string
+  onOpenMedia: () => void
   onOpenAttachment: (p: string) => void
   contact: { id: string; name: string; photo: string | null }
 }) {
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const [audioError, setAudioError] = useState(false)
-  const [audioLoading, setAudioLoading] = useState(false)
-
-  useEffect(() => {
-    if (msg.message_type === 'audio' && msg.storage_path) {
-      setAudioLoading(true)
-      setAudioError(false)
-      getCrmAttachmentUrl(msg.storage_path).then((r) => {
-        if ('url' in r && r.url) {
-          setAudioUrl(r.url)
-        } else {
-          setAudioError(true)
-        }
-      }).catch(() => setAudioError(true))
-        .finally(() => setAudioLoading(false))
-    }
-  }, [msg.id, msg.storage_path])
-
+  const [thumbFailed, setThumbFailed] = useState(false)
   const isOutbound = msg.direction === 'outbound'
   const time = new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
@@ -688,13 +711,18 @@ function MessageBubble({
     return <div className="text-center py-2 text-xs text-gray-400">{msg.body}</div>
   }
 
-  // quem enviou: atendente (nosso lado) ou o contato
+  // Um administrador respondeu "como" o atendente: o balão é do atendente (assinatura),
+  // mas mostramos também quem de fato enviou, com destaque âmbar.
+  const acted = isOutbound && !!msg.acted_by_name && !!msg.sender_name
   const who = isOutbound
-    ? (msg.sender_name ?? 'Enviada pelo celular do WhatsApp')
+    ? acted
+      ? `${msg.acted_by_name} (administrador) enviou em nome de ${msg.sender_name}`
+      : (msg.sender_name ?? 'Enviada pelo celular do WhatsApp')
     : contact.name
-  const avatar = isOutbound ? (
+
+  const senderAvatar = isOutbound ? (
     msg.sender_name
-      ? <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} title={msg.sender_name} />
+      ? <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} title={acted ? `Assinatura: ${msg.sender_name}` : msg.sender_name} />
       : <span title={who} className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center shrink-0">?</span>
   ) : contact.photo ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -704,6 +732,16 @@ function MessageBubble({
       {contact.name.charAt(0).toUpperCase()}
     </span>
   )
+  const avatar = acted ? (
+    <span className="relative shrink-0" title={who}>
+      {senderAvatar}
+      <span className="absolute -bottom-1.5 -left-2 rounded-full ring-2 ring-amber-300 bg-white">
+        <Avatar user={{ name: msg.acted_by_name, avatar_url: msg.acted_by_avatar_url, avatar_color: msg.acted_by_avatar_color }} size={18} title={`Enviou: ${msg.acted_by_name} (administrador)`} />
+      </span>
+    </span>
+  ) : senderAvatar
+
+  const caption = msg.body && ['image', 'video', 'document'].includes(msg.message_type) ? msg.body : null
 
   return (
     <div className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
@@ -713,65 +751,78 @@ function MessageBubble({
         className={cn(
           'max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
           isOutbound
-            ? 'bg-[#E6EEF8] text-[#0A1F3B] border border-[#D3E0F2] rounded-br-md'
+            ? acted
+              ? 'bg-[#FFF4DC] text-[#3b2a05] border border-amber-300 rounded-br-md'
+              : 'bg-[#E6EEF8] text-[#0A1F3B] border border-[#D3E0F2] rounded-br-md'
             : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
         )}
       >
-        {msg.message_type === 'text' && msg.body && (
-          <WaText text={msg.body} />
+        {acted && (
+          <p className="flex items-center gap-1 text-[11px] font-medium text-amber-800 mb-1">
+            <UserCog className="w-3 h-3" /> {msg.acted_by_name} respondeu como {msg.sender_name}
+          </p>
         )}
 
+        {msg.message_type === 'text' && msg.body && <WaText text={msg.body} />}
+
         {msg.message_type === 'audio' && (
-          audioLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500 min-w-[160px]">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Carregando áudio...</span>
-            </div>
-          ) : audioUrl ? (
-            <div className="min-w-[200px]">
-              <audio
-                controls
-                className="w-full"
-                style={{ height: '36px' }}
-                onError={() => setAudioError(true)}
-              >
-                <source src={audioUrl} type={msg.mime_type?.split(';')[0] || 'audio/ogg'} />
-                <source src={audioUrl} type="audio/mpeg" />
-                Seu navegador não suporta áudio.
-              </audio>
-              {audioError && (
-                <a
-                  href={audioUrl}
-                  download={msg.file_name || 'audio.oga'}
-                  className="text-xs underline mt-1 block text-blue-700"
-                >
-                  🎙️ Baixar áudio
-                </a>
-              )}
-            </div>
+          url ? (
+            <AudioPlayer src={url} mimeType={msg.mime_type} fileName={msg.file_name} tone={isOutbound ? 'blue' : 'light'} />
           ) : (
-            <div className="flex items-center gap-2 text-sm min-w-[160px]">
-              <span>🎙️</span>
-              <span className="text-gray-500">
-                {audioError ? 'Áudio indisponível' : 'Mensagem de voz'}
-              </span>
+            <div className="flex items-center gap-2 text-sm text-gray-500 min-w-[200px]">
+              <Loader2 className="w-3 h-3 animate-spin" /><span>Carregando áudio…</span>
             </div>
           )
         )}
 
-        {['image', 'document'].includes(msg.message_type) && msg.storage_path && (
-          <button
-            onClick={() => msg.storage_path && onOpenAttachment(msg.storage_path)}
-            className="underline text-sm text-blue-700"
-          >
-            {msg.file_name || 'Arquivo'}
-          </button>
+        {msg.message_type === 'image' && (
+          msg.storage_path && url && !thumbFailed ? (
+            <button type="button" onClick={onOpenMedia} className="block rounded-lg overflow-hidden bg-black/5 max-w-[260px]" aria-label="Ampliar imagem">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
+            </button>
+          ) : msg.storage_path ? (
+            <button type="button" onClick={() => msg.storage_path && onOpenAttachment(msg.storage_path)} className="flex items-center gap-2 text-left hover:opacity-80">
+              <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
+              <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
+            </button>
+          ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
         )}
 
+        {msg.message_type === 'video' && (
+          msg.storage_path && url ? (
+            <button type="button" onClick={onOpenMedia} className="relative block rounded-lg overflow-hidden bg-black max-w-[260px]" aria-label="Reproduzir vídeo">
+              <video src={url + '#t=0.1'} preload="metadata" muted playsInline className="block w-full max-h-72 object-cover pointer-events-none" />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/25 hover:bg-black/35">
+                <span className="w-12 h-12 rounded-full bg-black/60 text-white flex items-center justify-center"><PlayIcon className="w-6 h-6 ml-0.5" /></span>
+              </span>
+            </button>
+          ) : msg.storage_path ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-3 h-3 animate-spin" />Carregando vídeo…</div>
+          ) : <p className="text-xs italic text-gray-400">Vídeo indisponível</p>
+        )}
+
+        {msg.message_type === 'document' && (
+          msg.storage_path ? (
+            <button
+              type="button"
+              onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }}
+              className="flex items-center gap-3 text-left rounded-lg bg-black/5 hover:bg-black/10 px-3 py-2 max-w-full"
+              title="Abrir documento"
+            >
+              <FileBadge name={msg.file_name} />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium break-all line-clamp-2">{msg.file_name || 'Documento'}</span>
+                <span className="block text-xs text-gray-500">Clique para abrir</span>
+              </span>
+            </button>
+          ) : <p className="text-xs italic text-gray-400">Documento indisponível</p>
+        )}
+
+        {caption && <div className="mt-1.5"><WaText text={caption} /></div>}
+
         {msg.message_type === 'other' && (
-          <p className="text-xs italic text-gray-400">
-            Mensagem não suportada
-          </p>
+          <p className="text-xs italic text-gray-400">Mensagem não suportada</p>
         )}
 
         <p className="text-xs mt-1 text-gray-500">{time}</p>

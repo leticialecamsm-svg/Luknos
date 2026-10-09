@@ -12,7 +12,7 @@ import {
   type ContactPanelData,
   type PanelMedia,
 } from '@/lib/crm-actions'
-import { CONTACT_TYPES, CONTACT_TYPE_LABEL, QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, formatPhoneBR } from '@/lib/crm-panel'
+import { CONTACT_TYPES, CONTACT_TYPE_LABEL, isSpecifierType, QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, formatPhoneBR } from '@/lib/crm-panel'
 import { formatCents } from '@/lib/crm-money'
 import { getAvatarColor } from '@/lib/crm-ui'
 import { Avatar } from '@/components/ui/Avatar'
@@ -143,39 +143,7 @@ export function ContactInfoPanel({
             </section>
 
             {/* orçamentos */}
-            <section className="p-4 space-y-2">
-              <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Orçamentos {data.quotes.length > 0 && <span className="text-gray-500">({data.quotes.length})</span>}</h5>
-              {!data.contact && <p className="text-sm text-gray-500">Vincule um contato para ver os orçamentos.</p>}
-              {data.contact && data.quotes.length === 0 && (
-                <p className="text-sm text-gray-500">{data.quotes_restricted ? 'Nenhum orçamento seu para este contato.' : 'Este contato ainda não tem orçamentos.'}</p>
-              )}
-              <ul className="space-y-2">
-                {data.quotes.map((q) => (
-                  <li key={q.id}>
-                    <Link href={`/quotes/${q.id}`} className="block rounded-lg border border-gray-200 hover:border-gray-400 p-2.5 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-gray-900">#{q.number ?? '—'}</span>
-                        <span className="text-xs text-gray-500">{fmtDate(q.date)}</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{QUOTE_STATUS_LABEL[q.status] ?? q.status}</span>
-                        {q.negotiation && (
-                          <span className={cn('px-1.5 py-0.5 rounded', q.negotiation.temperature === 'closed' ? 'bg-emerald-100 text-emerald-800' : q.negotiation.temperature === 'lost' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800')}>
-                            {TEMPERATURE_LABEL[q.negotiation.temperature] ?? q.negotiation.temperature}
-                          </span>
-                        )}
-                        <span className="text-gray-500">{q.role === 'arquiteto' ? 'como arquiteto(a)' : ''}</span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs">
-                        <span className="text-gray-500 truncate">{q.category ?? ''}</span>
-                        <span className="font-semibold text-gray-800">{brl(q.negotiation?.final_value ?? q.value)}</span>
-                      </div>
-                      {q.negotiation?.loss_reason && <p className="mt-1 text-xs text-red-700">Motivo da perda: {q.negotiation.loss_reason}</p>}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <QuotesSection data={data} />
 
             {/* histórico */}
             <section className="p-4 space-y-2">
@@ -413,5 +381,79 @@ function NewContactForm({ conversationId, defaultName, onCreated }: { conversati
       </div>
       <p className="text-[11px] text-gray-400">O telefone da conversa entra automaticamente e a conversa fica vinculada ao novo contato.</p>
     </form>
+  )
+}
+
+type PanelQuote = ContactPanelData['quotes'][number]
+
+function QuoteCard({ q }: { q: PanelQuote }) {
+  const value = q.negotiation?.final_value ?? q.value
+  return (
+    <li>
+      <Link href={`/quotes/${q.id}`} className="block rounded-lg border border-gray-200 hover:border-gray-400 p-2.5 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-gray-900">#{q.number ?? '—'}</span>
+          <span className="text-xs text-gray-500">{fmtDate(q.date)}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{QUOTE_STATUS_LABEL[q.status] ?? q.status}</span>
+          {q.negotiation && (
+            <span className={cn('px-1.5 py-0.5 rounded', q.negotiation.temperature === 'closed' ? 'bg-emerald-100 text-emerald-800' : q.negotiation.temperature === 'lost' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800')}>
+              {TEMPERATURE_LABEL[q.negotiation.temperature] ?? q.negotiation.temperature}
+            </span>
+          )}
+          <span className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-800">{q.role === 'arquiteto' ? 'Como especificador' : 'Como cliente'}</span>
+        </div>
+        {q.party && <p className="mt-1 text-xs text-gray-500 truncate">{q.party.role === 'cliente' ? 'Cliente' : 'Especificador'}: {q.party.name}</p>}
+        <div className="mt-1 flex items-center justify-between text-xs">
+          <span className="text-gray-500 truncate">{q.category ?? ''}</span>
+          <span className="font-semibold text-gray-800">{brl(value)}</span>
+        </div>
+        {q.negotiation?.loss_reason && <p className="mt-1 text-xs text-red-700">Motivo da perda: {q.negotiation.loss_reason}</p>}
+      </Link>
+    </li>
+  )
+}
+
+function QuotesSection({ data }: { data: ContactPanelData }) {
+  const [showPast, setShowPast] = useState(false)
+  const open = data.quotes.filter((q) => q.is_open)
+  const past = data.quotes.filter((q) => !q.is_open)
+  const specifier = isSpecifierType(data.contact?.type)
+  const openTotal = open.reduce((n, q) => n + (q.negotiation?.final_value ?? q.value ?? 0), 0)
+
+  return (
+    <section className="p-4 space-y-3">
+      <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+        {specifier ? 'Orçamentos em que aparece' : 'Orçamentos'}
+      </h5>
+      {!data.contact && <p className="text-sm text-gray-500">Vincule um contato para ver os orçamentos.</p>}
+      {data.contact && data.quotes.length === 0 && (
+        <p className="text-sm text-gray-500">{data.quotes_restricted ? 'Nenhum orçamento seu para este contato.' : 'Este contato ainda não tem orçamentos.'}</p>
+      )}
+
+      {data.quotes.length > 0 && (
+        <>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-sm font-semibold text-gray-800">Em aberto <span className="text-gray-500 font-normal">({open.length})</span></p>
+              {open.length > 0 && <span className="text-xs font-semibold text-emerald-700">{brl(openTotal)}</span>}
+            </div>
+            {open.length === 0
+              ? <p className="text-sm text-gray-500">Nenhum orçamento em aberto.</p>
+              : <ul className="space-y-2">{open.map((q) => <QuoteCard key={q.id} q={q} />)}</ul>}
+          </div>
+
+          {past.length > 0 && (
+            <div>
+              <button onClick={() => setShowPast((v) => !v)} className="text-sm text-gray-600 underline" aria-expanded={showPast}>
+                {showPast ? 'Ocultar' : 'Ver'} anteriores ({past.length}) — fechados ou perdidos
+              </button>
+              {showPast && <ul className="space-y-2 mt-2">{past.map((q) => <QuoteCard key={q.id} q={q} />)}</ul>}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   )
 }

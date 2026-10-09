@@ -100,3 +100,15 @@ export function formatPhoneForContact(raw: string | null | undefined): string {
 export const DEFAULT_COMMISSION_BY_TYPE: Record<string, number> = {
   architect: 10, engineer: 5, electrician: 3, plasterer: 3, designer: 3, other: 3,
 }
+
+// Orçamento "em aberto" = a negociação ainda não terminou (nem fechada, nem perdida).
+// Sem negociação cadastrada também conta como em aberto.
+export function isOpenQuote(negotiation: { temperature: string } | null | undefined): boolean {
+  return !negotiation || (negotiation.temperature !== 'closed' && negotiation.temperature !== 'lost')
+}
+
+// Categorias que atuam como "especificador" (indicam/especificam o produto para o cliente).
+export const SPECIFIER_TYPES = ['architect', 'designer', 'electrician', 'engineer', 'plasterer'] as const
+export function isSpecifierType(type: string | null | undefined): boolean {
+  return (SPECIFIER_TYPES as readonly string[]).includes(type ?? '')
+}
