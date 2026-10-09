@@ -7,6 +7,7 @@ import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
 import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
+import { ContactInfoPanel } from './ContactInfoPanel'
 import {
   getCrmConversations,
   getCrmScopeCounts,
@@ -30,7 +31,7 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw,
+  Mic, Trash2, Square, RefreshCw, Info,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all'
@@ -63,6 +64,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [text, setText] = useState('')
   const [pending, startTransition] = useTransition()
   const [showReassign, setShowReassign] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
@@ -418,7 +420,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           <>
             {/* Header da conversa */}
             <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
                 <div className={`w-12 h-12 shrink-0 rounded-full bg-gradient-to-br ${getAvatarColor(selected.id)} text-white text-sm font-bold flex items-center justify-center`}>
                   {(selected.contact_name ?? selected.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
                 </div>
@@ -449,6 +451,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
               {/* Ações */}
               <div className="flex gap-1 shrink-0">
+                <button
+                  onClick={() => setShowInfo((v) => !v)}
+                  title="Dados do contato"
+                  aria-label="Dados do contato"
+                  aria-pressed={showInfo}
+                  className={cn('px-3 py-2 text-sm rounded-lg transition-colors', showInfo ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100')}
+                >
+                  <Info className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => setShowLinkContact(true)}
                   className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -566,6 +577,17 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           </>
         )}
       </div>
+
+      {/* Dados do contato (painel lateral, como no WhatsApp) */}
+      {showInfo && selected && (
+        <div className="max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-40 max-lg:shadow-2xl">
+          <ContactInfoPanel
+            conversationId={selected.id}
+            onClose={() => setShowInfo(false)}
+            onChanged={() => refreshList(true)}
+          />
+        </div>
+      )}
 
       {/* Modais... */}
       {showLinkContact && selected && (

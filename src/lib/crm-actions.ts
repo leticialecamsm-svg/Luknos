@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { extractLinks, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -928,4 +929,179 @@ export async function moveConversationToStage(conversationId: string, stageId: s
   if (!data?.length) return { error: 'Conversa não encontrada' }
   revalidatePath('/crm')
   return { ok: true }
+}
+
+
+// ─── Painel "Dados do contato" ──────────────────────────────────────────────
+
+export interface PanelMedia {
+  id: string
+  path: string
+  file_name: string | null
+  mime_type: string | null
+  created_at: string
+  direction: 'inbound' | 'outbound'
+  url?: string | null // só para imagens (miniatura)
+}
+
+export interface ContactPanelData {
+  phone_digits: string
+  display_name: string
+  instance_label: string
+  created_at: string
+  stage: { name: string; color: string } | null
+  deal_cents: number | null
+  assigned: CrmPerson | null
+  stats: { inbound: number; outbound: number; last_inbound_at: string | null; last_outbound_at: string | null }
+  contact: { id: string; name: string; type: string; company: string | null; email: string | null; phone: string | null; notes: string | null; linked: boolean } | null
+  quotes: {
+    id: string; number: number | null; date: string | null; category: string | null; status: string; value: number | null
+    role: 'cliente' | 'arquiteto'
+    negotiation: { temperature: string; final_value: number | null; loss_reason: string | null } | null
+  }[]
+  quotes_restricted: boolean // vendedor só vê os orçamentos em que atua
+  other_conversations: { id: string; instance_label: string; created_at: string; last_message_at: string; stage_name: string | null }[]
+  media: { images: PanelMedia[]; documents: PanelMedia[]; audios: PanelMedia[]; videos: PanelMedia[]; total: number }
+  links: { url: string; at: string }[]
+}
+
+const PANEL_LIST_LIMIT = 60
+
+export async function getContactPanel(conversationId: string): Promise<ContactPanelData | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const admin = createAdminClient()
+  const acc = await conversationAccess(admin, auth.userId, conversationId)
+  if (!acc.ok) return { error: acc.error }
+
+  const { data: c } = await admin
+    .from('crm_conversations')
+    .select(`id, instance_id, remote_jid, contact_id, contact_name_cache, assigned_user_id, stage_id, deal_value, created_at,
+      crm_instances(label), contacts(id, name, type, company, email, phone, notes),
+      assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)`)
+    .eq('id', conversationId)
+    .single()
+  if (!c) return { error: 'Conversa não encontrada' }
+  const conv: any = c
+  const digits = onlyDigits(conv.remote_jid.split('@')[0])
+
+  // contato do sistema: o vinculado, ou — se não houver — um com o mesmo telefone (sugestão)
+  let contact: ContactPanelData['contact'] = null
+  if (conv.contacts) {
+    contact = { ...conv.contacts, linked: true }
+  } else {
+    const { data: all } = await admin.from('contacts').select('id, name, type, company, email, phone, notes').not('phone', 'is', null)
+    const hit = (all ?? []).find((x) => samePhone(x.phone, digits))
+    if (hit) contact = { ...(hit as any), linked: false }
+  }
+
+  // orçamentos do contato (como cliente ou arquiteto). Vendedor só vê os dele.
+  let quotes: ContactPanelData['quotes'] = []
+  if (contact) {
+    const { data: qs } = await admin
+      .from('quotes')
+      .select('id, number, client_id, architect_id, category, status, quoted_value, quote_date, created_at')
+      .or(`client_id.eq.${contact.id},architect_id.eq.${contact.id}`)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    let rows = qs ?? []
+    if (!auth.isAdmin && rows.length) {
+      const { data: owners } = await admin.from('quote_owners').select('quote_id').eq('user_id', auth.userId).in('quote_id', rows.map((r) => r.id))
+      const mine = new Set((owners ?? []).map((o) => o.quote_id))
+      rows = rows.filter((r) => mine.has(r.id))
+    }
+    const { data: negs } = rows.length
+      ? await admin.from('negotiations').select('quote_id, temperature, final_value, loss_reason').in('quote_id', rows.map((r) => r.id))
+      : { data: [] as any[] }
+    const negBy = new Map((negs ?? []).map((n) => [n.quote_id, n]))
+    quotes = rows.map((r) => {
+      const n: any = negBy.get(r.id)
+      return {
+        id: r.id,
+        number: r.number ?? null,
+        date: (r.quote_date as string | null) ?? (r.created_at as string),
+        category: (r.category as string | null) ?? null,
+        status: String(r.status),
+        value: r.quoted_value === null || r.quoted_value === undefined ? null : Number(r.quoted_value),
+        role: r.client_id === contact!.id ? 'cliente' : 'arquiteto',
+        negotiation: n ? { temperature: String(n.temperature), final_value: n.final_value === null ? null : Number(n.final_value), loss_reason: n.loss_reason ?? null } : null,
+      }
+    })
+  }
+
+  // mesmo telefone em outros WhatsApps (só os que o usuário pode ver)
+  const vis = await loadScope(admin, auth.userId)
+  const jids = phoneVariants(digits).map((d) => `${d}@s.whatsapp.net`)
+  const { data: others } = await admin
+    .from('crm_conversations')
+    .select('id, instance_id, assigned_user_id, created_at, last_message_at, stage_id, crm_instances(label)')
+    .in('remote_jid', jids)
+    .neq('id', conversationId)
+  const stageRows = await getCrmStages()
+  const stageName = new Map(stageRows.map((st) => [st.id, st.name]))
+  const otherConversations = (others ?? [])
+    .filter((o: any) => vis.instanceIds.includes(o.instance_id) || o.assigned_user_id === auth.userId || vis.sharedConvIds.includes(o.id))
+    .map((o: any) => ({ id: o.id, instance_label: o.crm_instances?.label ?? '—', created_at: o.created_at, last_message_at: o.last_message_at, stage_name: o.stage_id ? stageName.get(o.stage_id) ?? null : null }))
+
+  // mensagens: contagem + mídias + links
+  const count = (dir: 'inbound' | 'outbound') =>
+    admin.from('crm_messages').select('id', { count: 'exact', head: true }).eq('conversation_id', conversationId).eq('direction', dir).eq('is_system', false)
+  const [inC, outC, lastIn, lastOut, mediaRows, bodyRows] = await Promise.all([
+    count('inbound'),
+    count('outbound'),
+    admin.from('crm_messages').select('created_at').eq('conversation_id', conversationId).eq('direction', 'inbound').eq('is_system', false).order('created_at', { ascending: false }).limit(1),
+    admin.from('crm_messages').select('created_at').eq('conversation_id', conversationId).eq('direction', 'outbound').eq('is_system', false).order('created_at', { ascending: false }).limit(1),
+    admin.from('crm_messages').select('id, storage_path, file_name, mime_type, created_at, direction').eq('conversation_id', conversationId).not('storage_path', 'is', null).order('created_at', { ascending: false }).limit(400),
+    admin.from('crm_messages').select('body, created_at').eq('conversation_id', conversationId).eq('is_system', false).ilike('body', '%http%').order('created_at', { ascending: false }).limit(200),
+  ])
+
+  const media: ContactPanelData['media'] = { images: [], documents: [], audios: [], videos: [], total: 0 }
+  for (const m of mediaRows.data ?? []) {
+    const item: PanelMedia = { id: m.id, path: m.storage_path as string, file_name: m.file_name, mime_type: m.mime_type, created_at: m.created_at, direction: m.direction as 'inbound' | 'outbound' }
+    const mt = (m.mime_type ?? '').toLowerCase()
+    const bucket = mt.startsWith('image/') ? media.images : mt.startsWith('audio/') ? media.audios : mt.startsWith('video/') ? media.videos : media.documents
+    bucket.push(item)
+    media.total++
+  }
+  // miniaturas das imagens mais recentes
+  const thumbs = media.images.slice(0, 24)
+  if (thumbs.length) {
+    const { data: signed } = await admin.storage.from('crm-attachments').createSignedUrls(thumbs.map((t) => t.path), 600)
+    const byPath = new Map((signed ?? []).map((x) => [x.path, x.signedUrl]))
+    for (const t of thumbs) t.url = byPath.get(t.path) ?? null
+  }
+  media.images = media.images.slice(0, PANEL_LIST_LIMIT)
+  media.documents = media.documents.slice(0, PANEL_LIST_LIMIT)
+  media.audios = media.audios.slice(0, PANEL_LIST_LIMIT)
+  media.videos = media.videos.slice(0, PANEL_LIST_LIMIT)
+
+  const seen = new Set<string>()
+  const links: ContactPanelData['links'] = []
+  for (const r of bodyRows.data ?? []) {
+    for (const url of extractLinks(r.body)) {
+      if (seen.has(url)) continue
+      seen.add(url)
+      links.push({ url, at: r.created_at })
+      if (links.length >= PANEL_LIST_LIMIT) break
+    }
+    if (links.length >= PANEL_LIST_LIMIT) break
+  }
+
+  const st = conv.stage_id ? stageRows.find((x) => x.id === conv.stage_id) : stageRows[0]
+  return {
+    phone_digits: digits,
+    display_name: conv.contacts?.name ?? conv.contact_name_cache ?? digits,
+    instance_label: conv.crm_instances?.label ?? '—',
+    created_at: conv.created_at,
+    stage: st ? { name: st.name, color: st.color } : null,
+    deal_cents: dbValueToCents(conv.deal_value),
+    assigned: conv.assigned_user_id && conv.assigned ? { id: conv.assigned_user_id, name: conv.assigned.name, avatar_url: conv.assigned.avatar_url ?? null, avatar_color: conv.assigned.avatar_color ?? null } : null,
+    stats: { inbound: inC.count ?? 0, outbound: outC.count ?? 0, last_inbound_at: lastIn.data?.[0]?.created_at ?? null, last_outbound_at: lastOut.data?.[0]?.created_at ?? null },
+    contact,
+    quotes,
+    quotes_restricted: !auth.isAdmin,
+    other_conversations: otherConversations,
+    media,
+    links,
+  }
 }
