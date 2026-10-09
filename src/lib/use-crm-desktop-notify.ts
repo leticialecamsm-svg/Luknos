@@ -33,18 +33,18 @@ export function useCrmDesktopNotify(active: boolean) {
     } catch { /* ignore */ }
   }, [])
 
-  // Mostra o aviso: cartão claro no canto da tela (aba à vista) ou banner do sistema (aba escondida).
+  // Mostra o aviso: banner do Chrome (do site Luknos) sempre que a permissão estiver concedida, e o
+  // cartão claro dentro da página quando o sistema está à frente. Conversa que já está à vista
+  // nem chega aqui (filtrado antes).
   const show = useCallback((info: IncomingNotice) => {
-    // "Longe" = outra aba, outra janela ou outro programa na frente: aí vale o banner do sistema,
-    // como no WhatsApp Web. Com o sistema à frente, o cartão aparece na própria página.
     const away = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())
-    if (away && permissionRef.current === 'granted') {
+    if (permissionRef.current === 'granted') {
       try {
         const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
         const n = new Notification(`${info.title} · ${info.instance_label}`, { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id })
-        n.onclick = () => { window.focus(); routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`); n.close() }
-        return
-      } catch { /* cai para o cartão na página */ }
+        n.onclick = () => { window.focus(); if (info.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`); n.close() }
+      } catch { /* sem banner: fica o cartão */ }
+      if (away) return // com o sistema escondido só o banner faz sentido
     }
     const key = `${info.conversation_id}-${Date.now()}`
     setNotices((cur) => [{ ...info, key }, ...cur.filter((x) => x.conversation_id !== info.conversation_id)].slice(0, 3))
