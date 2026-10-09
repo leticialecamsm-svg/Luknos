@@ -32,6 +32,7 @@ import {
   setConversationRestricted,
   markConversationRead,
   markConversationUnread,
+  reactToMessage,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -53,6 +54,7 @@ import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import { formatListTime } from '@/lib/crm-time'
 import { GroupPicker } from './GroupPicker'
+import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen,
@@ -72,6 +74,7 @@ interface Msg {
   reply_to_preview?: string | null
   deleted_at?: string | null
   deleted_by_name?: string | null
+  reactions?: ReactionChip[]
   participant_name?: string | null
   acted_by_name?: string | null
   acted_by_avatar_url?: string | null
@@ -700,6 +703,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
                   onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  onReact={async (emoji) => {
+                    const r = await reactToMessage(m.id, emoji)
+                    if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL REAGIR', r.error)
+                    else refreshThread(selectedId!, true)
+                  }}
                   canDelete={canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
                   onDelete={async () => {
                     if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
@@ -884,7 +892,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function MessageBubble({
-  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, canDelete, onDelete,
+  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, canDelete, onDelete,
 }: {
   msg: Msg
   url?: string
@@ -894,6 +902,7 @@ function MessageBubble({
   isGroup: boolean
   parent: Msg | null
   onReply: () => void
+  onReact: (emoji: string) => void
   canDelete: boolean
   onDelete: () => void
 }) {
@@ -976,6 +985,7 @@ function MessageBubble({
         title={who}
         className={cn(
           'group relative max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+          msg.reactions?.length ? 'mb-4' : '',
           isOutbound
             ? acted
               ? 'bg-[#FFF4DC] text-[#3b2a05] border border-amber-300 rounded-br-md'
@@ -996,6 +1006,24 @@ function MessageBubble({
             </button>
             {menu && (
               <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-7 z-30 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm text-gray-800 not-italic">
+                {canReply && (
+                  <div className="flex items-center justify-between px-2 pb-1 mb-1 border-b border-gray-100" role="group" aria-label="Reagir">
+                    {QUICK_REACTIONS.map((e) => {
+                      const mine = msg.reactions?.some((r) => r.mine && r.emoji === e)
+                      return (
+                        <button
+                          key={e}
+                          type="button"
+                          role="menuitem"
+                          aria-label={`Reagir com ${e}`}
+                          title={mine ? 'Tirar reação' : 'Reagir'}
+                          onClick={() => { setMenu(false); onReact(mine ? '' : e) }}
+                          className={cn('w-7 h-7 rounded-full text-base leading-none hover:bg-gray-100', mine && 'bg-sky-100 ring-1 ring-sky-300')}
+                        >{e}</button>
+                      )
+                    })}
+                  </div>
+                )}
                 {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
                 {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
               </div>
@@ -1087,6 +1115,22 @@ function MessageBubble({
         )}
 
         <p className="text-xs mt-1 text-gray-500">{time}</p>
+
+        {!!msg.reactions?.length && (
+          <div className={cn('absolute -bottom-3 flex gap-1', isOutbound ? 'right-3' : 'left-3')}>
+            {msg.reactions.map((r) => (
+              <button
+                key={r.emoji}
+                type="button"
+                onClick={() => r.mine && onReact('')}
+                title={[r.mine ? 'Você' : null, ...r.names].filter(Boolean).join(', ') + (r.mine ? ' (clique para tirar)' : '')}
+                className={cn('inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white border text-xs shadow-sm', r.mine ? 'border-sky-300' : 'border-gray-200', !r.mine && 'cursor-default')}
+              >
+                <span>{r.emoji}</span>{r.count > 1 && <span className="text-gray-500 font-medium">{r.count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {isOutbound && avatar}
     </div>

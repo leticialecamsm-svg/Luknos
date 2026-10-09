@@ -8,6 +8,7 @@ import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForCo
 import { messagePreview, canDeleteForEveryone, isGroupJid } from '@/lib/crm-preview'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
+import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
@@ -757,6 +758,16 @@ export async function getCrmMessages(conversationId: string) {
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
+  const { data: reactRows } = await admin
+    .from('crm_message_reactions')
+    .select('target_provider_id, emoji, from_me, reactor_name')
+    .eq('conversation_id', conversationId)
+  const reactionsBy = new Map<string, { emoji: string; from_me: boolean; reactor_name: string | null }[]>()
+  for (const r of (reactRows ?? []) as any[]) {
+    const arr = reactionsBy.get(r.target_provider_id) ?? []
+    arr.push({ emoji: r.emoji, from_me: !!r.from_me, reactor_name: r.reactor_name ?? null })
+    reactionsBy.set(r.target_provider_id, arr)
+  }
   return {
     items: (data ?? []).map((m: any) => {
       const deleted = !!m.deleted_at
@@ -773,6 +784,7 @@ export async function getCrmMessages(conversationId: string) {
         acted_by_avatar_url: m.acted?.avatar_url ?? null,
         acted_by_avatar_color: m.acted?.avatar_color ?? null,
         deleted_by_name: m.deleter?.name ?? null,
+        reactions: deleted || !m.provider_message_id ? [] : groupReactions(reactionsBy.get(m.provider_message_id) ?? []),
       }
     }),
   }
@@ -2011,4 +2023,36 @@ export async function setCrmGroupEnabled(groupId: string, enabled: boolean) {
     .eq('remote_jid', g.jid)
   revalidatePath('/crm')
   return { ok: true }
+}
+
+// ─── Reações ────────────────────────────────────────────────────────────────
+
+// Reage a uma mensagem (do cliente ou nossa) pelo número da conversa. emoji vazio tira a reação.
+export async function reactToMessage(messageId: string, emoji: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!isValidReaction(emoji)) return { error: 'Reação inválida' }
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, provider_message_id, deleted_at, is_system')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m || m.is_system) return { error: 'Mensagem não encontrada' }
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  if (m.deleted_at) return { error: 'Não é possível reagir a uma mensagem apagada' }
+  if (!m.provider_message_id) return { error: 'Esta mensagem não tem identificador do WhatsApp para receber reação' }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'react', message_id: messageId, emoji, reacted_by_user_id: auth.actedBy?.id ?? auth.userId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.reacted) return { error: body?.error ?? 'Não foi possível reagir' }
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível reagir' }
+  }
 }
