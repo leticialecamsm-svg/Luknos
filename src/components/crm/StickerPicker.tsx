@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { addCrmSticker, createStickerUpload, deleteCrmSticker, getCrmStickers, sendCrmSticker, type CrmSticker } from '@/lib/crm-actions'
+import { addCrmSticker, createStickerUpload, deleteCrmSticker, getCrmStickers, getReceivedStickers, sendCrmSticker, sendReceivedSticker, type CrmSticker, type ReceivedSticker } from '@/lib/crm-actions'
 import { createClient } from '@/lib/supabase/client'
 import { toStickerBlob } from '@/lib/crm-sticker'
 import { useToast } from '@/components/ui/Toast'
@@ -13,11 +13,14 @@ export function StickerPicker({ conversationId, onClose, onSent }: { conversatio
   const toast = useToast()
   const [items, setItems] = useState<CrmSticker[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null) // id enviando, ou 'add'
+  const [tab, setTab] = useState<'team' | 'received'>('team')
+  const [received, setReceived] = useState<ReceivedSticker[] | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => { getCrmStickers().then(setItems) }, [])
   useEffect(() => { load() }, [load])
+  useEffect(() => { if (tab === 'received' && received === null) getReceivedStickers().then(setReceived) }, [tab, received])
   useEffect(() => {
     const onDoc = (e: MouseEvent) => { if (!boxRef.current?.contains(e.target as Node)) onClose() }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -32,6 +35,17 @@ export function StickerPicker({ conversationId, onClose, onSent }: { conversatio
     const r = await sendCrmSticker(conversationId, s.id)
     setBusy(null)
     if ('error' in r && r.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', r.error); return }
+    onSent()
+    onClose()
+  }
+
+  async function sendFromReceived(r: ReceivedSticker) {
+    if (busy) return
+    setBusy(r.message_id)
+    const res = await sendReceivedSticker(conversationId, r.message_id)
+    setBusy(null)
+    if ('error' in res && res.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error); return }
+    toast.success('FIGURINHA ENVIADA', 'E guardada na biblioteca da equipe')
     onSent()
     onClose()
   }
@@ -72,7 +86,27 @@ export function StickerPicker({ conversationId, onClose, onSent }: { conversatio
         <button onClick={onClose} aria-label="Fechar" className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
       </div>
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { add(e.target.files); e.target.value = '' }} />
-      <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+      <div className="flex gap-1.5 mb-2">
+        {([['team', 'Da equipe'], ['received', 'Recebidas']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} className={cn('px-3 py-1 text-xs font-medium rounded-full', tab === k ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}>{label}</button>
+        ))}
+      </div>
+      {tab === 'received' && (
+        <div>
+          <p className="text-[11px] text-gray-500 mb-2">Figurinhas que clientes e grupos já mandaram. Ao enviar, ela também fica guardada na biblioteca da equipe.</p>
+          <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+            {received === null && <div className="col-span-4 flex justify-center py-6"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>}
+            {received?.map((r) => (
+              <button key={r.message_id} onClick={() => sendFromReceived(r)} disabled={!!busy} className={cn('aspect-square rounded-lg bg-gray-50 hover:bg-gray-100 p-1 flex items-center justify-center disabled:opacity-60', busy === r.message_id && 'ring-2 ring-emerald-400')}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={r.url} alt="Figurinha recebida" className="max-w-full max-h-full object-contain" />
+              </button>
+            ))}
+          </div>
+          {received && received.length === 0 && <p className="text-xs text-gray-500">Nenhuma figurinha recebida ainda.</p>}
+        </div>
+      )}
+      {tab === 'team' && <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
         <button
           onClick={() => fileRef.current?.click()}
           disabled={!!busy}
@@ -97,8 +131,8 @@ export function StickerPicker({ conversationId, onClose, onSent }: { conversatio
             <button onClick={() => remove(s)} aria-label="Remover figurinha" className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-white border border-gray-200 text-gray-500 hover:text-red-600 shadow opacity-0 group-hover:opacity-100 flex items-center justify-center"><X className="w-3 h-3" /></button>
           </div>
         ))}
-      </div>
-      {items && items.length === 0 && <p className="text-xs text-gray-500 mt-2">Nenhuma figurinha ainda. Adicione uma imagem, ou use "Salvar como figurinha" numa que o cliente enviou.</p>}
+      </div>}
+      {tab === 'team' && items && items.length === 0 && <p className="text-xs text-gray-500 mt-2">Nenhuma figurinha ainda. Adicione uma imagem, ou use "Salvar como figurinha" numa que o cliente enviou.</p>}
     </div>
   )
 }

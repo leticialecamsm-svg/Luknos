@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 
 import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
@@ -32,6 +32,7 @@ import {
   markConversationUnread,
   reactToMessage,
   saveMessageAsSticker,
+  getGroupParticipants,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -57,6 +58,7 @@ import { subscribeCrmMessages } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { StickerPicker } from './StickerPicker'
+import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
@@ -80,6 +82,7 @@ interface Msg {
   deleted_by_name?: string | null
   reactions?: ReactionChip[]
   participant_name?: string | null
+  participant_jid?: string | null
   acted_by_name?: string | null
   acted_by_avatar_url?: string | null
   acted_by_avatar_color?: string | null
@@ -111,6 +114,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
+  // menções em grupo
+  const [members, setMembers] = useState<GroupMember[]>([])
+  const [picks, setPicks] = useState<MentionPick[]>([])
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  const [mentionIdx, setMentionIdx] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
   const [attUrls, setAttUrls] = useState<Record<string, string>>({})
   const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
@@ -299,6 +307,47 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
 
+  // Membros do grupo aberto (para mencionar e para trocar "@número" pelo nome nas mensagens)
+  const selectedIsGroup = !!selected?.is_group
+  useEffect(() => {
+    setMembers([]); setPicks([]); setMention(null)
+    if (!selectedId || !selectedIsGroup) return
+    let alive = true
+    getGroupParticipants(selectedId).then((r) => { if (alive && 'members' in r) setMembers(r.members) })
+    return () => { alive = false }
+  }, [selectedId, selectedIsGroup])
+  // Plano B se a lista do WhatsApp não vier: quem já falou neste grupo
+  const speakerMembers = useMemo<GroupMember[]>(() => {
+    const seen = new Map<string, GroupMember>()
+    for (const m of messages) {
+      if (m.participant_jid && !seen.has(m.participant_jid)) seen.set(m.participant_jid, { jid: m.participant_jid, phone: null, name: m.participant_name ?? null, admin: false })
+    }
+    return Array.from(seen.values())
+  }, [messages])
+  const mentionable = members.length ? members : speakerMembers
+  const mentionNames = useMemo(
+    () => buildMentionNames(members, messages.map((m) => ({ jid: m.participant_jid ?? null, name: m.participant_name ?? null }))),
+    [members, messages],
+  )
+  const mentionOptions = mention && selectedIsGroup
+    ? [
+        ...('todos'.startsWith(mention.query.toLowerCase()) ? [{ all: true as const }] : []),
+        ...filterMembers(mentionable, mention.query).map((m) => ({ all: false as const, m })),
+      ]
+    : []
+  const pickMention = (opt: (typeof mentionOptions)[number]) => {
+    if (!mention) return
+    const el = textareaRef.current
+    const caret = el?.selectionStart ?? text.length
+    const label = opt.all ? 'todos' : memberLabel(opt.m)
+    const next = text.slice(0, mention.start) + '@' + label + ' ' + text.slice(caret)
+    setText(next)
+    if (!opt.all) setPicks((p) => (p.some((x) => x.jid === opt.m.jid) ? p : [...p, { name: label, jid: opt.m.jid }]))
+    setMention(null)
+    const pos = mention.start + label.length + 2
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(pos, pos) })
+  }
+
   // Abrir a conversa a marca como lida; chegou mensagem com ela aberta, marca de novo.
   // O contador que ela tinha ao ser aberta fica guardado para o aviso "N mensagens não lidas".
   const openedUnreadRef = useRef<{ id: string; n: number; prev: number } | null>(null)
@@ -372,9 +421,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     if (!text.trim() || !selectedId) return
     const msg = text
     const reply = replyTo
+    const out = selectedIsGroup ? applyMentionsToSend(msg, picks) : { text: msg, mentioned: [] as string[], all: false }
     setText('')
+    setPicks([]); setMention(null)
     startTransition(async () => {
-      const res = await sendCrmMessage({ conversationId: selectedId, text: msg, replyToMessageId: reply?.id })
+      const res = await sendCrmMessage({ conversationId: selectedId, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all })
       if (res.error) {
         toast.error('ERRO', res.error)
         setText((cur) => cur || msg) // não perde o que foi digitado
@@ -786,6 +837,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
                   onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  mentionNames={selectedIsGroup ? mentionNames : undefined}
                   onSaveSticker={async () => {
                     const r = await saveMessageAsSticker(m.id)
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL GUARDAR', r.error)
@@ -914,11 +966,41 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 />
 
                 {/* Input */}
+                <div className="relative flex-1 flex">
+                {mention && mentionOptions.length > 0 && (
+                  <div role="listbox" aria-label="Mencionar" className="absolute bottom-full left-0 mb-2 z-40 w-72 max-w-full bg-white border border-gray-200 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
+                    {mentionOptions.map((o, i) => (
+                      <button
+                        key={o.all ? 'todos' : o.m.jid}
+                        role="option"
+                        aria-selected={i === mentionIdx}
+                        onMouseDown={(e) => { e.preventDefault(); pickMention(o) }}
+                        onMouseEnter={() => setMentionIdx(i)}
+                        className={cn('w-full text-left px-3 py-1.5 text-sm flex items-center gap-2', i === mentionIdx ? 'bg-gray-100' : 'hover:bg-gray-50')}
+                      >
+                        <span className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white text-xs font-bold flex items-center justify-center">
+                          {o.all ? '@' : memberLabel(o.m).charAt(0).toUpperCase()}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-gray-900">{o.all ? 'Todos' : memberLabel(o.m)}</span>
+                          <span className="block truncate text-[11px] text-gray-500">{o.all ? 'Avisa todos do grupo' : (o.m.phone ? `+${o.m.phone}` : 'Membro do grupo')}{!o.all && o.m.admin ? ' · admin' : ''}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   ref={textareaRef}
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => { setText(e.target.value); if (selectedIsGroup) { setMention(activeMention(e.target.value, e.target.selectionStart)); setMentionIdx(0) } }}
+                  onClick={(e) => { if (selectedIsGroup) setMention(activeMention(e.currentTarget.value, e.currentTarget.selectionStart)) }}
                   onKeyDown={(e) => {
+                    if (mention && mentionOptions.length > 0) {
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionOptions.length); return }
+                      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionOptions.length) % mentionOptions.length); return }
+                      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mentionOptions[mentionIdx] ?? mentionOptions[0]); return }
+                      if (e.key === 'Escape') { e.preventDefault(); setMention(null); return }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return }
                     // atalhos: Ctrl/Cmd+B negrito, Ctrl/Cmd+I itálico
                     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'b' || e.key === 'i')) {
@@ -933,6 +1015,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   rows={1}
                   className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
                 />
+                </div>
 
                 {/* Microfone ou enviar */}
                 {text.trim() ? (
@@ -1028,7 +1111,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function MessageBubble({
-  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, canDelete, onDelete,
+  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete,
 }: {
   msg: Msg
   url?: string
@@ -1040,6 +1123,7 @@ function MessageBubble({
   onReply: () => void
   onReact: (emoji: string) => void
   onSaveSticker: () => void
+  mentionNames?: Record<string, string>
   canDelete: boolean
   onDelete: () => void
 }) {
@@ -1192,7 +1276,7 @@ function MessageBubble({
           </p>
         )}
 
-        {msg.message_type === 'text' && msg.body && <WaText text={msg.body} />}
+        {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} />}
 
         {msg.message_type === 'audio' && (
           url ? (
@@ -1248,7 +1332,7 @@ function MessageBubble({
           ) : <p className="text-xs italic text-gray-400">Documento indisponível</p>
         )}
 
-        {caption && <div className="mt-1.5"><WaText text={caption} /></div>}
+        {caption && <div className="mt-1.5"><WaText text={mentionNames ? renderMentions(caption, mentionNames) : caption} /></div>}
 
         {card && (
           <div className="space-y-1.5 min-w-[14rem]">

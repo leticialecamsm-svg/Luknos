@@ -766,7 +766,7 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, participant_name, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
@@ -949,6 +949,8 @@ export async function sendCrmMessage(input: {
   mimeType?: string
   isVoiceNote?: boolean
   replyToMessageId?: string // responder (citar) uma mensagem desta conversa
+  mentioned?: string[] // grupo: JIDs mencionados (o texto traz "@<número>")
+  mentionAll?: boolean
 }) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
@@ -992,6 +994,8 @@ export async function sendCrmMessage(input: {
         is_voice_note: input.isVoiceNote ?? false,
         quoted_provider_id: quotedProviderId,
         quoted_text: quotedText,
+        mentioned: input.mentioned ?? [],
+        mention_all: !!input.mentionAll,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -2257,4 +2261,77 @@ export async function sendCrmSticker(conversationId: string, stickerId: string) 
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível enviar a figurinha' }
   }
+}
+
+// ─── Membros do grupo (para mencionar) ──────────────────────────────────────
+
+export interface GroupMemberInfo { jid: string; phone: string | null; name: string | null; admin: boolean }
+
+export async function getGroupParticipants(conversationId: string): Promise<{ members: GroupMemberInfo[] } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'group_participants', conversation_id: conversationId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.ok) return { error: body?.error ?? 'Não foi possível listar os membros do grupo' }
+    return { members: body.participants as GroupMemberInfo[] }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível listar os membros do grupo' }
+  }
+}
+
+// ─── Figurinhas recebidas (para reaproveitar) ───────────────────────────────
+
+export interface ReceivedSticker { message_id: string; url: string }
+
+// Figurinhas que clientes e grupos já mandaram nas conversas que a pessoa enxerga (as mais
+// novas primeiro, sem repetir e sem as que já estão na biblioteca). Respeita o acesso às conversas.
+export async function getReceivedStickers(): Promise<ReceivedSticker[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const supabase = createClient() // com o login do usuário: o banco só devolve o que ele pode ver
+  const { data } = await supabase
+    .from('crm_messages')
+    .select('id, storage_path, created_at')
+    .eq('message_type', 'image')
+    .eq('direction', 'inbound')
+    .like('mime_type', '%webp%')
+    .not('storage_path', 'is', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(150)
+  const admin = createAdminClient()
+  const { data: lib } = await admin.from('crm_stickers').select('storage_path')
+  const inLib = new Set((lib ?? []).map((l) => l.storage_path as string))
+  const seen = new Set<string>()
+  const picked: { id: string; path: string }[] = []
+  for (const r of (data ?? []) as { id: string; storage_path: string }[]) {
+    if (inLib.has(r.storage_path) || seen.has(r.storage_path)) continue
+    seen.add(r.storage_path)
+    picked.push({ id: r.id, path: r.storage_path })
+    if (picked.length >= 40) break
+  }
+  if (!picked.length) return []
+  const { data: signed } = await admin.storage.from('crm-attachments').createSignedUrls(picked.map((p) => p.path), 3600)
+  const byPath = new Map((signed ?? []).map((x) => [x.path as string, x.signedUrl as string]))
+  return picked.filter((p) => byPath.get(p.path)).map((p) => ({ message_id: p.id, url: byPath.get(p.path)! }))
+}
+
+// Guarda a figurinha recebida na biblioteca e já a envia nesta conversa.
+export async function sendReceivedSticker(conversationId: string, messageId: string) {
+  const saved = await saveMessageAsSticker(messageId)
+  if ('error' in saved && saved.error) return { error: saved.error }
+  const admin = createAdminClient()
+  const { data: m } = await admin.from('crm_messages').select('storage_path').eq('id', messageId).maybeSingle()
+  if (!m?.storage_path) return { error: 'Figurinha não encontrada' }
+  const { data: st } = await admin.from('crm_stickers').select('id').eq('storage_path', m.storage_path).maybeSingle()
+  if (!st) return { error: 'Figurinha não encontrada' }
+  return sendCrmSticker(conversationId, st.id as string)
 }
