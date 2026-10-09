@@ -369,6 +369,7 @@ function ContactBlock({
 function NewContactForm({ conversationId, defaultName, onCreated }: { conversationId: string; defaultName: string; onCreated: () => void }) {
   const toast = useToast()
   const [open, setOpen] = useState(false)
+  const [linking, setLinking] = useState(false)
   const [name, setName] = useState(defaultName)
   const [type, setType] = useState('')
   const [company, setCompany] = useState('')
@@ -388,12 +389,24 @@ function NewContactForm({ conversationId, defaultName, onCreated }: { conversati
     onCreated()
   }
 
+  if (linking) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-gray-600">Procure o contato que já existe no sistema:</p>
+        <ContactLinker conversationId={conversationId} autoFocus onDone={onCreated} onCancel={() => setLinking(false)} />
+      </div>
+    )
+  }
+
   if (!open) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-gray-500">Nenhum contato cadastrado com este telefone.</p>
-        <button onClick={() => setOpen(true)} className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-gray-900 text-white text-sm font-medium hover:bg-gray-700">
-          <UserPlus className="w-4 h-4" /> Cadastrar como contato
+        <p className="text-sm text-gray-500">Nenhum contato com este telefone foi encontrado automaticamente.</p>
+        <button onClick={() => setLinking(true)} className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-gray-900 text-white text-sm font-medium hover:bg-gray-700">
+          <Link2 className="w-4 h-4" /> Vincular a contato existente
+        </button>
+        <button onClick={() => setOpen(true)} className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white border border-gray-300 text-gray-800 text-sm font-medium hover:bg-gray-50">
+          <UserPlus className="w-4 h-4" /> Cadastrar como novo contato
         </button>
       </div>
     )
@@ -507,56 +520,115 @@ function QuotesSection({ data }: { data: ContactPanelData }) {
   )
 }
 
+interface FoundContact { id: string; name: string; phone: string | null; type: string; company?: string | null; email?: string | null }
+
+// Buscar um contato já cadastrado (nome ou telefone), conferir e CONFIRMAR o vínculo.
+function ContactLinker({
+  conversationId, excludeId, autoFocus, onDone, onCancel,
+}: {
+  conversationId: string
+  excludeId?: string
+  autoFocus?: boolean
+  onDone: () => void
+  onCancel?: () => void
+}) {
+  const toast = useToast()
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<FoundContact[]>([])
+  const [searching, setSearching] = useState(false)
+  const [picked, setPicked] = useState<FoundContact | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (picked) return
+    const term = q.trim()
+    if (term.length < 2) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    let alive = true
+    const t = setTimeout(() => {
+      searchContactsForCrm(term).then((r) => { if (alive) { setResults(r as FoundContact[]); setSearching(false) } })
+    }, 250)
+    return () => { alive = false; clearTimeout(t) }
+  }, [q, picked])
+
+  async function confirm() {
+    if (!picked || busy) return
+    setBusy(true)
+    const r = await changeConversationContact(conversationId, picked.id)
+    setBusy(false)
+    if (r.error) toast.error('ERRO', r.error)
+    else { toast.success('CONTATO VINCULADO', picked.name); onDone() }
+  }
+
+  if (picked) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2 text-sm" role="group" aria-label="Confirmar vínculo">
+        <p className="text-emerald-900">Vincular esta conversa a este contato?</p>
+        <div className="rounded-lg bg-white border border-emerald-100 p-2.5">
+          <p className="font-semibold text-gray-900">{picked.name}</p>
+          <p className="text-xs text-gray-600">{CONTACT_TYPE_LABEL[picked.type] ?? picked.type}{picked.company ? ` · ${picked.company}` : ''}</p>
+          {picked.phone && <p className="text-xs text-gray-500">{picked.phone}</p>}
+          {picked.email && <p className="text-xs text-gray-500 break-all">{picked.email}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setPicked(null)} disabled={busy} className="flex-1 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50">Voltar</button>
+          <button onClick={confirm} disabled={busy} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-60">
+            {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Confirmar vínculo
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const shown = results.filter((r) => r.id !== excludeId)
+  return (
+    <div className="rounded-lg border border-gray-200 p-2 space-y-2">
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+        <input autoFocus={autoFocus} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Digite o nome ou o telefone" aria-label="Buscar contato cadastrado"
+          className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300" />
+        {searching && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400 absolute right-2 top-1/2 -translate-y-1/2" />}
+      </div>
+      <ul className="max-h-48 overflow-y-auto">
+        {shown.map((r) => (
+          <li key={r.id}>
+            <button onClick={() => setPicked(r)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm">
+              <span className="font-medium text-gray-900">{r.name}</span>
+              <span className="block text-xs text-gray-500">{CONTACT_TYPE_LABEL[r.type] ?? r.type}{r.company ? ` · ${r.company}` : ''}{r.phone ? ` · ${r.phone}` : ''}</span>
+            </button>
+          </li>
+        ))}
+        {q.trim().length >= 2 && !searching && shown.length === 0 && <li className="px-2 py-1.5 text-xs text-gray-400">Nenhum contato encontrado para “{q.trim()}”</li>}
+        {q.trim().length < 2 && <li className="px-2 py-1.5 text-xs text-gray-400">Digite pelo menos 2 letras (ou 3 números do telefone).</li>}
+      </ul>
+      {onCancel && <button onClick={onCancel} className="text-xs text-gray-500 underline">Cancelar</button>}
+    </div>
+  )
+}
+
 // Corrigir um vínculo automático errado: trocar por outro contato ou desvincular.
 function ChangeContact({ conversationId, currentId, onChanged }: { conversationId: string; currentId: string; onChanged: () => void }) {
   const toast = useToast()
   const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
-  const [results, setResults] = useState<{ id: string; name: string; phone: string | null; type: string }[]>([])
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    if (!open || q.trim().length < 2) { setResults([]); return }
-    const t = setTimeout(() => { searchContactsForCrm(q).then((r) => setResults(r as any)) }, 250)
-    return () => clearTimeout(t)
-  }, [q, open])
-
-  async function apply(contactId: string | null) {
+  async function unlink() {
     if (busy) return
-    if (contactId === null && !window.confirm('Desvincular este contato? O sistema não vai vincular de novo sozinho.')) return
+    if (!window.confirm('Desvincular este contato? O sistema não vai vincular de novo sozinho.')) return
     setBusy(true)
-    const r = await changeConversationContact(conversationId, contactId)
+    const r = await changeConversationContact(conversationId, null)
     setBusy(false)
     if (r.error) toast.error('ERRO', r.error)
-    else { toast.success(contactId ? 'CONTATO TROCADO' : 'CONTATO DESVINCULADO'); setOpen(false); setQ(''); onChanged() }
+    else { toast.success('CONTATO DESVINCULADO'); onChanged() }
   }
 
   if (!open) {
     return (
       <div className="flex gap-3 text-xs">
         <button onClick={() => setOpen(true)} className="underline text-gray-600 hover:text-gray-900">Não é este contato? Trocar</button>
-        <button onClick={() => apply(null)} className="underline text-gray-400 hover:text-red-600">Desvincular</button>
+        <button onClick={unlink} className="underline text-gray-400 hover:text-red-600">Desvincular</button>
       </div>
     )
   }
-  return (
-    <div className="rounded-lg border border-gray-200 p-2 space-y-2">
-      <div className="relative">
-        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou telefone" aria-label="Buscar contato"
-          className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300" />
-      </div>
-      <ul className="max-h-40 overflow-y-auto">
-        {results.filter((r) => r.id !== currentId).map((r) => (
-          <li key={r.id}>
-            <button disabled={busy} onClick={() => apply(r.id)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm">
-              {r.name} <span className="text-xs text-gray-400">· {CONTACT_TYPE_LABEL[r.type] ?? r.type}{r.phone ? ` · ${r.phone}` : ''}</span>
-            </button>
-          </li>
-        ))}
-        {q.trim().length >= 2 && results.filter((r) => r.id !== currentId).length === 0 && <li className="px-2 py-1.5 text-xs text-gray-400">Nenhum contato encontrado</li>}
-      </ul>
-      <button onClick={() => { setOpen(false); setQ('') }} className="text-xs text-gray-500 underline">Cancelar</button>
-    </div>
-  )
+  return <ContactLinker conversationId={conversationId} excludeId={currentId} autoFocus onDone={() => { setOpen(false); onChanged() }} onCancel={() => setOpen(false)} />
 }

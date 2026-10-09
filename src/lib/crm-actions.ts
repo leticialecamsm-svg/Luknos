@@ -829,13 +829,13 @@ export async function searchContactsForCrm(query: string) {
   if (!query.trim()) return []
   const { data } = await createAdminClient()
     .from('contacts')
-    .select('id, name, phone, type')
+    .select('id, name, phone, type, company, email')
     .ilike('name', `%${query.trim()}%`)
     .limit(10)
   // também por telefone (3+ números)
   const digits = query.replace(/\D/g, '')
   if (digits.length >= 3) {
-    const { data: byPhone } = await createAdminClient().from('contacts').select('id, name, phone, type').ilike('phone', `%${digits}%`).limit(10)
+    const { data: byPhone } = await createAdminClient().from('contacts').select('id, name, phone, type, company, email').ilike('phone', `%${digits}%`).limit(10)
     const seen = new Set((data ?? []).map((d) => d.id))
     return [...(data ?? []), ...(byPhone ?? []).filter((d) => !seen.has(d.id))].slice(0, 12)
   }
