@@ -17,17 +17,17 @@ import { groupByStage, STAGE_COLORS, STAGE_NAME_MAX, type CrmStage } from '@/lib
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useFocusTrap } from '@/components/ui/useFocusTrap'
-import { getAvatarColor } from '@/lib/crm-ui'
+import { formatListTime } from '@/lib/crm-time'
+import { ConvAvatar } from './ConvAvatar'
 import { formatCents, sumCents } from '@/lib/crm-money'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
-import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ConvTags } from './ConvTags'
 import { DUE_STYLE } from './FollowupPopover'
 import { dueState, formatDue } from '@/lib/crm-followup'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft, CheckCheck, ArrowDownLeft, CalendarClock } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft, CheckCheck, CalendarClock } from 'lucide-react'
 
 const BOARD_LIMIT = 500
 type Scope = 'mine' | 'unassigned' | 'all'
@@ -39,17 +39,6 @@ function phoneFromJid(jid: string) {
     return `+55 ${ddd} ${rest.slice(0, rest.length - 4)}-${rest.slice(-4)}`
   }
   return d ? `+${d}` : jid
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'agora'
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} h`
-  const d = Math.floor(h / 24)
-  return d < 30 ? `${d} d` : new Date(iso).toLocaleDateString('pt-BR')
 }
 
 const unreadNow = (c: { unread_count: number; marked_unread: boolean }) => c.unread_count > 0 || c.marked_unread
@@ -70,6 +59,8 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [moveFor, setMoveFor] = useState<string | null>(null)
   const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0 })
   const filter = useInstanceFilter()
+  // com um WhatsApp só na tela, a etiqueta dele em cada cartão é repetição (a borda colorida já diz)
+  const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
   const selectedKey = filter.selected.join(',')
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
 
@@ -180,9 +171,9 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-10.5rem)] min-h-[420px]">
+    <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[420px]">
       {/* barra de filtros */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
         <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="max-w-[16rem]" />
         <div className="flex gap-2">
           {(['mine', 'unassigned', 'all'] as const).map((k) => (
@@ -190,13 +181,13 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
               key={k}
               onClick={() => setScope(k)}
               className={cn(
-                'px-3 py-1.5 text-sm font-medium rounded-full transition-colors',
-                scope === k ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+                'px-2.5 py-1 text-[13px] font-medium rounded-full transition-colors',
+                scope === k ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
               )}
             >
               {k === 'mine' ? 'Minhas' : k === 'unassigned' ? 'Pendentes' : 'Todas'}
               {counts[k] > 0 && (
-                <span className={cn('ml-1.5 text-xs rounded-full px-1.5 py-0.5', scope === k ? 'bg-white/20' : k === 'unassigned' ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-600')}>{counts[k]}</span>
+                <span className={cn('ml-1 text-[11px]', k === 'unassigned' && scope !== k ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[k]}</span>
               )}
             </button>
           ))}
@@ -208,7 +199,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar nome ou telefone"
             aria-label="Buscar conversa"
-            className="pl-8 pr-8 py-1.5 text-sm border border-gray-200 rounded-full w-64 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            className="pl-8 pr-8 py-1 text-sm bg-gray-100 border-0 rounded-lg w-56 focus:outline-none focus:ring-2 focus:ring-gray-300"
           />
           {query && (
             <button onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
@@ -221,7 +212,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
         {isAdmin && (
           <button
             onClick={() => setEditing({ stage: null })}
-            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full bg-gray-900 text-white hover:bg-gray-700"
+            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border border-gray-200 text-gray-700 hover:bg-gray-50"
           >
             <Plus className="w-4 h-4" /> Nova coluna
           </button>
@@ -255,9 +246,24 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
           {isAdmin && <button onClick={() => setEditing({ stage: null })} className="px-3 py-1.5 rounded-full bg-gray-900 text-white">Criar primeira coluna</button>}
         </div>
       ) : (
-        <div className="flex-1 min-h-0 flex gap-3 overflow-x-auto pb-2">
+        <div className="flex-1 min-h-0 flex gap-2 overflow-x-auto pb-2">
           {orderedStages.map((s, i) => {
             const items = grouped.get(s.id) ?? []
+            // coluna vazia fica recolhida (só a faixa com o nome); abre enquanto alguém arrasta um cartão
+            if (items.length === 0 && !dragId && !query.trim()) {
+              return (
+                <section
+                  key={s.id}
+                  aria-label={`Coluna ${s.name} (vazia)`}
+                  title={`${s.name} — nenhuma conversa`}
+                  className="w-10 shrink-0 flex flex-col items-center gap-2 rounded-xl bg-gray-50 border border-gray-200 py-3"
+                  style={{ borderTop: `3px solid ${s.color}` }}
+                >
+                  <span className="text-[11px] text-gray-400">0</span>
+                  <span className="text-xs font-medium text-gray-500 whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.name}</span>
+                </section>
+              )
+            }
             return (
               <section
                 key={s.id}
@@ -271,16 +277,17 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                   if (id) moveCard(id, s.id)
                 }}
                 className={cn(
-                  'w-72 shrink-0 flex flex-col rounded-xl bg-gray-50 border transition-colors',
+                  'w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border transition-colors',
                   overStage === s.id ? 'border-gray-900 bg-gray-100' : 'border-gray-200',
                 )}
               >
-                <header className="px-3 py-2.5 border-b border-gray-200" style={{ borderTop: `3px solid ${s.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                <header className="px-3 py-2 border-b border-gray-200" style={{ borderTop: `3px solid ${s.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
                   <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm text-gray-900 truncate" title={s.name}>{s.name}</span>
-                  <span className="text-xs text-gray-500 bg-white border border-gray-200 rounded-full px-2">{items.length}</span>
+                  <span className="text-xs text-gray-500">{items.length}</span>
+                  <span className="ml-auto text-[11px] text-gray-400 whitespace-nowrap" title="Soma dos valores das conversas desta coluna">{formatCents(sumCents(items.map((c) => c.deal_cents)))}</span>
                   {isAdmin && (
-                    <div className="ml-auto relative">
+                    <div className="relative">
                       <button
                         aria-label={`Opções da coluna ${s.name}`}
                         aria-haspopup="menu"
@@ -300,96 +307,114 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                     </div>
                   )}
                   </div>
-                  <p className="mt-0.5 text-xs text-gray-500" title="Soma dos valores das conversas desta coluna">{formatCents(sumCents(items.map((c) => c.deal_cents)))}</p>
                 </header>
-                <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
                   {items.length === 0 && <p className="text-xs text-gray-400 text-center py-6">Nenhuma conversa</p>}
-                  {items.map((c) => (
+                  {items.map((c) => {
+                    const name = c.contact_name ?? phoneFromJid(c.remote_jid)
+                    const unread = unreadNow(c)
+                    return (
                     <article
                       key={c.id}
                       draggable
                       onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; setDragId(c.id) }}
                       onDragEnd={() => { setDragId(null); setOverStage(null) }}
-                      className={cn('bg-white border border-gray-200 border-l-4 rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing', filter.colorOf(c.instance_id).bar, dragId === c.id && 'opacity-40')}
+                      className={cn('group relative bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md cursor-grab active:cursor-grabbing focus-within:shadow-md', filter.colorOf(c.instance_id).bar, dragId === c.id && 'opacity-40')}
                     >
-                      <div className="flex items-start gap-3">
-                        {c.contact_photo_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.contact_photo_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                        ) : (
-                          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
-                            {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
+                      <div className="flex items-center gap-2.5">
+                        <ConvAvatar id={c.id} name={name} photo={c.contact_photo_url} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-2">
+                            <Link href={`/crm/conversas?c=${c.id}`} className={cn('flex-1 min-w-0 truncate text-sm hover:underline', unread ? 'font-semibold text-gray-950' : 'text-gray-900')} title={name}>
+                              {name}
+                            </Link>
+                            <span className={cn('shrink-0 text-[11px]', unread ? 'font-semibold text-emerald-600' : 'text-gray-400')} title={new Date(c.last_message_at).toLocaleString('pt-BR')}>{formatListTime(c.last_at ?? c.last_message_at)}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <p className={cn('flex-1 min-w-0 flex items-center gap-1 text-xs', unread ? 'text-gray-900 font-medium' : 'text-gray-500')}>
+                              {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
+                              <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
+                            </p>
+                            {unread && (
+                              <span
+                                className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center"
+                                title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
+                              >
+                                {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* só o que pede atenção fica sempre à vista: follow-up e valor já preenchido */}
+                      {(c.next_followup || c.deal_cents) && (
+                        <div className="mt-1.5 flex items-center gap-1.5 pl-[46px] group-hover:hidden group-focus-within:hidden">
+                          {c.next_followup && (
+                            <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
+                              <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
+                            </span>
+                          )}
+                          {!!c.deal_cents && <span className="ml-auto text-[11px] font-medium text-gray-600">{formatCents(c.deal_cents)}</span>}
+                        </div>
+                      )}
+
+                      {/* detalhes ao passar o mouse (ou com o foco no cartão) */}
+                      <div className="hidden group-hover:block group-focus-within:block mt-1.5 pl-[46px] space-y-1.5">
+                        {(showInstanceChip || c.contact_type || c.labels.length > 0) && (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {showInstanceChip && (
+                              <span className={cn('inline-flex max-w-full items-center text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)} title={`WhatsApp: ${c.instance_label}`}>
+                                <span className="truncate">{c.instance_label}</span>
+                              </span>
+                            )}
+                            <ConvTags type={c.contact_type} labels={c.labels} />
                           </div>
                         )}
-                        <div className="min-w-0 flex-1">
-                          <Link href={`/crm/conversas?c=${c.id}`} className={cn('block truncate hover:underline', unreadNow(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')} title={c.contact_name ?? phoneFromJid(c.remote_jid)}>
-                            {c.contact_name ?? phoneFromJid(c.remote_jid)}
-                          </Link>
-                          <p className="mt-0.5">
-                            <span title={`WhatsApp: ${c.instance_label}`} className={cn('inline-flex max-w-full items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
-                              <WhatsappIcon className="w-3 h-3 shrink-0" />
-                              <span className="truncate">{c.instance_label}</span>
-                            </span>
-                          </p>
-                          <ConvTags type={c.contact_type} labels={c.labels} className="mt-1" />
-                          {c.next_followup && (
-                            <p className={cn('inline-flex items-center gap-1 text-[11px] font-medium mt-1 px-1.5 py-0.5 rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
-                              <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
-                            </p>
-                          )}
-                          <p className={cn('flex items-center gap-1 text-xs mt-1', unreadNow(c) ? 'text-gray-900 font-semibold' : c.last_direction === 'inbound' ? 'text-gray-600' : 'text-gray-400')}>
-                            {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
-                            {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
-                            <span className="line-clamp-1">{c.last_body || 'Sem mensagens'}</span>
-                          </p>
-                        </div>
-                        <div className="relative shrink-0 flex flex-col items-end gap-1">
-                          <span className="text-xs text-gray-400">{timeAgo(c.last_message_at)}</span>
-                          {unreadNow(c) && (
-                            <span
-                              className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center"
-                              title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
-                            >
-                              {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            aria-label={`Mover ${c.contact_name ?? phoneFromJid(c.remote_jid)} para outra coluna`}
-                            aria-haspopup="menu"
-                            title="Mover para outra coluna"
-                            onClick={(e) => { e.stopPropagation(); setMoveFor(moveFor === c.id ? null : c.id) }}
-                            className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-                          >
-                            <ArrowRightLeft className="w-3.5 h-3.5" />
-                          </button>
-                          {moveFor === c.id && (
-                            <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-full mt-1 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
-                              <p className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400">Mover para</p>
-                              {orderedStages.filter((o) => o.id !== s.id).map((o) => (
-                                <button key={o.id} role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left" onClick={() => { setMoveFor(null); moveCard(c.id, o.id) }}>
-                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.color }} />{o.name}
-                                </button>
-                              ))}
+                        {c.next_followup && (
+                          <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
+                            <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
+                          </span>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                          <DealValue cents={c.deal_cents} onSave={(v) => saveValue(c.id, v)} />
+                          <div className="flex items-center gap-1">
+                            <div className="flex items-center -space-x-1.5">
+                              {c.assigned_user_avatar ? (
+                                <Avatar user={c.assigned_user_avatar} size="xs" className="ring-2 ring-white" title={`Responsável: ${c.assigned_user_avatar.name}`} />
+                              ) : (
+                                <span title="Sem responsável" className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-[10px] text-gray-400 flex items-center justify-center bg-white">?</span>
+                              )}
+                              {c.last_reply_user && c.last_reply_user.id !== c.assigned_user_id && (
+                                <Avatar user={c.last_reply_user} size="xs" className="ring-2 ring-white" title={`Última resposta: ${c.last_reply_user.name}`} />
+                              )}
                             </div>
-                          )}
+                            <button
+                              type="button"
+                              aria-label={`Mover ${name} para outra coluna`}
+                              aria-haspopup="menu"
+                              title="Mover para outra coluna"
+                              onClick={(e) => { e.stopPropagation(); setMoveFor(moveFor === c.id ? null : c.id) }}
+                              className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                            >
+                              <ArrowRightLeft className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <DealValue cents={c.deal_cents} onSave={(v) => saveValue(c.id, v)} />
-                        <div className="flex items-center -space-x-1.5">
-                          {c.assigned_user_avatar ? (
-                            <Avatar user={c.assigned_user_avatar} size="xs" className="ring-2 ring-white" title={`Responsável: ${c.assigned_user_avatar.name}`} />
-                          ) : (
-                            <span title="Sem responsável" className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-[10px] text-gray-400 flex items-center justify-center bg-white">?</span>
-                          )}
-                          {c.last_reply_user && c.last_reply_user.id !== c.assigned_user_id && (
-                            <Avatar user={c.last_reply_user} size="xs" className="ring-2 ring-white" title={`Última resposta: ${c.last_reply_user.name}`} />
-                          )}
+                      {moveFor === c.id && (
+                        <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-2 top-full -mt-1 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+                          <p className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400">Mover para</p>
+                          {orderedStages.filter((o) => o.id !== s.id).map((o) => (
+                            <button key={o.id} role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left" onClick={() => { setMoveFor(null); moveCard(c.id, o.id) }}>
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.color }} />{o.name}
+                            </button>
+                          ))}
                         </div>
-                      </div>
+                      )}
                     </article>
-                  ))}
+                    )
+                  })}
                 </div>
               </section>
             )

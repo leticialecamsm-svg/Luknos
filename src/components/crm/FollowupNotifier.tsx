@@ -63,14 +63,14 @@ export function FollowupNotifier() {
   const today = items.filter((f) => dueState(f.due_at) === 'today').length
 
   return (
-    <div ref={ref} className="relative ml-auto self-center">
+    <div ref={ref} className="relative self-center">
       <button
         type="button"
         onClick={() => { setOpen((o) => !o); if (!open) load() }}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Meus follow-ups: ${items.length}`}
-        className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border', overdue ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50')}
+        className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border', overdue ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50')}
       >
         <CalendarClock className="w-4 h-4" />
         Follow-ups

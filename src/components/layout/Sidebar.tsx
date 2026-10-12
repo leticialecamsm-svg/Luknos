@@ -60,7 +60,9 @@ function visibleNavHasCrm(isAdmin: boolean, canAccessNav: (href: string) => bool
   return isAdmin || canAccessNav('/crm')
 }
 
-export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string }) {
+// `focus`: telas que precisam de largura (o CRM) começam com o menu recolhido e guardam a escolha à parte.
+export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string; focus?: boolean }) {
+  const collapseKey = focus ? 'sidebar-collapsed-focus' : 'sidebar-collapsed'
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -109,9 +111,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // e como cada seção tem o próprio layout, ele sumia e voltava a cada clique.
   // useLayoutEffect aplica o "recolhido" antes da tela ser pintada, sem esconder nada.
   useLayoutEffect(() => {
-    const stored = localStorage.getItem('sidebar-collapsed')
-    // sem preferência salva, telas estreitas (celular) começam recolhidas
-    const saved = stored === null ? window.innerWidth < 768 : stored === 'true'
+    const stored = localStorage.getItem(collapseKey)
+    // sem preferência salva, telas estreitas (celular) — e as telas de foco — começam recolhidas
+    const saved = stored === null ? focus || window.innerWidth < 768 : stored === 'true'
     setCollapsed(saved)
     setMounted(true)
   }, [])
@@ -119,7 +121,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   function toggleCollapse() {
     const newState = !collapsed
     setCollapsed(newState)
-    localStorage.setItem('sidebar-collapsed', String(newState))
+    localStorage.setItem(collapseKey, String(newState))
   }
 
   const isAdmin = user?.role === 'admin'

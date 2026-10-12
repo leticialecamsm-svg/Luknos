@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { ActingAsBar } from './ActingAsBar'
+import { ActingAsBanner, ActingAsSelect, useActingContext } from './ActingAsBar'
 import { FollowupNotifier } from './FollowupNotifier'
 
 const TABS = [
@@ -13,10 +13,11 @@ const TABS = [
 
 export function CrmTabs() {
   const pathname = usePathname()
+  const acting = useActingContext()
   return (
     <>
-    <ActingAsBar />
-    <nav aria-label="CRM" className="flex gap-1 mb-3 border-b border-gray-200">
+    <ActingAsBanner ctx={acting} />
+    <nav aria-label="CRM" className="flex items-center gap-1 mb-2 border-b border-gray-200">
       {TABS.map((t) => {
         const active = t.href === '/crm' ? pathname === '/crm' : pathname.startsWith(t.href)
         return (
@@ -25,7 +26,7 @@ export function CrmTabs() {
             href={t.href}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'px-4 py-2 text-sm font-medium -mb-px border-b-2',
+              'px-3 py-1.5 text-sm font-medium -mb-px border-b-2',
               active ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800',
             )}
           >
@@ -33,7 +34,10 @@ export function CrmTabs() {
           </Link>
         )
       })}
-      <FollowupNotifier />
+      <div className="ml-auto flex items-center gap-2 pb-1">
+        <ActingAsSelect ctx={acting} />
+        <FollowupNotifier />
+      </div>
     </nav>
     </>
   )

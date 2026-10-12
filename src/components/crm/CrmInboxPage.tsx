@@ -66,7 +66,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, MoreVertical,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -117,6 +117,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
+  const [headerMenu, setHeaderMenu] = useState(false)
+  const [showFormat, setShowFormat] = useState(false)
+  useEffect(() => {
+    if (!headerMenu) return
+    const close = () => setHeaderMenu(false)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    document.addEventListener('click', close)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey) }
+  }, [headerMenu])
   // menções em grupo
   const [members, setMembers] = useState<GroupMember[]>([])
   const [picks, setPicks] = useState<MentionPick[]>([])
@@ -558,7 +568,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }, [contactQuery])
 
   return (
-    <div className="flex h-[calc(100vh-10.5rem)] gap-0 bg-white">
+    <div className="flex h-[calc(100vh-8rem)] gap-0 bg-white">
       {/* ──────────────────────────────────────────────────────────────────────
           SIDEBAR - Conversas
           ────────────────────────────────────────────────────────────────────── */}
@@ -716,20 +726,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         {selected && (
           <>
             {/* Header da conversa */}
-            <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between gap-2">
+            <div className="px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-2">
               <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
-                <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={44} />
+                <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={40} />
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-gray-900 truncate">
+                  <h3 className="font-semibold text-gray-900 truncate leading-5">
                     {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
-                  <p>
-                    <span className={cn('inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border', filter.colorOf(selected.instance_id).chip)}>
-                      <WhatsappIcon className="w-3.5 h-3.5" />{selected.instance_label}
+                  <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                    <span className={cn('shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded-full border', filter.colorOf(selected.instance_id).chip)}>
+                      <WhatsappIcon className="w-3 h-3" />{selected.instance_label}
                     </span>
-                  </p>
-                  <ConvTags type={selected.contact_type} labels={selected.labels} className="mt-1" />
+                    <ConvTags type={selected.contact_type} labels={selected.labels} className="min-w-0 overflow-hidden flex-nowrap" />
+                  </div>
                 </div>
                 {!selected.is_group && <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
                   <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
@@ -765,49 +775,45 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onCatalogChanged={loadLabels}
                 />
                 <button
-                  onClick={handlePin}
-                  disabled={pending}
-                  title={selected.pinned ? 'Desafixar do topo' : 'Fixar no topo da lista'}
-                  aria-label={selected.pinned ? 'Desafixar conversa' : 'Fixar conversa'}
-                  aria-pressed={selected.pinned}
-                  className={cn('px-3 py-2 text-sm rounded-lg transition-colors', selected.pinned ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-gray-700 hover:bg-gray-100')}
-                >
-                  {selected.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-                </button>
-                <button
-                  onClick={handleMarkUnread}
-                  disabled={pending}
-                  title="Marcar como não lida"
-                  aria-label="Marcar como não lida"
-                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <MailOpen className="w-4 h-4" />
-                </button>
-                <button
                   onClick={() => setShowInfo((v) => !v)}
                   title="Dados do contato"
                   aria-label="Dados do contato"
                   aria-pressed={showInfo}
-                  className={cn('px-3 py-2 text-sm rounded-lg transition-colors', showInfo ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100')}
+                  className={cn('px-2.5 py-2 text-sm rounded-lg transition-colors', showInfo ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-200/70')}
                 >
                   <Info className="w-4 h-4" />
                 </button>
-                {!selected.is_group && <button
-                  onClick={() => setShowLinkContact(true)}
-                  title="Vincular contato / dar um nome"
-                  aria-label="Vincular contato"
-                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <Link2 className="w-4 h-4" />
-                </button>}
-                <button
-                  onClick={() => setShowReassign(true)}
-                  title="Transferir ou liberar esta conversa"
-                  aria-label="Transferir ou liberar esta conversa"
-                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <UserCog className="w-4 h-4" />
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setHeaderMenu((v) => !v) }}
+                    title="Mais opções"
+                    aria-label="Mais opções da conversa"
+                    aria-haspopup="menu"
+                    aria-expanded={headerMenu}
+                    className={cn('px-2.5 py-2 text-sm rounded-lg transition-colors text-gray-700', headerMenu ? 'bg-gray-200' : 'hover:bg-gray-200/70')}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {headerMenu && (
+                    <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-10 z-40 w-60 bg-white border border-gray-200 rounded-xl shadow-xl py-1 text-sm text-gray-800">
+                      <button role="menuitem" disabled={pending} onClick={() => { setHeaderMenu(false); handlePin() }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        {selected.pinned ? <PinOff className="w-4 h-4 text-amber-600" /> : <Pin className="w-4 h-4 text-gray-500" />}
+                        {selected.pinned ? 'Desafixar do topo' : 'Fixar no topo da lista'}
+                      </button>
+                      <button role="menuitem" disabled={pending} onClick={() => { setHeaderMenu(false); handleMarkUnread() }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        <MailOpen className="w-4 h-4 text-gray-500" /> Marcar como não lida
+                      </button>
+                      {!selected.is_group && (
+                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowLinkContact(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                          <Link2 className="w-4 h-4 text-gray-500" /> Vincular contato / dar um nome
+                        </button>
+                      )}
+                      <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        <UserCog className="w-4 h-4 text-gray-500" /> Transferir ou liberar
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -931,7 +937,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </button>
               </div>
             ) : (
-              <div className="p-4 pt-2 border-t border-gray-200 bg-white">
+              <div className="px-3 py-2 border-t border-gray-200 bg-[#F7F8FA]">
               {replyTo && (
                 <div className="mb-2 flex items-start gap-2 rounded-lg bg-gray-100 border-l-4 border-sky-500 px-3 py-2" role="status">
                   <Reply className="w-4 h-4 mt-0.5 text-sky-600 shrink-0" />
@@ -942,8 +948,18 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancelar resposta" className="p-1 rounded hover:bg-gray-200 text-gray-500"><X className="w-4 h-4" /></button>
                 </div>
               )}
-              <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} disabled={pending || sendingVoice} />
-              <div className="flex items-end gap-2 mt-1">
+              {showFormat && <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} disabled={pending || sendingVoice} />}
+              <div className={cn('flex items-end gap-1', showFormat && 'mt-1')}>
+                <button
+                  type="button"
+                  onClick={() => setShowFormat((v) => !v)}
+                  className={cn('p-2.5 rounded-lg transition-colors text-sm font-semibold leading-5 w-10', showFormat ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100')}
+                  title={showFormat ? 'Esconder formatação' : 'Formatação (negrito, itálico, listas…)'}
+                  aria-label="Formatação"
+                  aria-pressed={showFormat}
+                >
+                  Aa
+                </button>
                 {/* Ícone de anexo */}
                 <button
                   type="button"
@@ -1053,7 +1069,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   }}
                   placeholder={actingAsName ? `Respondendo como ${actingAsName}…` : 'Escreva uma mensagem…'}
                   rows={1}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
+                  className="flex-1 px-4 py-2.5 bg-white text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
                 />
                 </div>
 

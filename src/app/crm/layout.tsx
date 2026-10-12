@@ -8,12 +8,12 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar user={profile} allowedPages={allowedPages} roleLabel={roleLabel} />
+      <Sidebar user={profile} allowedPages={allowedPages} roleLabel={roleLabel} focus />
 
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <AppHeader user={profile} roleLabel={roleLabel} />
         <main className="flex-1 min-w-0 overflow-y-auto bg-surface">
-          <div className="max-w-7xl mx-auto p-6">
+          <div className="px-4 pt-3 pb-3">
             <CrmTabs />
             {children}
           </div>
