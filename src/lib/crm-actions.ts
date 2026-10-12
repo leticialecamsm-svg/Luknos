@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
+import { storeCrmMediaInDrive } from '@/lib/crm-media'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
 import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
@@ -775,7 +776,7 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
@@ -1008,6 +1009,68 @@ export async function sendCrmMessage(input: {
     return { ok: true }
   } catch (e: any) {
     return { error: e?.message ?? 'Falha ao enviar' }
+  }
+}
+
+// ─── Arquivos no Google Drive (baixados só quando alguém pede) ─────────────
+
+const MEDIA_TYPES = ['image', 'video', 'audio', 'document']
+
+// "Baixar": busca o arquivo no WhatsApp (via Evolution) e guarda no Drive da Luknos.
+export async function downloadCrmMedia(messageId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, message_type, storage_path, drive_file_id, file_name, mime_type, created_at, deleted_at')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m || m.deleted_at || !MEDIA_TYPES.includes(m.message_type)) return { error: 'Arquivo não encontrado' }
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  if (m.drive_file_id || m.storage_path) return { ok: true }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'fetch_media', message_id: messageId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.ok || !body.base64) return { error: body?.error ?? 'Não foi possível baixar o arquivo' }
+    const b64 = String(body.base64).includes(',') ? String(body.base64).split(',')[1] : String(body.base64)
+    const bytes = new Uint8Array(Buffer.from(b64, 'base64'))
+    const mime = body.mimetype ?? m.mime_type ?? null
+    const stored = await storeCrmMediaInDrive(bytes, { mimeType: mime, fileName: m.file_name ?? body.file_name ?? 'arquivo', at: m.created_at })
+    await admin.from('crm_messages')
+      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: mime, file_name: m.file_name ?? body.file_name ?? null })
+      .eq('id', messageId)
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível baixar o arquivo' }
+  }
+}
+
+// Para a rota que entrega o arquivo do Drive: confere quem pede e devolve o que é preciso.
+export async function crmMediaForViewer(messageId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return null
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, drive_file_id, file_name, mime_type, media_size, deleted_at')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m?.drive_file_id || m.deleted_at) return null
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return null
+  const { data: blob } = await admin.from('crm_media_blobs').select('web_view_link, size').eq('drive_file_id', m.drive_file_id).maybeSingle()
+  return {
+    driveFileId: m.drive_file_id as string,
+    fileName: (m.file_name as string | null) ?? 'arquivo',
+    mimeType: (m.mime_type as string | null) ?? 'application/octet-stream',
+    size: Number(m.media_size ?? blob?.size ?? 0) || null,
+    webViewLink: (blob?.web_view_link as string | null) ?? null,
   }
 }
 
@@ -1338,13 +1401,14 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
     count('outbound'),
     admin.from('crm_messages').select('created_at').eq('conversation_id', conversationId).eq('direction', 'inbound').eq('is_system', false).order('created_at', { ascending: false }).limit(1),
     admin.from('crm_messages').select('created_at').eq('conversation_id', conversationId).eq('direction', 'outbound').eq('is_system', false).order('created_at', { ascending: false }).limit(1),
-    admin.from('crm_messages').select('id, storage_path, file_name, mime_type, created_at, direction').eq('conversation_id', conversationId).not('storage_path', 'is', null).order('created_at', { ascending: false }).limit(400),
+    admin.from('crm_messages').select('id, storage_path, drive_file_id, file_name, mime_type, created_at, direction').eq('conversation_id', conversationId).is('deleted_at', null).or('storage_path.not.is.null,drive_file_id.not.is.null').order('created_at', { ascending: false }).limit(400),
     admin.from('crm_messages').select('body, created_at').eq('conversation_id', conversationId).eq('is_system', false).ilike('body', '%http%').order('created_at', { ascending: false }).limit(200),
   ])
 
   const media: ContactPanelData['media'] = { images: [], documents: [], audios: [], videos: [], total: 0 }
   for (const m of mediaRows.data ?? []) {
-    const item: PanelMedia = { id: m.id, path: m.storage_path as string, file_name: m.file_name, mime_type: m.mime_type, created_at: m.created_at, direction: m.direction as 'inbound' | 'outbound' }
+    // arquivo no Drive: "drive:<id da mensagem>" (abre pela rota /api/crm/media)
+    const item: PanelMedia = { id: m.id, path: m.storage_path ?? `drive:${m.id}`, file_name: m.file_name, mime_type: m.mime_type, created_at: m.created_at, direction: m.direction as 'inbound' | 'outbound' }
     const mt = (m.mime_type ?? '').toLowerCase()
     const bucket = mt.startsWith('image/') ? media.images : mt.startsWith('audio/') ? media.audios : mt.startsWith('video/') ? media.videos : media.documents
     bucket.push(item)
@@ -1352,10 +1416,12 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
   }
   // miniaturas das imagens mais recentes
   const thumbs = media.images.slice(0, 24)
-  if (thumbs.length) {
-    const { data: signed } = await admin.storage.from('crm-attachments').createSignedUrls(thumbs.map((t) => t.path), 600)
+  for (const t of thumbs) if (t.path.startsWith('drive:')) t.url = `/api/crm/media/${t.id}`
+  const inSupabase = thumbs.filter((t) => !t.path.startsWith('drive:'))
+  if (inSupabase.length) {
+    const { data: signed } = await admin.storage.from('crm-attachments').createSignedUrls(inSupabase.map((t) => t.path), 600)
     const byPath = new Map((signed ?? []).map((x) => [x.path, x.signedUrl]))
-    for (const t of thumbs) t.url = byPath.get(t.path) ?? null
+    for (const t of inSupabase) t.url = byPath.get(t.path) ?? null
   }
   media.images = media.images.slice(0, PANEL_LIST_LIMIT)
   media.documents = media.documents.slice(0, PANEL_LIST_LIMIT)

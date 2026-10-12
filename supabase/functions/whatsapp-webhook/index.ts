@@ -1,24 +1,8 @@
-// whatsapp-webhook — ponto de entrada das mensagens do número dedicado do robô.
-//
-// Auth: webhook assinado (x-evolution-webhook-secret ou ?secret=) + confere o
-//       `instance` contra wa_bot_config.evolution_instance_name.
-// Fluxo:
-//   1. valida assinatura e evento (messages.upsert)
-//   2. extrai phone_e164 do remoteJid e valida contra wa_collaborators ativos
-//      (fora da whitelist -> ignora silenciosamente)
-//   3. dedupe por provider_message_id (índice único parcial em wa_messages)
-//   4. cria/recupera a wa_conversations ativa do colaborador
-//   5. grava a mensagem em wa_messages (direction = inbound)
-//   6. [background] baixa documento/imagem para o bucket wa-attachments +
-//      wa_attachments com detected_kind; toca last_message_at; delega ao
-//      bot-conversation-engine
-//   Sempre responde 200 rápido para não gerar reentrega da Evolution.
-
-import { handleOptions, json } from '../_shared/cors.ts'
-import { verifyWebhookSecret, getMediaBase64 } from '../_shared/evolution.ts'
-import { createServiceClient } from '../_shared/supabase.ts'
-import { samePhone } from '../_shared/phone.ts'
-import { invokeFunction, runBackground } from '../_shared/internal.ts'
+import { handleOptions, json } from './_shared/cors.ts'
+import { verifyWebhookSecret, getMediaBase64 } from './_shared/evolution.ts'
+import { createServiceClient } from './_shared/supabase.ts'
+import { samePhone } from './_shared/phone.ts'
+import { invokeFunction, runBackground } from './_shared/internal.ts'
 import {
   base64ToBytes,
   detectKind,
@@ -28,7 +12,7 @@ import {
   extForMime,
   inferMessageType,
   mapMessageType,
-} from '../_shared/wa-parse.ts'
+} from './_shared/wa-parse.ts'
 import { handleCrmMessage } from './crm.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -52,13 +36,10 @@ Deno.serve(async (req) => {
     const result = await handle(payload)
     return json({ ok: true, ...result })
   } catch (err) {
-    // Erro interno: loga e ainda responde 200 (Evolution não deve reentregar).
     console.error('whatsapp-webhook erro:', err)
     return json({ ok: true, handled: false, error: String((err as Error)?.message ?? err) })
   }
 })
-
-// ───────────────────────────────────────────────────────────────────────────
 
 interface EvolutionWebhook {
   event?: string
@@ -68,6 +49,7 @@ interface EvolutionWebhook {
     message?: Record<string, unknown>
     messageType?: string
     pushName?: string
+    profilePicUrl?: string
   }
 }
 
@@ -90,8 +72,6 @@ async function handle(payload: EvolutionWebhook) {
   const isRobotInstance = !!config?.evolution_instance_name && instance === config.evolution_instance_name
 
   if (!isRobotInstance) {
-    // Não é o número do robô de orçamentos — ou é um número do CRM
-    // multiatendente (crm_instances), ou é desconhecido (ignora).
     const { data: crmInstance } = await db
       .from('crm_instances')
       .select('id, instance_name, default_user_id')
@@ -108,14 +88,12 @@ async function handle(payload: EvolutionWebhook) {
 
   const remoteJid = key.remoteJid ?? ''
   if (!remoteJid.endsWith('@s.whatsapp.net')) {
-    // grupos (@g.us), broadcast, @lid — fora do escopo do robô
     return { handled: false, skipped: 'not_individual', remoteJid }
   }
 
   const senderDigits = remoteJid.split('@')[0]
   const providerMessageId = key.id ?? null
 
-  // ── whitelist ────────────────────────────────────────────────────────────
   const { data: collaborators } = await db
     .from('wa_collaborators')
     .select('id, phone_e164, display_name, system_user_id, is_active')
@@ -123,11 +101,9 @@ async function handle(payload: EvolutionWebhook) {
 
   const collaborator = (collaborators ?? []).find((c) => samePhone(c.phone_e164, senderDigits))
   if (!collaborator) {
-    // Remetente fora da whitelist é ignorado silenciosamente (não cria conversa).
     return { handled: false, skipped: 'not_whitelisted' }
   }
 
-  // ── dedupe ───────────────────────────────────────────────────────────────
   if (providerMessageId) {
     const { data: dup } = await db
       .from('wa_messages')
@@ -137,7 +113,6 @@ async function handle(payload: EvolutionWebhook) {
     if (dup) return { handled: true, deduped: true, provider_message_id: providerMessageId }
   }
 
-  // ── conversa ativa ───────────────────────────────────────────────────────
   let conversation = (
     await db
       .from('wa_conversations')
@@ -159,7 +134,6 @@ async function handle(payload: EvolutionWebhook) {
     conversation = created
   }
 
-  // ── mensagem ─────────────────────────────────────────────────────────────
   const rawType = data.messageType ?? inferMessageType(data.message)
   const messageType = mapMessageType(rawType)
   const body = extractBody(data.message)
@@ -181,7 +155,6 @@ async function handle(payload: EvolutionWebhook) {
     throw msgErr
   }
 
-  // ── restante em background (responde rápido) ─────────────────────────────
   const conversationId = conversation.id
   await runBackground(
     (async () => {
@@ -208,8 +181,6 @@ async function handle(payload: EvolutionWebhook) {
   return { handled: true, conversation_id: conversationId, message_id: msg.id }
 }
 
-// ── anexos ─────────────────────────────────────────────────────────────────
-
 async function saveAttachment(
   db: SupabaseClient,
   conversationId: string,
@@ -217,28 +188,11 @@ async function saveAttachment(
   data: NonNullable<EvolutionWebhook['data']>,
 ) {
   const media = await getMediaBase64(instance, data.key)
-  if (!media?.base64) {
-    console.warn('sem base64 de mídia para conversa', conversationId)
-    return null
-  }
+  if (!media?.base64) return null
 
   const bytes = base64ToBytes(media.base64)
-  const msg = (data.message ?? {}) as Record<string, unknown>
-
-  // Fallbacks caso getBase64FromMediaMessage não traga fileName/mimetype.
-  const docWithCaption = msg.documentWithCaptionMessage as
-    | { message?: { documentMessage?: { fileName?: string; mimetype?: string } } }
-    | undefined
-  const docNode =
-    (msg.documentMessage as { fileName?: string; mimetype?: string } | undefined) ??
-    docWithCaption?.message?.documentMessage
-  const imgNode = msg.imageMessage as { mimetype?: string } | undefined
-
-  const fileName =
-    media.fileName ??
-    docNode?.fileName ??
-    `arquivo-${Date.now()}${extForMime(media.mimetype)}`
-  const mimeType = media.mimetype ?? docNode?.mimetype ?? imgNode?.mimetype ?? null
+  const fileName = extractMediaFileName(data.message, media)
+  const mimeType = extractMediaMimeType(data.message, media)
 
   const detectedKind = detectKind(fileName, mimeType)
   const safeName = fileName.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
@@ -265,5 +219,3 @@ async function saveAttachment(
   if (error) throw error
   return att.id
 }
-
-

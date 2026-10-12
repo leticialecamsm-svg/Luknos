@@ -78,6 +78,7 @@ export function ContactInfoPanel({
   }, [onClose])
 
   async function open(path: string) {
+    if (path.startsWith('drive:')) { window.open(`/api/crm/media/${path.slice(6)}`, '_blank'); return }
     const r = await getCrmAttachmentUrl(path)
     if ('url' in r) window.open(r.url, '_blank')
     else toast.error('ERRO', r.error)

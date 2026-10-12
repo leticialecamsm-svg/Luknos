@@ -1,7 +1,7 @@
 import { handleOptions, json } from './_shared/cors.ts'
 import { isInternalCall } from './_shared/internal.ts'
 import { createServiceClient } from './_shared/supabase.ts'
-import { sendTextMessage, sendMediaMessage, sendVoiceNote, deleteMessageForEveryone, editTextMessage, sendReactionMessage, sendContactMessage, sendStickerMessage, fetchGroupParticipants, type Quoted } from './_shared/evolution.ts'
+import { sendTextMessage, sendMediaMessage, sendVoiceNote, deleteMessageForEveryone, editTextMessage, getMediaBase64, sendReactionMessage, sendContactMessage, sendStickerMessage, fetchGroupParticipants, type Quoted } from './_shared/evolution.ts'
 import { onlyDigits } from './_shared/phone.ts'
 
 interface ContactToSend {
@@ -12,7 +12,7 @@ interface ContactToSend {
 }
 
 interface Payload {
-  action?: 'send' | 'delete' | 'edit' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants'
+  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants'
   conversation_id?: string
   sender_user_id?: string
   acted_by_user_id?: string | null
@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
   try {
     if (payload.action === 'delete') return json(await deleteMessage(payload))
     if (payload.action === 'edit') return json(await editMessage(payload))
+    if (payload.action === 'fetch_media') return json(await fetchMedia(payload))
     if (payload.action === 'react') return json(await reactToMessage(payload))
     if (payload.action === 'send_contact') return json(await sendContact(payload))
     if (payload.action === 'send_sticker') return json(await sendSticker(payload))
@@ -329,6 +330,28 @@ async function editMessage(payload: Payload) {
 
   await db.from('crm_messages').update({ body: text, edited_at: new Date().toISOString() }).eq('id', payload.message_id)
   return { edited: true }
+}
+
+// Baixar a midia de uma mensagem (quando alguem pede no CRM). Devolve o arquivo em base64;
+// quem guarda no Drive e o sistema.
+async function fetchMedia(payload: Payload) {
+  if (!payload.message_id) return { ok: false, error: 'missing_message_id' }
+  const db = createServiceClient()
+  const { data: msg } = await db
+    .from('crm_messages')
+    .select('id, direction, provider_message_id, participant_jid, mime_type, file_name, crm_conversations(remote_jid, crm_instances(instance_name))')
+    .eq('id', payload.message_id)
+    .maybeSingle()
+  if (!msg) return { ok: false, error: 'message_not_found' }
+  if (!msg.provider_message_id) return { ok: false, error: 'Esta mensagem não tem identificador do WhatsApp.' }
+  const conv = (msg as any).crm_conversations
+  const instanceName = conv?.crm_instances?.instance_name as string | undefined
+  if (!instanceName) return { ok: false, error: 'instance_not_found' }
+  const key: Record<string, unknown> = { id: msg.provider_message_id, remoteJid: conv.remote_jid, fromMe: msg.direction === 'outbound' }
+  if (msg.participant_jid) key.participant = msg.participant_jid
+  const media = await getMediaBase64(instanceName, key)
+  if (!media?.base64) return { ok: false, error: 'O WhatsApp não liberou este arquivo (pode ter expirado). Peça para reenviarem.' }
+  return { ok: true, base64: media.base64, mimetype: media.mimetype ?? msg.mime_type ?? null, file_name: media.fileName ?? msg.file_name ?? null }
 }
 
 // Reagir a uma mensagem (do cliente ou nossa). emoji vazio = tirar a reacao.

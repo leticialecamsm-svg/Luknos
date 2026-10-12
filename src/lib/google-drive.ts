@@ -280,3 +280,12 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
   }
   return syncQuoteFilesToDrive(data.id)
 }
+
+// Conteúdo de um arquivo (com Range opcional, para áudio/vídeo em partes). Não lança erro:
+// quem chama decide o que fazer com o status.
+export async function driveDownload(fileId: string, range?: string | null): Promise<Response> {
+  const token = await getAccessToken()
+  return fetch(`${DRIVE}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {
+    headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) },
+  })
+}

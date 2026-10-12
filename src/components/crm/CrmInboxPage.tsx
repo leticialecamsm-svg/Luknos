@@ -42,6 +42,7 @@ import {
   getCrmLabels,
   deleteCrmMessage,
   editCrmMessage,
+  downloadCrmMedia,
   completeFollowup,
   linkConversationContact,
   setConversationDisplayName,
@@ -68,7 +69,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -86,6 +87,10 @@ interface Msg {
   deleted_at?: string | null
   deleted_by_name?: string | null
   edited_at?: string | null
+  drive_file_id?: string | null
+  media_size?: number | null
+  media_seconds?: number | null
+  thumb?: string | null
   reactions?: ReactionChip[]
   participant_name?: string | null
   participant_jid?: string | null
@@ -476,9 +481,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
+  // arquivo no Drive: sai pela rota do sistema; no Supabase: link assinado
+  const mediaUrlOf = (m: Msg) => (m.drive_file_id ? `/api/crm/media/${m.id}` : m.storage_path ? attUrls[m.storage_path] : undefined)
   const lightboxItems: LightboxItem[] = messages
-    .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && m.storage_path && attUrls[m.storage_path])
-    .map((m) => ({ id: m.id, url: attUrls[m.storage_path as string], kind: m.message_type as 'image' | 'video', name: m.file_name }))
+    .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && mediaUrlOf(m))
+    .map((m) => ({ id: m.id, url: mediaUrlOf(m) as string, kind: m.message_type as 'image' | 'video', name: m.file_name }))
   // primeira mensagem do contato que ainda não tinha sido lida quando a conversa foi aberta
   const openedUnread = openedUnreadRef.current?.id === selectedId ? openedUnreadRef.current?.n ?? 0 : 0
   const layout = useMemo(() => threadLayout(messages), [messages])
@@ -962,7 +969,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   msg={m}
                   first={layout[i]?.first ?? true}
                   currentUserId={currentUserId}
-                  url={m.storage_path ? attUrls[m.storage_path] : undefined}
+                  url={mediaUrlOf(m)}
+                  onDownload={async () => {
+                    const r = await downloadCrmMedia(m.id)
+                    if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL BAIXAR', r.error)
+                    else refreshThread(selectedId!, true)
+                  }}
                   onOpenMedia={() => setLightboxId(m.id)}
                   onOpenAttachment={openAttachment}
                   contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
@@ -1288,12 +1300,13 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit,
+  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit,
 }: {
   msg: Msg
   first: boolean
   currentUserId: string
   url?: string
+  onDownload: () => Promise<void>
   onOpenMedia: () => void
   onOpenAttachment: (p: string) => void
   contact: { id: string; name: string; photo: string | null }
@@ -1364,6 +1377,9 @@ function MessageBubble({
   const tailCorner = first ? (isOutbound ? 'rounded-tr-none' : 'rounded-tl-none') : ''
 
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
+  const hasFile = !!(msg.storage_path || msg.drive_file_id)
+  // foto, áudio, vídeo ou documento que ainda não foi baixado: mostra o botão "Baixar"
+  const needsDownload = !hasFile && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
   const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
 
   if (msg.deleted_at) {
@@ -1466,7 +1482,9 @@ function MessageBubble({
 
         {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} tail={tail} />}
 
-        {msg.message_type === 'audio' && (
+        {needsDownload && <DownloadCard msg={msg} onDownload={onDownload} />}
+
+        {msg.message_type === 'audio' && hasFile && (
           url ? (
             <AudioPlayer src={url} mimeType={msg.mime_type} fileName={msg.file_name} tone={isOutbound ? 'blue' : 'light'} />
           ) : (
@@ -1476,35 +1494,35 @@ function MessageBubble({
           )
         )}
 
-        {msg.message_type === 'image' && (
-          msg.storage_path && url && !thumbFailed ? (
+        {msg.message_type === 'image' && hasFile && (
+          url && !thumbFailed ? (
             <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
             </button>
-          ) : msg.storage_path ? (
-            <button type="button" onClick={() => msg.storage_path && onOpenAttachment(msg.storage_path)} className="flex items-center gap-2 text-left hover:opacity-80">
+          ) : hasFile ? (
+            <button type="button" onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }} className="flex items-center gap-2 text-left hover:opacity-80">
               <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
               <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
             </button>
           ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
         )}
 
-        {msg.message_type === 'video' && (
-          msg.storage_path && url ? (
+        {msg.message_type === 'video' && hasFile && (
+          url ? (
             <button type="button" onClick={onOpenMedia} className="relative block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black" aria-label="Reproduzir vídeo">
               <video src={url + '#t=0.1'} preload="metadata" muted playsInline className="block w-full max-h-72 object-cover pointer-events-none" />
               <span className="absolute inset-0 flex items-center justify-center bg-black/25 hover:bg-black/35">
                 <span className="w-12 h-12 rounded-full bg-black/60 text-white flex items-center justify-center"><PlayIcon className="w-6 h-6 ml-0.5" /></span>
               </span>
             </button>
-          ) : msg.storage_path ? (
+          ) : (
             <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-3 h-3 animate-spin" />Carregando vídeo…</div>
-          ) : <p className="text-xs italic text-gray-400">Vídeo indisponível</p>
+          )
         )}
 
-        {msg.message_type === 'document' && (
-          msg.storage_path ? (
+        {msg.message_type === 'document' && hasFile && (
+          hasFile ? (
             <button
               type="button"
               onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }}
@@ -1561,6 +1579,55 @@ function MessageBubble({
         )}
       </div>
     </div>
+  )
+}
+
+function formatBytes(n?: number | null): string {
+  if (!n) return ''
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
+  return `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`
+}
+
+function formatSeconds(s?: number | null): string {
+  if (!s) return ''
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// Arquivo recebido que ainda não foi baixado: só baixa (e guarda no Drive) quando alguém pede.
+function DownloadCard({ msg, onDownload }: { msg: Msg; onDownload: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const run = async () => { if (busy) return; setBusy(true); try { await onDownload() } finally { setBusy(false) } }
+  const size = formatBytes(msg.media_size)
+  const label = busy ? 'Baixando…' : `Baixar${size ? ` · ${size}` : ''}`
+  const icon = busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />
+
+  if ((msg.message_type === 'image' || msg.message_type === 'video') && msg.thumb) {
+    return (
+      <button type="button" onClick={run} disabled={busy} className="relative block w-[260px] max-w-full rounded-md overflow-hidden bg-black/10" aria-label={label}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={msg.thumb} alt="" className="block w-full max-h-72 object-cover blur-[2px] scale-105" />
+        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 text-white text-xs font-medium">
+            {icon}{msg.message_type === 'video' && !busy && <PlayIcon className="w-3.5 h-3.5" />}{label}
+          </span>
+        </span>
+      </button>
+    )
+  }
+  const kind = msg.message_type === 'audio' ? `Áudio${msg.media_seconds ? ` · ${formatSeconds(msg.media_seconds)}` : ''}`
+    : msg.message_type === 'video' ? 'Vídeo' : msg.message_type === 'image' ? 'Foto' : (msg.file_name || 'Documento')
+  return (
+    <button type="button" onClick={run} disabled={busy} className="flex items-center gap-3 text-left rounded-lg bg-black/5 hover:bg-black/10 px-3 py-2 min-w-[220px] max-w-full" title="Baixar arquivo">
+      {msg.message_type === 'document' ? <FileBadge name={msg.file_name} /> : (
+        <span className="w-9 h-9 shrink-0 rounded-full bg-[#0A1F3B] text-white flex items-center justify-center">
+          {msg.message_type === 'audio' ? <Mic className="w-4 h-4" /> : msg.message_type === 'video' ? <PlayIcon className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium break-all line-clamp-2">{kind}</span>
+        <span className="flex items-center gap-1 text-xs text-emerald-700 font-medium">{icon}{label}</span>
+      </span>
+    </button>
   )
 }
 
