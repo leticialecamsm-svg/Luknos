@@ -601,7 +601,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 aria-selected={scope === key}
                 onClick={() => setScope(key)}
                 className={cn(
-                  'whitespace-nowrap px-2 py-1 text-[13px] font-medium rounded-full transition-colors',
+                  'flex-1 min-w-0 whitespace-nowrap px-1 py-1 text-[12.5px] font-medium rounded-full transition-colors',
                   scope === key
                     ? 'bg-emerald-100 text-emerald-800'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -609,7 +609,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               >
                 {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Grupos'}
                 {counts[key] > 0 && (
-                  <span className={cn('ml-1 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
+                  <span className={cn('ml-0.5 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
                 )}
               </button>
             ))}
