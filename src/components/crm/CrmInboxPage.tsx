@@ -1337,7 +1337,7 @@ function MessageBubble({
 
         {msg.message_type === 'image' && (
           msg.storage_path && url && !thumbFailed ? (
-            <button type="button" onClick={onOpenMedia} className="block rounded-lg overflow-hidden bg-black/5 max-w-[260px]" aria-label="Ampliar imagem">
+            <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
             </button>
@@ -1351,7 +1351,7 @@ function MessageBubble({
 
         {msg.message_type === 'video' && (
           msg.storage_path && url ? (
-            <button type="button" onClick={onOpenMedia} className="relative block rounded-lg overflow-hidden bg-black max-w-[260px]" aria-label="Reproduzir vídeo">
+            <button type="button" onClick={onOpenMedia} className="relative block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black" aria-label="Reproduzir vídeo">
               <video src={url + '#t=0.1'} preload="metadata" muted playsInline className="block w-full max-h-72 object-cover pointer-events-none" />
               <span className="absolute inset-0 flex items-center justify-center bg-black/25 hover:bg-black/35">
                 <span className="w-12 h-12 rounded-full bg-black/60 text-white flex items-center justify-center"><PlayIcon className="w-6 h-6 ml-0.5" /></span>
