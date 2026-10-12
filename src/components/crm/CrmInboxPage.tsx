@@ -103,6 +103,22 @@ interface Msg {
 
 const isUnread = (c: { unread_count: number; marked_unread: boolean }) => c.unread_count > 0 || c.marked_unread
 
+const DRAFTS_KEY = 'crm-drafts'
+function readDrafts(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') ?? {} } catch { return {} }
+}
+function readDraft(convId: string): string {
+  return readDrafts()[convId] ?? ''
+}
+function writeDraft(convId: string, text: string) {
+  try {
+    const all = readDrafts()
+    if (text.trim()) all[convId] = text
+    else delete all[convId]
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(all))
+  } catch { /* sem armazenamento: segue sem rascunho */ }
+}
+
 interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
 
 export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null, isAdmin = false }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null; isAdmin?: boolean }) {
@@ -125,6 +141,18 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [editing, setEditing] = useState<Msg | null>(null)
   // trocar de conversa cancela a edição em andamento
   useEffect(() => { setEditing(null) }, [selectedId])
+
+  // Rascunho por conversa (como no WhatsApp): o que está sendo digitado fica guardado no
+  // navegador — trocar de conversa, recarregar ou um carregamento da tela não apaga o texto.
+  const draftJustLoaded = useRef(false)
+  useEffect(() => {
+    draftJustLoaded.current = true
+    setText(selectedId ? readDraft(selectedId) : '')
+  }, [selectedId])
+  useEffect(() => {
+    if (draftJustLoaded.current) { draftJustLoaded.current = false; return }
+    if (selectedId && !editing) writeDraft(selectedId, text)
+  }, [text, selectedId, editing])
   const [showFormat, setShowFormat] = useState(false)
   useEffect(() => {
     if (!headerMenu) return

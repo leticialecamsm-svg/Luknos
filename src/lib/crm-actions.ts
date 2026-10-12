@@ -135,7 +135,7 @@ export async function setCrmInstanceAccess(id: string, isPrivate: boolean, membe
     const { error: e2 } = await admin.from('crm_instance_members').insert(ids.map((user_id) => ({ instance_id: id, user_id })))
     if (e2) return { error: e2.message }
   }
-  revalidatePath('/crm-instances'); revalidatePath('/crm')
+  revalidatePath('/crm-instances')
   return { ok: true }
 }
 
@@ -488,7 +488,6 @@ export async function setConversationRestricted(conversationId: string, restrict
   await systemNote(admin, conversationId, restricted
     ? `Acesso restrito por ${whoLabel(auth)}: só administradores e pessoas liberadas veem esta conversa.`
     : `Restrição removida por ${whoLabel(auth)}: volta a seguir o acesso do WhatsApp.`)
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -511,7 +510,6 @@ export async function shareConversation(conversationId: string, userId: string) 
     .upsert({ conversation_id: conversationId, user_id: userId, granted_by: auth.userId }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
   await systemNote(admin, conversationId, `Conversa liberada para ${target.name} por ${whoLabel(auth)}.`)
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -526,7 +524,6 @@ export async function unshareConversation(conversationId: string, userId: string
   const { error } = await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', userId)
   if (error) return { error: error.message }
   await systemNote(admin, conversationId, `Liberação de ${u?.name ?? 'usuário'} retirada por ${whoLabel(auth)}.`)
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -540,7 +537,6 @@ export async function setConversationValue(conversationId: string, cents: number
   if (!acc.ok) return { error: acc.error }
   const { error } = await admin.from('crm_conversations').update({ deal_value: centsToDb(cents) }).eq('id', conversationId)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -841,7 +837,6 @@ export async function reassignConversation(conversationId: string, newUserId: st
   await systemNote(admin, conversationId,
     newUserId ? `Conversa transferida para ${newName} por ${whoLabel(auth)}.` : `Conversa deixada sem responsável por ${whoLabel(auth)}.`)
 
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -858,7 +853,6 @@ export async function linkConversationContact(conversationId: string, contactId:
     .update({ contact_id: contactId, contact_name_cache: null, contact_link_source: 'manual' })
     .eq('id', conversationId)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -890,7 +884,6 @@ export async function changeConversationContact(conversationId: string, contactI
       : { contact_id: null, contact_name_cache: previousName, contact_link_source: 'manual' })
     .eq('id', conversationId)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -911,7 +904,6 @@ export async function setConversationDisplayName(conversationId: string, name: s
     : { name_locked: false }
   const { error } = await admin.from('crm_conversations').update(update).eq('id', conversationId)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1130,7 +1122,6 @@ export async function createCrmStage(input: { name: string; color: string; resta
     .select('id, name, color, position, restart_on_inbound')
     .single()
   if (error) return { error: error.code === '23505' ? 'Já existe uma coluna com esse nome' : error.message }
-  revalidatePath('/crm')
   return { ok: true, stage: data as CrmStage }
 }
 
@@ -1151,7 +1142,6 @@ export async function updateCrmStage(id: string, input: { name: string; color: s
     .select('id')
   if (error) return { error: error.code === '23505' ? 'Já existe uma coluna com esse nome' : error.message }
   if (!data?.length) return { error: 'Coluna não existe mais (outra pessoa pode ter excluído). Atualize a página.' }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1170,7 +1160,6 @@ export async function deleteCrmStage(id: string) {
   for (let i = 0; i < (rest ?? []).length; i++) {
     await admin.from('crm_stages').update({ position: i }).eq('id', rest![i].id)
   }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1189,7 +1178,6 @@ export async function reorderCrmStages(orderedIds: string[]) {
     const { error } = await admin.from('crm_stages').update({ position: i }).eq('id', orderedIds[i])
     if (error) return { error: error.message }
   }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1210,7 +1198,6 @@ export async function moveConversationToStage(conversationId: string, stageId: s
     .select('id')
   if (error) return { error: error.message }
   if (!data?.length) return { error: 'Conversa não encontrada' }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1464,7 +1451,7 @@ export async function createContactFromConversation(
 
   const { error: linkErr } = await admin.from('crm_conversations').update({ contact_id: created.id, contact_name_cache: null }).eq('id', conversationId)
   if (linkErr) return { error: linkErr.message }
-  revalidatePath('/crm'); revalidatePath('/partners')
+  revalidatePath('/partners')
   return { ok: true, contactId: created.id as string }
 }
 
@@ -1485,7 +1472,7 @@ export async function setContactCategory(conversationId: string, contactId: stri
   }
   const { error } = await admin.from('contacts').update(updates).eq('id', contactId)
   if (error) return { error: error.message }
-  revalidatePath('/crm'); revalidatePath('/partners')
+  revalidatePath('/partners')
   return { ok: true }
 }
 
@@ -1547,7 +1534,6 @@ export async function setActingAs(userId: string | null) {
   const { data: t } = await createAdminClient().from('users').select('id, active').eq('id', userId).maybeSingle()
   if (!t || t.active === false) return { error: 'Usuário inválido ou inativo' }
   jar.set(ACT_AS_COOKIE, userId, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 8 })
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1663,7 +1649,6 @@ export async function createCrmLabel(input: { name: string; color: string }) {
   if ('error' in v) return { error: v.error }
   const { data, error } = await createAdminClient().from('crm_labels').insert(v).select('id, name, color').single()
   if (error) return { error: error.code === '23505' ? 'Já existe uma etiqueta com esse nome' : error.message }
-  revalidatePath('/crm')
   return { ok: true, label: data as CrmLabel }
 }
 
@@ -1675,7 +1660,6 @@ export async function updateCrmLabel(id: string, input: { name: string; color: s
   const { data, error } = await createAdminClient().from('crm_labels').update(v).eq('id', id).select('id')
   if (error) return { error: error.code === '23505' ? 'Já existe uma etiqueta com esse nome' : error.message }
   if (!data?.length) return { error: 'Etiqueta não existe mais. Atualize a página.' }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1684,7 +1668,6 @@ export async function deleteCrmLabel(id: string) {
   if ('error' in auth) return { error: auth.error }
   const { error } = await createAdminClient().from('crm_labels').delete().eq('id', id)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1707,7 +1690,6 @@ export async function setConversationLabels(conversationId: string, labelIds: st
     const { error } = await admin.from('crm_conversation_labels').insert(ids.map((label_id) => ({ conversation_id: conversationId, label_id })))
     if (error) return { error: error.message }
   }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -1829,7 +1811,7 @@ export async function createFollowup(conversationId: string, input: { dueAt: str
   if (error) return { error: error.message }
 
   await systemNote(admin, conversationId, `Follow-up agendado para ${fmtDueBR(v.due!.toISOString())} (responsável: ${target.name}) por ${whoLabel(auth)}.`)
-  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard/tasks')
   return { ok: true, id: data.id as string }
 }
 
@@ -1863,7 +1845,7 @@ export async function updateFollowup(taskId: string, input: { dueAt?: string; no
   if (Object.keys(updates).length === 0) return { ok: true }
   const { error } = await admin.from('tasks').update(updates).eq('id', taskId)
   if (error) return { error: error.message }
-  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard/tasks')
   return { ok: true }
 }
 
@@ -1876,7 +1858,7 @@ export async function completeFollowup(taskId: string) {
   const { error } = await admin.from('tasks').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', taskId)
   if (error) return { error: error.message }
   await systemNote(admin, l.task.crm_conversation_id, `Follow-up concluído por ${whoLabel(auth)}.`)
-  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard/tasks')
   return { ok: true }
 }
 
@@ -1888,7 +1870,7 @@ export async function deleteFollowup(taskId: string) {
   if ('error' in l) return { error: l.error }
   const { error } = await admin.from('tasks').delete().eq('id', taskId)
   if (error) return { error: error.message }
-  revalidatePath('/crm'); revalidatePath('/dashboard/tasks')
+  revalidatePath('/dashboard/tasks')
   return { ok: true }
 }
 
@@ -2034,7 +2016,6 @@ export async function markConversationUnread(conversationId: string) {
     .from('crm_conversation_reads')
     .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: true }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -2115,7 +2096,6 @@ export async function setCrmGroupEnabled(groupId: string, enabled: boolean) {
     .update({ status: enabled ? 'open' : 'closed' })
     .eq('instance_id', g.instance_id)
     .eq('remote_jid', g.jid)
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -2179,7 +2159,6 @@ export async function sendContactCards(conversationId: string, contactIds: strin
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || !body?.sent) return { error: body?.error ?? 'Não foi possível enviar o contato' }
-    revalidatePath('/crm')
     return { ok: true }
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível enviar o contato' }
@@ -2345,7 +2324,6 @@ export async function sendCrmSticker(conversationId: string, stickerId: string) 
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || !body?.sent) return { error: body?.error ?? 'Não foi possível enviar a figurinha' }
-    revalidatePath('/crm')
     return { ok: true }
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível enviar a figurinha' }
@@ -2444,7 +2422,6 @@ export async function setConversationPinned(conversationId: string, pinned: bool
   } else {
     await admin.from('crm_conversation_pins').delete().eq('conversation_id', conversationId).eq('user_id', auth.userId)
   }
-  revalidatePath('/crm')
   return { ok: true }
 }
 
@@ -2457,6 +2434,5 @@ export async function setConversationSignature(conversationId: string, hide: boo
   if (!acc.ok) return { error: acc.error }
   const { error } = await admin.from('crm_conversations').update({ hide_signature: hide }).eq('id', conversationId)
   if (error) return { error: error.message }
-  revalidatePath('/crm')
   return { ok: true }
 }
