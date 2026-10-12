@@ -157,6 +157,52 @@ function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any
   )
 }
 
+// Menu de ações do hero: Editar detalhes, Gerenciar equipe, Pasta no Drive.
+// Dispara eventos custom window para o DetailsCard reagir (abrir em modo
+// edição, scrollar até a seção da equipe).
+function HeroActionsMenu({ s }: { s: SolicitationView }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  function editDetails() {
+    setOpen(false)
+    window.dispatchEvent(new CustomEvent('solicitation:edit-details'))
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label="Mais ações"
+        title="Mais ações"
+        onClick={() => setOpen(o => !o)}
+        className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-gray-500 hover:text-navy shadow-sm transition-colors"
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-xl border border-black/5 py-1 z-30">
+          <button type="button" onClick={editDetails}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left">
+            <Pencil className="w-3.5 h-3.5 text-gray-400" /> Editar detalhes
+          </button>
+          <p className="px-3 py-2 text-[10.5px] text-gray-400 italic">
+            Para gerenciar a equipe envolvida, abra o card Detalhes (ela aparece conforme quem registra ações).
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SolicitationHero({
   s, primaryQuote, doneCount, startedCount, onSelect,
 }: { s: SolicitationView; primaryQuote: any | null; doneCount: number; startedCount: number; onSelect: (id: string) => void }) {
@@ -184,40 +230,30 @@ export function SolicitationHero({
         {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">Arq. {s.architectName}</span>}
       </div>
 
-      {/* Linha 2: Valor grande à esquerda + botões de ação à direita */}
+      {/* Linha 2: Valor grande à esquerda + status/ações à direita */}
       <div className="flex items-end justify-between mt-3 flex-wrap gap-4">
         <BigNumber s={s} primaryQuote={primaryQuote} />
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => onSelect('negociacao')}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold border transition-colors',
-              temp === 'closed'
-                ? 'bg-green-100 text-green-800 border-green-300'
-                : 'bg-white text-green-700 border-green-500 hover:bg-green-50'
-            )}
-          >
-            <Check className="w-3.5 h-3.5" /> Venda fechada
-          </button>
-          <button
-            type="button"
-            onClick={() => onSelect('negociacao')}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12px] font-semibold bg-white border border-black/10 shadow-sm transition-colors hover:border-brand-500',
-              temp === 'lost' ? 'text-red-700' : 'text-red-700'
-            )}
-          >
-            Perdida
-          </button>
-          <button
-            type="button"
-            aria-label="Mais ações"
-            title="Mais ações (em breve)"
-            className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-gray-500 hover:text-navy shadow-sm transition-colors"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
+          {/* Chip de status conforme negociação real — não mais botões soltos */}
+          {temp === 'closed' && (
+            <button
+              type="button"
+              onClick={() => onSelect('negociacao')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold border bg-green-100 text-green-800 border-green-300 hover:bg-green-200 transition-colors"
+            >
+              <Check className="w-3.5 h-3.5" /> Venda fechada
+            </button>
+          )}
+          {temp === 'lost' && (
+            <button
+              type="button"
+              onClick={() => onSelect('negociacao')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold border bg-red-100 text-red-800 border-red-300 hover:bg-red-200 transition-colors"
+            >
+              Perdida
+            </button>
+          )}
+          <HeroActionsMenu s={s} />
           <button
             type="button"
             aria-label="Adicionar nota"
@@ -423,6 +459,19 @@ const WORK_STAGE_OPTIONS = [
 
 export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const [editing, setEditing] = useState(false)
+  // Escuta o evento disparado pelo menu "..." do hero para entrar em edição
+  // e rolar o card para a vista.
+  useEffect(() => {
+    function onEdit() {
+      setEditing(true)
+      setTimeout(() => {
+        const el = document.querySelector<HTMLElement>('[data-details-card]')
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 60)
+    }
+    window.addEventListener('solicitation:edit-details', onEdit)
+    return () => window.removeEventListener('solicitation:edit-details', onEdit)
+  }, [])
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
@@ -482,7 +531,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
 
   return (
     <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14" actions={detailActions}>
-      <div className="space-y-2">
+      <div className="space-y-2" data-details-card>
         <Field icon={User} label="Nome" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
         {s.clientEmail && <Field icon={Mail} label="E-mail" value={s.clientEmail} />}

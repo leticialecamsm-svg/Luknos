@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { formatDate } from '@/lib/utils'
+import { NewSolicitationButton } from '@/components/solicitations/NewSolicitationButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +20,10 @@ export default async function SolicitacoesIndexPage() {
 
   return (
     <div className="max-w-2xl mx-auto py-10 px-4">
-      <h1 className="text-xl font-semibold mb-6">Solicitações</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold">Solicitações</h1>
+        <NewSolicitationButton />
+      </div>
       <div className="space-y-2">
         {(rows ?? []).map((s: any) => (
           <Link

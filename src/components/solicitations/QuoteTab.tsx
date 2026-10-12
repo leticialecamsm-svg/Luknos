@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarClock, Paperclip } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarClock } from 'lucide-react'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
@@ -19,7 +19,7 @@ import { createQuoteForSolicitation, deleteQuoteFromSolicitation } from '@/lib/s
 import type { SolicitationView } from '@/lib/solicitations/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { QuoteSchedules } from '@/components/quotes/QuoteSchedules'
-import { QuoteAttachments } from '@/components/quotes/QuoteAttachments'
+import { StageFilesColumn } from '@/components/solicitations/StageFiles'
 
 const STATUS_PILLS = ['queue', 'in_progress', 'paused', 'review', 'done', 'revision'] as const
 
@@ -295,8 +295,7 @@ export function QuoteTab({
       </div>
 
       <div className="min-w-0">
-        <SectionHeading icon={Paperclip}>Arquivos</SectionHeading>
-        <QuoteAttachments quoteId={localQuote.id} hideFolders />
+        <StageFilesColumn solicitationId={solicitation.id} stage="orcamento" />
       </div>
     </div>
   )

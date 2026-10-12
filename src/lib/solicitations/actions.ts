@@ -36,7 +36,7 @@ export type SolicitationEvent = {
   authorAvatarUrl: string | null
 }
 
-export type StageFileStage = 'visita' | 'projeto' | 'compra' | 'expedicao' | 'instalacao' | 'posVenda'
+export type StageFileStage = 'visita' | 'projeto' | 'orcamento' | 'compra' | 'expedicao' | 'instalacao' | 'posVenda'
 
 async function requireUser() {
   const { data: { user } } = await createClient().auth.getUser()
@@ -621,6 +621,7 @@ export async function updateDesignProjectStatusForSolicitation(
 const STAGE_FOLDER_NAME: Record<string, string> = {
   visita: 'Visita',
   projeto: 'Projeto',
+  orcamento: 'Orçamento',
   compra: 'Compra de material',
   expedicao: 'Separação e entrega',
   instalacao: 'Instalação',
@@ -832,6 +833,29 @@ export async function deleteQuoteFromSolicitation(quoteId: string, solicitationI
   await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento excluído', user.id)
   refresh(solicitationId)
   return { ok: true }
+}
+
+// ── Criar nova solicitação ───────────────────────────────────────────────────
+
+export async function createSolicitation(data: {
+  clientId: string
+  architectId?: string | null
+}): Promise<R & { solicitationId?: string }> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!data.clientId) return { error: 'Selecione um cliente' }
+  const db = createAdminClient()
+  const { data: inserted, error } = await db.from('solicitations').insert({
+    client_id: data.clientId,
+    architect_id: data.architectId || null,
+    created_by: user.id,
+  }).select('id').maybeSingle()
+  if (error) return { error: error.message }
+  if (inserted?.id) {
+    await logSolicitationEvent(inserted.id, null, 'Solicitação criada', user.id)
+  }
+  revalidatePath('/solicitacoes')
+  return { ok: true, solicitationId: inserted?.id, id: inserted?.id }
 }
 
 // ── Atualizar visita com responsável ─────────────────────────────────────────
