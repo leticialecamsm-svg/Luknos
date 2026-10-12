@@ -128,6 +128,7 @@ function HeroChip({ iconBg, iconColor, icon: Icon, label, children, onClick }: {
 
 function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const m = bigMetric(s, primaryQuote)
+  const days = daysInPipeline(s.createdAt)
   if (m.kind === 'days') {
     return (
       <div>
@@ -148,6 +149,9 @@ function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any
         <span className="text-xl text-gray-400 mr-1">R$</span>
         <span className="text-6xl font-bold">{intFmt}</span>
         <span className="text-2xl text-gray-400">,{cents}</span>
+      </div>
+      <div className="text-[11px] text-gray-400 mt-1">
+        {days} {days === 1 ? 'dia' : 'dias'} na esteira
       </div>
     </div>
   )
@@ -641,23 +645,23 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
 
   return (
     <NotchCard title="Histórico" icon={History} tint="#ece6fb" borderColor="#ddd2f8" bodyBg="linear-gradient(160deg,#ece6fb 0%,#f8f6ff 70%)" textColor="#5b21b6" actions={historyActions}>
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-1.5 mb-2">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           placeholder="Anotar ou atualizar…"
           maxLength={2000}
-          className="input flex-1 min-w-0 !rounded-full bg-white"
+          className="input flex-1 min-w-0 !rounded-full bg-white !text-xs !py-1 !px-3"
         />
-        <button type="button" onClick={add} disabled={pending || !text.trim()} className="btn-primary !rounded-full px-3 py-1.5 text-sm shrink-0">
-          {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Adicionar
+        <button type="button" onClick={add} disabled={pending || !text.trim()} className="btn-primary !rounded-full px-2.5 py-1 text-xs shrink-0">
+          {pending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
         </button>
       </div>
       {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
-      <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+      <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
         {entries.length === 0 && (
-          <p className="text-sm text-gray-400 italic text-center py-3">
+          <p className="text-xs text-gray-400 italic text-center py-2">
             {filter !== 'all' ? `Nenhum registro do tipo "${filter === 'note' ? 'Nota' : 'Automático'}".` : 'Nada registrado ainda.'}
           </p>
         )}
@@ -666,29 +670,29 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
           return (
             <div
               key={e.id}
-              className="flex gap-2.5 p-2.5"
+              className="flex gap-2 px-2 py-1.5"
               style={{
-                borderRadius: 14,
+                borderRadius: 10,
                 border: `1px solid ${isNote ? '#f3e0ae' : 'rgba(10,31,59,.06)'}`,
                 background: isNote ? '#fff7d6' : 'rgba(255,255,255,.85)',
               }}
             >
               {e.kind === 'system' && !e.authorName ? (
-                <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center shrink-0"><Bot className="w-3.5 h-3.5 text-blue-600" /></div>
+                <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center shrink-0"><Bot className="w-2.5 h-2.5 text-blue-600" /></div>
               ) : (
-                <InitialsAvatar seed={e.authorId ?? e.authorName ?? 'x'} name={e.authorName ?? 'Sistema'} url={e.authorAvatarUrl} size={28} />
+                <InitialsAvatar seed={e.authorId ?? e.authorName ?? 'x'} name={e.authorName ?? 'Sistema'} url={e.authorAvatarUrl} size={20} />
               )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-semibold" style={{ color: '#111827' }}>{e.authorName ?? 'Sistema'}</span>
-                  <span className="text-[10px] ml-auto" style={{ color: '#9aa3b2' }}>{formatRelativeWithTime(e.createdAt)}</span>
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[11px] font-semibold" style={{ color: '#111827' }}>{e.authorName ?? 'Sistema'}</span>
                   {isNote ? (
-                    <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 600, background: '#fde68a', color: '#78490b' }}>Nota</span>
+                    <span style={{ padding: '0 5px', borderRadius: 999, fontSize: 8.5, fontWeight: 700, background: '#fde68a', color: '#78490b', letterSpacing: '.03em' }}>NOTA</span>
                   ) : (
-                    <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 500, background: '#ece6fb', color: '#6b5aa8' }}>Automático</span>
+                    <span style={{ padding: '0 5px', borderRadius: 999, fontSize: 8.5, fontWeight: 600, background: '#ece6fb', color: '#6b5aa8', letterSpacing: '.03em' }}>AUTO</span>
                   )}
+                  <span className="text-[9px] ml-auto" style={{ color: '#9aa3b2' }}>{formatRelativeWithTime(e.createdAt)}</span>
                 </div>
-                <p className="text-sm mt-0.5 break-words whitespace-pre-wrap" style={{ color: isNote ? '#374151' : '#6b7280' }}>{e.text}</p>
+                <p className="text-[11.5px] break-words whitespace-pre-wrap" style={{ color: isNote ? '#374151' : '#6b7280', marginTop: 1 }}>{e.text}</p>
               </div>
             </div>
           )

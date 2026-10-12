@@ -193,6 +193,17 @@ export function bigMetric(s: SolicitationView, primaryQuote: any | null, now: Da
   const closed = s.negotiations.some(n => n.temperature === 'closed')
   if (closed && v.final != null) return { kind: 'money', value: v.final, label: 'Valor fechado' }
   if (v.quoted != null) return { kind: 'money', value: v.quoted, label: 'Valor orçado' }
+  // Fallback: usa o valor da proposta mais recente quando quoted_value está vazio.
+  const proposals: any[] = primaryQuote?.proposals ?? []
+  if (proposals.length) {
+    const latest = [...proposals].sort((a, b) => {
+      const da = a.date || a.created_at || ''
+      const db = b.date || b.created_at || ''
+      return String(db).localeCompare(String(da))
+    })[0]
+    const val = latest?.value != null ? Number(latest.value) : null
+    if (val != null && !Number.isNaN(val)) return { kind: 'money', value: val, label: 'Última proposta' }
+  }
   return { kind: 'days', days: daysInPipeline(s.createdAt, now), label: 'na esteira' }
 }
 

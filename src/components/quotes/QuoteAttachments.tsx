@@ -52,9 +52,11 @@ function iconFor(name: string, mime: string | null) {
 export function QuoteAttachments({
   quoteId,
   onStagedChange,
+  hideFolders = false,
 }: {
   quoteId?: string
   onStagedChange?: (files: File[]) => void
+  hideFolders?: boolean
 }) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -71,9 +73,12 @@ export function QuoteAttachments({
     if (!quoteId) return
     setLoading(true)
     getQuoteAttachments(quoteId)
-      .then((r) => setItems([...r.drive, ...r.robot, ...r.manual] as Item[]))
+      .then((r) => {
+        const all = [...r.drive, ...r.robot, ...r.manual] as Item[]
+        setItems(hideFolders ? all.filter(i => !i.is_folder) : all)
+      })
       .finally(() => setLoading(false))
-  }, [quoteId])
+  }, [quoteId, hideFolders])
 
   useEffect(() => { refresh() }, [refresh])
 

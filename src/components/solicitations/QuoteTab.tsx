@@ -296,7 +296,7 @@ export function QuoteTab({
 
       <div className="min-w-0">
         <SectionHeading icon={Paperclip}>Arquivos</SectionHeading>
-        <QuoteAttachments quoteId={localQuote.id} />
+        <QuoteAttachments quoteId={localQuote.id} hideFolders />
       </div>
     </div>
   )
