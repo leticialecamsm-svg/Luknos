@@ -95,6 +95,7 @@ export async function addSolicitationNote(solicitationId: string, text: string):
 export type SolicitationView = {
   id: string
   number: number
+  title: string | null
   clientId: string
   clientName: string | null
   clientPhone: string | null
@@ -142,7 +143,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
 
   const { data: solicitation } = await db
     .from('solicitations')
-    .select('id, number, client_id, architect_id, created_by, created_at, category, size, origin, work_stage, priority, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
+    .select('id, number, title, client_id, architect_id, created_by, created_at, category, size, origin, work_stage, priority, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
     .eq('id', id)
     .maybeSingle()
   if (!solicitation) return null
@@ -238,6 +239,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
   return {
     id: solicitation.id,
     number: solicitation.number,
+    title: (solicitation as any).title ?? null,
     clientId: solicitation.client_id,
     clientName: (solicitation as any).client?.name ?? null,
     clientPhone: (solicitation as any).client?.phone ?? null,
@@ -795,6 +797,7 @@ export async function deleteShipmentForSolicitation(id: string, solicitationId: 
 export async function updateSolicitationDetails(
   id: string,
   data: {
+    title?: string | null
     category?: string | null
     size?: string | null
     origin?: string | null
@@ -806,6 +809,7 @@ export async function updateSolicitationDetails(
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const patch: Record<string, any> = {}
+  if ('title' in data)      patch.title       = data.title?.toString().trim() || null
   if ('category' in data)   patch.category   = data.category   ?? null
   if ('size' in data)       patch.size        = data.size       ?? null
   if ('origin' in data)     patch.origin      = data.origin     ?? null
@@ -909,6 +913,7 @@ export async function listActiveUsers(): Promise<{ id: string; name: string; ava
 export async function createSolicitation(data: {
   clientId: string
   architectId?: string | null
+  title?: string | null
 }): Promise<R & { solicitationId?: string }> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
@@ -917,6 +922,7 @@ export async function createSolicitation(data: {
   const { data: inserted, error } = await db.from('solicitations').insert({
     client_id: data.clientId,
     architect_id: data.architectId || null,
+    title: data.title?.trim() || null,
     created_by: user.id,
   }).select('id').maybeSingle()
   if (error) return { error: error.message }

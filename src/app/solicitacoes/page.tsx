@@ -14,7 +14,7 @@ export default async function SolicitacoesIndexPage() {
   const db = createAdminClient()
   const { data: rows } = await db
     .from('solicitations')
-    .select('id, number, created_at, client:client_id(name)')
+    .select('id, number, title, created_at, client:client_id(name)')
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -32,7 +32,12 @@ export default async function SolicitacoesIndexPage() {
             className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-white hover:shadow-sm hover:border-brand-300 transition-all"
           >
             <span className="text-xs font-mono text-gray-400 shrink-0 w-12">#{s.number}</span>
-            <span className="font-medium text-gray-800 flex-1 truncate">{s.client?.name ?? '—'}</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-gray-800 truncate">{s.title || s.client?.name || '—'}</div>
+              {s.title && s.client?.name && (
+                <div className="text-xs text-gray-400 truncate">{s.client.name}</div>
+              )}
+            </div>
             <span className="text-xs text-gray-400 shrink-0">{formatDate(s.created_at)}</span>
           </Link>
         ))}

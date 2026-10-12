@@ -218,7 +218,10 @@ export function SolicitationHero({
           <ArrowLeft className="w-3.5 h-3.5" />
         </Link>
         <InitialsAvatar seed={s.clientId || name} name={name} size={40} square />
-        <h1 className="text-[22px] font-bold leading-tight text-gray-900">{name}</h1>
+        <div className="flex flex-col leading-tight">
+          <h1 className="text-[22px] font-bold text-gray-900">{s.title || name}</h1>
+          {s.title && <span className="text-[11px] text-gray-500 font-medium">{name}</span>}
+        </div>
         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white border border-amber-200 font-mono text-[11px] font-medium text-amber-800">#{s.number}</span>
         <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[11.5px] font-medium">Em andamento</span>
         <span
@@ -475,6 +478,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
+  const [title, setTitle] = useState(s.title ?? '')
   const [category, setCategory] = useState(s.category ?? '')
   const [size, setSize] = useState(s.size ?? '')
   const [origin, setOrigin] = useState(s.origin ?? '')
@@ -507,6 +511,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   function save() {
     startTransition(async () => {
       await updateSolicitationDetails(s.id, {
+        title: title.trim() || null,
         category: category || null,
         size: size || null,
         origin: origin || null,
@@ -547,6 +552,10 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
         {/* Formulário de edição inline */}
         {editing && (
           <div className="space-y-2 rounded-xl bg-white/70 p-3 border border-amber-200">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Título</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex.: Reforma Apê 708 — Iluminação" className="input w-full text-xs" />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Categoria</label>

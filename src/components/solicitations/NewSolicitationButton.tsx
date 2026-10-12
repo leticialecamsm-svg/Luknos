@@ -1,15 +1,20 @@
 'use client'
 
+// Modal de nova solicitação: título opcional + cliente (typeahead).
+// Se o cliente não existir, abre um sub-formulário para criá-lo na hora
+// (createContact com type='client') e já seleciona ele.
+
 import { useState, useEffect, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, X, Loader2, Search } from 'lucide-react'
+import { Plus, X, Loader2, Search, UserPlus } from 'lucide-react'
 import { createSolicitation } from '@/lib/solicitations/actions'
-import { searchContacts } from '@/lib/actions'
+import { searchContacts, createContact } from '@/lib/actions'
 
 export function NewSolicitationButton() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, startTransition] = useTransition()
+  const [title, setTitle] = useState('')
   const [clientId, setClientId] = useState<string | null>(null)
   const [clientLabel, setClientLabel] = useState('')
   const [query, setQuery] = useState('')
@@ -17,6 +22,13 @@ export function NewSolicitationButton() {
   const [listOpen, setListOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
+
+  // Sub-form de criação de contato
+  const [showNewContact, setShowNewContact] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [creatingContact, setCreatingContact] = useState(false)
 
   useEffect(() => {
     if (query.length < 2) { setResults([]); return }
@@ -33,18 +45,44 @@ export function NewSolicitationButton() {
     return () => document.removeEventListener('mousedown', handle)
   }, [])
 
-  function reset() {
-    setClientId(null); setClientLabel(''); setQuery(''); setResults([])
-    setListOpen(false); setError(null)
+  function resetAll() {
+    setTitle(''); setClientId(null); setClientLabel(''); setQuery(''); setResults([])
+    setListOpen(false); setError(null); setShowNewContact(false)
+    setNewName(''); setNewPhone(''); setNewEmail('')
   }
 
-  function close() { setOpen(false); reset() }
+  function close() { setOpen(false); resetAll() }
+
+  async function createNewContact() {
+    if (!newName.trim()) { setError('Informe o nome do cliente'); return }
+    setError(null); setCreatingContact(true)
+    const res = await createContact({
+      name: newName.trim(),
+      phone: newPhone.trim() || undefined,
+      email: newEmail.trim() || undefined,
+      type: 'client',
+    })
+    setCreatingContact(false)
+    if ('error' in res && res.error) { setError(res.error); return }
+    const c = (res as any).data
+    if (c?.id) {
+      setClientId(c.id); setClientLabel(c.name)
+      setShowNewContact(false); setListOpen(false); setQuery('')
+    }
+  }
+
+  function openNewContactForm() {
+    setShowNewContact(true)
+    // Pré-preenche o nome com o que já foi digitado na busca
+    setNewName(query.trim())
+    setListOpen(false)
+  }
 
   function submit() {
     if (!clientId) { setError('Selecione um cliente'); return }
     setError(null)
     startTransition(async () => {
-      const res = await createSolicitation({ clientId })
+      const res = await createSolicitation({ clientId, title: title.trim() || null })
       if (!res.ok) { setError(res.error ?? 'Erro ao criar'); return }
       close()
       if (res.solicitationId) router.push(`/solicitacoes/${res.solicitationId}`)
@@ -69,12 +107,39 @@ export function NewSolicitationButton() {
               <button type="button" onClick={close} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
             </div>
 
+            {/* Título */}
+            <div className="mb-3">
+              <label className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold block mb-1">Título <span className="text-gray-300 font-normal normal-case">(opcional)</span></label>
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Ex.: Reforma Apê 708 — Iluminação"
+                className="input w-full text-sm"
+              />
+            </div>
+
+            {/* Cliente */}
             <div ref={boxRef} className="relative">
               <label className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold block mb-1">Cliente</label>
               {clientId ? (
                 <div className="flex items-center gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 text-sm">
                   <span className="font-medium text-gray-800 flex-1">{clientLabel}</span>
-                  <button type="button" onClick={reset} className="text-brand-600 hover:text-brand-800 text-xs">Trocar</button>
+                  <button type="button" onClick={() => { setClientId(null); setClientLabel(''); setQuery('') }} className="text-brand-600 hover:text-brand-800 text-xs">Trocar</button>
+                </div>
+              ) : showNewContact ? (
+                <div className="space-y-2 rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-700">
+                    <UserPlus className="w-3.5 h-3.5" /> Novo contato
+                  </div>
+                  <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome *" className="input w-full text-sm" autoFocus />
+                  <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Telefone (opcional)" className="input w-full text-sm" />
+                  <input value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="E-mail (opcional)" className="input w-full text-sm" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={createNewContact} disabled={creatingContact || !newName.trim()} className="btn-primary px-3 py-1 text-xs inline-flex items-center gap-1">
+                      {creatingContact ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Salvar contato
+                    </button>
+                    <button type="button" onClick={() => setShowNewContact(false)} className="btn-secondary px-3 py-1 text-xs">Cancelar</button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -86,7 +151,6 @@ export function NewSolicitationButton() {
                       onFocus={() => setListOpen(true)}
                       placeholder="Buscar cliente pelo nome…"
                       className="input w-full pl-9 text-sm"
-                      autoFocus
                     />
                   </div>
                   {listOpen && results.length > 0 && (
@@ -105,7 +169,25 @@ export function NewSolicitationButton() {
                     </div>
                   )}
                   {listOpen && query.length >= 2 && results.length === 0 && (
-                    <p className="text-xs text-gray-400 italic mt-1 px-1">Nenhum contato encontrado.</p>
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-400 italic mb-1.5">Nenhum contato encontrado.</p>
+                      <button
+                        type="button"
+                        onClick={openNewContactForm}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100"
+                      >
+                        <UserPlus className="w-3 h-3" /> Criar "{query.trim()}" como novo cliente
+                      </button>
+                    </div>
+                  )}
+                  {!listOpen && query.length < 2 && (
+                    <button
+                      type="button"
+                      onClick={openNewContactForm}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                    >
+                      <UserPlus className="w-3 h-3" /> Criar novo cliente
+                    </button>
                   )}
                 </>
               )}
