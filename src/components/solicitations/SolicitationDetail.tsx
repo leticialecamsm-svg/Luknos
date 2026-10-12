@@ -36,6 +36,7 @@ import { isStageDone, splitPlannedDone } from '@/lib/solicitations/stages'
 import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/components/solicitations/SolicitationOverview'
 import { avatarColor } from '@/lib/avatar-color'
 import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/StageRecords'
+import { StageResponsibles } from '@/components/solicitations/StageResponsibles'
 
 type Team = SolicitationView['team']
 
@@ -189,6 +190,24 @@ export function SolicitationDetail({
     </div>
   )
 
+  // Wrapper que injeta o widget de Responsáveis no topo direito de cada aba de etapa.
+  function withResponsibles(stage: string, stageLabel: string, content: React.ReactNode) {
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2 mb-3 -mt-1 flex-wrap">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Responsáveis desta etapa</span>
+          <StageResponsibles
+            solicitationId={sid}
+            stage={stage}
+            stageLabel={stageLabel}
+            responsibles={solicitation.stageResponsibles[stage] ?? []}
+          />
+        </div>
+        {content}
+      </>
+    )
+  }
+
   const items: TabItem[] = [
     {
       id: 'visao-geral',
@@ -201,7 +220,7 @@ export function SolicitationDetail({
       label: label('visita', 'Visita'),
       icon: MapPin,
       badge: solicitation.visits.length,
-      content: (
+      content: withResponsibles('visita', 'Visita', (
         <StagePanel
           stage="visita" solicitationId={sid}
           planned={visits.planned.map(v => <VisitRow key={v.id} visit={v} solicitationId={sid} team={team} />)}
@@ -210,14 +229,14 @@ export function SolicitationDetail({
           addLabel="Adicionar visita"
           renderAddForm={close => <AddVisitForm solicitation={solicitation} onClose={close} />}
         />
-      ),
+      )),
     },
     {
       id: 'projeto',
       label: label('projeto', 'Projeto'),
       icon: Ruler,
       badge: solicitation.designProjects.length,
-      content: (
+      content: withResponsibles('projeto', 'Projeto', (
         <StagePanel
           stage="projeto" solicitationId={sid}
           planned={projects.planned.map(p => <ProjectRow key={p.id} project={p} solicitationId={sid} team={team} />)}
@@ -226,32 +245,34 @@ export function SolicitationDetail({
           addLabel="Adicionar projeto"
           renderAddForm={close => <AddProjectForm solicitation={solicitation} onClose={close} />}
         />
-      ),
+      )),
     },
     {
       id: 'orcamento',
       label: label('orcamento', 'Orçamento'),
       icon: FileText,
       badge: solicitation.quotes.length,
-      content: <QuoteTab solicitation={solicitation} quote={primaryQuote} />,
+      content: withResponsibles('orcamento', 'Orçamento', (
+        <QuoteTab solicitation={solicitation} quote={primaryQuote} />
+      )),
     },
     {
       id: 'negociacao',
       label: label('negociacao', 'Negociação'),
       icon: HandCoins,
       badge: solicitation.negotiations.length,
-      content: primaryQuote ? (
+      content: withResponsibles('negociacao', 'Negociação', primaryQuote ? (
         <NegotiationSection quote={primaryQuote} />
       ) : (
         <Empty>Nenhuma negociação vinculada a esta solicitação.</Empty>
-      ),
+      )),
     },
     {
       id: 'compra',
       label: label('compra', 'Compra de material'),
       icon: ShoppingCart,
       badge: solicitation.purchaseChecklistItems.length,
-      content: (
+      content: withResponsibles('compra', 'Compra de material', (
         <StagePanel
           stage="compra" solicitationId={sid}
           planned={purchases.planned.map(i => <PurchaseRow key={i.id} item={i} solicitationId={sid} team={team} suppliers={solicitation.suppliers} />)}
@@ -260,28 +281,28 @@ export function SolicitationDetail({
           addLabel="Adicionar item"
           renderAddForm={close => <AddPurchaseForm solicitationId={sid} suppliers={solicitation.suppliers} onClose={close} />}
         />
-      ),
+      )),
     },
     {
       id: 'expedicao',
       label: label('expedicao', 'Separação e entrega'),
       icon: Package,
       badge: solicitation.shipments.length,
-      content: (
+      content: withResponsibles('expedicao', 'Separação e entrega', (
         <StagePanel
           stage="expedicao" solicitationId={sid}
           planned={shipments.planned.map(s => <ShipmentRow key={s.id} shipment={s} team={team} />)}
           done={shipments.done.map(s => <ShipmentRow key={s.id} shipment={s} team={team} />)}
           emptyPlanned="Nenhuma separação/entrega pendente." emptyDone="Nenhuma entrega concluída ainda."
         />
-      ),
+      )),
     },
     {
       id: 'instalacao',
       label: label('instalacao', 'Instalação'),
       icon: Wrench,
       badge: solicitation.installationTrackings.length,
-      content: (
+      content: withResponsibles('instalacao', 'Instalação', (
         <StagePanel
           stage="instalacao" solicitationId={sid}
           planned={installs.planned.map(i => <InstallationRow key={i.id} item={i} solicitationId={sid} team={team} />)}
@@ -290,14 +311,14 @@ export function SolicitationDetail({
           addLabel="Agendar instalação"
           renderAddForm={close => <AddInstallationForm solicitationId={sid} onClose={close} />}
         />
-      ),
+      )),
     },
     {
       id: 'posVenda',
       label: label('posVenda', 'Pós-venda'),
       icon: HeartPulse,
       badge: solicitation.postSaleFollowups.length,
-      content: (
+      content: withResponsibles('posVenda', 'Pós-venda', (
         <StagePanel
           stage="posVenda" solicitationId={sid}
           planned={postSales.planned.map(i => <PostSaleRow key={i.id} item={i} solicitationId={sid} team={team} />)}
@@ -306,7 +327,7 @@ export function SolicitationDetail({
           addLabel="Registrar contato"
           renderAddForm={close => <AddPostSaleForm solicitationId={sid} onClose={close} />}
         />
-      ),
+      )),
     },
   ]
 

@@ -121,6 +121,8 @@ export type SolicitationView = {
   events: SolicitationEvent[]
   // Usuários distintos que criaram registros desta Solicitação (created_by).
   team: { id: string; name: string; avatar_color: string | null; avatar_url: string | null }[]
+  // Responsáveis designados por etapa (chave = stage id).
+  stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
     visita: boolean
     projeto: boolean
@@ -169,6 +171,23 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     // "Compra de material" em vez de texto livre).
     db.from('pricing_suppliers').select('id, name').eq('is_active', true).order('name'),
   ])
+
+  // Responsáveis por etapa (tabela nova 20261012). Best-effort: se a migração
+  // ainda não foi aplicada, só devolve mapa vazio.
+  let stageRespMap: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]> = {}
+  try {
+    const { data } = await db
+      .from('solicitation_stage_responsibles')
+      .select('stage, user:user_id(id, name, avatar_url, avatar_color)')
+      .eq('solicitation_id', id)
+    for (const row of (data ?? []) as any[]) {
+      const u = row.user
+      if (!u) continue
+      ;(stageRespMap[row.stage] ??= []).push({
+        id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null,
+      })
+    }
+  } catch {}
 
   // Histórico: se a tabela ainda não existe (migration pendente), vira vazio.
   let eventRows: any[] = []
@@ -242,6 +261,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     suppliers: suppliers ?? [],
     events,
     team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
+    stageResponsibles: stageRespMap,
     tabs: {
       visita: (visits ?? []).length > 0,
       projeto: (designProjects ?? []).length > 0,
@@ -833,6 +853,55 @@ export async function deleteQuoteFromSolicitation(quoteId: string, solicitationI
   await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento excluído', user.id)
   refresh(solicitationId)
   return { ok: true }
+}
+
+// ── Responsáveis por etapa ───────────────────────────────────────────────────
+
+export type StageResponsible = {
+  stage: string
+  userId: string
+  name: string
+  avatarUrl: string | null
+  avatarColor: string | null
+}
+
+export async function setStageResponsibles(
+  solicitationId: string,
+  stage: string,
+  userIds: string[]
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const db = createAdminClient()
+  // Troca atômica: apaga os atuais da etapa e insere os novos.
+  const { error: delErr } = await db.from('solicitation_stage_responsibles')
+    .delete()
+    .eq('solicitation_id', solicitationId)
+    .eq('stage', stage)
+  if (delErr) return { error: delErr.message }
+  if (userIds.length) {
+    const rows = userIds.map(uid => ({
+      solicitation_id: solicitationId,
+      stage,
+      user_id: uid,
+      created_by: user.id,
+    }))
+    const { error: insErr } = await db.from('solicitation_stage_responsibles').insert(rows)
+    if (insErr) return { error: insErr.message }
+  }
+  await logSolicitationEvent(solicitationId, stage, `Responsáveis da etapa atualizados`, user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+export async function listActiveUsers(): Promise<{ id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]> {
+  const user = await requireUser()
+  if (!user) return []
+  const { data } = await createAdminClient()
+    .from('users')
+    .select('id, name, avatar_url, avatar_color')
+    .order('name')
+  return data ?? []
 }
 
 // ── Criar nova solicitação ───────────────────────────────────────────────────
