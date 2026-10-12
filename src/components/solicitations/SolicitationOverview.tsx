@@ -10,7 +10,8 @@ import Link from 'next/link'
 import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
-  MoreHorizontal, Flag, ArrowLeft, Filter,
+  MoreHorizontal, Flag, ArrowLeft, Filter, Ruler, Hammer, Flame, Tag, ChevronDown, ChevronUp,
+  ChevronsLeft, ChevronsRight,
 } from 'lucide-react'
 import { avatarColor } from '@/lib/avatar-color'
 import {
@@ -350,8 +351,8 @@ function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, ac
         {actions && <span className="ml-auto flex items-center gap-1 pl-2">{actions}</span>}
       </div>
       <div
-        className="p-4"
-        style={{ background: bodyBg, borderRadius: '0 22px 22px 22px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
+        className="p-3"
+        style={{ background: bodyBg, borderRadius: '0 16px 16px 16px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
       >
         {children}
       </div>
@@ -361,16 +362,16 @@ function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, ac
 
 function Field({ icon: Icon, label, value }: { icon: any; label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2">
       <div
         className="flex items-center justify-center shrink-0"
-        style={{ width: 30, height: 30, borderRadius: 10, background: 'rgba(255,255,255,.85)', color: '#8a6a1f', boxShadow: 'inset 0 0 0 1px rgba(203,164,85,.25)', flexShrink: 0 }}
+        style={{ width: 24, height: 24, borderRadius: 8, background: 'rgba(255,255,255,.85)', color: '#8a6a1f', boxShadow: 'inset 0 0 0 1px rgba(203,164,85,.25)', flexShrink: 0 }}
       >
-        <Icon style={{ width: 14, height: 14 }} />
+        <Icon style={{ width: 12, height: 12 }} />
       </div>
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wide" style={{ color: '#9aa3b2', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
-        <div className="text-[13px] font-medium break-words" style={{ color: '#111827', marginTop: 1 }}>{value}</div>
+      <div className="min-w-0 leading-tight">
+        <div className="text-[9px] uppercase tracking-wide" style={{ color: '#9aa3b2', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
+        <div className="text-[12px] font-medium break-words" style={{ color: '#111827' }}>{value}</div>
       </div>
     </div>
   )
@@ -477,18 +478,18 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
 
   return (
     <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14" actions={detailActions}>
-      <div className="space-y-3">
+      <div className="space-y-2">
         <Field icon={User} label="Nome" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
         {s.clientEmail && <Field icon={Mail} label="E-mail" value={s.clientEmail} />}
         {s.architectName && <Field icon={Pencil} label="Arquiteto(a)" value={s.architectName} />}
 
         {/* Campos de caracterização — sempre visíveis se preenchidos */}
-        {s.category && !editing && <Field icon={Compass} label="Categoria" value={CATEGORY_LABEL[s.category as keyof typeof CATEGORY_LABEL] ?? s.category} />}
-        {s.size && !editing && <Field icon={Compass} label="Tamanho" value={SIZE_LABEL[s.size as keyof typeof SIZE_LABEL] ?? s.size} />}
+        {s.category && !editing && <Field icon={Tag} label="Categoria" value={CATEGORY_LABEL[s.category as keyof typeof CATEGORY_LABEL] ?? s.category} />}
+        {s.size && !editing && <Field icon={Ruler} label="Tamanho" value={SIZE_LABEL[s.size as keyof typeof SIZE_LABEL] ?? s.size} />}
         {s.origin && !editing && <Field icon={Compass} label="Origem" value={ORIGIN_LABEL[s.origin as keyof typeof ORIGIN_LABEL] ?? s.origin} />}
-        {s.workStage && !editing && <Field icon={Compass} label="Etapa da obra" value={WORK_STAGE_OPTIONS.find(([k]) => k === s.workStage)?.[1] ?? s.workStage} />}
-        {s.priority && s.priority !== 'normal' && !editing && <Field icon={Compass} label="Prioridade" value={PRIORITY_LABEL[s.priority as keyof typeof PRIORITY_LABEL] ?? s.priority} />}
+        {s.workStage && !editing && <Field icon={Hammer} label="Etapa da obra" value={WORK_STAGE_OPTIONS.find(([k]) => k === s.workStage)?.[1] ?? s.workStage} />}
+        {s.priority && s.priority !== 'normal' && !editing && <Field icon={Flame} label="Prioridade" value={PRIORITY_LABEL[s.priority as keyof typeof PRIORITY_LABEL] ?? s.priority} />}
 
         {/* Formulário de edição inline */}
         {editing && (
@@ -571,11 +572,20 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
             <TeamStack team={s.team} />
           </div>
         )}
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
           {s.clientPhone && <RoundAction href={waLink(s.clientPhone)} title="WhatsApp" icon={MessageCircle} external />}
           {s.clientPhone && <RoundAction href={`tel:${s.clientPhone.replace(/[^\d+]/g, '')}`} title="Ligar" icon={Phone} />}
           {s.clientEmail && <RoundAction href={`mailto:${s.clientEmail}`} title="Enviar e-mail" icon={Mail} />}
-          {driveLink && <RoundAction href={driveLink} title="Pasta no Drive" icon={FolderOpen} external />}
+          {driveLink && (
+            <a
+              href={driveLink}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/80 hover:bg-white border border-amber-300/60 text-amber-800 transition-colors"
+            >
+              <FolderOpen className="w-3 h-3" /> Pasta no Drive
+            </a>
+          )}
         </div>
       </div>
     </NotchCard>
@@ -689,8 +699,36 @@ export function HistoryCard({ s, activities }: { s: SolicitationView; activities
 }
 
 export function SolicitationSidebar({ s, primaryQuote, activities }: { s: SolicitationView; primaryQuote: any | null; activities: any[] }) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  if (collapsed) {
+    return (
+      <aside className="w-full lg:w-10 lg:shrink-0">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="Expandir detalhes e histórico"
+          className="w-full lg:w-10 h-full lg:min-h-[200px] flex lg:flex-col items-center justify-center gap-2 rounded-xl bg-white/80 border border-gray-200 hover:border-amber-300 hover:bg-amber-50 py-3 lg:py-6 text-gray-500 hover:text-amber-700 transition-colors"
+        >
+          <ChevronsRight className="w-4 h-4" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider lg:[writing-mode:vertical-rl] lg:rotate-180">Detalhes · Histórico</span>
+        </button>
+      </aside>
+    )
+  }
+
   return (
-    <aside className="space-y-5 w-full lg:w-[320px] lg:shrink-0">
+    <aside className="space-y-3 w-full lg:w-[280px] lg:shrink-0">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          title="Recolher"
+          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-700 transition-colors"
+        >
+          <ChevronsLeft className="w-3 h-3" /> Recolher
+        </button>
+      </div>
       <DetailsCard s={s} primaryQuote={primaryQuote} />
       <HistoryCard s={s} activities={activities} />
     </aside>

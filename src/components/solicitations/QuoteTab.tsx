@@ -1,19 +1,16 @@
 'use client'
 
 // Aba Orçamento dentro de uma Solicitação.
-// - Sem orçamento: botão "Criar orçamento".
-// - Com orçamento: header (status + prioridade), Propostas CRUD,
-//   Agendamentos (somente reunião/follow-up/lembrete), Arquivos.
-// Sem histórico (já existe global), sem dados do cliente (já em Detalhes),
-// sem visitas (têm aba própria), sem fornecedor.
+// Mesmo esquema das outras abas (Visita, Projeto): coluna esquerda com
+// informações e CRUD, coluna direita com Arquivos.
+// Sem prioridade (já está em Detalhes), sem histórico (global existe),
+// sem dados do cliente, sem visitas, sem fornecedor.
 
 import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, X, FileText, Loader2, CalendarClock, Paperclip } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarClock, Paperclip } from 'lucide-react'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import {
-  QUOTE_STATUS_LABEL, STATUS_COLOR, PRIORITY_LABEL, PRIORITY_COLOR,
-} from '@/types'
+import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
   getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal,
   updateQuoteStatus,
@@ -24,14 +21,14 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { QuoteSchedules } from '@/components/quotes/QuoteSchedules'
 import { QuoteAttachments } from '@/components/quotes/QuoteAttachments'
 
-const QUOTE_STATUS_OPTIONS = Object.entries(QUOTE_STATUS_LABEL) as [string, string][]
-const PRIORITY_OPTIONS = Object.entries(PRIORITY_LABEL) as [string, string][]
+const STATUS_PILLS = ['queue', 'in_progress', 'paused', 'review', 'done', 'revision'] as const
 
-function SectionHeading({ icon: Icon, children }: { icon: any; children: React.ReactNode }) {
+function SectionHeading({ icon: Icon, children, right }: { icon: any; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-3">
       <Icon className="w-4 h-4 text-brand-600" />
       <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">{children}</h3>
+      {right && <div className="ml-auto">{right}</div>}
     </div>
   )
 }
@@ -57,7 +54,6 @@ function ProposalList({ quoteId }: { quoteId: string }) {
     setProposals(await getQuoteProposals(quoteId))
     setLoading(false)
   }
-
   useEffect(() => { load() }, [quoteId])
 
   async function handleCreate() {
@@ -124,12 +120,8 @@ function ProposalList({ quoteId }: { quoteId: string }) {
                   {p.date && <span className="text-xs text-gray-400">{formatDate(p.date)}</span>}
                   {p.info && <span className="text-xs text-gray-500 truncate flex-1">{p.info}</span>}
                   <div className="flex gap-1 ml-auto">
-                    <button type="button" onClick={() => startEdit(p)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600">
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                    <button type="button" onClick={() => handleDelete(p.id, formatCurrency(p.value))} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    <button type="button" onClick={() => startEdit(p)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"><Pencil className="w-3 h-3" /></button>
+                    <button type="button" onClick={() => handleDelete(p.id, formatCurrency(p.value))} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
                   </div>
                 </div>
               )}
@@ -163,22 +155,14 @@ function ProposalList({ quoteId }: { quoteId: string }) {
   )
 }
 
-// ── QuoteHeader ──────────────────────────────────────────────────────────────
+// ── QuoteHeader (status em pills) ────────────────────────────────────────────
 
 function QuoteHeader({
-  quote,
-  solicitationId,
-  onDeleted,
-}: {
-  quote: any
-  solicitationId: string
-  onDeleted: () => void
-}) {
+  quote, solicitationId, onDeleted,
+}: { quote: any; solicitationId: string; onDeleted: () => void }) {
   const [pending, startTransition] = useTransition()
+  const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
-
-  const statusC = STATUS_COLOR[quote.status as keyof typeof STATUS_COLOR] ?? { bg: 'bg-gray-100', text: 'text-gray-600' }
-  const priorityC = PRIORITY_COLOR[quote.priority as keyof typeof PRIORITY_COLOR] ?? { bg: 'bg-gray-100', text: 'text-gray-600' }
 
   async function handleDelete() {
     const yes = await confirm('Excluir este orçamento? Essa ação não pode ser desfeita e também removerá a negociação vinculada.', 'Excluir')
@@ -189,21 +173,18 @@ function QuoteHeader({
     })
   }
 
+  function changeStatus(s: typeof STATUS_PILLS[number]) {
+    if (quote.status === s) return
+    startTransition(async () => {
+      await updateQuoteStatus(quote.id, s)
+      router.refresh()
+    })
+  }
+
   return (
     <>
-      <div className="flex items-center gap-2 flex-wrap mb-4">
+      <div className="flex items-center gap-2 flex-wrap mb-3">
         {quote.number && <span className="text-xs text-gray-400 font-mono">#{quote.number}</span>}
-        <select
-          value={quote.status}
-          disabled={pending}
-          onChange={e => startTransition(async () => { await updateQuoteStatus(quote.id, e.target.value as any) })}
-          className={cn('badge border-0 text-xs font-semibold cursor-pointer pr-1', statusC.bg, statusC.text)}
-        >
-          {QUOTE_STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <span className={cn('badge text-xs font-semibold', priorityC.bg, priorityC.text)}>
-          {PRIORITY_LABEL[quote.priority as keyof typeof PRIORITY_LABEL] ?? quote.priority}
-        </span>
         <button
           type="button"
           onClick={handleDelete}
@@ -213,6 +194,34 @@ function QuoteHeader({
           <Trash2 className="w-3.5 h-3.5" /> Excluir orçamento
         </button>
       </div>
+
+      <div className="mb-4 space-y-2">
+        <span className="text-xs text-gray-400">Status:</span>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_PILLS.map(s => {
+            const sc = STATUS_COLOR[s]
+            const isActive = quote.status === s
+            return (
+              <button
+                key={s}
+                type="button"
+                disabled={pending || isActive}
+                onClick={() => changeStatus(s)}
+                title={QUOTE_STATUS_HINT[s]}
+                className={cn(
+                  'badge cursor-pointer transition-all',
+                  isActive
+                    ? cn(sc.bg, sc.text, 'ring-1 ring-current')
+                    : 'bg-surface-secondary text-gray-500 hover:bg-surface-border'
+                )}
+              >
+                {QUOTE_STATUS_LABEL[s]}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-400 italic">{QUOTE_STATUS_HINT[quote.status as keyof typeof QUOTE_STATUS_HINT]}</p>
+      </div>
       {ConfirmDialog}
     </>
   )
@@ -221,26 +230,23 @@ function QuoteHeader({
 // ── QuoteTab ─────────────────────────────────────────────────────────────────
 
 export function QuoteTab({
-  solicitation,
-  quote,
-}: {
-  solicitation: SolicitationView
-  quote: any | null
-}) {
+  solicitation, quote,
+}: { solicitation: SolicitationView; quote: any | null }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [localQuote, setLocalQuote] = useState<any | null>(quote)
 
   useEffect(() => { setLocalQuote(quote) }, [quote])
 
   function handleCreate() {
     if (creating) return
-    setCreating(true)
+    setCreating(true); setCreateError(null)
     startTransition(async () => {
       const res = await createQuoteForSolicitation(solicitation.id, { clientId: solicitation.clientId })
       setCreating(false)
-      if (!res.ok) return
+      if (!res.ok) { setCreateError(res.error ?? 'Erro ao criar orçamento'); return }
       router.refresh()
     })
   }
@@ -259,33 +265,36 @@ export function QuoteTab({
           {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Criar orçamento
         </button>
+        {createError && <p className="text-xs text-red-600">{createError}</p>}
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <QuoteHeader
-        quote={localQuote}
-        solicitationId={solicitation.id}
-        onDeleted={() => setLocalQuote(null)}
-      />
-
-      <div>
-        <SectionHeading icon={FileText}>Propostas</SectionHeading>
-        <ProposalList quoteId={localQuote.id} />
-      </div>
-
-      <div>
-        <SectionHeading icon={CalendarClock}>Agendamentos</SectionHeading>
-        <QuoteSchedules
-          quoteId={localQuote.id}
-          quoteLabel={`Orçamento #${localQuote.number ?? ''}`}
-          allowedTypes={['reuniao', 'follow_up', 'lembrete']}
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="min-w-0">
+        <QuoteHeader
+          quote={localQuote}
+          solicitationId={solicitation.id}
+          onDeleted={() => setLocalQuote(null)}
         />
+
+        <div className="mb-5">
+          <SectionHeading icon={FileText}>Propostas</SectionHeading>
+          <ProposalList quoteId={localQuote.id} />
+        </div>
+
+        <div>
+          <SectionHeading icon={CalendarClock}>Agendamentos</SectionHeading>
+          <QuoteSchedules
+            quoteId={localQuote.id}
+            quoteLabel={`Orçamento #${localQuote.number ?? ''}`}
+            allowedTypes={['reuniao', 'follow_up', 'lembrete']}
+          />
+        </div>
       </div>
 
-      <div>
+      <div className="min-w-0">
         <SectionHeading icon={Paperclip}>Arquivos</SectionHeading>
         <QuoteAttachments quoteId={localQuote.id} />
       </div>
