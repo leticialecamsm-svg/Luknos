@@ -1228,6 +1228,7 @@ export interface ContactPanelData {
   link_source: 'phone' | 'name' | 'manual' | null
   phone_digits: string
   display_name: string
+  photo_url: string | null
   instance_label: string
   created_at: string
   stage: { name: string; color: string } | null
@@ -1259,7 +1260,7 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
 
   const { data: c } = await admin
     .from('crm_conversations')
-    .select(`id, instance_id, remote_jid, contact_id, contact_name_cache, contact_link_source, assigned_user_id, stage_id, deal_value, created_at,
+    .select(`id, instance_id, remote_jid, contact_id, contact_name_cache, contact_photo_url, contact_link_source, assigned_user_id, stage_id, deal_value, created_at,
       crm_instances(label), contacts(id, name, type, company, email, phone, notes),
       assigned:users!crm_conversations_assigned_user_id_fkey(name, avatar_url, avatar_color)`)
     .eq('id', conversationId)
@@ -1388,6 +1389,7 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
     link_source: (conv.contact_link_source as 'phone' | 'name' | 'manual' | null) ?? null,
     phone_digits: digits,
     display_name: conv.contacts?.name ?? conv.contact_name_cache ?? digits,
+    photo_url: conv.contact_photo_url ?? null,
     instance_label: conv.crm_instances?.label ?? '—',
     created_at: conv.created_at,
     stage: st ? { name: st.name, color: st.color } : null,

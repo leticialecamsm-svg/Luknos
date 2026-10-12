@@ -20,7 +20,7 @@ import {
 } from '@/lib/crm-actions'
 import { CONTACT_TYPES, CONTACT_TYPE_LABEL, isSpecifierType, QUOTE_STATUS_LABEL, TEMPERATURE_LABEL, formatPhoneBR } from '@/lib/crm-panel'
 import { formatCents } from '@/lib/crm-money'
-import { getAvatarColor } from '@/lib/crm-ui'
+import { ConvAvatar } from './ConvAvatar'
 import { Avatar } from '@/components/ui/Avatar'
 import { LabelPicker } from './LabelPicker'
 import { LabelChip } from './ConvTags'
@@ -111,9 +111,7 @@ export function ContactInfoPanel({
           <div className="divide-y divide-gray-100">
             {/* identidade */}
             <section className="p-5 text-center">
-              <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${getAvatarColor(conversationId)} text-white text-3xl font-bold flex items-center justify-center mx-auto`}>
-                {data.display_name.charAt(0).toUpperCase()}
-              </div>
+              <ConvAvatar id={conversationId} name={data.display_name} photo={data.photo_url} isGroup={data.is_group} size={96} className="mx-auto" />
               <h4 className="mt-3 text-lg font-semibold text-gray-900 break-words">{data.display_name}</h4>
               <p className="text-gray-500">{data.is_group ? 'Grupo do WhatsApp' : formatPhoneBR(data.phone_digits)}</p>
               <p className="mt-1 text-xs text-gray-400">WhatsApp: {data.instance_label}</p>

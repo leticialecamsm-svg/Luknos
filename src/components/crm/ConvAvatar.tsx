@@ -19,7 +19,7 @@ export function ConvAvatar({ id, name, photo, isGroup = false, size = 48, classN
   if (photo && failed !== photo) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={photo} alt="" style={style} loading="lazy" onError={() => setFailed(photo)} className={`rounded-full object-cover shrink-0 bg-gray-200 ${className}`} />
+      <img src={photo} alt="" style={style} loading="lazy" onError={() => setFailed(photo)} className={`block rounded-full object-cover shrink-0 bg-gray-200 ${className}`} />
     )
   }
   if (isGroup) {
