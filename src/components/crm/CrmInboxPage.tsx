@@ -667,11 +667,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               >
                 <ConvAvatar id={c.id} name={name} photo={c.contact_photo_url} isGroup={c.is_group} size={48} />
                 <div className="min-w-0 flex-1 py-2.5 border-b border-gray-100">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className={cn('truncate text-[15px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-900')}>
+                  <div className="flex items-center gap-1.5">
+                    <p className={cn('flex-1 min-w-0 truncate text-[15px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-900')}>
                       {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                       {name}
                     </p>
+                    {showInstanceChip && (
+                      <span title={`WhatsApp: ${c.instance_label}`} className={cn('shrink min-w-0 max-w-[5.5rem] truncate text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
+                        {c.instance_label}
+                      </span>
+                    )}
                     <span className={cn('shrink-0 text-xs whitespace-nowrap', unread ? 'font-semibold text-emerald-600' : 'text-gray-500')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
                       {formatListTime(c.last_at ?? c.last_message_at)}
                     </span>
@@ -681,11 +686,6 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       {c.last_direction === 'outbound' && <CheckCheck className="w-4 h-4 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                       <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
                     </p>
-                    {showInstanceChip && (
-                      <span title={`WhatsApp: ${c.instance_label}`} className={cn('shrink-0 max-w-[5.5rem] truncate text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
-                        {c.instance_label}
-                      </span>
-                    )}
                     {c.next_followup && (
                       <span title={`Follow-up ${formatDue(c.next_followup.due_at)}${c.next_followup.note ? ` · ${c.next_followup.note}` : ''}`} className={cn('shrink-0 rounded-full p-0.5 border', DUE_STYLE[dueState(c.next_followup.due_at)])}>
                         <CalendarClock className="w-3 h-3" />
