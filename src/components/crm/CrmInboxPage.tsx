@@ -4,6 +4,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransit
 
 import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
+import { ConvAvatar } from './ConvAvatar'
+import { threadLayout } from '@/lib/crm-thread-layout'
 import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
@@ -18,7 +20,6 @@ import { FileBadge } from './FileBadge'
 import { MediaLightbox, type LightboxItem } from './MediaLightbox'
 import { applyFormat } from '@/lib/wa-format'
 import { FormatToolbar } from './FormatToolbar'
-import { Avatar } from '@/components/ui/Avatar'
 import {
   getCrmSnapshot,
   getCrmMessages,
@@ -65,7 +66,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, ArrowDownLeft, Reply, ChevronDown, Users as GroupIcon, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -138,6 +139,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0, groups: 0 })
   const filter = useInstanceFilter()
+  // com um WhatsApp só na tela, a etiqueta dele em cada linha é repetição (a borda colorida já diz)
+  const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
   const selectedKey = filter.selected.join(',')
   const [syncingContacts, setSyncingContacts] = useState(false)
 
@@ -404,6 +407,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     .map((m) => ({ id: m.id, url: attUrls[m.storage_path as string], kind: m.message_type as 'image' | 'video', name: m.file_name }))
   // primeira mensagem do contato que ainda não tinha sido lida quando a conversa foi aberta
   const openedUnread = openedUnreadRef.current?.id === selectedId ? openedUnreadRef.current?.n ?? 0 : 0
+  const layout = useMemo(() => threadLayout(messages), [messages])
   const firstUnreadId = (() => {
     if (!openedUnread) return null
     const inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_system && !m.deleted_at)
@@ -560,8 +564,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           ────────────────────────────────────────────────────────────────────── */}
       <div className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
         {/* Header com tabs */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-3 pt-3 pb-2 border-b border-gray-200">
+          <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold text-gray-900">Conversas</h2>
             <button
               onClick={handleSyncContacts}
@@ -572,15 +576,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               <RefreshCw className={cn('w-4 h-4', syncingContacts && 'animate-spin')} />
             </button>
           </div>
-          <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-3" />
-          <div className="relative mb-3">
+          <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-2" />
+          <div className="relative mb-2">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar nome, telefone ou mensagem"
               aria-label="Buscar conversa"
-              className="w-full pl-9 pr-8 py-2 text-sm bg-gray-100 rounded-full border-0 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-100 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
             {query && (
               <button onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
@@ -589,21 +593,23 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             )}
           </div>
           {shortDigits && <p role="status" className="text-xs text-amber-700 mb-2">Digite ao menos 3 números para buscar por telefone</p>}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-1" role="tablist">
             {(['mine', 'unassigned', 'all', 'groups'] as const).map((key) => (
               <button
                 key={key}
+                role="tab"
+                aria-selected={scope === key}
                 onClick={() => setScope(key)}
                 className={cn(
-                  'flex-1 whitespace-nowrap px-2.5 py-1.5 text-sm font-medium rounded-full transition-colors',
+                  'whitespace-nowrap px-2 py-1 text-[13px] font-medium rounded-full transition-colors',
                   scope === key
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
               >
                 {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Grupos'}
                 {counts[key] > 0 && (
-                  <span className={cn('ml-1.5 text-xs rounded-full px-1.5 py-0.5', scope === key ? 'bg-white/20' : key === 'unassigned' ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-600')}>{counts[key]}</span>
+                  <span className={cn('ml-1 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
                 )}
               </button>
             ))}
@@ -635,83 +641,61 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )}
             </div>
           )}
-          <div className="p-2 space-y-1">
-            {visibleConversations.map((c) => (
+          <div>
+            {visibleConversations.map((c) => {
+              const unread = isUnread(c)
+              const name = c.contact_name ?? c.remote_jid.split('@')[0]
+              return (
               <button
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
                 className={cn(
-                  'w-full text-left p-3 rounded-lg transition-all border-l-4',
+                  'w-full text-left pl-2.5 pr-3 flex items-center gap-3 border-l-4 transition-colors',
                   filter.colorOf(c.instance_id).bar,
-                  selectedId === c.id
-                    ? 'bg-gray-100 ring-1 ring-gray-200'
-                    : isUnread(c) ? 'bg-emerald-50/60 hover:bg-emerald-50' : 'hover:bg-gray-50'
+                  selectedId === c.id ? 'bg-gray-100' : 'hover:bg-gray-50'
                 )}
               >
-                <div className="flex items-start gap-3">
-                  {/* Avatar */}
-                  {c.contact_photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={c.contact_photo_url}
-                      alt=""
-                      className="w-10 h-10 rounded-full object-cover shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                    />
-                  ) : c.is_group ? (
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white flex items-center justify-center shrink-0" title="Grupo">
-                      <GroupIcon className="w-5 h-5" />
-                    </div>
-                  ) : (
-                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(c.id)} text-white text-sm font-bold flex items-center justify-center shrink-0`}>
-                      {(c.contact_name ?? c.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
-                    </div>
-                  )}
-
-                  {/* Info */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className={cn('truncate', isUnread(c) ? 'font-bold text-gray-950' : 'font-medium text-gray-600')}>
-                        {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
-                        {c.contact_name ?? c.remote_jid.split('@')[0]}
-                      </p>
-                      <span className="shrink-0 inline-flex items-center gap-1">
-                      {c.pinned && <Pin className="w-3 h-3 text-amber-600 rotate-45" aria-label="Fixada" />}
-                      <span className={cn('text-[11px] whitespace-nowrap', isUnread(c) ? 'font-semibold text-emerald-600' : 'text-gray-400')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
-                        {formatListTime(c.last_at ?? c.last_message_at)}
-                      </span>
-                      </span>
-                    </div>
-                    <p className="mt-0.5">
-                      <span className={cn('inline-flex max-w-full items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
-                        <WhatsappIcon className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{c.instance_label}</span>
-                      </span>
+                <ConvAvatar id={c.id} name={name} photo={c.contact_photo_url} isGroup={c.is_group} size={48} />
+                <div className="min-w-0 flex-1 py-2.5 border-b border-gray-100">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className={cn('truncate text-[15px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-900')}>
+                      {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+                      {name}
                     </p>
-                    <ConvTags type={c.contact_type} labels={c.labels} className="mt-1" />
-                    {c.next_followup && (
-                      <p className={cn('inline-flex items-center gap-1 text-[11px] font-medium mt-1 px-1.5 py-0.5 rounded border', DUE_STYLE[dueState(c.next_followup.due_at)])} title={c.next_followup.note ?? 'Follow-up agendado'}>
-                        <CalendarClock className="w-3 h-3" /> {formatDue(c.next_followup.due_at)}
-                      </p>
-                    )}
-                    <p className={cn('flex items-center gap-1 text-xs mt-1', isUnread(c) ? 'text-gray-900 font-semibold' : c.last_direction === 'inbound' ? 'text-gray-600' : 'text-gray-400')}>
-                      {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
-                      {c.last_direction === 'inbound' && <ArrowDownLeft className="w-3.5 h-3.5 shrink-0 text-emerald-600" aria-label="Última mensagem do contato (aguardando resposta)" />}
-                      <span className="line-clamp-1">{c.last_body || 'Sem mensagens'}</span>
-                    </p>
-                  </div>
-                  {isUnread(c) && (
-                    <span
-                      className="shrink-0 self-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center"
-                      title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
-                      aria-label={c.unread_count > 0 ? `${c.unread_count} mensagens não lidas` : 'Marcada como não lida'}
-                    >
-                      {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+                    <span className={cn('shrink-0 text-xs whitespace-nowrap', unread ? 'font-semibold text-emerald-600' : 'text-gray-500')} title={new Date(c.last_at ?? c.last_message_at).toLocaleString('pt-BR')}>
+                      {formatListTime(c.last_at ?? c.last_message_at)}
                     </span>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5 min-h-[20px]">
+                    <p className={cn('flex-1 min-w-0 flex items-center gap-1 text-[13px] leading-5', unread ? 'text-gray-900 font-medium' : 'text-gray-500')}>
+                      {c.last_direction === 'outbound' && <CheckCheck className="w-4 h-4 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
+                      <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
+                    </p>
+                    {showInstanceChip && (
+                      <span title={`WhatsApp: ${c.instance_label}`} className={cn('shrink-0 max-w-[5.5rem] truncate text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>
+                        {c.instance_label}
+                      </span>
+                    )}
+                    {c.next_followup && (
+                      <span title={`Follow-up ${formatDue(c.next_followup.due_at)}${c.next_followup.note ? ` · ${c.next_followup.note}` : ''}`} className={cn('shrink-0 rounded-full p-0.5 border', DUE_STYLE[dueState(c.next_followup.due_at)])}>
+                        <CalendarClock className="w-3 h-3" />
+                      </span>
+                    )}
+                    {c.pinned && <Pin className="w-3.5 h-3.5 shrink-0 text-gray-400 rotate-45" aria-label="Fixada" />}
+                    {unread && (
+                      <span
+                        className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center"
+                        title={c.unread_count > 0 ? `${c.unread_count} mensagem(ns) não lida(s)` : 'Marcada como não lida'}
+                        aria-label={c.unread_count > 0 ? `${c.unread_count} mensagens não lidas` : 'Marcada como não lida'}
+                      >
+                        {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </button>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -734,9 +718,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             {/* Header da conversa */}
             <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between gap-2">
               <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
-                <div className={`w-12 h-12 shrink-0 rounded-full bg-gradient-to-br ${getAvatarColor(selected.id)} text-white text-sm font-bold flex items-center justify-center`}>
-                  {(selected.contact_name ?? selected.remote_jid.split('@')[0]).charAt(0).toUpperCase()}
-                </div>
+                <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={44} />
                 <div className="min-w-0">
                   <h3 className="font-semibold text-gray-900 truncate">
                     {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
@@ -850,23 +832,29 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div ref={threadRef} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div ref={threadRef} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
               {loadingThread && (
                 <div className="text-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
                 </div>
               )}
-              {messages.map((m) => (
+              {messages.map((m, i) => (
                 <Fragment key={m.id}>
-                {m.id === firstUnreadId && (
-                  <div className="flex items-center gap-3 text-xs font-semibold text-emerald-700" role="separator">
-                    <span className="flex-1 border-t border-emerald-300" />
-                    {openedUnread} mensage{openedUnread === 1 ? 'm' : 'ns'} não lida{openedUnread === 1 ? '' : 's'}
-                    <span className="flex-1 border-t border-emerald-300" />
+                {layout[i]?.day && (
+                  <div className="sticky top-0 z-10 flex justify-center py-2" role="separator">
+                    <span className="px-3 py-1 rounded-lg bg-white text-[12px] font-medium text-gray-600 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">{layout[i].day}</span>
                   </div>
                 )}
+                {m.id === firstUnreadId && (
+                  <div className="my-2 py-1 text-center bg-white/70 text-xs font-semibold text-emerald-700" role="separator">
+                    {openedUnread} mensage{openedUnread === 1 ? 'm' : 'ns'} não lida{openedUnread === 1 ? '' : 's'}
+                  </div>
+                )}
+                <div className={layout[i]?.first ? 'mt-2.5' : 'mt-0.5'}>
                 <MessageBubble
                   msg={m}
+                  first={layout[i]?.first ?? true}
+                  currentUserId={currentUserId}
                   url={m.storage_path ? attUrls[m.storage_path] : undefined}
                   onOpenMedia={() => setLightboxId(m.id)}
                   onOpenAttachment={openAttachment}
@@ -893,6 +881,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else { toast.success('MENSAGEM APAGADA'); refreshThread(selectedId!) }
                   }}
                 />
+                </div>
                 </Fragment>
               ))}
             </div>
@@ -1161,10 +1150,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 // Componentes auxiliares
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
+// Cor do nome de quem falou no grupo (fixa por pessoa), como no WhatsApp
+const SPEAKER_COLORS = ['text-[#1f7aec]', 'text-[#d6336c]', 'text-[#0b8a5f]', 'text-[#a35a00]', 'text-[#7048e8]', 'text-[#c92a2a]', 'text-[#0c8599]', 'text-[#5c940d]']
+function speakerColor(key: string): string {
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
+  return SPEAKER_COLORS[h % SPEAKER_COLORS.length]
+}
+
 function MessageBubble({
-  msg, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete,
+  msg, first, currentUserId, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete,
 }: {
   msg: Msg
+  first: boolean
+  currentUserId: string
   url?: string
   onOpenMedia: () => void
   onOpenAttachment: (p: string) => void
@@ -1205,43 +1204,43 @@ function MessageBubble({
     : (isGroup ? (msg.participant_name ?? 'Participante do grupo') : contact.name)
   const speaker = !isOutbound && isGroup ? (msg.participant_name ?? 'Participante') : null
 
-  const senderAvatar = isOutbound ? (
-    msg.sender_name
-      ? <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} title={acted ? `Assinatura: ${msg.sender_name}` : msg.sender_name} />
-      : <span title={who} className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center shrink-0">?</span>
-  ) : isGroup ? (
-    <span title={speaker ?? ''} className={`w-7 h-7 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-      {(speaker ?? '?').charAt(0).toUpperCase()}
-    </span>
-  ) : contact.photo ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={contact.photo} alt={contact.name} title={contact.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
-  ) : (
-    <span title={contact.name} className={`w-7 h-7 rounded-full bg-gradient-to-br ${getAvatarColor(contact.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-      {contact.name.charAt(0).toUpperCase()}
+  // Sem avatar a cada mensagem: só nos grupos, ao lado da primeira de cada sequência de quem falou.
+  const groupAvatar = !isOutbound && isGroup ? (
+    first ? (
+      <span title={speaker ?? ''} className={`w-7 h-7 mt-0.5 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_jid ?? msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
+        {(speaker ?? '?').charAt(0).toUpperCase()}
+      </span>
+    ) : <span className="w-7 shrink-0" aria-hidden />
+  ) : null
+  // Nas enviadas, o nome de quem respondeu aparece só quando não foi você (ou veio do celular)
+  const outLabel = isOutbound && first && !acted && msg.sender_user_id !== currentUserId
+    ? (msg.sender_name ?? 'Pelo celular')
+    : null
+  const meta = (
+    <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
+      {time}
+      {isOutbound && <CheckCheck className="w-4 h-4 text-gray-400" aria-hidden />}
     </span>
   )
-  const avatar = acted ? (
-    <span className="relative shrink-0" title={who}>
-      {senderAvatar}
-      <span className="absolute -bottom-1.5 -left-2 rounded-full ring-2 ring-amber-300 bg-white">
-        <Avatar user={{ name: msg.acted_by_name, avatar_url: msg.acted_by_avatar_url, avatar_color: msg.acted_by_avatar_color }} size={18} title={`Enviou: ${msg.acted_by_name} (administrador)`} />
-      </span>
-    </span>
-  ) : senderAvatar
+  // espaço invisível no fim do texto para a hora caber na mesma linha
+  const tail = <span aria-hidden className={cn('inline-block h-3', isOutbound ? 'w-[62px]' : 'w-[44px]')} />
+  const tailHere = (msg.message_type === 'text' && !!msg.body)
+  const bubbleTone = isOutbound
+    ? acted ? 'bg-[#FFF4DC] text-[#3b2a05] ring-1 ring-amber-300' : 'bg-[#D9FDD3] text-[#111b21]'
+    : 'bg-white text-[#111b21]'
+  const tailCorner = first ? (isOutbound ? 'rounded-tr-none' : 'rounded-tl-none') : ''
 
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
   const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
 
   if (msg.deleted_at) {
     return (
-      <div id={`msg-${msg.id}`} className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
-        {!isOutbound && avatar}
-        <div className="max-w-md rounded-2xl px-4 py-2 text-sm border border-dashed border-gray-300 bg-white/60 text-gray-500 italic">
-          🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}
-          <p className="text-xs not-italic mt-0.5">{time}</p>
+      <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
+        {groupAvatar}
+        <div className={cn('relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
+          🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
+          <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
         </div>
-        {isOutbound && avatar}
       </div>
     )
   }
@@ -1253,18 +1252,14 @@ function MessageBubble({
   const canSaveSticker = msg.message_type === 'image' && !!msg.storage_path && (msg.mime_type ?? '').includes('webp')
 
   return (
-    <div id={`msg-${msg.id}`} className={cn('flex items-end gap-2', isOutbound ? 'justify-end' : 'justify-start')}>
-      {!isOutbound && avatar}
+    <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
+      {groupAvatar}
       <div
         title={who}
         className={cn(
-          'group relative max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+          'group relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           msg.reactions?.length ? 'mb-4' : '',
-          isOutbound
-            ? acted
-              ? 'bg-[#FFF4DC] text-[#3b2a05] border border-amber-300 rounded-br-md'
-              : 'bg-[#E6EEF8] text-[#0A1F3B] border border-[#D3E0F2] rounded-br-md'
-            : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
+          bubbleTone, tailCorner
         )}
       >
         {(canReply || canDelete || canSaveSticker) && (
@@ -1306,7 +1301,8 @@ function MessageBubble({
           </div>
         )}
 
-        {speaker && <p className="text-xs font-semibold text-sky-700 mb-0.5">{speaker}</p>}
+        {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
+        {outLabel && <p className="text-[12.5px] font-semibold leading-4 mb-0.5 text-emerald-700">{outLabel}</p>}
 
         {msg.reply_to_provider_id && (
           <button
@@ -1327,7 +1323,7 @@ function MessageBubble({
           </p>
         )}
 
-        {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} />}
+        {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} tail={tail} />}
 
         {msg.message_type === 'audio' && (
           url ? (
@@ -1383,7 +1379,7 @@ function MessageBubble({
           ) : <p className="text-xs italic text-gray-400">Documento indisponível</p>
         )}
 
-        {caption && <div className="mt-1.5"><WaText text={mentionNames ? renderMentions(caption, mentionNames) : caption} /></div>}
+        {caption && <div className="mt-1.5"><WaText text={mentionNames ? renderMentions(caption, mentionNames) : caption} tail={tail} /></div>}
 
         {card && (
           <div className="space-y-1.5 min-w-[14rem]">
@@ -1403,7 +1399,9 @@ function MessageBubble({
           <p className="text-xs italic text-gray-400">Mensagem não suportada</p>
         )}
 
-        <p className="text-xs mt-1 text-gray-500">{time}</p>
+        {tailHere || caption
+          ? <span className="absolute bottom-1 right-2">{meta}</span>
+          : <div className="flex justify-end mt-1 -mb-1">{meta}</div>}
 
         {!!msg.reactions?.length && (
           <div className={cn('absolute -bottom-3 flex gap-1', isOutbound ? 'right-3' : 'left-3')}>
@@ -1421,7 +1419,6 @@ function MessageBubble({
           </div>
         )}
       </div>
-      {isOutbound && avatar}
     </div>
   )
 }

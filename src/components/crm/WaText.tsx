@@ -15,20 +15,25 @@ function renderInline(nodes: Inline[]): React.ReactNode {
 }
 
 // Mostra o texto de uma mensagem com a formatação do WhatsApp (React escapa o HTML).
-export function WaText({ text }: { text: string }) {
+// `tail` vai no fim da última linha (o espaço reservado para a hora, como no WhatsApp).
+export function WaText({ text, tail }: { text: string; tail?: React.ReactNode }) {
   const blocks: Block[] = parseWhatsApp(text)
+  const last = blocks.length - 1
+  const inlineTail = last >= 0 && blocks[last].t !== 'mono'
   return (
     <div className="space-y-0.5 break-words">
       {blocks.map((b, i) => {
+        const t = i === last && inlineTail ? tail : null
         switch (b.t) {
-          case 'p': return <p key={i} className="whitespace-pre-wrap min-h-[1em]">{renderInline(b.c)}</p>
+          case 'p': return <p key={i} className="whitespace-pre-wrap min-h-[1em]">{renderInline(b.c)}{t}</p>
           case 'mono': return <pre key={i} className="font-mono text-[0.85em] bg-black/5 rounded px-2 py-1 whitespace-pre-wrap">{b.v}</pre>
-          case 'quote': return <blockquote key={i} className="border-l-4 border-black/20 pl-2 text-gray-600">{renderInline(b.c)}</blockquote>
+          case 'quote': return <blockquote key={i} className="border-l-4 border-black/20 pl-2 text-gray-600">{renderInline(b.c)}{t}</blockquote>
           case 'li': return (
-            <p key={i} className="flex gap-1.5 pl-1"><span className="shrink-0">{b.n === null ? '•' : `${b.n}.`}</span><span>{renderInline(b.c)}</span></p>
+            <p key={i} className="flex gap-1.5 pl-1"><span className="shrink-0">{b.n === null ? '•' : `${b.n}.`}</span><span>{renderInline(b.c)}{t}</span></p>
           )
         }
       })}
+      {!inlineTail && tail}
     </div>
   )
 }
