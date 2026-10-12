@@ -25,3 +25,9 @@ create index if not exists crm_messages_offload_idx on public.crm_messages (crea
 insert into public.internal_cron_secrets (name, secret)
 values ('crm-offload', replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
 on conflict (name) do nothing;
+
+-- a cada 5 min passa até 150 arquivos do Supabase para o Drive (aplicado à parte, após o deploy da rota)
+select cron.schedule('crm-offload', '*/5 * * * *', $$select net.http_post(
+  url := 'https://luknos.vercel.app/api/cron/crm-offload?limit=150',
+  headers := jsonb_build_object('Content-Type','application/json','x-cron-secret',(select secret from public.internal_cron_secrets where name='crm-offload')),
+  body := '{}'::jsonb, timeout_milliseconds := 290000)$$);
