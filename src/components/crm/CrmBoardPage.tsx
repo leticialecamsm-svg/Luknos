@@ -335,6 +335,15 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                               {c.last_direction === 'outbound' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
                               <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
                             </p>
+                            {!unread && c.stale_count > 0 && (
+                              <span
+                                className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] bg-red-500 text-white font-bold flex items-center justify-center"
+                                title={`${c.stale_count} mensagem(ns) do contato aberta(s) e sem resposta há mais de 1 dia`}
+                                aria-label={`${c.stale_count} mensagens sem resposta há mais de 1 dia`}
+                              >
+                                {c.stale_count > 99 ? '99+' : c.stale_count}
+                              </span>
+                            )}
                             {unread && (
                               <span
                                 className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center"

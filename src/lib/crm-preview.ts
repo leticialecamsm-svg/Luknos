@@ -31,6 +31,18 @@ export function canDeleteForEveryone(m: {
   return m.direction === 'outbound' && !!m.provider_message_id && !m.deleted_at && now - new Date(m.created_at).getTime() <= DELETE_WINDOW_MS
 }
 
+// Editar: o WhatsApp só aceita texto enviado por nós, até 15 minutos depois do envio.
+export const EDIT_WINDOW_MS = 15 * 60 * 1000
+export function canEditMessage(m: {
+  direction: string
+  message_type: string
+  provider_message_id?: string | null
+  deleted_at?: string | null
+  created_at: string
+}, now = Date.now()): boolean {
+  return m.direction === 'outbound' && m.message_type === 'text' && !!m.provider_message_id && !m.deleted_at && now - new Date(m.created_at).getTime() <= EDIT_WINDOW_MS
+}
+
 export function isGroupJid(jid: string | null | undefined): boolean {
   return !!jid && jid.endsWith('@g.us')
 }

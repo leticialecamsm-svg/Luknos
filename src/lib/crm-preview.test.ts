@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { messagePreview, canDeleteForEveryone, isGroupJid, DELETE_WINDOW_MS } from './crm-preview'
+import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid, DELETE_WINDOW_MS } from './crm-preview'
 
 describe('messagePreview', () => {
   it('tipos de mídia', () => {
@@ -35,5 +35,17 @@ describe('isGroupJid', () => {
     expect(isGroupJid('120363025@g.us')).toBe(true)
     expect(isGroupJid('558299@s.whatsapp.net')).toBe(false)
     expect(isGroupJid(null)).toBe(false)
+  })
+})
+
+describe('canEditMessage', () => {
+  const now = Date.parse('2026-10-12T15:00:00Z')
+  const base = { direction: 'outbound', message_type: 'text', provider_message_id: 'X', deleted_at: null, created_at: '2026-10-12T14:50:00Z' }
+  it('texto nosso dentro de 15 min', () => expect(canEditMessage(base, now)).toBe(true))
+  it('depois de 15 min, não', () => expect(canEditMessage({ ...base, created_at: '2026-10-12T14:40:00Z' }, now)).toBe(false))
+  it('áudio, recebida ou apagada, não', () => {
+    expect(canEditMessage({ ...base, message_type: 'audio' }, now)).toBe(false)
+    expect(canEditMessage({ ...base, direction: 'inbound' }, now)).toBe(false)
+    expect(canEditMessage({ ...base, deleted_at: '2026-10-12T14:55:00Z' }, now)).toBe(false)
   })
 })

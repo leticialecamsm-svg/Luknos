@@ -14,7 +14,7 @@ import { ConvTags } from './ConvTags'
 import { FollowupPopover, DUE_STYLE } from './FollowupPopover'
 import { dueState, formatDue } from '@/lib/crm-followup'
 import { LabelPicker } from './LabelPicker'
-import { canDeleteForEveryone, messagePreview } from '@/lib/crm-preview'
+import { canDeleteForEveryone, canEditMessage, messagePreview } from '@/lib/crm-preview'
 import { AudioPlayer } from './AudioPlayer'
 import { FileBadge } from './FileBadge'
 import { MediaLightbox, type LightboxItem } from './MediaLightbox'
@@ -31,6 +31,7 @@ import {
   setConversationRestricted,
   markConversationRead,
   markConversationUnread,
+  setConversationArchived,
   reactToMessage,
   saveMessageAsSticker,
   getGroupParticipants,
@@ -40,6 +41,7 @@ import {
   type CrmLabel,
   getCrmLabels,
   deleteCrmMessage,
+  editCrmMessage,
   completeFollowup,
   linkConversationContact,
   setConversationDisplayName,
@@ -66,7 +68,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, MoreVertical,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -83,6 +85,7 @@ interface Msg {
   reply_to_preview?: string | null
   deleted_at?: string | null
   deleted_by_name?: string | null
+  edited_at?: string | null
   reactions?: ReactionChip[]
   participant_name?: string | null
   participant_jid?: string | null
@@ -118,6 +121,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [editing, setEditing] = useState<Msg | null>(null)
+  // trocar de conversa cancela a edição em andamento
+  useEffect(() => { setEditing(null) }, [selectedId])
   const [showFormat, setShowFormat] = useState(false)
   useEffect(() => {
     if (!headerMenu) return
@@ -220,6 +227,21 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   // Avisa o resto do sistema qual conversa está à vista (não notificar o que já se está lendo)
   useEffect(() => { setOpenConversationId(selectedId); return () => setOpenConversationId(null) }, [selectedId])
+
+  // Esc fecha a conversa (como no WhatsApp Web) — antes fecha o painel de dados, se estiver aberto.
+  // Com janela, menu ou lista de sugestões abertos, o Esc é deles.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !selectedId || lightboxId) return
+      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [aria-modal="true"]')) return
+      if (editing) { setEditing(null); setText(''); return }
+      if (replyTo) { setReplyTo(null); return }
+      if (showInfo) { setShowInfo(false); return }
+      setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId, showInfo, lightboxId, editing, replyTo])
 
   // Ao trocar de conversa: zera a anterior e carrega a nova.
   useEffect(() => { lastThreadSig.current = ''; setMessages([]) }, [selectedId])
@@ -390,6 +412,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
+  const handleArchive = () => {
+    if (!selected) return
+    const id = selected.id
+    const archive = !selected.archived
+    startTransition(async () => {
+      const r = await setConversationArchived(id, archive)
+      if ('error' in r && r.error) { toast.error('ERRO', r.error); return }
+      setConversations((cs) => cs.map((c) => (c.id === id ? { ...c, archived: archive } : c)))
+      toast.success(archive ? 'CONVERSA ARQUIVADA' : 'CONVERSA DESARQUIVADA', archive ? 'Volta para a lista quando o contato escrever de novo' : undefined)
+      if (archive) setSelectedId(null)
+      refreshList(true)
+    })
+  }
+
   const handlePin = () => {
     if (!selected) return
     const id = selected.id
@@ -429,7 +465,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const q = query.trim().toLocaleLowerCase('pt-BR')
   const qDigits = q.replace(/\D/g, '')
   const shortDigits = /^[\d\s()+-]+$/.test(q) && qDigits.length > 0 && qDigits.length < 3
-  const visibleConversations = !q ? conversations : conversations.filter((c) =>
+  const archivedCount = conversations.filter((c) => c.archived).length
+  // a busca procura em todas; sem busca, a lista mostra as arquivadas OU as demais
+  const shelf = q ? conversations : conversations.filter((c) => c.archived === showArchived)
+  const visibleConversations = !q ? shelf : shelf.filter((c) =>
     (c.contact_name ?? '').toLocaleLowerCase('pt-BR').includes(q) ||
     (c.last_body ?? '').toLocaleLowerCase('pt-BR').includes(q) ||
     (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
@@ -457,6 +496,17 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   const handleSend = () => {
     if (!text.trim() || !selectedId) return
+    if (editing) {
+      const target = editing
+      const newText = text
+      setText(''); setEditing(null)
+      startTransition(async () => {
+        const r = await editCrmMessage(target.id, newText)
+        if ('error' in r && r.error) { toast.error('NÃO FOI POSSÍVEL EDITAR', r.error); setEditing(target); setText((cur) => cur || newText) }
+        else refreshThread(selectedId, true)
+      })
+      return
+    }
     const msg = text
     const reply = replyTo
     const out = selectedIsGroup ? applyMentionsToSend(msg, picks) : { text: msg, mentioned: [] as string[], all: false }
@@ -651,6 +701,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )}
             </div>
           )}
+          {!q && (showArchived || archivedCount > 0) && (
+            <button
+              onClick={() => { setShowArchived((v) => !v); setSelectedId(null) }}
+              className="w-full flex items-center gap-3 pl-[22px] pr-4 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50 border-b border-gray-100"
+            >
+              {showArchived ? <ChevronLeft className="w-5 h-5 text-emerald-700" /> : <Archive className="w-5 h-5 text-emerald-700" />}
+              <span className="flex-1 text-left">{showArchived ? 'Voltar para as conversas' : 'Arquivadas'}</span>
+              {!showArchived && <span className="text-xs text-emerald-700 font-medium">{archivedCount}</span>}
+            </button>
+          )}
           <div>
             {visibleConversations.map((c) => {
               const unread = isUnread(c)
@@ -692,6 +752,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       </span>
                     )}
                     {c.pinned && <Pin className="w-3.5 h-3.5 shrink-0 text-gray-400 rotate-45" aria-label="Fixada" />}
+                    {!unread && c.stale_count > 0 && (
+                      <span
+                        className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-[11px] bg-red-500 text-white font-bold flex items-center justify-center"
+                        title={`${c.stale_count} mensagem(ns) do contato aberta(s) e sem resposta há mais de 1 dia`}
+                        aria-label={`${c.stale_count} mensagens sem resposta há mais de 1 dia`}
+                      >
+                        {c.stale_count > 99 ? '99+' : c.stale_count}
+                      </span>
+                    )}
                     {unread && (
                       <span
                         className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center"
@@ -800,6 +869,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         {selected.pinned ? <PinOff className="w-4 h-4 text-amber-600" /> : <Pin className="w-4 h-4 text-gray-500" />}
                         {selected.pinned ? 'Desafixar do topo' : 'Fixar no topo da lista'}
                       </button>
+                      <button role="menuitem" disabled={pending} onClick={() => { setHeaderMenu(false); handleArchive() }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        {selected.archived ? <ArchiveRestore className="w-4 h-4 text-gray-500" /> : <Archive className="w-4 h-4 text-gray-500" />}
+                        {selected.archived ? 'Desarquivar conversa' : 'Arquivar conversa'}
+                      </button>
                       <button role="menuitem" disabled={pending} onClick={() => { setHeaderMenu(false); handleMarkUnread() }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
                         <MailOpen className="w-4 h-4 text-gray-500" /> Marcar como não lida
                       </button>
@@ -838,7 +911,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div ref={threadRef} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
+            <div ref={threadRef} data-thread onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
               {loadingThread && (
                 <div className="text-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
@@ -880,6 +953,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else refreshThread(selectedId!, true)
                   }}
                   canDelete={canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  canEdit={canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
+                  onEdit={() => { setReplyTo(null); setEditing(m); setText(m.body ?? ''); requestAnimationFrame(() => textareaRef.current?.focus()) }}
                   onDelete={async () => {
                     if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
                     const r = await deleteCrmMessage(m.id)
@@ -938,6 +1013,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </div>
             ) : (
               <div className="px-3 py-2 border-t border-gray-200 bg-[#F7F8FA]">
+              {editing && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg bg-white border-l-4 border-emerald-500 px-3 py-2" role="status">
+                  <Pencil className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+                  <div className="min-w-0 flex-1 text-sm">
+                    <p className="font-semibold text-emerald-700 text-xs">Editando mensagem</p>
+                    <p className="text-gray-600 truncate">{editing.body}</p>
+                  </div>
+                  <button type="button" onClick={() => { setEditing(null); setText('') }} aria-label="Cancelar edição" className="p-1 rounded hover:bg-gray-200 text-gray-500"><X className="w-4 h-4" /></button>
+                </div>
+              )}
               {replyTo && (
                 <div className="mb-2 flex items-start gap-2 rounded-lg bg-gray-100 border-l-4 border-sky-500 px-3 py-2" role="status">
                   <Reply className="w-4 h-4 mt-0.5 text-sky-600 shrink-0" />
@@ -1175,7 +1260,7 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete,
+  msg, first, currentUserId, url, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit,
 }: {
   msg: Msg
   first: boolean
@@ -1192,9 +1277,12 @@ function MessageBubble({
   mentionNames?: Record<string, string>
   canDelete: boolean
   onDelete: () => void
+  canEdit: boolean
+  onEdit: () => void
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   const [menu, setMenu] = useState(false)
+  const [menuUp, setMenuUp] = useState(false)
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(false)
@@ -1234,12 +1322,13 @@ function MessageBubble({
     : null
   const meta = (
     <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
+      {msg.edited_at && <span className="mr-0.5 italic" title={`Editada em ${new Date(msg.edited_at).toLocaleString('pt-BR')}`}>Editada</span>}
       {time}
       {isOutbound && <CheckCheck className="w-4 h-4 text-gray-400" aria-hidden />}
     </span>
   )
   // espaço invisível no fim do texto para a hora caber na mesma linha
-  const tail = <span aria-hidden className={cn('inline-block h-3', isOutbound ? 'w-[62px]' : 'w-[44px]')} />
+  const tail = <span aria-hidden className={cn('inline-block h-3', msg.edited_at ? 'w-[108px]' : isOutbound ? 'w-[62px]' : 'w-[44px]')} />
   const tailHere = (msg.message_type === 'text' && !!msg.body)
   const bubbleTone = isOutbound
     ? acted ? 'bg-[#FFF4DC] text-[#3b2a05] ring-1 ring-amber-300' : 'bg-[#D9FDD3] text-[#111b21]'
@@ -1278,19 +1367,26 @@ function MessageBubble({
           bubbleTone, tailCorner
         )}
       >
-        {(canReply || canDelete || canSaveSticker) && (
+        {(canReply || canDelete || canSaveSticker || canEdit) && (
           <div className="absolute top-1 right-1">
             <button
               type="button"
               aria-label="Opções da mensagem"
               aria-haspopup="menu"
-              onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                // perto do fim da conversa o menu abre para cima, senão ele fica cortado
+                const box = e.currentTarget.closest('[data-thread]')?.getBoundingClientRect()
+                const at = e.currentTarget.getBoundingClientRect()
+                setMenuUp(!!box && box.bottom - at.bottom < 240)
+                setMenu((v) => !v)
+              }}
               className="p-1 rounded-full bg-white/80 text-gray-500 hover:text-gray-900 opacity-0 group-hover:opacity-100 focus:opacity-100 shadow-sm"
             >
               <ChevronDown className="w-4 h-4" />
             </button>
             {menu && (
-              <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute right-0 top-7 z-30 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm text-gray-800 not-italic">
+              <div role="menu" onClick={(e) => e.stopPropagation()} className={cn('absolute right-0 z-30 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm text-gray-800 not-italic', menuUp ? 'bottom-7' : 'top-7')}>
                 {canReply && (
                   <div className="flex items-center justify-between px-2 pb-1 mb-1 border-b border-gray-100" role="group" aria-label="Reagir">
                     {QUICK_REACTIONS.map((e) => {
@@ -1310,6 +1406,7 @@ function MessageBubble({
                   </div>
                 )}
                 {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
+                {canEdit && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onEdit() }}><Pencil className="w-4 h-4" /> Editar</button>}
                 {canSaveSticker && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onSaveSticker() }}><StickerIcon className="w-4 h-4" /> Salvar como figurinha</button>}
                 {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
               </div>

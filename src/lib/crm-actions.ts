@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
-import { messagePreview, canDeleteForEveryone, isGroupJid } from '@/lib/crm-preview'
+import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
 import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
@@ -565,6 +565,8 @@ export interface ConversationRow {
   pinned: boolean // fixada no topo (por atendente)
   unread_count: number // mensagens do contato ainda não abertas por quem está vendo
   marked_unread: boolean // marcada manualmente como não lida
+  stale_count: number // mensagens do contato já abertas e sem resposta há mais de 1 dia
+  archived: boolean // arquivada por quem está vendo (volta sozinha quando o contato escreve)
   contact_id: string | null
   contact_type: string | null // categoria do contato vinculado (cliente, arquiteto…)
   contact_name_cache: string | null
@@ -653,7 +655,7 @@ export async function getCrmConversations(
   const lastInfo = new Map<string, { preview: string | null; direction: 'inbound' | 'outbound' | null; replyUser: string | null; at: string | null }>()
   const labelsBy = new Map<string, CrmLabel[]>()
   const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
-  const unreadBy = new Map<string, { unread: number; marked: boolean }>()
+  const unreadBy = new Map<string, { unread: number; marked: boolean; stale: number; archived: boolean }>()
   const pinsBy = new Map<string, string>() // conversa -> quando fixou
   if (ids.length) {
     const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }, { data: pins }] = await Promise.all([
@@ -664,7 +666,7 @@ export async function getCrmConversations(
       admin.from('crm_conversation_pins').select('conversation_id, pinned_at').eq('user_id', auth.userId).in('conversation_id', ids),
     ])
     for (const pn of (pins ?? []) as any[]) pinsBy.set(pn.conversation_id, pn.pinned_at)
-    for (const u of (unr ?? []) as any[]) unreadBy.set(u.conversation_id, { unread: u.unread ?? 0, marked: !!u.marked_unread })
+    for (const u of (unr ?? []) as any[]) unreadBy.set(u.conversation_id, { unread: u.unread ?? 0, marked: !!u.marked_unread, stale: u.stale ?? 0, archived: !!u.archived })
     for (const f of (fus ?? []) as any[]) {
       if (f.due_date && !followupBy.has(f.crm_conversation_id)) {
         followupBy.set(f.crm_conversation_id, { id: f.id, due_at: f.due_date, assignee_id: f.user_id, note: f.description ?? null })
@@ -704,6 +706,8 @@ export async function getCrmConversations(
       pinned: pinsBy.has(c.id),
       unread_count: unreadBy.get(c.id)?.unread ?? 0,
       marked_unread: unreadBy.get(c.id)?.marked ?? false,
+      stale_count: isGroupJid(c.remote_jid) ? 0 : (unreadBy.get(c.id)?.stale ?? 0),
+      archived: unreadBy.get(c.id)?.archived ?? false,
       contact_id: c.contact_id,
       contact_type: c.contacts?.type ?? null,
       contact_name_cache: c.contact_name_cache,
@@ -775,7 +779,7 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
@@ -1602,6 +1606,39 @@ export async function deleteCrmMessage(messageId: string) {
   }
 }
 
+// Editar uma mensagem de texto enviada (o WhatsApp aceita até 15 min depois do envio).
+export async function editCrmMessage(messageId: string, text: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const clean = text.trim()
+  if (!clean) return { error: 'A mensagem não pode ficar vazia' }
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, direction, message_type, sender_user_id, provider_message_id, deleted_at, created_at')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m) return { error: 'Mensagem não encontrada' }
+  const acc = await convAccess(admin, auth, m.conversation_id)
+  if (!acc.ok) return { error: acc.error }
+  if (!canEditMessage(m as any)) return { error: 'Só dá para editar mensagens de texto enviadas por nós, até 15 minutos depois do envio.' }
+  if (m.sender_user_id && m.sender_user_id !== auth.userId && !auth.isAdmin) {
+    return { error: 'Só quem enviou a mensagem (ou um administrador) pode editá-la' }
+  }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'edit', message_id: messageId, text: clean }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.edited) return { error: body?.error ?? 'Não foi possível editar a mensagem' }
+    return { ok: true }
+  } catch (e: any) {
+    return { error: e?.message ?? 'Não foi possível editar a mensagem' }
+  }
+}
+
 // ─── Etiquetas ──────────────────────────────────────────────────────────────
 
 export async function getCrmLabels(): Promise<CrmLabel[]> {
@@ -1998,6 +2035,34 @@ export async function markConversationUnread(conversationId: string) {
     .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: true }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
   revalidatePath('/crm')
+  return { ok: true }
+}
+
+// Arquivar / desarquivar (por atendente, como no WhatsApp): a conversa sai da lista e volta
+// sozinha quando o contato escreve de novo. Não mexe em lida/não lida.
+export async function setConversationArchived(conversationId: string, archived: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (auth.actedBy) return { error: 'Ao atuar como outra pessoa, as conversas arquivadas dela não são alteradas' }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const archived_at = archived ? new Date().toISOString() : null
+  const { data: upd, error } = await admin
+    .from('crm_conversation_reads')
+    .update({ archived_at })
+    .eq('conversation_id', conversationId)
+    .eq('user_id', auth.userId)
+    .select('conversation_id')
+  if (error) return { error: error.message }
+  if (!upd?.length && archived) {
+    // ainda sem registro de leitura: cria mantendo como "nunca aberta" (marco das não lidas)
+    const { data: base } = await admin.from('crm_feature_baselines').select('at').eq('name', 'unread').maybeSingle()
+    const { error: insErr } = await admin.from('crm_conversation_reads').insert({
+      conversation_id: conversationId, user_id: auth.userId, archived_at, last_read_at: base?.at ?? new Date().toISOString(),
+    })
+    if (insErr) return { error: insErr.message }
+  }
   return { ok: true }
 }
 
