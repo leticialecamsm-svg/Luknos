@@ -55,6 +55,13 @@ export async function GET(req: NextRequest) {
     if (!res.ok) {
       if (res.status === 404) return NextResponse.json({ error: 'Nota não encontrada na SEFAZ AL' }, { status: 404 })
       const corpo = (await res.text().catch(() => '')).slice(0, 300)
+      // O portal responde 400 {"message":"Nota não encontrada."} quando não existe
+      // cálculo de imposto (ICMS antecipado/ST) pra aquela chave — não é falha de rede
+      if (res.status === 400 && /n[ãa]o encontrada/i.test(corpo)) {
+        return NextResponse.json({
+          error: 'A SEFAZ AL não tem cálculo de imposto (antecipação/ST) para esta nota. Isso é comum quando o fornecedor já recolheu o ICMS ou a nota não gera cobrança em Alagoas; confira no portal Cobrança DF-e ou cadastre a nota pelo XML.',
+        }, { status: 404 })
+      }
       console.error(`fetch-sefaz ${res.status}:`, corpo)
       throw new Error(`SEFAZ AL retornou ${res.status}`)
     }
