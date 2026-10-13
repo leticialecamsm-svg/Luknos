@@ -19,37 +19,72 @@ const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
 
 type UploadStats = { loaded: number; total: number; speedBps: number; etaSec: number }
 
-// Faz PUT direto do browser para a session URL do Drive, com progresso +
-// velocidade (média móvel curta) + estimativa de tempo restante.
-function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void): Promise<void> {
+// Resumable upload do Drive em chunks com retry — bem mais robusto que
+// um único PUT para arquivos grandes em conexões instáveis:
+// - Chunks de 8 MB (múltiplo de 256 KB, exigido pelo Drive).
+// - Status 308 "Resume Incomplete" para chunks intermediários; 200/201 no fim.
+// - Em erro de rede, tenta de novo o mesmo chunk até 4 vezes com backoff.
+// - Progresso é calculado por byte real enviado (incluindo retries).
+const CHUNK_SIZE = 8 * 1024 * 1024
+
+function sleep(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
+
+function sendChunk(uploadUrl: string, chunk: Blob, start: number, totalSize: number): Promise<{ status: number }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl, true)
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-    const t0 = Date.now()
-    let lastT = t0
-    let lastLoaded = 0
-    let speedBps = 0
-    xhr.upload.onprogress = e => {
-      if (!e.lengthComputable) return
+    const end = start + chunk.size - 1
+    xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`)
+    xhr.onload = () => resolve({ status: xhr.status })
+    xhr.onerror = () => reject(new Error('network'))
+    xhr.ontimeout = () => reject(new Error('timeout'))
+    xhr.timeout = 10 * 60 * 1000 // 10 min por chunk
+    xhr.send(chunk)
+  })
+}
+
+async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void): Promise<void> {
+  const total = file.size
+  let offset = 0
+  const t0 = Date.now()
+  let lastT = t0
+  let lastLoaded = 0
+  let speedBps = 0
+
+  while (offset < total) {
+    const end = Math.min(offset + CHUNK_SIZE, total)
+    const chunk = file.slice(offset, end)
+
+    // Retry por chunk — backoff 1s/2s/4s.
+    let attempt = 0
+    let status = 0
+    while (true) {
+      try {
+        const r = await sendChunk(uploadUrl, chunk, offset, total)
+        status = r.status
+        break
+      } catch (e) {
+        attempt++
+        if (attempt >= 4) throw new Error(`Falha de rede após ${attempt} tentativas no chunk ${offset}`)
+        await sleep(1000 * Math.pow(2, attempt - 1))
+      }
+    }
+
+    if (status === 308 || status === 200 || status === 201) {
+      offset = end
       const now = Date.now()
       const dt = Math.max(1, now - lastT) / 1000
-      const dloaded = e.loaded - lastLoaded
-      const inst = dloaded / dt
-      // Média móvel exponencial — suaviza oscilação, mas reage se a conexão muda.
+      const inst = (offset - lastLoaded) / dt
       speedBps = speedBps === 0 ? inst : speedBps * 0.7 + inst * 0.3
-      lastT = now; lastLoaded = e.loaded
-      const remaining = e.total - e.loaded
+      lastT = now; lastLoaded = offset
+      const remaining = total - offset
       const etaSec = speedBps > 0 ? Math.round(remaining / speedBps) : 0
-      onProgress({ loaded: e.loaded, total: e.total, speedBps, etaSec })
+      onProgress({ loaded: offset, total, speedBps, etaSec })
+      if (status === 200 || status === 201) return
+    } else {
+      throw new Error(`Drive respondeu ${status} no chunk ${offset}`)
     }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new Error(`Drive respondeu ${xhr.status}`))
-    }
-    xhr.onerror = () => reject(new Error('Falha de rede ao enviar para o Drive'))
-    xhr.send(file)
-  })
+  }
 }
 
 function formatBytes(n: number): string {
