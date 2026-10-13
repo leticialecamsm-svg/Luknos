@@ -72,7 +72,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -91,6 +91,7 @@ interface Msg {
   deleted_by_name?: string | null
   edited_at?: string | null
   is_forwarded?: boolean
+  pending?: boolean
   drive_file_id?: string | null
   media_size?: number | null
   media_seconds?: number | null
@@ -543,24 +544,39 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
   )
 
-  const handleFile = (files: FileList | null) => {
-    if (!files) return
-    Array.from(files).forEach((file) => {
-      if (!selectedId) { toast.error('ERRO', 'Escolha uma conversa primeiro'); return }
+  const sendFiles = (files: File[]) => {
+    const cid = selectedId
+    if (!cid) { toast.error('ERRO', 'Escolha uma conversa primeiro'); return }
+    const reply = replyTo
+    setReplyTo(null)
+    files.forEach((file) => {
       startTransition(async () => {
-        const up = await uploadCrmFile(selectedId, file)
+        const up = await uploadCrmFile(cid, file)
         if (up.error) { toast.error('ERRO AO ENVIAR', up.error); return }
         const res = await sendCrmMessage({
-          conversationId: selectedId,
+          conversationId: cid,
           storagePath: up.storagePath,
           fileName: file.name,
           mimeType: file.type,
-          replyToMessageId: replyTo?.id,
+          replyToMessageId: reply?.id,
         })
         if (res.error) toast.error('ERRO', res.error)
-        else { setReplyTo(null); refreshThread(selectedId) }
+        else refreshThread(cid, true)
       })
     })
+  }
+  const handleFile = (files: FileList | null) => { if (files) sendFiles(Array.from(files)) }
+
+  // Colar (Ctrl+V) uma imagem do clipboard: envia como imagem, igual ao WhatsApp.
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imgs = Array.from(items).filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+    if (!imgs.length) return
+    e.preventDefault()
+    const files = imgs.map((it) => it.getAsFile()).filter(Boolean) as File[]
+    const named = files.map((f) => new File([f], (f.name && f.name !== 'image.png') ? f.name : `print-${Date.now()}.png`, { type: f.type || 'image/png' }))
+    sendFiles(named)
   }
 
   const handleSend = () => {
@@ -576,17 +592,33 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       })
       return
     }
+    const cid = selectedId
     const msg = text
     const reply = replyTo
     const out = selectedIsGroup ? applyMentionsToSend(msg, picks) : { text: msg, mentioned: [] as string[], all: false }
     setText('')
-    setPicks([]); setMention(null)
+    setPicks([]); setMention(null); setReplyTo(null)
+    // Mostra a mensagem na hora (como o WhatsApp): aparece com um relógio até o servidor confirmar.
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const meName = actingAsName ?? users.find((u) => u.id === currentUserId)?.name ?? null
+    const temp: Msg = {
+      id: tempId, direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
+      sender_avatar_url: null, sender_avatar_color: null,
+      message_type: 'text', body: out.text, storage_path: null, file_name: null, mime_type: null,
+      is_system: false, created_at: new Date().toISOString(),
+      reply_to_provider_id: reply?.provider_message_id ?? null,
+      reply_to_preview: reply ? (messagePreview({ message_type: reply.message_type, body: reply.body, file_name: reply.file_name }) || null) : null,
+      pending: true,
+    }
+    setMessages((cur) => [...cur, temp])
+    requestAnimationFrame(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }) })
     startTransition(async () => {
-      const res = await sendCrmMessage({ conversationId: selectedId, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all })
+      const res = await sendCrmMessage({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all })
       if (res.error) {
         toast.error('ERRO', res.error)
-        setText((cur) => cur || msg) // não perde o que foi digitado
-      } else { setReplyTo(null); refreshThread(selectedId) }
+        setMessages((cur) => cur.filter((m) => m.id !== tempId)) // tira o otimista que falhou
+        setText((cur) => cur || msg); setReplyTo(reply)
+      } else { refreshThread(cid, true) }
     })
   }
 
@@ -1239,6 +1271,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       requestAnimationFrame(() => { el.setSelectionRange(ed.start, ed.end) })
                     }
                   }}
+                  onPaste={handlePaste}
                   placeholder={actingAsName ? `Respondendo como ${actingAsName}…` : 'Escreva uma mensagem…'}
                   rows={1}
                   className="flex-1 px-4 py-2.5 bg-white text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
@@ -1429,7 +1462,7 @@ function MessageBubble({
     <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
       {msg.edited_at && <span className="mr-0.5 italic" title={`Editada em ${new Date(msg.edited_at).toLocaleString('pt-BR')}`}>Editada</span>}
       {time}
-      {isOutbound && <CheckCheck className="w-4 h-4 text-gray-400" aria-hidden />}
+      {isOutbound && (msg.pending ? <Clock className="w-3.5 h-3.5 text-gray-400" aria-label="Enviando…" /> : <CheckCheck className="w-4 h-4 text-gray-400" aria-hidden />)}
     </span>
   )
   // espaço invisível no fim do texto para a hora caber na mesma linha
