@@ -1342,11 +1342,6 @@ function MessageBubble({
   // Um administrador respondeu "como" o atendente: o balão é do atendente (assinatura),
   // mas mostramos também quem de fato enviou, com destaque âmbar.
   const acted = isOutbound && !!msg.acted_by_name && !!msg.sender_name
-  const who = isOutbound
-    ? acted
-      ? `${msg.acted_by_name} (administrador) enviou em nome de ${msg.sender_name}`
-      : (msg.sender_name ?? 'Enviada pelo celular do WhatsApp')
-    : (isGroup ? (msg.participant_name ?? 'Participante do grupo') : contact.name)
   const speaker = !isOutbound && isGroup ? (msg.participant_name ?? 'Participante') : null
 
   // Sem avatar a cada mensagem: só nos grupos, ao lado da primeira de cada sequência de quem falou.
@@ -1404,7 +1399,6 @@ function MessageBubble({
     <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
       {groupAvatar}
       <div
-        title={who}
         className={cn(
           'group relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           msg.reactions?.length ? 'mb-4' : '',
