@@ -1,9 +1,7 @@
-import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { formatDate } from '@/lib/utils'
-import { NewSolicitationButton } from '@/components/solicitations/NewSolicitationButton'
+import { SolicitationsIndex, type IndexRow } from '@/components/solicitations/SolicitationsIndex'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,39 +10,55 @@ export default async function SolicitacoesIndexPage() {
   if (!user) redirect('/login')
 
   const db = createAdminClient()
-  const { data: rows } = await db
-    .from('solicitations')
-    .select('id, number, title, created_at, client:client_id(name)')
-    .order('created_at', { ascending: false })
-    .limit(50)
 
-  return (
-    <div className="max-w-2xl mx-auto py-10 px-4">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold">Solicitações</h1>
-        <NewSolicitationButton />
-      </div>
-      <div className="space-y-2">
-        {(rows ?? []).map((s: any) => (
-          <Link
-            key={s.id}
-            href={`/solicitacoes/${s.id}`}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-white hover:shadow-sm hover:border-brand-300 transition-all"
-          >
-            <span className="text-xs font-mono text-gray-400 shrink-0 w-12">#{s.number}</span>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-800 truncate">{s.title || s.client?.name || '—'}</div>
-              {s.title && s.client?.name && (
-                <div className="text-xs text-gray-400 truncate">{s.client.name}</div>
-              )}
-            </div>
-            <span className="text-xs text-gray-400 shrink-0">{formatDate(s.created_at)}</span>
-          </Link>
-        ))}
-        {(rows ?? []).length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-8">Nenhuma solicitação encontrada.</p>
-        )}
-      </div>
-    </div>
-  )
+  // Carrega até 200 solicitações recentes com os dados que a tela mostra.
+  const { data: solicitations } = await db
+    .from('solicitations')
+    .select('id, number, title, created_at, priority, category, size, client:client_id(name)')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  const ids = (solicitations ?? []).map((s: any) => s.id)
+
+  // Enriquecimento em paralelo. Usamos uma query por tabela em vez de
+  // subqueries para manter compatível com o cliente supabase-js.
+  const [quotesRes, negsRes] = ids.length
+    ? await Promise.all([
+        db.from('quotes').select('id, solicitation_id, quoted_value, created_at').in('solicitation_id', ids),
+        db.from('negotiations').select('solicitation_id, temperature, created_at').in('solicitation_id', ids),
+      ])
+    : [{ data: [] as any[] }, { data: [] as any[] }]
+
+  // Reduz para "mais recente por solicitação".
+  const latestQuote = new Map<string, any>()
+  for (const q of (quotesRes.data ?? []) as any[]) {
+    const prev = latestQuote.get(q.solicitation_id)
+    if (!prev || new Date(q.created_at) > new Date(prev.created_at)) latestQuote.set(q.solicitation_id, q)
+  }
+  const latestNeg = new Map<string, any>()
+  for (const n of (negsRes.data ?? []) as any[]) {
+    const prev = latestNeg.get(n.solicitation_id)
+    if (!prev || new Date(n.created_at) > new Date(prev.created_at)) latestNeg.set(n.solicitation_id, n)
+  }
+
+  const rows: IndexRow[] = (solicitations ?? []).map((s: any) => {
+    const q = latestQuote.get(s.id)
+    const n = latestNeg.get(s.id)
+    const temp = n?.temperature ?? null
+    const status: IndexRow['status'] = temp === 'closed' ? 'closed' : temp === 'lost' ? 'lost' : 'in_progress'
+    return {
+      id: s.id,
+      number: s.number,
+      title: s.title,
+      clientName: s.client?.name ?? null,
+      createdAt: s.created_at,
+      priority: s.priority ?? 'normal',
+      category: s.category ?? null,
+      size: s.size ?? null,
+      quotedValue: q?.quoted_value != null ? Number(q.quoted_value) : null,
+      status,
+    }
+  })
+
+  return <SolicitationsIndex rows={rows} />
 }
