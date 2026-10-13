@@ -64,7 +64,9 @@ export async function sendCrmMessagePush(messageId: string) {
     title: `${name} · ${(c as any).crm_instances?.label ?? 'WhatsApp'}`,
     body: `${preview.length > 160 ? preview.slice(0, 157) + '…' : preview}\n${when}`,
     icon: c.contact_photo_url ?? null,
-    tag: c.id,
+    // tag único por mensagem: o macOS só mostra banner do 1º aviso de um mesmo tag
+    // (os seguintes ele atualiza em silêncio). Com o id da mensagem, cada uma aparece.
+    tag: m.id,
     url: `/crm/conversas?c=${c.id}`,
     at: m.created_at as string,
   }
@@ -93,7 +95,7 @@ export async function sendTestPush(userId: string) {
   if (!subs?.length) return { sent: 0 }
   const keys = await vapidKeys()
   webpush.setVapidDetails('mailto:comercial@luknoseletrica.com.br', keys.publicKey, keys.privateKey)
-  const payload = { title: 'Aviso de teste · Luknos', body: 'É assim que as novas mensagens vão aparecer, mesmo em outra aba ou programa.', icon: null, tag: 'teste', url: '/crm/conversas', at: new Date().toISOString(), test: true }
+  const payload = { title: 'Aviso de teste · Luknos', body: 'É assim que as novas mensagens vão aparecer, mesmo em outra aba ou programa.', icon: null, tag: `teste-${Date.now()}`, url: '/crm/conversas', at: new Date().toISOString(), test: true }
   let sent = 0
   await Promise.all(subs.map(async (s) => {
     try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 600, urgency: 'high' }); sent++ }
