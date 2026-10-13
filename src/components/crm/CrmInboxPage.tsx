@@ -252,7 +252,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       .then((r) => {
         if (selectedIdRef.current !== id) return // trocou de conversa no meio do caminho
         const items = (r.items as Msg[]) ?? []
-        const sig = id + '|' + items.map((m) => `${m.id}${m.deleted_at ? 'd' : ''}${m.storage_path ? 's' : ''}${m.reactions?.map((x) => x.emoji + x.count).join('') ?? ''}`).join(',')
+        const sig = id + '|' + items.map((m) => `${m.id}${m.deleted_at ? 'd' : ''}${m.storage_path ? 's' : ''}${m.drive_file_id ? 'g' : ''}${m.edited_at ?? ''}${m.reactions?.map((x) => x.emoji + x.count).join('') ?? ''}`).join(',')
         if (sig !== lastThreadSig.current) { lastThreadSig.current = sig; setMessages(items) }
       })
       .finally(() => { if (!silent) setLoadingThread(false) })
