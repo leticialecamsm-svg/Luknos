@@ -5,12 +5,14 @@
 // de pré-visualização via proxy same-origin (/api/solicitacoes/drive-file).
 
 import { useEffect, useState } from 'react'
-import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip } from 'lucide-react'
+import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip, Trash2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
   uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded,
+  deleteStageFileForSolicitation,
   checkDriveConnected, listStageFilesForSolicitation, type StageFileStage,
 } from '@/lib/solicitations/actions'
+import { useConfirm } from '@/components/ui/useConfirm'
 
 // Vercel Functions aceitam body de até 4,5 MB. Acima disso usamos upload
 // resumable direto do browser pro Google Drive via session URL emitida pelo
@@ -292,10 +294,25 @@ export function FilePreviewModal({ file, onClose }: { file: { id: string; name: 
   )
 }
 
-function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: string; stage: StageFileStage; refreshKey: number }) {
+// Cor pastel do "selo" central do arquivo por extensão.
+function extBadgeColors(ext: string): { bg: string; text: string } {
+  const e = ext.toLowerCase()
+  if (['pdf'].includes(e))                   return { bg: 'bg-red-50',     text: 'text-red-700' }
+  if (['dwg', 'dxf'].includes(e))            return { bg: 'bg-sky-50',     text: 'text-sky-700' }
+  if (['skp', 'skb'].includes(e))            return { bg: 'bg-amber-50',   text: 'text-amber-700' }
+  if (['doc', 'docx'].includes(e))           return { bg: 'bg-blue-50',    text: 'text-blue-700' }
+  if (['xls', 'xlsx', 'csv'].includes(e))    return { bg: 'bg-green-50',   text: 'text-green-700' }
+  if (['ppt', 'pptx'].includes(e))           return { bg: 'bg-orange-50',  text: 'text-orange-700' }
+  if (['zip', 'rar', '7z'].includes(e))      return { bg: 'bg-violet-50',  text: 'text-violet-700' }
+  return { bg: 'bg-gray-50', text: 'text-gray-500' }
+}
+
+function StageFileList({ solicitationId, stage, refreshKey, onChanged }: { solicitationId: string; stage: StageFileStage; refreshKey: number; onChanged?: () => void }) {
   const [files, setFiles] = useState<{ id: string; name: string; mimeType: string; webViewLink: string; createdTime?: string }[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [preview, setPreview] = useState<{ id: string; name: string; mimeType: string } | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const { confirm, ConfirmDialog } = useConfirm()
 
   useEffect(() => {
     let cancelled = false
@@ -306,6 +323,18 @@ function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: 
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [solicitationId, stage, refreshKey])
+
+  async function handleDelete(file: { id: string; name: string }) {
+    const yes = await confirm(`Remover "${file.name}" do Drive? O arquivo vai para a lixeira.`, 'Remover')
+    if (!yes) return
+    setDeletingId(file.id)
+    const res = await deleteStageFileForSolicitation(solicitationId, stage, file.id, file.name)
+    setDeletingId(null)
+    if (res.ok) {
+      setFiles(prev => prev ? prev.filter(f => f.id !== file.id) : prev)
+      onChanged?.()
+    }
+  }
 
   if (loading) {
     return <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando arquivos…</p>
@@ -318,33 +347,48 @@ function StageFileList({ solicitationId, stage, refreshKey }: { solicitationId: 
     <>
       <div className="mt-3 space-y-2.5">
         {files.map(f => {
-          const Icon = stageFileIcon(f.name, f.mimeType)
           const image = isImageFile(f.name, f.mimeType)
+          const ext = (f.name.split('.').pop() ?? '').toLowerCase()
+          const colors = extBadgeColors(ext)
+          const isDeleting = deletingId === f.id
           return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setPreview(f)}
-              title={f.name}
-              className="w-full text-left rounded-2xl border border-surface-border bg-white p-2 hover:border-brand-300 hover:shadow-sm transition-shadow"
-            >
-              <div className="px-1 pb-1.5">
-                {f.createdTime && <div className="text-[10px] text-gray-400">{formatDate(f.createdTime)}</div>}
-                <div className="text-xs font-medium text-navy truncate">{f.name}</div>
-              </div>
-              {image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/solicitacoes/drive-file/${f.id}?thumb=1`} alt={f.name} loading="lazy" className="w-full h-32 object-cover rounded-xl" />
-              ) : (
-                <div className="w-full h-32 flex items-center justify-center rounded-xl bg-gray-50">
-                  <Icon className="w-9 h-9 text-gray-300" />
+            <div key={f.id} className="relative group rounded-2xl border border-surface-border bg-white p-2 hover:border-brand-300 hover:shadow-sm transition-shadow">
+              <button
+                type="button"
+                onClick={() => setPreview(f)}
+                title={f.name}
+                className="w-full text-left"
+              >
+                <div className="px-1 pb-1.5">
+                  {f.createdTime && <div className="text-[10px] text-gray-400">{formatDate(f.createdTime)}</div>}
+                  <div className="text-xs font-medium text-navy truncate">{f.name}</div>
                 </div>
-              )}
-            </button>
+                {image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`/api/solicitacoes/drive-file/${f.id}?thumb=1`} alt={f.name} loading="lazy" className="w-full h-32 object-cover rounded-xl" />
+                ) : (
+                  <div className={cn('w-full h-32 flex items-center justify-center rounded-xl', colors.bg)}>
+                    <span className={cn('font-bold tracking-wide text-lg uppercase', colors.text)}>
+                      .{ext || 'file'}
+                    </span>
+                  </div>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete({ id: f.id, name: f.name })}
+                disabled={isDeleting}
+                title="Remover arquivo"
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 border border-gray-200 flex items-center justify-center text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:border-red-200 transition-all shadow-sm disabled:opacity-100"
+              >
+                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           )
         })}
       </div>
       {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+      {ConfirmDialog}
     </>
   )
 }
@@ -358,7 +402,7 @@ export function StageFilesColumn({ solicitationId, stage }: { solicitationId: st
         <h3 className="eyebrow">Arquivos</h3>
       </div>
       <StageFileUpload solicitationId={solicitationId} stage={stage} onUploaded={() => setRefreshKey(k => k + 1)} />
-      <StageFileList solicitationId={solicitationId} stage={stage} refreshKey={refreshKey} />
+      <StageFileList solicitationId={solicitationId} stage={stage} refreshKey={refreshKey} onChanged={() => setRefreshKey(k => k + 1)} />
     </div>
   )
 }

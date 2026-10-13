@@ -18,7 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { updateShipment } from '@/lib/actions'
 import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
 import {
-  findOrCreateFolder, uploadFile, createResumableUploadSession,
+  findOrCreateFolder, uploadFile, createResumableUploadSession, trashFile,
   isDriveConnected, driveRootFolderId, folderIdFromLink,
   listFolderFiles, type DriveFileItem,
 } from '@/lib/google-drive'
@@ -733,6 +733,30 @@ export async function createStageFileUploadSession(
 
 // Chamado pelo cliente quando o PUT direto no Drive termina com sucesso —
 // registra o evento no histórico e revalida a tela para listar o arquivo.
+// Exclui um arquivo do Drive da pasta de uma etapa (lixeira do Drive).
+export async function deleteStageFileForSolicitation(
+  solicitationId: string,
+  stage: StageFileStage,
+  fileId: string,
+  fileName?: string
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  try {
+    await trashFile(fileId)
+    await logSolicitationEvent(
+      solicitationId, stage,
+      `Arquivo removido${fileName ? `: ${fileName}` : ''}`,
+      user.id,
+    )
+    refresh(solicitationId)
+    return { ok: true }
+  } catch (e: any) {
+    console.error('[deleteStageFileForSolicitation]', e)
+    return { error: 'Não foi possível remover o arquivo.' }
+  }
+}
+
 export async function confirmStageFileUploaded(
   solicitationId: string,
   stage: StageFileStage,
