@@ -32,16 +32,10 @@ self.addEventListener('push', (event) => {
       // mesma conversa: troca o aviso anterior, mas avisa de novo (sem isso o 2º aviso some calado)
       renotify: !!d.tag,
       requireInteraction: false,
-      timestamp: d.at ? Date.parse(d.at) : Date.now(),
       data: { url: d.url || '/crm/conversas' },
     }
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const focused = wins.some((c) => c.focused && c.visibilityState === 'visible' && c.url.startsWith(self.location.origin))
+    // Sempre mostra o banner. Quando o Luknos está em foco, o próprio Chrome não mostra o banner
+    // (a pessoa já está vendo a página, que exibe o cartão); em outra aba/programa, o banner aparece.
     await self.registration.showNotification(title, options)
-    // Com o Luknos na frente, o aviso aparece dentro da página: tira o banner duplicado.
-    if (focused && d.tag && !d.test) {
-      const shown = await self.registration.getNotifications({ tag: d.tag })
-      shown.forEach((n) => n.close())
-    }
   })())
 })
