@@ -704,6 +704,9 @@ export async function checkDriveConnected(): Promise<boolean> {
 
 // Prepara sessão de upload resumable: cliente faz PUT direto na URL
 // retornada, contornando o limite de 4,5 MB das Vercel Functions.
+// IMPORTANTE: não loga nem revalida aqui — só prepara a sessão. O arquivo
+// ainda nem começou a subir. O log/refresh acontece em
+// confirmStageFileUploaded, chamado quando o PUT termina.
 export async function createStageFileUploadSession(
   solicitationId: string,
   stage: StageFileStage,
@@ -721,13 +724,29 @@ export async function createStageFileUploadSession(
       name: fileName,
       mimeType: mimeType || 'application/octet-stream',
     })
-    await logSolicitationEvent(solicitationId, stage, `Arquivo ${fileName} enviado (${STAGE_FOLDER_NAME[stage] ?? stage})`, user.id)
-    refresh(solicitationId)
     return { uploadUrl: session.uploadUrl }
   } catch (e: any) {
     console.error('[createStageFileUploadSession]', e)
     return { error: 'Não foi possível iniciar o upload.' }
   }
+}
+
+// Chamado pelo cliente quando o PUT direto no Drive termina com sucesso —
+// registra o evento no histórico e revalida a tela para listar o arquivo.
+export async function confirmStageFileUploaded(
+  solicitationId: string,
+  stage: StageFileStage,
+  fileName: string
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  await logSolicitationEvent(
+    solicitationId, stage,
+    `Arquivo ${fileName} enviado (${STAGE_FOLDER_NAME[stage] ?? stage})`,
+    user.id,
+  )
+  refresh(solicitationId)
+  return { ok: true }
 }
 
 export async function uploadStageFileForSolicitation(

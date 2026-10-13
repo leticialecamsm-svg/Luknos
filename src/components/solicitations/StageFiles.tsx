@@ -8,8 +8,8 @@ import { useEffect, useState } from 'react'
 import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  uploadStageFileForSolicitation, createStageFileUploadSession, checkDriveConnected,
-  listStageFilesForSolicitation, type StageFileStage,
+  uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded,
+  checkDriveConnected, listStageFilesForSolicitation, type StageFileStage,
 } from '@/lib/solicitations/actions'
 
 // Vercel Functions aceitam body de até 4,5 MB. Acima disso usamos upload
@@ -17,13 +17,32 @@ import {
 // servidor. Deixamos uma margem de segurança.
 const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
 
-// Faz PUT direto do browser para a session URL do Drive, com progresso.
-function putDirectToDrive(uploadUrl: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+type UploadStats = { loaded: number; total: number; speedBps: number; etaSec: number }
+
+// Faz PUT direto do browser para a session URL do Drive, com progresso +
+// velocidade (média móvel curta) + estimativa de tempo restante.
+function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl, true)
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    const t0 = Date.now()
+    let lastT = t0
+    let lastLoaded = 0
+    let speedBps = 0
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return
+      const now = Date.now()
+      const dt = Math.max(1, now - lastT) / 1000
+      const dloaded = e.loaded - lastLoaded
+      const inst = dloaded / dt
+      // Média móvel exponencial — suaviza oscilação, mas reage se a conexão muda.
+      speedBps = speedBps === 0 ? inst : speedBps * 0.7 + inst * 0.3
+      lastT = now; lastLoaded = e.loaded
+      const remaining = e.total - e.loaded
+      const etaSec = speedBps > 0 ? Math.round(remaining / speedBps) : 0
+      onProgress({ loaded: e.loaded, total: e.total, speedBps, etaSec })
+    }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve()
       else reject(new Error(`Drive respondeu ${xhr.status}`))
@@ -33,13 +52,33 @@ function putDirectToDrive(uploadUrl: string, file: File, onProgress: (pct: numbe
   })
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function formatEta(sec: number): string {
+  if (!sec || !isFinite(sec)) return '—'
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60); const s = sec % 60
+  if (m < 60) return `${m}min ${s}s`
+  const h = Math.floor(m / 60); const mm = m % 60
+  return `${h}h ${mm}min`
+}
+
 export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicitationId: string; stage: StageFileStage; onUploaded?: () => void }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
   // Progresso agregado ("3 de 5 enviados") em vez de um único resultado —
   // suporta múltiplos arquivos selecionados/arrastados de uma vez (pedido
   // Letícia: só aceitava 1 arquivo por vez).
-  const [progress, setProgress] = useState<{ total: number; done: number; currentPct?: number; currentName?: string } | null>(null)
+  const [progress, setProgress] = useState<{
+    total: number; done: number
+    currentName?: string
+    currentStats?: UploadStats
+  } | null>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [lastOkNames, setLastOkNames] = useState<string[]>([])
 
@@ -60,15 +99,17 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
     // do Drive com N uploads simultâneos e permite mostrar "X de N" real.
     for (const file of files) {
       try {
-        setProgress(p => p ? { ...p, currentName: file.name, currentPct: 0 } : p)
+        setProgress(p => p ? { ...p, currentName: file.name, currentStats: undefined } : p)
         if (file.size > DIRECT_UPLOAD_LIMIT) {
           // Caminho resumable: servidor cria session, browser envia o
           // binário direto pro Google Drive (contorna o limite de 4,5 MB).
           const session = await createStageFileUploadSession(solicitationId, stage, file.name, file.type || 'application/octet-stream')
           if (session.error || !session.uploadUrl) throw new Error(session.error ?? 'Falha ao iniciar upload')
-          await putDirectToDrive(session.uploadUrl, file, pct => {
-            setProgress(p => p ? { ...p, currentPct: pct } : p)
+          await putDirectToDrive(session.uploadUrl, file, stats => {
+            setProgress(p => p ? { ...p, currentStats: stats } : p)
           })
+          // Avisa o servidor que o upload concluiu — só agora loga + revalida.
+          await confirmStageFileUploaded(solicitationId, stage, file.name)
           okNames.push(file.name)
         } else {
           // Arquivos pequenos continuam no caminho simples (server action).
@@ -81,7 +122,7 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
       } catch (e: any) {
         errMsgs.push(`${file.name}: ${e?.message ?? 'Falha ao enviar arquivo'}`)
       } finally {
-        setProgress(p => (p ? { ...p, done: p.done + 1, currentPct: undefined, currentName: undefined } : p))
+        setProgress(p => (p ? { ...p, done: p.done + 1, currentName: undefined, currentStats: undefined } : p))
       }
     }
     setLastOkNames(okNames)
@@ -98,14 +139,17 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
     )
   }
 
+  const stats = progress?.currentStats
+  const pct = stats ? Math.round((stats.loaded / stats.total) * 100) : null
+
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
           {uploading && progress
-            ? (progress.currentPct !== undefined
-                ? `${progress.currentName ?? 'arquivo'} — ${progress.currentPct}% (${progress.done + 1}/${progress.total})`
+            ? (progress.currentName
+                ? `Enviando ${progress.currentName} (${progress.done + 1}/${progress.total})`
                 : `Enviando ${progress.done} de ${progress.total}…`)
             : 'Enviar arquivo(s)'}
           <input
@@ -116,6 +160,24 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
             onChange={(e) => { handleFiles(e.target.files ?? undefined); e.target.value = '' }}
           />
         </label>
+      </div>
+      {uploading && stats && pct !== null && (
+        <div className="space-y-1">
+          <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-gray-500 flex-wrap">
+            <span className="font-medium">{pct}%</span>
+            <span>·</span>
+            <span>{formatBytes(stats.loaded)} / {formatBytes(stats.total)}</span>
+            <span>·</span>
+            <span>{formatBytes(stats.speedBps)}/s</span>
+            <span>·</span>
+            <span>~ {formatEta(stats.etaSec)} restante</span>
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
         {!uploading && progress && errors.length === 0 && lastOkNames.length > 0 && (
           <span className="text-xs text-green-600 flex items-center gap-1">
             <Check className="w-3.5 h-3.5" />
