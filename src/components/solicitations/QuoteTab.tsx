@@ -8,14 +8,16 @@
 
 import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarClock } from 'lucide-react'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarClock, CalendarDays, AlertCircle } from 'lucide-react'
+import { cn, formatCurrency, formatDate, isOverdue } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
   getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal,
-  updateQuoteStatus,
 } from '@/lib/actions'
-import { createQuoteForSolicitation, deleteQuoteFromSolicitation } from '@/lib/solicitations/actions'
+import {
+  createQuoteForSolicitation, deleteQuoteFromSolicitation,
+  updateQuoteStatusWithCompletion, updateQuoteDeadline,
+} from '@/lib/solicitations/actions'
 import type { SolicitationView } from '@/lib/solicitations/actions'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { QuoteSchedules } from '@/components/quotes/QuoteSchedules'
@@ -163,6 +165,11 @@ function QuoteHeader({
   const [pending, startTransition] = useTransition()
   const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
+  const [deadline, setDeadline] = useState(quote.deadline ? String(quote.deadline).slice(0, 10) : '')
+  const [editingDeadline, setEditingDeadline] = useState(false)
+
+  const isDone = quote.status === 'done'
+  const overdue = quote.deadline && !isDone && isOverdue(quote.deadline)
 
   async function handleDelete() {
     const yes = await confirm('Excluir este orçamento? Essa ação não pode ser desfeita e também removerá a negociação vinculada.', 'Excluir')
@@ -176,7 +183,15 @@ function QuoteHeader({
   function changeStatus(s: typeof STATUS_PILLS[number]) {
     if (quote.status === s) return
     startTransition(async () => {
-      await updateQuoteStatus(quote.id, s)
+      await updateQuoteStatusWithCompletion(quote.id, solicitationId, s)
+      router.refresh()
+    })
+  }
+
+  function saveDeadline() {
+    startTransition(async () => {
+      await updateQuoteDeadline(quote.id, solicitationId, deadline || null)
+      setEditingDeadline(false)
       router.refresh()
     })
   }
@@ -193,6 +208,37 @@ function QuoteHeader({
         >
           <Trash2 className="w-3.5 h-3.5" /> Excluir orçamento
         </button>
+      </div>
+
+      {/* Prazo + conclusão */}
+      <div className="flex items-center gap-2 flex-wrap mb-4 text-xs">
+        <CalendarDays className="w-3.5 h-3.5 text-gray-400" />
+        {editingDeadline ? (
+          <>
+            <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} className="input w-auto text-xs !py-1" />
+            <button type="button" onClick={saveDeadline} disabled={pending} className="btn-primary px-2 py-1 text-xs">Salvar</button>
+            <button type="button" onClick={() => { setDeadline(quote.deadline ? String(quote.deadline).slice(0, 10) : ''); setEditingDeadline(false) }} className="btn-secondary px-2 py-1 text-xs">Cancelar</button>
+          </>
+        ) : (
+          <>
+            <span className="text-gray-500">Prazo:</span>
+            {quote.deadline ? (
+              <span className={cn('badge', isDone ? 'bg-gray-100 text-gray-600' : overdue ? 'bg-red-100 text-red-700' : 'bg-amber-50 text-amber-700')}>
+                {formatDate(quote.deadline)} {overdue && <AlertCircle className="w-3 h-3 inline ml-1" />} {overdue && 'vencido'}
+              </span>
+            ) : (
+              <span className="text-gray-400 italic">sem prazo definido</span>
+            )}
+            <button type="button" onClick={() => setEditingDeadline(true)} className="text-gray-400 hover:text-brand-600 p-1 rounded hover:bg-gray-100">
+              <Pencil className="w-3 h-3" />
+            </button>
+            {isDone && quote.completed_at && (
+              <span className="badge bg-green-50 text-green-700 ml-2 inline-flex items-center gap-1">
+                <Check className="w-3 h-3" /> Concluído em {formatDate(quote.completed_at)}
+              </span>
+            )}
+          </>
+        )}
       </div>
 
       <div className="mb-4 space-y-2">

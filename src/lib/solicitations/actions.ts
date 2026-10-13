@@ -859,6 +859,129 @@ export async function deleteQuoteFromSolicitation(quoteId: string, solicitationI
   return { ok: true }
 }
 
+// ── Deadline + conclusão do orçamento ────────────────────────────────────────
+
+export async function updateQuoteDeadline(
+  quoteId: string,
+  solicitationId: string,
+  deadline: string | null
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('quotes').update({ deadline: deadline || null }).eq('id', quoteId)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'orcamento',
+    deadline ? `Prazo do orçamento definido: ${deadline}` : 'Prazo do orçamento removido',
+    user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// Troca o status E registra/limpa completed_at atomicamente — para o cálculo
+// de "vencido" não acusar prazo passado quando o orçamento já foi concluído.
+export async function updateQuoteStatusWithCompletion(
+  quoteId: string,
+  solicitationId: string,
+  status: string
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const patch: Record<string, any> = { status }
+  if (status === 'done') patch.completed_at = new Date().toISOString()
+  else patch.completed_at = null
+  const { error } = await createAdminClient().from('quotes').update(patch).eq('id', quoteId)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'orcamento', `Orçamento → ${status}`, user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Criar Separação e entrega a partir da Solicitação ────────────────────────
+
+export async function createShipmentForSolicitation(input: {
+  solicitationId: string
+  deliveryType: 'delivery' | 'pickup'
+  deliveryDate?: string | null
+  address?: string | null
+  priority?: 'low' | 'mid' | 'high'
+  status?: 'queued' | 'in_progress' | 'completed' | 'awaiting_material' | 'delivered'
+}): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const db = createAdminClient()
+  // Shipment hoje exige quote_id — pega o orçamento mais recente da solicitação.
+  const { data: quote } = await db.from('quotes')
+    .select('id').eq('solicitation_id', input.solicitationId)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!quote?.id) return { error: 'Crie um orçamento antes de abrir a separação.' }
+  const { error } = await db.from('shipments').insert({
+    solicitation_id: input.solicitationId,
+    quote_id: quote.id,
+    delivery_type: input.deliveryType,
+    delivery_date: input.deliveryDate || null,
+    address: input.address || null,
+    priority: input.priority ?? 'mid',
+    separation_status: input.status ?? 'queued',
+  })
+  if (error) return { error: error.message }
+  await logSolicitationEvent(input.solicitationId, 'expedicao', 'Separação/entrega criada', user.id)
+  refresh(input.solicitationId)
+  return { ok: true }
+}
+
+// ── Endereço + delivery_date em shipments existentes ─────────────────────────
+
+export async function updateShipmentAddressDate(
+  id: string,
+  solicitationId: string,
+  patch: { address?: string | null; deliveryDate?: string | null }
+): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const upd: Record<string, any> = {}
+  if ('address' in patch) upd.address = patch.address || null
+  if ('deliveryDate' in patch) upd.delivery_date = patch.deliveryDate || null
+  const { error } = await createAdminClient().from('shipments').update(upd).eq('id', id)
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, 'expedicao', 'Entrega atualizada', user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── Link para a conversa do CRM (via contact_id do cliente da solicitação) ───
+
+export async function getCrmConversationIdForClient(clientId: string): Promise<{ conversationId: string | null }> {
+  const user = await requireUser()
+  if (!user) return { conversationId: null }
+  try {
+    const { data } = await createAdminClient()
+      .from('crm_conversations')
+      .select('id, last_message_at')
+      .eq('contact_id', clientId)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle()
+    return { conversationId: data?.id ?? null }
+  } catch {
+    return { conversationId: null }
+  }
+}
+
+// ── Pasta da Solicitação no Drive ────────────────────────────────────────────
+
+export async function getSolicitationDriveFolderUrl(solicitationId: string): Promise<{ url: string | null; error?: string }> {
+  const user = await requireUser()
+  if (!user) return { url: null, error: 'Não autenticado' }
+  if (!(await isDriveConnected())) return { url: null, error: 'Google Drive não conectado' }
+  try {
+    const folderId = await resolveSolicitationDriveFolderId(createAdminClient(), solicitationId)
+    return { url: `https://drive.google.com/drive/folders/${folderId}` }
+  } catch (e: any) {
+    console.error('[getSolicitationDriveFolderUrl]', e)
+    return { url: null, error: 'Não foi possível abrir a pasta.' }
+  }
+}
+
 // ── Responsáveis por etapa ───────────────────────────────────────────────────
 
 export type StageResponsible = {

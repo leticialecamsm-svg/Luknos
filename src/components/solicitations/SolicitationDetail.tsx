@@ -28,7 +28,7 @@ import {
   updateShipmentForSolicitation, updateVisitForSolicitation,
   updateDesignProjectKindForSolicitation, updateDesignProjectDescriptionForSolicitation,
   updateDesignProjectStatusForSolicitation, deleteVisitForSolicitation, deleteDesignProjectForSolicitation,
-  deleteShipmentForSolicitation,
+  deleteShipmentForSolicitation, createShipmentForSolicitation, updateShipmentAddressDate,
 } from '@/lib/solicitations/actions'
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
 import { useConfirm } from '@/components/ui/useConfirm'
@@ -294,6 +294,8 @@ export function SolicitationDetail({
           planned={shipments.planned.map(s => <ShipmentRow key={s.id} shipment={s} team={team} />)}
           done={shipments.done.map(s => <ShipmentRow key={s.id} shipment={s} team={team} />)}
           emptyPlanned="Nenhuma separação/entrega pendente." emptyDone="Nenhuma entrega concluída ainda."
+          addLabel="Nova separação/entrega"
+          renderAddForm={close => <AddShipmentForm solicitationId={sid} clientAddress={null} onClose={close} />}
         />
       )),
     },
@@ -636,10 +638,57 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
 
 // ── Separação e entrega (shipments) ───────────────────────────────────────
 
+function AddShipmentForm({ solicitationId, clientAddress, onClose }: { solicitationId: string; clientAddress: string | null; onClose: () => void }) {
+  const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery')
+  const [deliveryDate, setDeliveryDate] = useState('')
+  const [address, setAddress] = useState(clientAddress ?? '')
+  const [priority, setPriority] = useState<'low' | 'mid' | 'high'>('mid')
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <Card>
+      <FormHeading icon={Truck}>Nova separação/entrega</FormHeading>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <select value={deliveryType} onChange={e => setDeliveryType(e.target.value as any)} className="select w-auto">
+            <option value="delivery">Entrega</option>
+            <option value="pickup">Retirada</option>
+          </select>
+          <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="input w-auto" title="Data prevista" />
+          <select value={priority} onChange={e => setPriority(e.target.value as any)} className="select w-auto">
+            <option value="low">Baixa</option>
+            <option value="mid">Média</option>
+            <option value="high">Alta</option>
+          </select>
+        </div>
+        {deliveryType === 'delivery' && (
+          <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Endereço de entrega" className="input w-full" />
+        )}
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <button type="button" disabled={pending} className="btn-primary px-4 py-1.5 text-sm"
+            onClick={() => startTransition(async () => {
+              const res = await createShipmentForSolicitation({
+                solicitationId, deliveryType, deliveryDate: deliveryDate || null,
+                address: deliveryType === 'delivery' ? (address || null) : null,
+                priority,
+              })
+              if (!res.ok) { setError(res.error ?? 'Erro ao criar'); return }
+              onClose()
+            })}
+          ><Plus className="w-4 h-4" /> Criar</button>
+          <button type="button" onClick={onClose} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
   const [editing, setEditing] = useState(false)
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>(s.delivery_type ?? 'delivery')
   const [deliveryDate, setDeliveryDate] = useState(s.delivery_date ?? '')
+  const [address, setAddress] = useState<string>(s.address ?? '')
   const [status, setStatus] = useState<string>(s.separation_status ?? 'queued')
   const [priority, setPriority] = useState<string>(s.priority ?? 'mid')
   const [pending, startTransition] = useTransition()
@@ -662,11 +711,13 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
         delivery_type: deliveryType, separation_status: status as any, priority: priority as any,
         ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
       })
+      // Endereço + data (campos não cobertos pela action principal)
+      await updateShipmentAddressDate(s.id, s.solicitation_id, { address: address || null, deliveryDate: deliveryDate || null })
       setEditing(false)
     })
   }
   function cancel() {
-    setDeliveryType(s.delivery_type ?? 'delivery'); setDeliveryDate(s.delivery_date ?? '')
+    setDeliveryType(s.delivery_type ?? 'delivery'); setDeliveryDate(s.delivery_date ?? ''); setAddress(s.address ?? '')
     setStatus(s.separation_status ?? 'queued'); setPriority(s.priority ?? 'mid'); setEditing(false)
   }
 
@@ -686,6 +737,8 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
     >
       {!editing && (
         <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+          {s.delivery_date && <div>Previsto para {formatDate(s.delivery_date)}</div>}
+          {s.address && <div>Endereço: {s.address}</div>}
           {s.received_by && <div>Recebido por {s.received_by}{s.received_at ? ` em ${formatDate(s.received_at)}` : ''}</div>}
           {s.completed_at && <div>Entregue em {formatDate(s.completed_at)}</div>}
           <div className="flex gap-3 flex-wrap">
@@ -705,8 +758,11 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
               <option value="delivery">Entrega</option>
               <option value="pickup">Retirada</option>
             </select>
-            <input type="date" value={deliveryDate ? String(deliveryDate).slice(0, 10) : ''} onChange={e => setDeliveryDate(e.target.value)} className="input w-auto" />
+            <input type="date" value={deliveryDate ? String(deliveryDate).slice(0, 10) : ''} onChange={e => setDeliveryDate(e.target.value)} className="input w-auto" title="Data prevista" />
           </div>
+          {deliveryType === 'delivery' && (
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Endereço de entrega" className="input w-full" />
+          )}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={pending} className="btn-primary px-4 py-1.5 text-sm">Salvar</button>
             <button type="button" onClick={cancel} disabled={pending} className="btn-secondary px-4 py-1.5 text-sm">Cancelar</button>

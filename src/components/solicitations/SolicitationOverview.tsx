@@ -20,7 +20,7 @@ import {
 } from '@/lib/solicitations/stages'
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { addSolicitationNote, updateSolicitationDetails, type SolicitationView } from '@/lib/solicitations/actions'
+import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationIdForClient, type SolicitationView } from '@/lib/solicitations/actions'
 import { searchContacts } from '@/lib/actions'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
@@ -460,6 +460,54 @@ const WORK_STAGE_OPTIONS = [
   ['delivered', 'Entregue'],
 ] as [string, string][]
 
+// Botão discreto que busca a conversa do CRM pelo contact_id do cliente e,
+// se existir, abre em /crm?open=<id>. Sem conversa, não renderiza nada.
+function CrmLinkButton({ clientId }: { clientId: string }) {
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  useEffect(() => {
+    getCrmConversationIdForClient(clientId).then(r => setConversationId(r.conversationId))
+  }, [clientId])
+  if (!conversationId) return null
+  return (
+    <a
+      href={`/crm?open=${conversationId}`}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/80 hover:bg-white border border-green-300/60 text-green-800 transition-colors"
+      title="Abrir conversa do cliente no CRM"
+    >
+      <MessageCircle className="w-3 h-3" /> Conversa CRM
+    </a>
+  )
+}
+
+// Botão da pasta no Drive — resolve/cria no clique, sem precisar que algum
+// orçamento tenha drive_link preenchido.
+function DriveFolderButton({ solicitationId }: { solicitationId: string }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  async function open() {
+    setLoading(true); setError(null)
+    const res = await getSolicitationDriveFolderUrl(solicitationId)
+    setLoading(false)
+    if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer')
+    else setError(res.error ?? 'Erro ao abrir')
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={open}
+        disabled={loading}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/80 hover:bg-white border border-amber-300/60 text-amber-800 transition-colors disabled:opacity-50"
+      >
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />} Pasta no Drive
+      </button>
+      {error && <span className="text-[10px] text-red-600 italic">{error}</span>}
+    </>
+  )
+}
+
 export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any | null }) {
   const [editing, setEditing] = useState(false)
   // Escuta o evento disparado pelo menu "..." do hero para entrar em edição
@@ -523,8 +571,6 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
       router.refresh()
     })
   }
-
-  const driveLink: string | null = primaryQuote?.drive_link ?? null
 
   const detailActions = (
     <>
@@ -638,16 +684,8 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
           {s.clientPhone && <RoundAction href={waLink(s.clientPhone)} title="WhatsApp" icon={MessageCircle} external />}
           {s.clientPhone && <RoundAction href={`tel:${s.clientPhone.replace(/[^\d+]/g, '')}`} title="Ligar" icon={Phone} />}
           {s.clientEmail && <RoundAction href={`mailto:${s.clientEmail}`} title="Enviar e-mail" icon={Mail} />}
-          {driveLink && (
-            <a
-              href={driveLink}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/80 hover:bg-white border border-amber-300/60 text-amber-800 transition-colors"
-            >
-              <FolderOpen className="w-3 h-3" /> Pasta no Drive
-            </a>
-          )}
+          <CrmLinkButton clientId={s.clientId} />
+          <DriveFolderButton solicitationId={s.id} />
         </div>
       </div>
     </NotchCard>
