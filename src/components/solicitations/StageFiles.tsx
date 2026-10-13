@@ -8,8 +8,30 @@ import { useEffect, useState } from 'react'
 import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  uploadStageFileForSolicitation, checkDriveConnected, listStageFilesForSolicitation, type StageFileStage,
+  uploadStageFileForSolicitation, createStageFileUploadSession, checkDriveConnected,
+  listStageFilesForSolicitation, type StageFileStage,
 } from '@/lib/solicitations/actions'
+
+// Vercel Functions aceitam body de até 4,5 MB. Acima disso usamos upload
+// resumable direto do browser pro Google Drive via session URL emitida pelo
+// servidor. Deixamos uma margem de segurança.
+const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
+
+// Faz PUT direto do browser para a session URL do Drive, com progresso.
+function putDirectToDrive(uploadUrl: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', uploadUrl, true)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`Drive respondeu ${xhr.status}`))
+    }
+    xhr.onerror = () => reject(new Error('Falha de rede ao enviar para o Drive'))
+    xhr.send(file)
+  })
+}
 
 export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicitationId: string; stage: StageFileStage; onUploaded?: () => void }) {
   const [connected, setConnected] = useState<boolean | null>(null)
@@ -17,7 +39,7 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
   // Progresso agregado ("3 de 5 enviados") em vez de um único resultado —
   // suporta múltiplos arquivos selecionados/arrastados de uma vez (pedido
   // Letícia: só aceitava 1 arquivo por vez).
-  const [progress, setProgress] = useState<{ total: number; done: number } | null>(null)
+  const [progress, setProgress] = useState<{ total: number; done: number; currentPct?: number; currentName?: string } | null>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [lastOkNames, setLastOkNames] = useState<string[]>([])
 
@@ -38,15 +60,28 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
     // do Drive com N uploads simultâneos e permite mostrar "X de N" real.
     for (const file of files) {
       try {
-        const fd = new FormData()
-        fd.set('file', file)
-        const res = await uploadStageFileForSolicitation(solicitationId, stage, fd)
-        if (res.error) errMsgs.push(`${file.name}: ${res.error}`)
-        else okNames.push(file.name)
+        setProgress(p => p ? { ...p, currentName: file.name, currentPct: 0 } : p)
+        if (file.size > DIRECT_UPLOAD_LIMIT) {
+          // Caminho resumable: servidor cria session, browser envia o
+          // binário direto pro Google Drive (contorna o limite de 4,5 MB).
+          const session = await createStageFileUploadSession(solicitationId, stage, file.name, file.type || 'application/octet-stream')
+          if (session.error || !session.uploadUrl) throw new Error(session.error ?? 'Falha ao iniciar upload')
+          await putDirectToDrive(session.uploadUrl, file, pct => {
+            setProgress(p => p ? { ...p, currentPct: pct } : p)
+          })
+          okNames.push(file.name)
+        } else {
+          // Arquivos pequenos continuam no caminho simples (server action).
+          const fd = new FormData()
+          fd.set('file', file)
+          const res = await uploadStageFileForSolicitation(solicitationId, stage, fd)
+          if (res.error) errMsgs.push(`${file.name}: ${res.error}`)
+          else okNames.push(file.name)
+        }
       } catch (e: any) {
         errMsgs.push(`${file.name}: ${e?.message ?? 'Falha ao enviar arquivo'}`)
       } finally {
-        setProgress(p => (p ? { ...p, done: p.done + 1 } : p))
+        setProgress(p => (p ? { ...p, done: p.done + 1, currentPct: undefined, currentName: undefined } : p))
       }
     }
     setLastOkNames(okNames)
@@ -68,7 +103,11 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-          {uploading && progress ? `Enviando ${progress.done} de ${progress.total}…` : 'Enviar arquivo(s)'}
+          {uploading && progress
+            ? (progress.currentPct !== undefined
+                ? `${progress.currentName ?? 'arquivo'} — ${progress.currentPct}% (${progress.done + 1}/${progress.total})`
+                : `Enviando ${progress.done} de ${progress.total}…`)
+            : 'Enviar arquivo(s)'}
           <input
             type="file"
             multiple

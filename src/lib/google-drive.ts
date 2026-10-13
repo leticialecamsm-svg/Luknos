@@ -142,6 +142,32 @@ export async function uploadFile(opts: {
   return res.json()
 }
 
+// Inicia uma sessão de upload resumable e devolve a URL de upload.
+// O cliente faz PUT direto nessa URL com o conteúdo do arquivo — contorna
+// o limite de 4,5 MB de body das Vercel Functions. A URL já embute a
+// autorização, então o browser não precisa de token.
+export async function createResumableUploadSession(opts: {
+  folderId: string
+  name: string
+  mimeType: string
+}): Promise<{ uploadUrl: string }> {
+  const token = await getAccessToken()
+  const meta = JSON.stringify({ name: opts.name, parents: [opts.folderId] })
+  const res = await fetch(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': opts.mimeType,
+    },
+    body: meta,
+  })
+  if (!res.ok) throw new Error(`Drive resumable init falhou: ${res.status} ${await res.text()}`)
+  const uploadUrl = res.headers.get('Location')
+  if (!uploadUrl) throw new Error('Drive não retornou Location')
+  return { uploadUrl }
+}
+
 export async function trashFile(fileId: string): Promise<void> {
   await gfetch(`${DRIVE}/files/${fileId}?supportsAllDrives=true`, {
     method: 'PATCH',

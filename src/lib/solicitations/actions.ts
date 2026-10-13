@@ -18,7 +18,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { updateShipment } from '@/lib/actions'
 import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
 import {
-  findOrCreateFolder, uploadFile, isDriveConnected, driveRootFolderId, folderIdFromLink,
+  findOrCreateFolder, uploadFile, createResumableUploadSession,
+  isDriveConnected, driveRootFolderId, folderIdFromLink,
   listFolderFiles, type DriveFileItem,
 } from '@/lib/google-drive'
 
@@ -699,6 +700,34 @@ async function resolveStageFolderId(
 // esconder/trocar o botão de upload quando o Drive não está conectado.
 export async function checkDriveConnected(): Promise<boolean> {
   return isDriveConnected()
+}
+
+// Prepara sessão de upload resumable: cliente faz PUT direto na URL
+// retornada, contornando o limite de 4,5 MB das Vercel Functions.
+export async function createStageFileUploadSession(
+  solicitationId: string,
+  stage: StageFileStage,
+  fileName: string,
+  mimeType: string
+): Promise<{ uploadUrl?: string; error?: string }> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!(await isDriveConnected())) return { error: 'Google Drive não conectado' }
+  try {
+    const db = createAdminClient()
+    const folderId = await resolveStageFolderId(db, solicitationId, stage)
+    const session = await createResumableUploadSession({
+      folderId,
+      name: fileName,
+      mimeType: mimeType || 'application/octet-stream',
+    })
+    await logSolicitationEvent(solicitationId, stage, `Arquivo ${fileName} enviado (${STAGE_FOLDER_NAME[stage] ?? stage})`, user.id)
+    refresh(solicitationId)
+    return { uploadUrl: session.uploadUrl }
+  } catch (e: any) {
+    console.error('[createStageFileUploadSession]', e)
+    return { error: 'Não foi possível iniciar o upload.' }
+  }
 }
 
 export async function uploadStageFileForSolicitation(
