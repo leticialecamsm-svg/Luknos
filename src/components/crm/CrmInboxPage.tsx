@@ -43,6 +43,8 @@ import {
   deleteCrmMessage,
   editCrmMessage,
   downloadCrmMedia,
+  startCrmConversation,
+  forwardCrmMessage,
   completeFollowup,
   linkConversationContact,
   setConversationDisplayName,
@@ -63,13 +65,14 @@ import { setOpenConversationId } from '@/lib/crm-open-conversation'
 import { subscribeCrmMessages } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
+import { NewConversationModal, ForwardModal } from './CrmConversationModals'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -87,6 +90,7 @@ interface Msg {
   deleted_at?: string | null
   deleted_by_name?: string | null
   edited_at?: string | null
+  is_forwarded?: boolean
   drive_file_id?: string | null
   media_size?: number | null
   media_seconds?: number | null
@@ -144,6 +148,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<Msg | null>(null)
+  const [forwarding, setForwarding] = useState<Msg | null>(null)
+  const [showNewConv, setShowNewConv] = useState(false)
   // trocar de conversa cancela a edição em andamento
   useEffect(() => { setEditing(null) }, [selectedId])
 
@@ -481,6 +487,34 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
+  // Abre a conversa com o número (cria se não existir), no WhatsApp da conversa atual.
+  const openContactConversation = (phone: string) => {
+    const instId = selected?.instance_id ?? (filter.selected[0] ?? filter.options[0]?.id)
+    if (!instId) { toast.error('ESCOLHA UM WHATSAPP'); return }
+    startTransition(async () => {
+      const r = await startCrmConversation({ phone, instanceId: instId })
+      if ('error' in r && r.error) { toast.error('NÃO FOI POSSÍVEL ABRIR', r.error); return }
+      if ('conversationId' in r && r.conversationId) { refreshList(true); setSelectedId(r.conversationId) }
+    })
+  }
+
+  // Encaminhar a mensagem selecionada para conversas e/ou contatos escolhidos.
+  const doForward = async (conversationIds: string[], contacts: { id: string; phone: string }[]) => {
+    const msg = forwarding
+    if (!msg) return
+    const ids = [...conversationIds]
+    const srcInst = selected?.instance_id ?? null
+    for (const c of contacts) {
+      if (!srcInst) continue
+      const r = await startCrmConversation({ phone: c.phone, instanceId: srcInst, contactId: c.id })
+      if ('conversationId' in r && r.conversationId) ids.push(r.conversationId)
+    }
+    const res = await forwardCrmMessage(msg.id, ids)
+    if ('error' in res && res.error) toast.error('NÃO FOI POSSÍVEL ENCAMINHAR', res.error)
+    else toast.success('ENCAMINHADA', `Para ${(res as any).sent} conversa(s)`)
+    setForwarding(null)
+  }
+
   // arquivo no Drive: sai pela rota do sistema; no Supabase: link assinado
   const mediaUrlOf = (m: Msg) => (m.drive_file_id ? `/api/crm/media/${m.id}` : m.storage_path ? attUrls[m.storage_path] : undefined)
   const lightboxItems: LightboxItem[] = messages
@@ -662,14 +696,24 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <div className="px-3 pt-3 pb-2 border-b border-gray-200">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold text-gray-900">Conversas</h2>
-            <button
-              onClick={handleSyncContacts}
-              disabled={syncingContacts}
-              title="Sincronizar nomes e fotos dos contatos"
-              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={cn('w-4 h-4', syncingContacts && 'animate-spin')} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowNewConv(true)}
+                title="Nova conversa"
+                aria-label="Nova conversa"
+                className="p-1.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleSyncContacts}
+                disabled={syncingContacts}
+                title="Sincronizar nomes e fotos dos contatos"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={cn('w-4 h-4', syncingContacts && 'animate-spin')} />
+              </button>
+            </div>
           </div>
           <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-2" />
           <div className="relative mb-2">
@@ -978,6 +1022,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onOpenMedia={() => setLightboxId(m.id)}
                   onOpenAttachment={openAttachment}
                   contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
+                  onOpenContact={(phone) => openContactConversation(phone)}
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
                   onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
@@ -993,6 +1038,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else refreshThread(selectedId!, true)
                   }}
                   canDelete={canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  canForward={m.message_type === 'text' && !!(m.body && m.body.trim()) && !m.deleted_at}
+                  onForward={() => setForwarding(m)}
                   canEdit={canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
                   onEdit={() => { setReplyTo(null); setEditing(m); setText(m.body ?? ''); requestAnimationFrame(() => textareaRef.current?.focus()) }}
                   onDelete={async () => {
@@ -1283,6 +1330,25 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           users={users}
         />
       )}
+
+      {showNewConv && (
+        <NewConversationModal
+          instances={filter.options.map((o) => ({ id: o.id, label: o.label }))}
+          defaultInstanceId={selected?.instance_id ?? filter.selected[0] ?? filter.options[0]?.id ?? null}
+          onClose={() => setShowNewConv(false)}
+          onStarted={(id) => { setShowNewConv(false); refreshList(true); setSelectedId(id) }}
+        />
+      )}
+
+      {forwarding && (
+        <ForwardModal
+          previewText={messagePreview({ message_type: forwarding.message_type, body: forwarding.body, file_name: forwarding.file_name }) || 'Mensagem'}
+          sourceInstanceId={selected?.instance_id ?? null}
+          conversations={conversations.filter((c) => !c.is_group).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
+          onForward={doForward}
+          onClose={() => setForwarding(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1300,7 +1366,7 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit,
+  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact,
 }: {
   msg: Msg
   first: boolean
@@ -1320,6 +1386,9 @@ function MessageBubble({
   onDelete: () => void
   canEdit: boolean
   onEdit: () => void
+  canForward: boolean
+  onForward: () => void
+  onOpenContact?: (phone: string) => void
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -1405,7 +1474,7 @@ function MessageBubble({
           bubbleTone, tailCorner
         )}
       >
-        {(canReply || canDelete || canSaveSticker || canEdit) && (
+        {(canReply || canDelete || canSaveSticker || canEdit || canForward) && (
           <div className="absolute top-1 right-1">
             <button
               type="button"
@@ -1444,6 +1513,7 @@ function MessageBubble({
                   </div>
                 )}
                 {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
+                {canForward && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onForward() }}><Forward className="w-4 h-4" /> Encaminhar</button>}
                 {canEdit && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onEdit() }}><Pencil className="w-4 h-4" /> Editar</button>}
                 {canSaveSticker && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onSaveSticker() }}><StickerIcon className="w-4 h-4" /> Salvar como figurinha</button>}
                 {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
@@ -1454,6 +1524,7 @@ function MessageBubble({
 
         {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
         {outLabel && <p className="text-[12.5px] font-semibold leading-4 mb-0.5 text-emerald-700">{outLabel}</p>}
+        {msg.is_forwarded && <p className="flex items-center gap-1 text-[11px] italic text-gray-400 mb-0.5"><Forward className="w-3 h-3" /> Encaminhada</p>}
 
         {msg.reply_to_provider_id && (
           <button
@@ -1537,12 +1608,19 @@ function MessageBubble({
         {card && (
           <div className="space-y-1.5 min-w-[14rem]">
             {card.map((p, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl bg-black/5 px-3 py-2">
-                <span className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white flex items-center justify-center"><ContactRound className="w-4 h-4" /></span>
-                <span className="min-w-0">
-                  <span className="block font-semibold text-sm truncate">{p.name}</span>
-                  {p.phone && <span className="block text-xs opacity-70">{prettyPhone(p.phone)}</span>}
-                </span>
+              <div key={i} className="rounded-xl bg-black/5 overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <span className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 text-white flex items-center justify-center"><ContactRound className="w-4 h-4" /></span>
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-sm truncate">{p.name}</span>
+                    {p.phone && <span className="block text-xs opacity-70">{prettyPhone(p.phone)}</span>}
+                  </span>
+                </div>
+                {p.phone && onOpenContact && (
+                  <button type="button" onClick={() => onOpenContact(p.phone!)} className="w-full border-t border-black/10 py-1.5 text-center text-sm font-medium text-sky-700 hover:bg-black/5">
+                    Conversar
+                  </button>
+                )}
               </div>
             ))}
           </div>
