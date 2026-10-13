@@ -777,7 +777,7 @@ export async function getCrmMessages(conversationId: string) {
   if (!acc.ok) return { error: acc.error, items: [] }
   const { data, error } = await admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
   if (error) return { error: error.message, items: [] }
@@ -928,6 +928,129 @@ export async function searchContactsForCrm(query: string) {
   return data ?? []
 }
 
+// Mesma pessoa? compara telefones tolerando o 9º dígito brasileiro.
+function phoneVariantsBr(raw: string): string[] {
+  const d = (raw ?? '').replace(/\D/g, ''); const out = new Set<string>(); if (!d) return []
+  out.add(d)
+  if (d.startsWith('55') && d.length >= 12 && d.length <= 13) {
+    const ddd = d.slice(2, 4), num = d.slice(4)
+    if (num.length === 9 && num.startsWith('9')) out.add('55' + ddd + num.slice(1))
+    if (num.length === 8) out.add('55' + ddd + '9' + num)
+  }
+  return Array.from(out)
+}
+function samePhoneBr(a: string, b: string): boolean {
+  const av = new Set(phoneVariantsBr(a)); return phoneVariantsBr(b).some((v) => av.has(v))
+}
+
+// Telefone brasileiro em dígitos com DDI: garante o 55 quando vier sem.
+function normalizeBrDigits(raw: string): string {
+  let d = (raw ?? '').replace(/\D/g, '')
+  if (!d) return ''
+  if (!d.startsWith('55') && (d.length === 10 || d.length === 11)) d = '55' + d // número nacional (DDD+num)
+  return d
+}
+
+// Abre a conversa com um número (ou cria, se ainda não existir) na instância informada.
+// Confere o número no WhatsApp (via Evolution) para usar o JID certo e não duplicar.
+export async function startCrmConversation(input: { phone: string; instanceId: string; contactId?: string | null }) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+
+  // a instância precisa ser uma que a pessoa pode usar
+  const opts = await getCrmInstanceOptions()
+  if (!opts.some((o) => o.id === input.instanceId)) return { error: 'Você não tem acesso a este WhatsApp' }
+
+  const digits = normalizeBrDigits(input.phone)
+  if (digits.length < 10) return { error: 'Número inválido. Use DDD + número (ex.: 82 99999-9999).' }
+
+  // resolve o JID canônico no WhatsApp
+  let jid: string | null = null
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'resolve_number', instance_id: input.instanceId, phone: digits }),
+    })
+    const b = await res.json().catch(() => ({}))
+    if (res.ok && b?.ok) {
+      if (b.exists === false) return { error: 'Este número não tem WhatsApp.' }
+      jid = b.jid ?? null
+    }
+  } catch { /* segue com o palpite abaixo */ }
+  if (!jid) jid = `${digits}@s.whatsapp.net`
+
+  // já existe conversa com esse número nessa instância? (pelo JID ou variações do telefone)
+  const { data: existing } = await admin
+    .from('crm_conversations')
+    .select('id, remote_jid')
+    .eq('instance_id', input.instanceId)
+    .like('remote_jid', '%@s.whatsapp.net')
+  const targetDigits = jid.split('@')[0]
+  const found = (existing ?? []).find((c) => c.remote_jid === jid || samePhoneBr(c.remote_jid.split('@')[0], targetDigits))
+  if (found) return { ok: true, conversationId: found.id, existed: true }
+
+  // contato do sistema (se veio) para já dar nome à conversa
+  let contactId: string | null = input.contactId ?? null
+  let contactName: string | null = null
+  if (!contactId) {
+    const { data: byPhone } = await admin.from('contacts').select('id, name, phone')
+    const hit = (byPhone ?? []).find((c) => c.phone && samePhoneBr(c.phone.replace(/\D/g, ''), targetDigits))
+    if (hit) { contactId = hit.id; contactName = hit.name }
+  } else {
+    const { data: c } = await admin.from('contacts').select('name').eq('id', contactId).maybeSingle()
+    contactName = c?.name ?? null
+  }
+
+  const { data: created, error } = await admin
+    .from('crm_conversations')
+    .insert({
+      instance_id: input.instanceId,
+      remote_jid: jid,
+      contact_id: contactId,
+      contact_link_source: contactId ? 'phone' : null,
+      contact_name_cache: contactId ? null : contactName,
+      assigned_user_id: auth.actedBy?.id ?? auth.userId,
+      status: 'open',
+    })
+    .select('id')
+    .single()
+  if (error) return { error: error.message }
+  return { ok: true, conversationId: created.id, existed: false }
+}
+
+// Encaminhar uma mensagem (texto) para outras conversas, com o selo "Encaminhada".
+export async function forwardCrmMessage(messageId: string, targetConversationIds: string[]) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: m } = await admin
+    .from('crm_messages')
+    .select('id, conversation_id, message_type, body, deleted_at')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!m || m.deleted_at) return { error: 'Mensagem não encontrada' }
+  const srcAcc = await convAccess(admin, auth, m.conversation_id)
+  if (!srcAcc.ok) return { error: srcAcc.error }
+  const text = (m.body ?? '').trim()
+  if (!text) return { error: 'Por enquanto dá para encaminhar apenas mensagens de texto.' }
+  const targets = Array.from(new Set((targetConversationIds ?? []).filter(Boolean))).slice(0, 20)
+  if (!targets.length) return { error: 'Escolha para quem encaminhar' }
+
+  let sent = 0
+  const errors: string[] = []
+  for (const cid of targets) {
+    if (cid === m.conversation_id) continue
+    const acc = await convAccess(admin, auth, cid)
+    if (!acc.ok) { errors.push(acc.error); continue }
+    const r = await sendCrmMessage({ conversationId: cid, text, forwarded: true })
+    if ('error' in r && r.error) errors.push(r.error); else sent++
+  }
+  if (!sent) return { error: errors[0] ?? 'Não foi possível encaminhar' }
+  return { ok: true, sent }
+}
+
 // ─── Envio de mensagem (upload direto do browser + chamada da Edge Function) ─
 
 const CRM_ATTACH_MAX_BYTES = 16 * 1024 * 1024 // limite da Evolution pra mídia é mais apertado que 25 MB
@@ -958,6 +1081,7 @@ export async function sendCrmMessage(input: {
   replyToMessageId?: string // responder (citar) uma mensagem desta conversa
   mentioned?: string[] // grupo: JIDs mencionados (o texto traz "@<número>")
   mentionAll?: boolean
+  forwarded?: boolean // marca como "Encaminhada"
 }) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
@@ -1003,6 +1127,7 @@ export async function sendCrmMessage(input: {
         quoted_text: quotedText,
         mentioned: input.mentioned ?? [],
         mention_all: !!input.mentionAll,
+        forwarded: !!input.forwarded,
       }),
     })
     const body = await res.json().catch(() => ({}))

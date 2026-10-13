@@ -27,6 +27,8 @@ interface ContextInfo {
   stanzaId?: string
   participant?: string
   quotedMessage?: Record<string, unknown>
+  isForwarded?: boolean
+  forwardingScore?: number
 }
 
 interface CrmInstanceRow {
@@ -116,6 +118,19 @@ function findContext(data: NonNullable<EvolutionWebhook['data']>): ContextInfo |
     if (ci?.stanzaId) return ci
   }
   return undefined
+}
+
+// Mensagem encaminhada: o WhatsApp marca isForwarded/forwardingScore no contextInfo
+// (no topo do payload ou dentro do nó da mensagem).
+function isForwardedMessage(data: NonNullable<EvolutionWebhook['data']>): boolean {
+  const ci = data.contextInfo
+  if (ci?.isForwarded || (ci?.forwardingScore ?? 0) > 0) return true
+  const msg = data.message ?? {}
+  for (const node of Object.values(msg)) {
+    const c = (node as { contextInfo?: ContextInfo } | null)?.contextInfo
+    if (c?.isForwarded || (c?.forwardingScore ?? 0) > 0) return true
+  }
+  return false
 }
 
 function quotedPreview(q?: Record<string, unknown>): string | null {
@@ -342,6 +357,7 @@ export async function handleCrmMessage(
       reply_to_preview: ctx ? quotedPreview(ctx.quotedMessage) : null,
       participant_jid: isGroup ? (key.participant ?? null) : null,
       participant_name: isGroup && !fromMe ? (data.pushName ?? null) : null,
+      is_forwarded: isForwardedMessage(data),
     })
     .select('id')
     .single()

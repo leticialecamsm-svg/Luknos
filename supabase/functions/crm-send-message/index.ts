@@ -12,7 +12,9 @@ interface ContactToSend {
 }
 
 interface Payload {
-  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants'
+  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number'
+  instance_id?: string
+  phone?: string
   conversation_id?: string
   sender_user_id?: string
   acted_by_user_id?: string | null
@@ -34,6 +36,8 @@ interface Payload {
   emoji?: string
   // enviar cartao(oes) de contato
   contacts?: ContactToSend[]
+  // mensagem encaminhada (selo "Encaminhada")
+  forwarded?: boolean
 }
 
 Deno.serve(async (req) => {
@@ -53,6 +57,7 @@ Deno.serve(async (req) => {
     if (payload.action === 'delete') return json(await deleteMessage(payload))
     if (payload.action === 'edit') return json(await editMessage(payload))
     if (payload.action === 'fetch_media') return await fetchMedia(payload)
+    if (payload.action === 'resolve_number') return json(await resolveNumber(payload))
     if (payload.action === 'react') return json(await reactToMessage(payload))
     if (payload.action === 'send_contact') return json(await sendContact(payload))
     if (payload.action === 'send_sticker') return json(await sendSticker(payload))
@@ -170,6 +175,7 @@ async function send(payload: Required<Pick<Payload, 'conversation_id' | 'sender_
       provider_message_id: result.providerMessageId ?? null,
       reply_to_provider_id: payload.quoted_provider_id ?? null,
       reply_to_preview: payload.quoted_provider_id ? (payload.quoted_text ?? '').slice(0, 300) : null,
+      is_forwarded: payload.forwarded ?? false,
     })
     .select('id')
     .single()
@@ -359,6 +365,31 @@ async function fetchMedia(payload: Payload): Promise<Response> {
     return json({ ok: false, error: 'O WhatsApp não liberou este arquivo (pode ter expirado). Peça para reenviarem.' })
   }
   return new Response(res.body, { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+
+// Confere se um numero tem WhatsApp e devolve o JID canonico (evita conversa duplicada pelo 9o digito).
+async function resolveNumber(payload: Payload) {
+  if (!payload.instance_id || !payload.phone) return { ok: false, error: 'missing_fields' }
+  const db = createServiceClient()
+  const { data: inst } = await db.from('crm_instances').select('instance_name').eq('id', payload.instance_id).maybeSingle()
+  const instanceName = (inst as any)?.instance_name as string | undefined
+  if (!instanceName) return { ok: false, error: 'instance_not_found' }
+  const digits = onlyDigits(payload.phone)
+  if (digits.length < 8) return { ok: false, error: 'numero_invalido' }
+  try {
+    const res = await evolutionFetch(`/chat/whatsappNumbers/${instanceName}`, { method: 'POST', body: JSON.stringify({ numbers: [digits] }) })
+    if (!res.ok) return { ok: false, error: `evolution_${res.status}` }
+    const data = await res.json().catch(() => null)
+    const arr: any[] = Array.isArray(data) ? data : (data?.numbers ?? [])
+    const first = arr[0]
+    if (!first) return { ok: true, exists: false, jid: null }
+    const exists = first.exists !== false
+    const num = onlyDigits(String(first.jid ?? first.number ?? digits))
+    const jid = String(first.jid ?? '').includes('@') ? String(first.jid) : (exists ? `${num}@s.whatsapp.net` : null)
+    return { ok: true, exists, jid, number: num }
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) }
+  }
 }
 
 // Reagir a uma mensagem (do cliente ou nossa). emoji vazio = tirar a reacao.
