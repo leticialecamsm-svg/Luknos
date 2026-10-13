@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
 import { storeCrmMediaInDrive } from '@/lib/crm-media'
+import { vapidKeys, sendTestPush } from '@/lib/crm-push'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
 import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
@@ -1037,13 +1038,14 @@ export async function downloadCrmMedia(messageId: string) {
       body: JSON.stringify({ action: 'fetch_media', message_id: messageId }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok || !body?.ok || !body.base64) return { error: body?.error ?? 'Não foi possível baixar o arquivo' }
+    if (!res.ok || !body?.base64) return { error: body?.error ?? `Não foi possível baixar o arquivo (${res.status})` }
     const b64 = String(body.base64).includes(',') ? String(body.base64).split(',')[1] : String(body.base64)
     const bytes = new Uint8Array(Buffer.from(b64, 'base64'))
     const mime = body.mimetype ?? m.mime_type ?? null
-    const stored = await storeCrmMediaInDrive(bytes, { mimeType: mime, fileName: m.file_name ?? body.file_name ?? 'arquivo', at: m.created_at })
+    const name = m.file_name ?? body.fileName ?? body.file_name ?? null
+    const stored = await storeCrmMediaInDrive(bytes, { mimeType: mime, fileName: name ?? 'arquivo', at: m.created_at })
     await admin.from('crm_messages')
-      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: mime, file_name: m.file_name ?? body.file_name ?? null })
+      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: mime, file_name: name })
       .eq('id', messageId)
     return { ok: true }
   } catch (e: any) {
@@ -2293,6 +2295,39 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
     color_index: colorIndex,
     at: m.created_at as string,
   }
+}
+
+// ─── Avisos por push (banner do sistema mesmo com o Luknos em segundo plano) ─
+
+export async function getPushPublicKey(): Promise<string | null> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return null
+  return (await vapidKeys()).publicKey
+}
+
+// Guarda a inscrição deste navegador para a pessoa logada (a de verdade, mesmo atuando como outra).
+export async function savePushSubscription(sub: { endpoint: string; keys: { p256dh: string; auth: string } }, userAgent?: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!sub?.endpoint?.startsWith('https://') || !sub.keys?.p256dh || !sub.keys?.auth) return { error: 'Inscrição inválida' }
+  const { error } = await createAdminClient().from('crm_push_subscriptions').upsert({
+    endpoint: sub.endpoint, user_id: auth.actedBy?.id ?? auth.userId, p256dh: sub.keys.p256dh, auth: sub.keys.auth, user_agent: (userAgent ?? '').slice(0, 300),
+  }, { onConflict: 'endpoint' })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+export async function sendMyTestPush() {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  return sendTestPush(auth.actedBy?.id ?? auth.userId)
+}
+
+export async function removePushSubscription(endpoint: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  await createAdminClient().from('crm_push_subscriptions').delete().eq('endpoint', endpoint).eq('user_id', auth.actedBy?.id ?? auth.userId)
+  return { ok: true }
 }
 
 // ─── Figurinhas ─────────────────────────────────────────────────────────────

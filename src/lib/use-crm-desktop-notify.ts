@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { subscribeCrmMessages } from '@/lib/crm-realtime'
-import { getIncomingNotification, type IncomingNotice } from '@/lib/crm-actions'
+import { getIncomingNotification, getPushPublicKey, savePushSubscription, removePushSubscription, sendMyTestPush, type IncomingNotice } from '@/lib/crm-actions'
 import { getOpenConversationId } from '@/lib/crm-open-conversation'
 import type { NoticeItem } from '@/components/crm/CrmNoticeStack'
 
@@ -28,6 +28,41 @@ async function showBanner(title: string, options: NotificationOptions, onClick: 
   } catch { /* sem banner */ }
 }
 
+function urlBase64ToBytes(base64: string): Uint8Array {
+  const pad = '='.repeat((4 - (base64.length % 4)) % 4)
+  const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'))
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0))
+}
+
+// Inscreve este navegador no push (banner do sistema mesmo com o Luknos em segundo plano).
+// Devolve true quando o push está ativo.
+async function ensurePush(): Promise<boolean> {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false
+    const reg = (await navigator.serviceWorker.getRegistration('/')) ?? (await navigator.serviceWorker.register('/sw.js'))
+    await navigator.serviceWorker.ready
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      const key = await getPushPublicKey()
+      if (!key) return false
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(key) as BufferSource })
+    }
+    const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } }
+    const r = await savePushSubscription(json, navigator.userAgent)
+    return !('error' in r && r.error)
+  } catch {
+    return false
+  }
+}
+
+async function dropPush() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/')
+    const sub = await reg?.pushManager.getSubscription()
+    if (sub) { await removePushSubscription(sub.endpoint); await sub.unsubscribe() }
+  } catch { /* ignore */ }
+}
+
 // Aviso de mensagem nova atribuída a quem está logado, em qualquer página do sistema:
 // notificação do navegador (o banner no canto da tela, como o WhatsApp Web) quando permitida;
 // senão, um aviso dentro da página. Não avisa de conversa que já está aberta e à vista.
@@ -38,6 +73,9 @@ export function useCrmDesktopNotify(active: boolean) {
   const [enabled, setEnabledState] = useState(true)
   const enabledRef = useRef(true)
   const permissionRef = useRef<NotifyPermission>('default')
+  // com o push ativo, o banner do sistema vem pelo service worker (mesmo com a aba congelada);
+  // a página só mostra o cartão quando está à frente
+  const pushRef = useRef(false)
   const routerRef = useRef(router)
   routerRef.current = router
 
@@ -55,13 +93,14 @@ export function useCrmDesktopNotify(active: boolean) {
   // nem chega aqui (filtrado antes).
   const show = useCallback((info: IncomingNotice) => {
     const away = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())
-    if (permissionRef.current === 'granted') {
+    if (permissionRef.current === 'granted' && !(pushRef.current && info.conversation_id !== 'teste')) {
       const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
       const title = `${info.title} · ${info.instance_label}`
       const options: NotificationOptions = { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id, data: { url: `/crm/conversas?c=${info.conversation_id}` } }
       void showBanner(title, options, () => { window.focus(); if (info.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`) })
       if (away) return // com o sistema escondido só o banner faz sentido
     }
+    if (pushRef.current && away && info.conversation_id !== 'teste') return // o banner já veio pelo push
     const key = `${info.conversation_id}-${Date.now()}`
     setNotices((cur) => [{ ...info, key }, ...cur.filter((x) => x.conversation_id !== info.conversation_id)].slice(0, 3))
   }, [])
@@ -105,6 +144,14 @@ export function useCrmDesktopNotify(active: boolean) {
     return () => navigator.serviceWorker.removeEventListener('message', onMsg)
   }, [active, permission])
 
+  // Permissão dada e avisos ligados: inscreve no push (e renova a inscrição a cada abertura).
+  useEffect(() => {
+    if (!active || permission !== 'granted' || !enabled) return
+    let alive = true
+    ensurePush().then((ok) => { if (alive) pushRef.current = ok })
+    return () => { alive = false }
+  }, [active, permission, enabled])
+
   // "show" fica numa ref: se ele mudasse a cada renderização, o canal seria refeito toda hora.
   const showRef = useRef(show)
   showRef.current = show
@@ -126,6 +173,7 @@ export function useCrmDesktopNotify(active: boolean) {
   const setEnabled = useCallback((on: boolean) => {
     setEnabledState(on); enabledRef.current = on
     try { localStorage.setItem(PREF_KEY, on ? '1' : '0') } catch { /* ignore */ }
+    if (!on) { pushRef.current = false; void dropPush() }
   }, [])
 
   const requestPermission = useCallback(async () => {
@@ -134,7 +182,15 @@ export function useCrmDesktopNotify(active: boolean) {
     setPermission(p); permissionRef.current = p
   }, [])
 
-  const test = useCallback(() => show({ conversation_id: 'teste', title: 'Aviso de teste', body: 'É assim que as novas mensagens vão aparecer.', photo: null, instance_label: 'Seu WhatsApp', color_index: 0, at: new Date().toISOString() }), [show])
+  // Com o push ativo, o teste passa pelo servidor (o mesmo caminho de uma mensagem de verdade).
+  const test = useCallback(async () => {
+    if (pushRef.current) {
+      const r = await sendMyTestPush().catch(() => null)
+      if (r && 'sent' in r && r.sent > 0) return
+    }
+    showLocalTest()
+  }, [])
+  const showLocalTest = useCallback(() => show({ conversation_id: 'teste', title: 'Aviso de teste', body: 'É assim que as novas mensagens vão aparecer.', photo: null, instance_label: 'Seu WhatsApp', color_index: 0, at: new Date().toISOString() }), [show])
 
   return { permission, enabled, setEnabled, requestPermission, test, notices, dismiss, open, answerAsk }
 }
