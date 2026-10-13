@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
-import { storeCrmMediaInDrive } from '@/lib/crm-media'
+import { streamEvolutionMediaToDrive } from '@/lib/crm-media'
 import { vapidKeys, sendTestPush } from '@/lib/crm-push'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
@@ -1037,15 +1037,11 @@ export async function downloadCrmMedia(messageId: string) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
       body: JSON.stringify({ action: 'fetch_media', message_id: messageId }),
     })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok || !body?.base64) return { error: body?.error ?? `Não foi possível baixar o arquivo (${res.status})` }
-    const b64 = String(body.base64).includes(',') ? String(body.base64).split(',')[1] : String(body.base64)
-    const bytes = new Uint8Array(Buffer.from(b64, 'base64'))
-    const mime = body.mimetype ?? m.mime_type ?? null
-    const name = m.file_name ?? body.fileName ?? body.file_name ?? null
-    const stored = await storeCrmMediaInDrive(bytes, { mimeType: mime, fileName: name ?? 'arquivo', at: m.created_at })
+    if (!res.ok || !res.body) return { error: `Não foi possível baixar o arquivo (${res.status})` }
+    // lido e enviado ao Drive em pedaços: arquivo grande não cabe inteiro na memória
+    const stored = await streamEvolutionMediaToDrive(res.body, { fallbackName: m.file_name ?? 'arquivo', at: m.created_at })
     await admin.from('crm_messages')
-      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: mime, file_name: name })
+      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: m.mime_type ?? stored.mimeType, file_name: m.file_name ?? stored.fileName })
       .eq('id', messageId)
     return { ok: true }
   } catch (e: any) {
