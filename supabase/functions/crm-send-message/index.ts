@@ -3,6 +3,7 @@ import { isInternalCall } from './_shared/internal.ts'
 import { createServiceClient } from './_shared/supabase.ts'
 import { sendTextMessage, sendMediaMessage, sendVoiceNote, deleteMessageForEveryone, editTextMessage, evolutionFetch, sendReactionMessage, sendContactMessage, sendStickerMessage, fetchGroupParticipants, type Quoted } from './_shared/evolution.ts'
 import { onlyDigits } from './_shared/phone.ts'
+import { env } from './_shared/env.ts'
 
 interface ContactToSend {
   name: string
@@ -12,7 +13,11 @@ interface ContactToSend {
 }
 
 interface Payload {
-  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number'
+  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence'
+  // "digitando…" para o contato: composing | recording | paused
+  presence?: string
+  // webhook_presence: false = só mostra a configuração atual; true = liga o evento PRESENCE_UPDATE
+  apply?: boolean
   instance_id?: string
   phone?: string
   conversation_id?: string
@@ -62,6 +67,8 @@ Deno.serve(async (req) => {
     if (payload.action === 'send_contact') return json(await sendContact(payload))
     if (payload.action === 'send_sticker') return json(await sendSticker(payload))
     if (payload.action === 'group_participants') return json(await groupParticipants(payload))
+    if (payload.action === 'presence') return json(await sendPresence(payload))
+    if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply))
 
     const { conversation_id, sender_user_id } = payload
     if (!conversation_id || !sender_user_id) return json({ sent: false, error: 'missing_fields' }, 400)
@@ -433,6 +440,68 @@ async function reactToMessage(payload: Payload) {
       .eq('conversation_id', msg.conversation_id).eq('target_provider_id', msg.provider_message_id).eq('reactor', 'me')
   }
   return { reacted: true }
+}
+
+// "Digitando…" do atendente aparece para o contato no WhatsApp. A Evolution segura a resposta
+// pelo tempo do aviso (delay) e depois manda "paused"; por isso roda por trás e a resposta é imediata.
+// O CRM repete o aviso a cada ~4 s enquanto a pessoa digita.
+async function sendPresence(payload: Payload) {
+  const presence = payload.presence ?? 'composing'
+  if (!payload.conversation_id || !['composing', 'recording', 'paused'].includes(presence)) return { ok: false, error: 'missing_fields' }
+  const db = createServiceClient()
+  const { data: conv } = await db
+    .from('crm_conversations')
+    .select('remote_jid, crm_instances(instance_name)')
+    .eq('id', payload.conversation_id)
+    .maybeSingle()
+  const instanceName = (conv as any)?.crm_instances?.instance_name as string | undefined
+  if (!conv || !instanceName) return { ok: false, error: 'conversation_not_found' }
+  const task = evolutionFetch(`/chat/sendPresence/${instanceName}`, {
+    method: 'POST',
+    body: JSON.stringify({ number: targetNumber(conv.remote_jid), presence, delay: presence === 'paused' ? 0 : 6000 }),
+  }).then(async (r) => { if (!r.ok) console.warn('sendPresence falhou', r.status, (await r.text().catch(() => '')).slice(0, 200)) })
+  const er = (globalThis as Record<string, unknown>).EdgeRuntime as { waitUntil?: (p: Promise<unknown>) => void } | undefined
+  if (er?.waitUntil) er.waitUntil(task.catch((e) => console.error('sendPresence erro', e)))
+  else await task.catch(() => {})
+  return { ok: true }
+}
+
+// Liga o evento PRESENCE_UPDATE (contato digitando) no webhook de cada número do CRM, mantendo
+// o resto da configuração. apply=false só mostra como está (sem os cabeçalhos, que têm segredo).
+async function webhookPresence(apply: boolean) {
+  const db = createServiceClient()
+  const { data: insts } = await db.from('crm_instances').select('instance_name').eq('is_active', true)
+  const out: unknown[] = []
+  for (const i of insts ?? []) {
+    const name = i.instance_name as string
+    try {
+      const r = await evolutionFetch(`/webhook/find/${name}`)
+      const cur = (await r.json().catch(() => null)) as any
+      const w = cur?.webhook ?? cur ?? {}
+      const events: string[] = Array.isArray(w.events) ? w.events : []
+      const info = { instance: name, status: r.status, enabled: w.enabled, url: w.url, byEvents: w.webhookByEvents, events }
+      if (!apply || events.includes('PRESENCE_UPDATE')) { out.push({ ...info, changed: false }); continue }
+      const url = w.url || `${env.supabaseUrl}/functions/v1/whatsapp-webhook`
+      const set = await evolutionFetch(`/webhook/set/${name}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          webhook: {
+            enabled: w.enabled ?? true,
+            url,
+            webhookByEvents: w.webhookByEvents ?? false,
+            webhookBase64: w.webhookBase64 ?? false,
+            events: [...events, 'PRESENCE_UPDATE'],
+            headers: w.headers && Object.keys(w.headers).length ? w.headers
+              : (env.evolutionWebhookSecret ? { 'x-evolution-webhook-secret': env.evolutionWebhookSecret } : undefined),
+          },
+        }),
+      })
+      out.push({ ...info, changed: set.ok, setStatus: set.status, setBody: set.ok ? undefined : (await set.text().catch(() => '')).slice(0, 200) })
+    } catch (e) {
+      out.push({ instance: name, error: String((e as Error)?.message ?? e) })
+    }
+  }
+  return { ok: true, instances: out }
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

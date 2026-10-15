@@ -55,6 +55,7 @@ interface EvolutionWebhook {
 
 async function handle(payload: EvolutionWebhook) {
   const event = payload.event ?? ''
+  if (/presence[._]update/i.test(event)) return await handlePresence(payload)
   if (event && !/messages[._]upsert/i.test(event)) {
     return { handled: false, skipped: 'event', event }
   }
@@ -218,4 +219,39 @@ async function saveAttachment(
     .single()
   if (error) throw error
   return att.id
+}
+
+// "Digitando…" do contato (evento PRESENCE_UPDATE): grava o estado em crm_presence, que o CRM
+// escuta em tempo real. data = { id: <jid da conversa>, presences: { <jid de quem>: { lastKnownPresence } } }.
+// Em grupo, cada participante vira uma linha (actor = jid dele); em conversa individual, actor = 'contact'.
+async function handlePresence(payload: EvolutionWebhook) {
+  const d = (payload as unknown as { data?: { id?: string; presences?: Record<string, { lastKnownPresence?: string }> } }).data
+  const chatJid = String(d?.id ?? '')
+  const presences = d?.presences
+  if (!chatJid || !presences || typeof presences !== 'object') return { handled: false, skipped: 'presence_empty' }
+  const db = createServiceClient()
+  const { data: inst } = await db.from('crm_instances').select('id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()
+  if (!inst) return { handled: false, skipped: 'unknown_instance' }
+  const { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', inst.id).eq('remote_jid', chatJid).maybeSingle()
+  if (!conv) return { handled: false, skipped: 'presence_no_conversation' }
+  const isGroup = chatJid.endsWith('@g.us')
+  const now = new Date().toISOString()
+  const rows = []
+  for (const [jid, v] of Object.entries(presences)) {
+    const p = v?.lastKnownPresence
+    const state = p === 'composing' ? 'composing' : p === 'recording' ? 'recording' : 'paused'
+    let actorName: string | null = null
+    if (isGroup && state !== 'paused') {
+      const { data: last } = await db.from('crm_messages').select('participant_name')
+        .eq('conversation_id', conv.id).eq('participant_jid', jid).not('participant_name', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle()
+      actorName = (last?.participant_name as string | undefined) ?? null
+    }
+    rows.push({ conversation_id: conv.id, actor: isGroup ? jid : 'contact', actor_name: actorName, state, updated_at: now })
+  }
+  if (rows.length) {
+    const { error } = await db.from('crm_presence').upsert(rows, { onConflict: 'conversation_id,actor' })
+    if (error) return { handled: false, error: error.message }
+  }
+  return { handled: true, presence: rows.map((r) => r.state) }
 }

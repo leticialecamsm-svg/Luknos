@@ -62,7 +62,7 @@ import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
 import { formatListTime } from '@/lib/crm-time'
 import { setOpenConversationId } from '@/lib/crm-open-conversation'
-import { subscribeCrmMessages } from '@/lib/crm-realtime'
+import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal } from './CrmConversationModals'
@@ -562,6 +562,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     if (cid === selectedIdRef.current && isInsert && r.direction === 'outbound' && r.sender_user_id) scheduleThreadCheck(cid)
 
     if (isInsert) {
+      if (r.direction === 'inbound') clearTypingFor(cid, true)
       const open = cid === selectedIdRef.current && document.visibilityState === 'visible'
       setConversations((cs) => {
         const i = cs.findIndex((c) => c.id === cid)
@@ -619,6 +620,80 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const foundSelected = selectedId ? conversations.find((c) => c.id === selectedId) ?? null : null
   if (foundSelected) selectedRowRef.current = foundSelected
   const selected = foundSelected ?? (selectedId && conversations.length === 0 && selectedRowRef.current?.id === selectedId ? selectedRowRef.current : null)
+
+  // ── "Digitando…" ─────────────────────────────────────────────────────────────
+  // Recebido: o contato (pelo WhatsApp) ou outro atendente (pelo CRM) digitando, via crm_presence
+  // em tempo real. Cada aviso vale alguns segundos: some sozinho se o "parou" não chegar.
+  type Typing = { actor: string; name: string | null; state: string; at: number }
+  const [typing, setTyping] = useState<Record<string, Typing[]>>({})
+  useEffect(() => subscribeCrmPresence((row) => {
+    if (row.actor === currentUserId) return // o próprio atendente não se vê digitando
+    setTyping((cur) => {
+      const list = (cur[row.conversation_id] ?? []).filter((t) => t.actor !== row.actor)
+      if (row.state !== 'paused') list.push({ actor: row.actor, name: row.actor_name, state: row.state, at: Date.now() })
+      return { ...cur, [row.conversation_id]: list }
+    })
+  }), [currentUserId])
+  // contato: até 25 s sem novo aviso (o WhatsApp repete enquanto a pessoa digita); atendente: 8 s
+  const typingAlive = (t: Typing, now: number) => now - t.at < (t.actor === 'contact' || t.actor.includes('@') ? 25_000 : 8_000)
+  const hasTyping = Object.values(typing).some((l) => l.length > 0)
+  useEffect(() => {
+    if (!hasTyping) return
+    const iv = setInterval(() => {
+      const now = Date.now()
+      setTyping((cur) => {
+        let changed = false
+        const next: Record<string, Typing[]> = {}
+        for (const [k, l] of Object.entries(cur)) {
+          const keep = l.filter((t) => typingAlive(t, now))
+          if (keep.length !== l.length) changed = true
+          if (keep.length) next[k] = keep
+        }
+        return changed ? next : cur
+      })
+    }, 2000)
+    return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasTyping])
+  // chegou mensagem de quem estava digitando: o aviso some na hora
+  const clearTypingFor = useCallback((cid: string, inbound: boolean) => {
+    setTyping((cur) => (cur[cid]?.length ? { ...cur, [cid]: inbound ? cur[cid].filter((t) => !(t.actor === 'contact' || t.actor.includes('@'))) : cur[cid] } : cur))
+  }, [])
+  const typingLabel = (cid: string): { text: string; contact: boolean } | null => {
+    const l = typing[cid]
+    if (!l?.length) return null
+    const contact = l.find((t) => t.actor === 'contact' || t.actor.includes('@'))
+    if (contact) {
+      const verb = contact.state === 'recording' ? 'gravando áudio…' : 'digitando…'
+      return { text: contact.actor.includes('@') && contact.name ? `${contact.name.split(' ')[0]} está ${verb}` : verb, contact: true }
+    }
+    const staff = l[0]
+    return { text: `${staff.name?.split(' ')[0] ?? 'Outro atendente'} está digitando…`, contact: false }
+  }
+
+  // Enviado: enquanto você digita, o contato vê "digitando…" no WhatsApp (e os colegas, no CRM).
+  // Um aviso a cada 4 s no máximo; 3 s sem digitar (ou ao enviar/trocar de conversa) manda "parou".
+  const myTyping = useRef<{ cid: string | null; lastSent: number; idle?: ReturnType<typeof setTimeout> }>({ cid: null, lastSent: 0 })
+  const postTyping = (cid: string, state: 'composing' | 'paused') => {
+    fetch('/api/crm/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ c: cid, state }), keepalive: true }).catch(() => {})
+  }
+  const stopTyping = useCallback(() => {
+    const t = myTyping.current
+    clearTimeout(t.idle)
+    if (t.cid && t.lastSent) postTyping(t.cid, 'paused')
+    t.cid = null; t.lastSent = 0
+  }, [])
+  const notifyTyping = () => {
+    const cid = selectedIdRef.current
+    if (!cid) return
+    const t = myTyping.current
+    if (t.cid && t.cid !== cid) stopTyping()
+    const now = Date.now()
+    if (t.cid !== cid || now - t.lastSent > 4000) { postTyping(cid, 'composing'); t.cid = cid; t.lastSent = now }
+    clearTimeout(t.idle)
+    t.idle = setTimeout(stopTyping, 3000)
+  }
+  useEffect(() => stopTyping, [selectedId, stopTyping]) // trocou de conversa ou saiu da tela: parou
 
   // Membros do grupo aberto (para mencionar e para trocar "@número" pelo nome nas mensagens)
   const selectedIsGroup = !!selected?.is_group
@@ -905,6 +980,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     const out = selectedIsGroup ? applyMentionsToSend(text, picks) : { text, mentioned: [] as string[], all: false }
     setText('')
     setPicks([]); setMention(null); setReplyTo(null)
+    stopTyping()
     const temp = makeTemp({ body: out.text }, reply)
     enqueue(cid, temp)
     runSend(cid, temp.id, () => sendCrmMessage({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all }))
@@ -1137,8 +1213,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 min-h-[20px]">
                     <p className={cn('flex-1 min-w-0 flex items-center gap-1 text-[13px] leading-5', unread ? 'text-gray-900 font-medium' : 'text-gray-500')}>
-                      {c.last_direction === 'outbound' && <CheckCheck className="w-4 h-4 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
-                      <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
+                      {(() => {
+                        const tl = typingLabel(c.id)
+                        if (tl) return <span className={cn('truncate font-medium', tl.contact ? 'text-emerald-600' : 'text-gray-500 italic')}>{tl.text}</span>
+                        return (
+                          <>
+                            {c.last_direction === 'outbound' && <CheckCheck className="w-4 h-4 shrink-0 text-sky-500" aria-label="Última mensagem enviada por nós" />}
+                            <span className="truncate">{c.last_body || 'Sem mensagens'}</span>
+                          </>
+                        )
+                      })()}
                     </p>
                     {c.next_followup && (
                       <span title={`Follow-up ${formatDue(c.next_followup.due_at)}${c.next_followup.note ? ` · ${c.next_followup.note}` : ''}`} className={cn('shrink-0 rounded-full p-0.5 border', DUE_STYLE[dueState(c.next_followup.due_at)])}>
@@ -1197,12 +1281,19 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
-                  <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                    <span className={cn('shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded-full border', filter.colorOf(selected.instance_id).chip)}>
-                      <WhatsappIcon className="w-3 h-3" />{selected.instance_label}
-                    </span>
-                    <ConvTags type={selected.contact_type} labels={selected.labels} className="min-w-0 overflow-hidden flex-nowrap" />
-                  </div>
+                  {(() => {
+                    // como no WhatsApp: "digitando…" toma o lugar da linha de baixo enquanto dura
+                    const tl = typingLabel(selected.id)
+                    if (tl) return <p role="status" aria-live="polite" className={cn('mt-0.5 text-[13px] leading-[20px] truncate', tl.contact ? 'text-emerald-600 font-medium' : 'text-gray-500 italic')}>{tl.text}</p>
+                    return (
+                      <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                        <span className={cn('shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded-full border', filter.colorOf(selected.instance_id).chip)}>
+                          <WhatsappIcon className="w-3 h-3" />{selected.instance_label}
+                        </span>
+                        <ConvTags type={selected.contact_type} labels={selected.labels} className="min-w-0 overflow-hidden flex-nowrap" />
+                      </div>
+                    )
+                  })()}
                 </div>
                 {!selected.is_group && <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
                   <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
@@ -1541,7 +1632,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <textarea
                   ref={textareaRef}
                   value={text}
-                  onChange={(e) => { setText(e.target.value); if (selectedIsGroup) { setMention(activeMention(e.target.value, e.target.selectionStart)); setMentionIdx(0) } }}
+                  onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); else stopTyping(); if (selectedIsGroup) { setMention(activeMention(e.target.value, e.target.selectionStart)); setMentionIdx(0) } }}
                   onClick={(e) => { if (selectedIsGroup) setMention(activeMention(e.currentTarget.value, e.currentTarget.selectionStart)) }}
                   onKeyDown={(e) => {
                     if (mention && mentionOptions.length > 0) {
