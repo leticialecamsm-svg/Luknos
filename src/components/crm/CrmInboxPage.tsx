@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 
 import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
@@ -21,8 +21,6 @@ import { MediaLightbox, type LightboxItem } from './MediaLightbox'
 import { applyFormat } from '@/lib/wa-format'
 import { FormatToolbar } from './FormatToolbar'
 import {
-  getCrmSnapshot,
-  getCrmMessages,
   reassignConversation,
   setConversationValue,
   getConversationAccessInfo,
@@ -56,6 +54,8 @@ import {
   type ConversationRow,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
+import { fetchCrmMessages, fetchCrmSnapshot } from '@/lib/crm-fetch'
+import { ConversationListSkeleton, ThreadSkeleton, LuknosSpinner, LoadError } from '@/components/ui/LuknosLoader'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
@@ -72,7 +72,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -91,7 +91,13 @@ interface Msg {
   deleted_by_name?: string | null
   edited_at?: string | null
   is_forwarded?: boolean
+  // Envio otimista: aparece na hora com relógio (pending); se falhar, fica marcada (failed) com
+  // "Tentar de novo". realId = id gravado no banco, para trocar pela mensagem real sem duplicar.
   pending?: boolean
+  failed?: boolean
+  realId?: string | null
+  local_url?: string | null // prévia do arquivo enquanto sobe
+  retry?: () => Promise<{ error?: string; messageId?: string | null }>
   drive_file_id?: string | null
   media_size?: number | null
   media_seconds?: number | null
@@ -112,6 +118,46 @@ interface Msg {
 }
 
 const isUnread = (c: { unread_count: number; marked_unread: boolean }) => c.unread_count > 0 || c.marked_unread
+
+const MSG_PAGE = 50 // mensagens por página (as mais recentes; as antigas vêm ao rolar para cima)
+const isTemp = (m: Msg) => m.id.startsWith('temp-')
+
+// A mensagem otimista (temp) já virou esta mensagem real? Pelo id devolvido no envio ou, se o
+// tempo real chegou antes da resposta, pelo conteúdo (mesmo autor, tipo, texto/arquivo, ~2 min).
+function tempMatches(t: Msg, r: Msg): boolean {
+  if (t.failed || isTemp(r)) return false
+  if (t.realId) return t.realId === r.id
+  return r.direction === 'outbound' && r.sender_user_id === t.sender_user_id && r.message_type === t.message_type &&
+    (r.body ?? '') === (t.body ?? '') && (r.file_name ?? '') === (t.file_name ?? '') &&
+    Math.abs(Date.parse(r.created_at) - Date.parse(t.created_at)) < 120_000
+}
+
+// Tira as otimistas que já têm a versão real na lista (cada real "consome" uma otimista só).
+function dropConfirmedTemps(temps: Msg[], real: Msg[]): Msg[] {
+  const used = new Set<string>()
+  return temps.filter((t) => {
+    const hit = real.find((r) => !used.has(r.id) && tempMatches(t, r))
+    if (hit) { used.add(hit.id); if (t.local_url) URL.revokeObjectURL(t.local_url); return false }
+    return true
+  })
+}
+
+// Junta a página mais recente com o que já estava na tela: mantém as antigas já carregadas
+// (rolagem para cima) e as otimistas ainda sem confirmação. Se chegou mais coisa do que cabe
+// numa página desde a última vez (buraco), recomeça só com a página nova.
+function mergeLatest(cur: Msg[], page: Msg[], pageHasMore: boolean): { items: Msg[]; keptOlder: boolean } {
+  const real = cur.filter((m) => !isTemp(m))
+  const temps = dropConfirmedTemps(cur.filter(isTemp), page)
+  if (!page.length) return { items: [...real, ...temps], keptOlder: real.length > 0 }
+  const oldest = page[0].created_at
+  const pageIds = new Set(page.map((m) => m.id))
+  const newestCur = real[real.length - 1]
+  const gap = pageHasMore && !!newestCur && newestCur.created_at < oldest
+  const older = gap ? [] : real.filter((m) => !pageIds.has(m.id) && m.created_at <= oldest)
+  return { items: [...older, ...page, ...temps], keptOlder: older.length > 0 }
+}
+
+const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid'] as const
 
 const DRAFTS_KEY = 'crm-drafts'
 function readDrafts(): Record<string, string> {
@@ -216,54 +262,127 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
-  const [sendingVoice, setSendingVoice] = useState(false)
   const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
   const recordStreamRef = useRef<MediaStream | null>(null)
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Atualizações da lista/conversa: uma por vez, sem repintar quando nada mudou e sem
-  // sobrepor chamadas (as ações do servidor entram numa fila: empilhar atrasa tudo).
+  // ── Lista ────────────────────────────────────────────────────────────────────
+  // Leitura por GET (em paralelo; não entra na fila das ações, então não atrasa um envio).
+  // Uma por vez, sem repintar quando nada mudou. O resultado fica guardado por aba/filtro:
+  // voltar a uma aba mostra na hora o que já tinha e atualiza por trás.
+  const listCache = useRef(new Map<string, { items: ConversationRow[]; counts: typeof counts }>())
+  const listKey = `${scope}|${selectedKey}`
+  const listKeyRef = useRef(listKey)
+  listKeyRef.current = listKey
+  const [listError, setListError] = useState<string | null>(null)
   const listInFlight = useRef(false)
   const listDirty = useRef(false)
   const lastListSig = useRef('')
   const refreshListRef = useRef<(silent?: boolean) => void>(() => {})
   const refreshList = useCallback((silent = false) => {
-    if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
+    void silent // a lista nunca some da tela ao atualizar; o esqueleto só aparece quando não há nada guardado
+    if (!filter.loaded) return
     if (listInFlight.current) { listDirty.current = true; return }
     listInFlight.current = true
-    if (!silent) setLoadingList(true)
+    const key = `${scope}|${selectedKey}`
     const ids = selectedKey ? selectedKey.split(',') : undefined
-    window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu
-    getCrmSnapshot(scope, 200, ids)
+    window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu (limitado a 1 a cada 15 s)
+    fetchCrmSnapshot(scope, 200, ids)
       .then((r) => {
+        if (r.error && !r.items?.length) throw new Error(r.error)
+        listCache.current.set(key, { items: r.items ?? [], counts: r.counts })
+        if (listKeyRef.current !== key) return // trocou de aba no meio do caminho
+        setListError(null)
         setCounts((prev) => (JSON.stringify(prev) === JSON.stringify(r.counts) ? prev : r.counts))
-        const sig = `${scope}|${selectedKey}|${JSON.stringify(r.items ?? [])}`
+        const sig = `${key}|${JSON.stringify(r.items ?? [])}`
         if (sig !== lastListSig.current) { lastListSig.current = sig; setConversations(r.items ?? []) }
       })
+      .catch((e: Error) => { if (listKeyRef.current === key) setListError(e.message || 'Falha ao carregar as conversas') })
       .finally(() => {
         listInFlight.current = false
-        if (!silent) setLoadingList(false)
+        if (listKeyRef.current === key) setLoadingList(false)
         if (listDirty.current) { listDirty.current = false; setTimeout(() => refreshListRef.current(true), 300) }
       })
   }, [scope, selectedKey, filter.loaded])
   refreshListRef.current = refreshList
+  // Trocou de aba/filtro: mostra na hora o que já estava guardado (ou o esqueleto) e atualiza.
+  useEffect(() => {
+    const c = listCache.current.get(listKey)
+    lastListSig.current = ''
+    setConversations(c?.items ?? [])
+    if (c) setCounts(c.counts)
+    setLoadingList(!c)
+    setListError(null)
+  }, [listKey])
 
+  // ── Conversa aberta ──────────────────────────────────────────────────────────
+  // Cada conversa visitada fica guardada: voltar a ela é instantâneo (e atualiza por trás).
+  // Só a página mais recente é buscada; as antigas vêm ao rolar para cima.
   const selectedIdRef = useRef<string | null>(selectedId)
   selectedIdRef.current = selectedId
+  const threadCache = useRef(new Map<string, { items: Msg[]; hasMore: boolean }>())
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const loadingOlderRef = useRef(false)
+  const [threadError, setThreadError] = useState<string | null>(null)
   const lastThreadSig = useRef('')
-  const refreshThread = useCallback((id: string, silent = false) => {
-    if (!silent) setLoadingThread(true)
-    getCrmMessages(id)
-      .then((r) => {
-        if (selectedIdRef.current !== id) return // trocou de conversa no meio do caminho
-        const items = (r.items as Msg[]) ?? []
-        const sig = id + '|' + items.map((m) => `${m.id}${m.deleted_at ? 'd' : ''}${m.storage_path ? 's' : ''}${m.drive_file_id ? 'g' : ''}${m.edited_at ?? ''}${m.reactions?.map((x) => x.emoji + x.count).join('') ?? ''}`).join(',')
-        if (sig !== lastThreadSig.current) { lastThreadSig.current = sig; setMessages(items) }
-      })
-      .finally(() => { if (!silent) setLoadingThread(false) })
+  // grava a conversa no cache e, se for a que está aberta, na tela (sem repintar à toa)
+  const commitThread = useCallback((id: string, items: Msg[], more?: boolean) => {
+    const prev = threadCache.current.get(id)
+    const hm = more ?? prev?.hasMore ?? false
+    threadCache.current.set(id, { items, hasMore: hm })
+    if (selectedIdRef.current !== id) return
+    const sig = id + '|' + items.map((m) => `${m.id}${m.pending ? 'p' : ''}${m.failed ? 'f' : ''}${m.deleted_at ? 'd' : ''}${m.storage_path ? 's' : ''}${m.drive_file_id ? 'g' : ''}${m.edited_at ?? ''}${m.reactions?.map((x) => x.emoji + x.count).join('') ?? ''}`).join(',')
+    if (sig !== lastThreadSig.current) { lastThreadSig.current = sig; setMessages(items) }
+    setHasMore(hm)
   }, [])
+  const updateThread = useCallback((id: string, fn: (cur: Msg[]) => Msg[]) => {
+    commitThread(id, fn(threadCache.current.get(id)?.items ?? []))
+  }, [commitThread])
+
+  const refreshThread = useCallback((id: string, silent = false) => {
+    void silent
+    fetchCrmMessages(id, { limit: MSG_PAGE })
+      .then((r) => {
+        if (r.error) throw new Error(r.error)
+        const cur = threadCache.current.get(id)?.items ?? []
+        const { items, keptOlder } = mergeLatest(cur, (r.items as Msg[]) ?? [], r.hasMore)
+        commitThread(id, items, keptOlder ? undefined : r.hasMore)
+        if (selectedIdRef.current === id) setThreadError(null)
+      })
+      .catch((e: Error) => {
+        // com algo já na tela, uma falha de atualização não apaga nada (tenta de novo no próximo evento)
+        if (selectedIdRef.current === id && !threadCache.current.get(id)?.items.length) setThreadError(e.message || 'Falha ao carregar as mensagens')
+      })
+      .finally(() => { if (selectedIdRef.current === id) setLoadingThread(false) })
+  }, [commitThread])
+
+  // Rolou até o topo: busca a página anterior, mantendo a posição de leitura.
+  const prependRef = useRef<{ h: number; top: number } | null>(null)
+  const loadOlder = useCallback(() => {
+    const id = selectedIdRef.current
+    if (!id || loadingOlderRef.current) return
+    const cur = threadCache.current.get(id)
+    const oldest = cur?.items.find((m) => !isTemp(m))
+    if (!cur?.hasMore || !oldest) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    fetchCrmMessages(id, { before: oldest.created_at, limit: MSG_PAGE })
+      .then((r) => {
+        if (r.error) throw new Error(r.error)
+        const latest = threadCache.current.get(id)?.items ?? []
+        const have = new Set(latest.map((m) => m.id))
+        const older = ((r.items as Msg[]) ?? []).filter((m) => !have.has(m.id))
+        const el = threadRef.current
+        if (selectedIdRef.current === id && el && older.length) prependRef.current = { h: el.scrollHeight, top: el.scrollTop }
+        commitThread(id, [...older, ...latest], older.length ? r.hasMore : false)
+      })
+      .catch(() => { if (selectedIdRef.current === id) toast.error('NÃO FOI POSSÍVEL CARREGAR', 'Mensagens anteriores — role para cima para tentar de novo') })
+      .finally(() => { loadingOlderRef.current = false; setLoadingOlder(false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commitThread])
 
   // Avisa o resto do sistema qual conversa está à vista (não notificar o que já se está lendo)
   useEffect(() => { setOpenConversationId(selectedId); return () => setOpenConversationId(null) }, [selectedId])
@@ -283,10 +402,17 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, showInfo, lightboxId, editing, replyTo])
 
-  // Ao trocar de conversa: zera a anterior e carrega a nova.
-  useEffect(() => { lastThreadSig.current = ''; setMessages([]) }, [selectedId])
+  // Ao trocar de conversa: mostra na hora o que já estava guardado dela (ou o esqueleto) e atualiza.
+  useEffect(() => {
+    const c = selectedId ? threadCache.current.get(selectedId) : undefined
+    lastThreadSig.current = ''
+    setMessages(c?.items ?? [])
+    setHasMore(c?.hasMore ?? false)
+    setThreadError(null)
+    setLoadingThread(!!selectedId && !c)
+    if (selectedId) refreshThread(selectedId, true)
+  }, [selectedId, refreshThread])
   useEffect(() => { refreshList() }, [refreshList])
-  useEffect(() => { if (selectedId) refreshThread(selectedId) }, [selectedId, refreshThread])
 
   // Rolagem: abre no fim; mensagem nova só desce a tela se você já estava no fim (ou se foi
   // você quem enviou). Se você subiu para ler o histórico, a tela fica onde está.
@@ -301,15 +427,24 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     if (!el) return
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40 // só "no fim" de verdade
     if (stickRef.current) setNewBelow((n) => (n ? 0 : n))
+    if (el.scrollTop < 300) loadOlder() // perto do topo: já traz as anteriores
   }
   // Quem está rolando a tela (roda do mouse, dedo, teclado) está lendo: a tela não pode se mexer sozinha.
   const markReading = () => { lastUserScrollRef.current = Date.now() }
   useEffect(() => { openedRef.current = null; prevCountRef.current = 0; stickRef.current = true; setNewBelow(0) }, [selectedId])
-  useEffect(() => {
+  // (antes da pintura, para a tela não "pular" ao abrir nem ao entrarem as mensagens antigas)
+  useLayoutEffect(() => {
     const el = threadRef.current
     if (!el || !messages.length) return
     const prev = prevCountRef.current
     prevCountRef.current = messages.length
+    const pre = prependRef.current
+    if (pre) {
+      // entraram mensagens antigas no topo: o que você lia continua no mesmo lugar
+      prependRef.current = null
+      el.scrollTop = pre.top + (el.scrollHeight - pre.h)
+      return
+    }
     if (openedRef.current !== selectedId) {
       openedRef.current = selectedId
       el.scrollTop = el.scrollHeight
@@ -348,41 +483,116 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     el.style.height = Math.min(el.scrollHeight, 144) + 'px'
   }, [text])
 
-  // Atualização em tempo real (Supabase) com poucos disparos: junta eventos próximos (debounce)
-  // e só recarrega a conversa aberta quando o evento é dela. O relógio é só uma rede de segurança.
-  useEffect(() => {
-    let listTimer: ReturnType<typeof setTimeout> | null = null
-    let threadTimer: ReturnType<typeof setTimeout> | null = null
-    const scheduleList = () => { if (listTimer) clearTimeout(listTimer); listTimer = setTimeout(() => refreshList(true), 700) }
-    const scheduleThread = () => { if (threadTimer) clearTimeout(threadTimer); threadTimer = setTimeout(() => { if (selectedId) refreshThread(selectedId, true) }, 500) }
-
-    const unsubscribe = subscribeCrmMessages('crm:all', '*', (payload) => {
-      scheduleList()
-      const cid = (payload.new as { conversation_id?: string } | null)?.conversation_id
-      if (selectedId && (!cid || cid === selectedId)) scheduleThread()
-    })
-
-    const safety = setInterval(() => {
-      if (document.hidden) return
-      refreshList(true)
-      if (selectedId) refreshThread(selectedId, true)
-    }, 45000)
-    const onVisible = () => {
-      if (document.hidden) return
-      refreshList(true)
-      if (selectedId) refreshThread(selectedId, true)
+  // Tempo real (Supabase). O evento já traz a mensagem: ela entra na tela na hora, sem buscar a
+  // conversa de novo; a lista ganha a prévia/ordem/contador localmente. Depois, uma conferência
+  // com o servidor por rajada de eventos (debounce) acerta o que o evento não traz (fotos,
+  // reações, contadores das abas). O canal é aberto UMA vez (antes era refeito a cada troca de
+  // conversa) e o relógio de 45 s é só uma rede de segurança.
+  const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
+  const rowToMsg = useCallback((r: Record<string, any>, prev?: Msg): Msg => {
+    const m: Record<string, any> = { ...(prev ?? { reactions: [] }) }
+    // só os campos que vieram: num UPDATE, texto/miniatura grandes que não mudaram podem não vir
+    for (const k of MSG_FIELDS) if (k in r) m[k] = r[k]
+    if (!prev) {
+      m.sender_name = r.sender_user_id ? usersById.get(r.sender_user_id)?.name ?? null : null
+      m.acted_by_name = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.name ?? null : null
     }
-    document.addEventListener('visibilitychange', onVisible)
+    if (r.deleted_by_user_id && !m.deleted_by_name) m.deleted_by_name = usersById.get(r.deleted_by_user_id)?.name ?? null
+    if (m.deleted_at) { m.body = null; m.storage_path = null; m.file_name = null; m.reactions = [] }
+    return m as Msg
+  }, [usersById])
+
+  const realtimeRef = useRef<(p: { eventType?: string; new?: Record<string, any> | null }) => void>(() => {})
+  const timersRef = useRef<{ list?: ReturnType<typeof setTimeout>; thread?: ReturnType<typeof setTimeout> }>({})
+  const scheduleListCheck = useCallback(() => {
+    clearTimeout(timersRef.current.list)
+    timersRef.current.list = setTimeout(() => refreshListRef.current(true), 1200)
+  }, [])
+  const scheduleThreadCheck = useCallback((cid: string) => {
+    clearTimeout(timersRef.current.thread)
+    timersRef.current.thread = setTimeout(() => { if (selectedIdRef.current === cid) refreshThread(cid, true) }, 1200)
+  }, [refreshThread])
+
+  realtimeRef.current = (payload) => {
+    const r = payload.new
+    const cid = r?.conversation_id as string | undefined
+    if (!r || !cid) { scheduleListCheck(); return }
+    const isInsert = payload.eventType === 'INSERT'
+    const cached = threadCache.current.get(cid)
+    if (cached) {
+      const idx = cached.items.findIndex((m) => m.id === r.id)
+      if (idx >= 0) {
+        const items = cached.items.slice()
+        items[idx] = rowToMsg(r, cached.items[idx])
+        commitThread(cid, items)
+      } else if (isInsert) {
+        const msg = rowToMsg(r)
+        const temps = dropConfirmedTemps(cached.items.filter(isTemp), [msg])
+        const real = [...cached.items.filter((m) => !isTemp(m)), msg].sort((a, b) => a.created_at.localeCompare(b.created_at))
+        commitThread(cid, [...real, ...temps])
+      }
+    }
+    // conferência da conversa aberta só quando o evento não traz tudo (foto de quem enviou)
+    if (cid === selectedIdRef.current && isInsert && r.direction === 'outbound' && r.sender_user_id) scheduleThreadCheck(cid)
+
+    if (isInsert) {
+      const open = cid === selectedIdRef.current && document.visibilityState === 'visible'
+      setConversations((cs) => {
+        const i = cs.findIndex((c) => c.id === cid)
+        if (i < 0) return cs
+        const c = cs[i]
+        const shows = !r.is_system // aviso do sistema não vira prévia
+        const upd: ConversationRow = {
+          ...c,
+          last_message_at: r.created_at,
+          last_at: shows ? r.created_at : c.last_at,
+          last_body: shows ? messagePreview({ message_type: r.message_type, body: r.body, file_name: r.file_name }) : c.last_body,
+          last_direction: shows ? r.direction : c.last_direction,
+          unread_count: shows && r.direction === 'inbound' && !open ? c.unread_count + 1 : c.unread_count,
+          archived: r.direction === 'inbound' ? false : c.archived,
+        }
+        const rest = cs.filter((_, j) => j !== i)
+        const at = upd.pinned ? 0 : rest.findIndex((x) => !x.pinned)
+        rest.splice(at < 0 ? rest.length : at, 0, upd)
+        lastListSig.current = '' // a tela saiu do que veio do servidor: a próxima conferência repinta
+        return rest
+      })
+      scheduleListCheck()
+    } else {
+      // edição/apagamento: a prévia da lista só muda se for a última mensagem
+      const row = conversationsRef.current.find((c) => c.id === cid)
+      if (row && row.last_at && r.created_at >= row.last_at) scheduleListCheck()
+    }
+  }
+  const conversationsRef = useRef(conversations)
+  conversationsRef.current = conversations
+
+  useEffect(() => {
+    const unsubscribe = subscribeCrmMessages('crm:all', '*', (p) => realtimeRef.current(p))
+    const resync = () => {
+      if (document.hidden) return
+      refreshListRef.current(true)
+      if (selectedIdRef.current) refreshThreadRef.current(selectedIdRef.current, true)
+    }
+    const safety = setInterval(resync, 45000)
+    document.addEventListener('visibilitychange', resync)
+    const timers = timersRef.current
     return () => {
-      if (listTimer) clearTimeout(listTimer)
-      if (threadTimer) clearTimeout(threadTimer)
+      clearTimeout(timers.list)
+      clearTimeout(timers.thread)
       clearInterval(safety)
-      document.removeEventListener('visibilitychange', onVisible)
+      document.removeEventListener('visibilitychange', resync)
       unsubscribe()
     }
-  }, [selectedId, refreshList, refreshThread])
+  }, [])
+  const refreshThreadRef = useRef(refreshThread)
+  refreshThreadRef.current = refreshThread
 
-  const selected = selectedId ? conversations.find((c) => c.id === selectedId) : null
+  // Enquanto a lista da outra aba ainda carrega (vazia), a conversa aberta continua na tela.
+  const selectedRowRef = useRef<ConversationRow | null>(null)
+  const foundSelected = selectedId ? conversations.find((c) => c.id === selectedId) ?? null : null
+  if (foundSelected) selectedRowRef.current = foundSelected
+  const selected = foundSelected ?? (selectedId && conversations.length === 0 && selectedRowRef.current?.id === selectedId ? selectedRowRef.current : null)
 
   // Membros do grupo aberto (para mencionar e para trocar "@número" pelo nome nas mensagens)
   const selectedIsGroup = !!selected?.is_group
@@ -437,7 +647,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       cur.prev = selected.unread_count
     }
     if (selected.unread_count === 0 && !selected.marked_unread) return
-    markConversationRead(selected.id).then(() => refreshList(true))
+    // zera o contador na hora; o servidor só registra (sem recarregar a lista inteira depois)
+    const id = selected.id
+    setConversations((cs) => cs.map((c) => (c.id === id ? { ...c, unread_count: 0, marked_unread: false } : c)))
+    lastListSig.current = ''
+    markConversationRead(id).then(() => window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, selected?.unread_count, selected?.marked_unread])
   useEffect(() => { if (!selectedId) openedUnreadRef.current = null }, [selectedId])
@@ -517,7 +731,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }
 
   // arquivo no Drive: sai pela rota do sistema; no Supabase: link assinado
-  const mediaUrlOf = (m: Msg) => (m.drive_file_id ? `/api/crm/media/${m.id}` : m.storage_path ? attUrls[m.storage_path] : undefined)
+  const mediaUrlOf = (m: Msg) => (m.local_url ? m.local_url : m.drive_file_id ? `/api/crm/media/${m.id}` : m.storage_path ? attUrls[m.storage_path] : undefined)
   const lightboxItems: LightboxItem[] = messages
     .filter((m) => (m.message_type === 'image' || m.message_type === 'video') && mediaUrlOf(m))
     .map((m) => ({ id: m.id, url: mediaUrlOf(m) as string, kind: m.message_type as 'image' | 'video', name: m.file_name }))
@@ -544,24 +758,66 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
   )
 
+  // ── Envio otimista (texto, arquivo, áudio) ───────────────────────────────────
+  // A mensagem entra na tela na hora com o relógio; o campo continua livre para a próxima.
+  // Confirmou: o relógio vira ✓✓ e a mensagem real assume o lugar (sem duplicar). Falhou:
+  // fica marcada em vermelho com "Tentar de novo" — nada do que foi escrito se perde.
+  const meName = actingAsName ?? users.find((u) => u.id === currentUserId)?.name ?? null
+  const makeTemp = (fields: Partial<Msg>, reply: Msg | null): Msg => ({
+    id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
+    sender_avatar_url: null, sender_avatar_color: null,
+    message_type: 'text', body: null, storage_path: null, file_name: null, mime_type: null,
+    is_system: false, created_at: new Date().toISOString(),
+    reply_to_provider_id: reply?.provider_message_id ?? null,
+    reply_to_preview: reply ? (messagePreview({ message_type: reply.message_type, body: reply.body, file_name: reply.file_name }) || null) : null,
+    pending: true,
+    ...fields,
+  })
+  const runSend = (cid: string, tempId: string, send: () => Promise<{ error?: string; messageId?: string | null }>) => {
+    send()
+      .catch((e: Error) => ({ error: e?.message || 'Sem conexão com o servidor', messageId: null }))
+      .then((res) => {
+        if (res.error) {
+          toast.error('MENSAGEM NÃO ENVIADA', res.error)
+          updateThread(cid, (cur) => cur.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true, retry: send } : m)))
+          return
+        }
+        // se a versão real já chegou pelo tempo real, a otimista já saiu e o map não acha nada
+        updateThread(cid, (cur) => cur.map((m) => (m.id === tempId ? { ...m, pending: false, realId: res.messageId ?? null } : m)))
+        scheduleThreadCheck(cid)
+      })
+  }
+  const retrySend = (m: Msg) => {
+    const cid = selectedIdRef.current
+    if (!cid || !m.retry) return
+    updateThread(cid, (cur) => cur.map((x) => (x.id === m.id ? { ...x, pending: true, failed: false } : x)))
+    runSend(cid, m.id, m.retry)
+  }
+  const discardFailed = (m: Msg) => {
+    const cid = selectedIdRef.current
+    if (!cid) return
+    if (m.local_url) URL.revokeObjectURL(m.local_url)
+    updateThread(cid, (cur) => cur.filter((x) => x.id !== m.id))
+  }
+  const enqueue = (cid: string, temp: Msg) => {
+    updateThread(cid, (cur) => [...cur, temp])
+    requestAnimationFrame(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }) })
+  }
+
+  const fileKind = (mime: string) => (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document')
   const sendFiles = (files: File[]) => {
     const cid = selectedId
     if (!cid) { toast.error('ERRO', 'Escolha uma conversa primeiro'); return }
     const reply = replyTo
     setReplyTo(null)
     files.forEach((file) => {
-      startTransition(async () => {
+      const temp = makeTemp({ message_type: fileKind(file.type), file_name: file.name, mime_type: file.type, local_url: URL.createObjectURL(file) }, reply)
+      enqueue(cid, temp)
+      runSend(cid, temp.id, async () => {
         const up = await uploadCrmFile(cid, file)
-        if (up.error) { toast.error('ERRO AO ENVIAR', up.error); return }
-        const res = await sendCrmMessage({
-          conversationId: cid,
-          storagePath: up.storagePath,
-          fileName: file.name,
-          mimeType: file.type,
-          replyToMessageId: reply?.id,
-        })
-        if (res.error) toast.error('ERRO', res.error)
-        else refreshThread(cid, true)
+        if (up.error) return { error: up.error }
+        return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, replyToMessageId: reply?.id })
       })
     })
   }
@@ -585,41 +841,26 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       const target = editing
       const newText = text
       setText(''); setEditing(null)
-      startTransition(async () => {
-        const r = await editCrmMessage(target.id, newText)
-        if ('error' in r && r.error) { toast.error('NÃO FOI POSSÍVEL EDITAR', r.error); setEditing(target); setText((cur) => cur || newText) }
-        else refreshThread(selectedId, true)
+      const cid = selectedId
+      // o texto novo aparece na hora; se o WhatsApp recusar, volta o anterior
+      updateThread(cid, (cur) => cur.map((m) => (m.id === target.id ? { ...m, body: newText, edited_at: new Date().toISOString() } : m)))
+      editCrmMessage(target.id, newText).then((r) => {
+        if ('error' in r && r.error) {
+          toast.error('NÃO FOI POSSÍVEL EDITAR', r.error)
+          updateThread(cid, (cur) => cur.map((m) => (m.id === target.id ? { ...m, body: target.body, edited_at: target.edited_at ?? null } : m)))
+          setEditing(target); setText((cur) => cur || newText)
+        }
       })
       return
     }
     const cid = selectedId
-    const msg = text
     const reply = replyTo
-    const out = selectedIsGroup ? applyMentionsToSend(msg, picks) : { text: msg, mentioned: [] as string[], all: false }
+    const out = selectedIsGroup ? applyMentionsToSend(text, picks) : { text, mentioned: [] as string[], all: false }
     setText('')
     setPicks([]); setMention(null); setReplyTo(null)
-    // Mostra a mensagem na hora (como o WhatsApp): aparece com um relógio até o servidor confirmar.
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const meName = actingAsName ?? users.find((u) => u.id === currentUserId)?.name ?? null
-    const temp: Msg = {
-      id: tempId, direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
-      sender_avatar_url: null, sender_avatar_color: null,
-      message_type: 'text', body: out.text, storage_path: null, file_name: null, mime_type: null,
-      is_system: false, created_at: new Date().toISOString(),
-      reply_to_provider_id: reply?.provider_message_id ?? null,
-      reply_to_preview: reply ? (messagePreview({ message_type: reply.message_type, body: reply.body, file_name: reply.file_name }) || null) : null,
-      pending: true,
-    }
-    setMessages((cur) => [...cur, temp])
-    requestAnimationFrame(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }) })
-    startTransition(async () => {
-      const res = await sendCrmMessage({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all })
-      if (res.error) {
-        toast.error('ERRO', res.error)
-        setMessages((cur) => cur.filter((m) => m.id !== tempId)) // tira o otimista que falhou
-        setText((cur) => cur || msg); setReplyTo(reply)
-      } else { refreshThread(cid, true) }
-    })
+    const temp = makeTemp({ body: out.text }, reply)
+    enqueue(cid, temp)
+    runSend(cid, temp.id, () => sendCrmMessage({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all }))
   }
 
   function stopRecordingTracks() {
@@ -687,24 +928,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     setPreviewAudio(null)
   }
 
-  async function sendPreviewAudio() {
+  function sendPreviewAudio() {
     if (!previewAudio || !selectedId) return
     const { file } = previewAudio
-    discardPreviewAudio()
-    setSendingVoice(true)
-    const up = await uploadCrmFile(selectedId, file)
-    if (up.error) { toast.error('NÃO FOI POSSÍVEL ENVIAR', up.error); setSendingVoice(false); return }
-    const res = await sendCrmMessage({
-      conversationId: selectedId,
-      storagePath: up.storagePath,
-      fileName: file.name,
-      mimeType: file.type,
-      isVoiceNote: true,
-      replyToMessageId: replyTo?.id,
+    const cid = selectedId
+    const reply = replyTo
+    setPreviewAudio(null) // a prévia vira a mensagem otimista (o link local segue vivo até confirmar)
+    setReplyTo(null)
+    const temp = makeTemp({ message_type: 'audio', file_name: file.name, mime_type: file.type, local_url: previewAudio.url }, reply)
+    enqueue(cid, temp)
+    runSend(cid, temp.id, async () => {
+      const up = await uploadCrmFile(cid, file)
+      if (up.error) return { error: up.error }
+      return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, isVoiceNote: true, replyToMessageId: reply?.id })
     })
-    setSendingVoice(false)
-    if (res.error) toast.error('NÃO FOI POSSÍVEL ENVIAR', res.error)
-    else { setReplyTo(null); refreshThread(selectedId) }
   }
 
   async function openAttachment(path: string) {
@@ -797,12 +1034,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
         {/* Lista */}
         <div className="flex-1 overflow-y-auto">
-          {loadingList && (
-            <div className="p-8 text-center">
-              <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto" />
-            </div>
+          {(loadingList || !filter.loaded) && conversations.length === 0 && !listError && <ConversationListSkeleton />}
+          {listError && conversations.length === 0 && (
+            <LoadError message="Não foi possível carregar as conversas." onRetry={() => { setListError(null); setLoadingList(true); refreshList() }} />
           )}
-          {!loadingList && visibleConversations.length === 0 && (
+          {!loadingList && filter.loaded && !listError && visibleConversations.length === 0 && (
             <div className="text-sm text-gray-500 p-4 text-center space-y-2">
               <p>{q ? `Nenhuma conversa encontrada para “${query.trim()}”` : 'Nenhuma conversa aqui'}</p>
               {!q && scope === 'mine' && counts.unassigned > 0 && (
@@ -1023,10 +1259,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
             {/* Mensagens */}
             <div ref={threadRef} data-thread onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
-              {loadingThread && (
-                <div className="text-center py-4">
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
-                </div>
+              {loadingThread && messages.length === 0 && !threadError && <ThreadSkeleton />}
+              {threadError && messages.length === 0 && (
+                <LoadError message="Não foi possível carregar as mensagens." onRetry={() => { setThreadError(null); setLoadingThread(true); refreshThread(selectedId!) }} />
+              )}
+              {loadingOlder && <LuknosSpinner size="sm" label="Mensagens anteriores…" delay={150} className="py-2" />}
+              {!hasMore && !loadingThread && messages.length >= MSG_PAGE && (
+                <p className="text-center text-[11px] text-gray-500 py-2">Início da conversa</p>
               )}
               {messages.map((m, i) => (
                 <Fragment key={m.id}>
@@ -1069,10 +1308,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL REAGIR', r.error)
                     else refreshThread(selectedId!, true)
                   }}
-                  canDelete={canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
-                  canForward={m.message_type === 'text' && !!(m.body && m.body.trim()) && !m.deleted_at}
+                  canDelete={!isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  canForward={!isTemp(m) && m.message_type === 'text' && !!(m.body && m.body.trim()) && !m.deleted_at}
+                  onRetry={() => retrySend(m)}
+                  onDiscard={() => discardFailed(m)}
                   onForward={() => setForwarding(m)}
-                  canEdit={canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
+                  canEdit={!isTemp(m) && canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
                   onEdit={() => { setReplyTo(null); setEditing(m); setText(m.body ?? ''); requestAnimationFrame(() => textareaRef.current?.focus()) }}
                   onDelete={async () => {
                     if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
@@ -1123,11 +1364,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={sendPreviewAudio}
-                  disabled={sendingVoice}
+
                   className="p-2 bg-gray-900 text-white hover:bg-gray-800 rounded-full transition-colors"
                   title="Enviar áudio"
                 >
-                  {sendingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <Send className="w-4 h-4" />
                 </button>
               </div>
             ) : (
@@ -1152,7 +1393,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancelar resposta" className="p-1 rounded hover:bg-gray-200 text-gray-500"><X className="w-4 h-4" /></button>
                 </div>
               )}
-              {showFormat && <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} disabled={pending || sendingVoice} />}
+              {showFormat && <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} />}
               <div className={cn('flex items-end gap-1', showFormat && 'mt-1')}>
                 <button
                   type="button"
@@ -1168,16 +1409,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={pending || sendingVoice}
+                 
                   className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Anexar arquivo"
                 >
-                  {pending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+                  <Paperclip className="w-5 h-5" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSendContact(true)}
-                  disabled={pending || sendingVoice}
+                 
                   className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Enviar contato do sistema"
                   aria-label="Enviar contato"
@@ -1188,7 +1429,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button
                     type="button"
                     onClick={() => setShowStickers((v) => !v)}
-                    disabled={pending || sendingVoice}
+                   
                     className={cn('p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showStickers && 'bg-gray-100')}
                     title="Figurinhas"
                     aria-label="Figurinhas"
@@ -1207,7 +1448,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={handleToggleSignature}
-                  disabled={pending || sendingVoice}
+                 
                   className={cn('p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
                   title={selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para voltar a assinar)' : 'Mensagens vão com o seu nome no começo (clique para enviar sem assinatura)'}
                   aria-label="Assinatura"
@@ -1291,7 +1532,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button
                     type="button"
                     onClick={startRecording}
-                    disabled={sendingVoice}
+
                     className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                     title="Gravar áudio"
                   >
@@ -1399,7 +1640,7 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact,
+  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
 }: {
   msg: Msg
   first: boolean
@@ -1422,6 +1663,8 @@ function MessageBubble({
   canForward: boolean
   onForward: () => void
   onOpenContact?: (phone: string) => void
+  onRetry?: () => void
+  onDiscard?: () => void
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -1462,7 +1705,11 @@ function MessageBubble({
     <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
       {msg.edited_at && <span className="mr-0.5 italic" title={`Editada em ${new Date(msg.edited_at).toLocaleString('pt-BR')}`}>Editada</span>}
       {time}
-      {isOutbound && (msg.pending ? <Clock className="w-3.5 h-3.5 text-gray-400" aria-label="Enviando…" /> : <CheckCheck className="w-4 h-4 text-gray-400" aria-hidden />)}
+      {isOutbound && (msg.failed
+        ? <AlertCircle className="w-3.5 h-3.5 text-red-600" aria-label="Não enviada" />
+        : msg.pending
+          ? <Clock className="w-3.5 h-3.5 text-gray-400" aria-label="Enviando…" />
+          : <CheckCheck className="w-4 h-4 text-gray-400" aria-label="Enviada" />)}
     </span>
   )
   // espaço invisível no fim do texto para a hora caber na mesma linha
@@ -1474,7 +1721,7 @@ function MessageBubble({
   const tailCorner = first ? (isOutbound ? 'rounded-tr-none' : 'rounded-tl-none') : ''
 
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
-  const hasFile = !!(msg.storage_path || msg.drive_file_id)
+  const hasFile = !!(msg.storage_path || msg.drive_file_id || msg.local_url)
   // foto, áudio, vídeo ou documento que ainda não foi baixado: mostra o botão "Baixar"
   const needsDownload = !hasFile && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
   const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
@@ -1494,7 +1741,7 @@ function MessageBubble({
   const parentName = parent
     ? (parent.direction === 'outbound' ? (parent.sender_name ?? 'Nós') : (isGroup ? (parent.participant_name ?? 'Participante') : contact.name))
     : null
-  const canReply = !!msg.provider_message_id
+  const canReply = !!msg.provider_message_id && !msg.id.startsWith('temp-')
   const canSaveSticker = msg.message_type === 'image' && !!msg.storage_path && (msg.mime_type ?? '').includes('webp')
 
   return (
@@ -1683,6 +1930,16 @@ function MessageBubble({
           </div>
         )}
       </div>
+      {msg.failed && (
+        <div className="order-first flex items-center gap-1 self-end mb-0.5" role="group" aria-label="Mensagem não enviada">
+          <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] font-medium text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50">
+            <RefreshCw className="w-3 h-3" /> Tentar de novo
+          </button>
+          <button type="button" onClick={onDiscard} aria-label="Descartar mensagem não enviada" title="Descartar" className="rounded-full bg-white p-1 text-gray-500 shadow-sm ring-1 ring-gray-200 hover:text-gray-800">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  getCrmSnapshot,
   setConversationValue,
   getCrmStages,
   createCrmStage,
@@ -26,6 +25,8 @@ import { ConvTags } from './ConvTags'
 import { DUE_STYLE } from './FollowupPopover'
 import { dueState, formatDue } from '@/lib/crm-followup'
 import { Avatar } from '@/components/ui/Avatar'
+import { fetchCrmSnapshot } from '@/lib/crm-fetch'
+import { LuknosSpinner } from '@/components/ui/LuknosLoader'
 import { cn } from '@/lib/utils'
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2, Search, MoreHorizontal, X, AlertTriangle, ArrowRightLeft, CheckCheck, CalendarClock } from 'lucide-react'
 
@@ -64,19 +65,38 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const selectedKey = filter.selected.join(',')
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
 
+  // Leitura por GET (fora da fila das ações: mover um cartão não espera a atualização terminar).
+  // Cada aba/filtro fica guardado: trocar mostra na hora o que já tinha e atualiza por trás —
+  // o quadro só dá lugar ao carregamento quando ainda não há nada para mostrar.
+  const cache = useRef(new Map<string, { items: ConversationRow[]; stages: CrmStage[]; counts: typeof counts }>())
+  const keyRef = useRef('')
+  keyRef.current = `${scope}|${selectedKey}`
   const load = useCallback(async (silent = false) => {
+    void silent
     if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
-    if (!silent) setLoading(true)
+    const key = `${scope}|${selectedKey}`
     const ids = selectedKey ? selectedKey.split(',') : undefined
-    const snap = await getCrmSnapshot(scope, BOARD_LIMIT, ids, true)
-    setCounts(snap.counts)
-    if (busy.current > 0) return // chegou no meio de uma escrita: descarta p/ não "piscar" estado antigo
-    if (snap.error) setLoadError(snap.error)
-    else { setLoadError(null); setCards(snap.items ?? []) }
-    const st = snap.stages ?? []
-    setStages(st)
-    if (!silent) setLoading(false)
+    try {
+      const snap = await fetchCrmSnapshot(scope, BOARD_LIMIT, ids, true)
+      if (keyRef.current !== key) return // trocou de aba no meio do caminho
+      setCounts(snap.counts)
+      if (snap.error) { setLoadError(snap.error); return }
+      cache.current.set(key, { items: snap.items ?? [], stages: snap.stages ?? [], counts: snap.counts })
+      if (busy.current > 0) return // chegou no meio de uma escrita: descarta p/ não "piscar" estado antigo
+      setLoadError(null)
+      setCards(snap.items ?? [])
+      setStages(snap.stages ?? [])
+    } catch (e) {
+      if (keyRef.current === key) setLoadError((e as Error).message || 'Sem conexão com o servidor')
+    } finally {
+      if (keyRef.current === key) setLoading(false)
+    }
   }, [scope, selectedKey, filter.loaded])
+  useEffect(() => {
+    const c = cache.current.get(`${scope}|${selectedKey}`)
+    if (c) { setCards(c.items); setStages(c.stages); setCounts(c.counts) }
+    setLoading(!c)
+  }, [scope, selectedKey])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -239,7 +259,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
       )}
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+        <div className="flex-1 flex items-center justify-center"><LuknosSpinner label="Carregando o quadro…" /></div>
       ) : orderedStages.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-500 text-sm">
           Nenhuma coluna configurada.

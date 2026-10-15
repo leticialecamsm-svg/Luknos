@@ -45,8 +45,12 @@ const staffCache = new Map<string, { at: number; profile: { role: string; active
 
 async function ensureStaff() {
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Não autenticado' as const }
+  // getClaims valida a assinatura do token aqui mesmo (chaves ES256, cache global do JWKS):
+  // não vai ao servidor de autenticação a cada chamada, como o getUser() fazia (~100–200 ms).
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const sub = claimsData?.claims?.sub
+  if (!sub) return { error: 'Não autenticado' as const }
+  const user = { id: sub as string }
   let cached = staffCache.get(user.id)
   if (!cached || Date.now() - cached.at > STAFF_CACHE_MS) {
     const { data: p } = await supabase.from('users').select('role, active, name, extra_pages').eq('id', user.id).single()
@@ -322,18 +326,19 @@ async function isAdminUser(admin: Admin, userId: string): Promise<boolean> {
 }
 
 async function loadScope(admin: Admin, userId: string): Promise<Scope> {
-  const userIsAdmin = await isAdminUser(admin, userId)
-  const [{ data: instances }, { data: mem }, { data: shared }] = await Promise.all([
+  // tudo numa rodada só (antes: papel → números/membros/liberações → conversas restritas, em sequência)
+  const [userIsAdmin, { data: instances }, { data: mem }, { data: shared }, { data: restricted }] = await Promise.all([
+    isAdminUser(admin, userId),
     admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at'),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
     admin.from('crm_conversation_access').select('conversation_id').eq('user_id', userId),
+    admin.from('crm_conversations').select('id, assigned_user_id').eq('is_restricted', true),
   ])
   const memberOf = new Set((mem ?? []).map((m) => m.instance_id as string))
   const list = (instances ?? []) as Scope['instances']
   const sharedIds = (shared ?? []).map((s) => s.conversation_id as string)
   let hiddenConvIds: string[] = []
   if (!userIsAdmin) {
-    const { data: restricted } = await admin.from('crm_conversations').select('id, assigned_user_id').eq('is_restricted', true)
     hiddenConvIds = (restricted ?? [])
       .filter((r) => r.assigned_user_id !== userId && !sharedIds.includes(r.id as string))
       .map((r) => r.id as string)
@@ -374,16 +379,23 @@ async function convAccess(admin: Admin, auth: { userId: string; actedBy: { id: s
 // Mesma regra do banco (crm_can_see_conversation). canManage = pode transferir,
 // liberar e tirar a liberação: dono/membro do número ou atendente atual.
 async function conversationAccess(admin: Admin, userId: string, conversationId: string) {
+  // Uma ida ao banco para conversa + número, e as três checagens de permissão em paralelo
+  // (antes eram até 4 consultas em sequência a cada ação dentro de uma conversa).
   const { data: c } = await admin
     .from('crm_conversations')
-    .select('id, instance_id, assigned_user_id, is_restricted')
+    .select('id, instance_id, assigned_user_id, is_restricted, inst:crm_instances(is_private, default_user_id)')
     .eq('id', conversationId)
     .maybeSingle()
   if (!c) return { ok: false as const, error: 'Conversa não encontrada' }
-  const { data: inst } = await admin.from('crm_instances').select('is_private, default_user_id').eq('id', c.instance_id).single()
+  const inst = (Array.isArray((c as any).inst) ? (c as any).inst[0] : (c as any).inst) as { is_private: boolean | null; default_user_id: string | null } | null
   const isPrivate = !!inst?.is_private
   const restricted = !!c.is_restricted
-  if ((isPrivate || restricted) && (await isAdminUser(admin, userId))) {
+  const [userIsAdmin, { data: member }, { data: shared }] = await Promise.all([
+    isPrivate || restricted ? isAdminUser(admin, userId) : Promise.resolve(false),
+    admin.from('crm_instance_members').select('user_id').eq('instance_id', c.instance_id).eq('user_id', userId).maybeSingle(),
+    admin.from('crm_conversation_access').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
+  ])
+  if (userIsAdmin) {
     return {
       ok: true as const,
       isPrivate,
@@ -393,10 +405,6 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
       canManage: true,
     }
   }
-  const [{ data: member }, { data: shared }] = await Promise.all([
-    admin.from('crm_instance_members').select('user_id').eq('instance_id', c.instance_id).eq('user_id', userId).maybeSingle(),
-    admin.from('crm_conversation_access').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
-  ])
   const isOwnerOrMember = inst?.default_user_id === userId || !!member
   const isAssigned = c.assigned_user_id === userId
   const canSee = isAssigned || !!shared || (!restricted && (!isPrivate || isOwnerOrMember))
@@ -655,14 +663,18 @@ export async function getCrmConversations(
   const followupBy = new Map<string, NonNullable<ConversationRow['next_followup']>>()
   const unreadBy = new Map<string, { unread: number; marked: boolean; stale: number; archived: boolean }>()
   const pinsBy = new Map<string, string>() // conversa -> quando fixou
+  const people = new Map<string, CrmPerson>()
   if (ids.length) {
-    const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }, { data: pins }] = await Promise.all([
+    // a equipe é pequena: os usuários vêm junto, em vez de uma consulta a mais depois
+    const [{ data: infos }, { data: ls }, { data: fus }, { data: unr }, { data: pins }, { data: us }] = await Promise.all([
       admin.rpc('crm_last_info', { conv_ids: ids }),
       admin.from('crm_conversation_labels').select('conversation_id, crm_labels(id, name, color)').in('conversation_id', ids),
       admin.from('tasks').select('id, crm_conversation_id, due_date, user_id, description').in('crm_conversation_id', ids).neq('status', 'done').order('due_date', { ascending: true }),
       admin.rpc('crm_unread_counts', { uid: auth.userId, conv_ids: ids }),
       admin.from('crm_conversation_pins').select('conversation_id, pinned_at').eq('user_id', auth.userId).in('conversation_id', ids),
+      admin.from('users').select('id, name, avatar_url, avatar_color'),
     ])
+    for (const u of us ?? []) people.set(u.id, { id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null })
     for (const pn of (pins ?? []) as any[]) pinsBy.set(pn.conversation_id, pn.pinned_at)
     for (const u of (unr ?? []) as any[]) unreadBy.set(u.conversation_id, { unread: u.unread ?? 0, marked: !!u.marked_unread, stale: u.stale ?? 0, archived: !!u.archived })
     for (const f of (fus ?? []) as any[]) {
@@ -684,12 +696,6 @@ export async function getCrmConversations(
       arr.push(r.crm_labels as CrmLabel)
       labelsBy.set(r.conversation_id, arr)
     }
-  }
-  const replyIds = Array.from(new Set(Array.from(lastInfo.values()).map((v) => v.replyUser).filter(Boolean) as string[]))
-  const people = new Map<string, CrmPerson>()
-  if (replyIds.length) {
-    const { data: us } = await admin.from('users').select('id, name, avatar_url, avatar_color').in('id', replyIds)
-    for (const u of us ?? []) people.set(u.id, { id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null })
   }
 
   const items: ConversationRow[] = (data ?? []).map((c: any) => {
@@ -769,22 +775,31 @@ export async function getCrmScopeCounts(instanceIds?: string[]) {
   return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0, groups: g.count ?? 0 }
 }
 
-export async function getCrmMessages(conversationId: string) {
+// Página de mensagens: as `limit` mais recentes (ou as anteriores a `before`), em ordem
+// cronológica. Antes vinha o histórico inteiro a cada abertura e a cada mensagem nova.
+export async function getCrmMessages(conversationId: string, opts: { before?: string | null; limit?: number } = {}) {
   const auth = await ensureStaff()
-  if ('error' in auth) return { error: auth.error, items: [] }
+  if ('error' in auth) return { error: auth.error, items: [], hasMore: false }
   const admin = createAdminClient()
-  const acc = await convAccess(admin, auth, conversationId)
-  if (!acc.ok) return { error: acc.error, items: [] }
-  const { data, error } = await admin
+  const limit = Math.min(Math.max(opts.limit ?? 60, 1), 200)
+  let q = admin
     .from('crm_messages')
     .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
-  if (error) return { error: error.message, items: [] }
-  const { data: reactRows } = await admin
-    .from('crm_message_reactions')
-    .select('target_provider_id, emoji, from_me, reactor_name')
-    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1)
+  // lte (e não lt): mensagens com o mesmo horário da mais antiga na tela não ficam de fora; a tela descarta as repetidas
+  if (opts.before) q = q.lte('created_at', opts.before)
+  // permissão, mensagens e reações em paralelo; o resultado só é devolvido se a permissão passar
+  const [acc, { data: rows, error }, { data: reactRows }] = await Promise.all([
+    convAccess(admin, auth, conversationId),
+    q,
+    admin.from('crm_message_reactions').select('target_provider_id, emoji, from_me, reactor_name').eq('conversation_id', conversationId),
+  ])
+  if (!acc.ok) return { error: acc.error, items: [], hasMore: false }
+  if (error) return { error: error.message, items: [], hasMore: false }
+  const hasMore = (rows ?? []).length > limit
+  const data = (rows ?? []).slice(0, limit).reverse()
   const reactionsBy = new Map<string, { emoji: string; from_me: boolean; reactor_name: string | null }[]>()
   for (const r of (reactRows ?? []) as any[]) {
     const arr = reactionsBy.get(r.target_provider_id) ?? []
@@ -792,7 +807,8 @@ export async function getCrmMessages(conversationId: string) {
     reactionsBy.set(r.target_provider_id, arr)
   }
   return {
-    items: (data ?? []).map((m: any) => {
+    hasMore,
+    items: data.map((m: any) => {
       const deleted = !!m.deleted_at
       return {
         ...m,
@@ -1132,7 +1148,7 @@ export async function sendCrmMessage(input: {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || !body?.sent) return { error: body?.error ?? 'Falha ao enviar' }
-    return { ok: true }
+    return { ok: true, messageId: (body.message_id as string | null) ?? null }
   } catch (e: any) {
     return { error: e?.message ?? 'Falha ao enviar' }
   }
@@ -2392,20 +2408,19 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
     .eq('id', messageId)
     .maybeSingle()
   if (!m || m.direction !== 'inbound' || m.is_system || m.deleted_at) return null
-  const { data: c } = await admin
-    .from('crm_conversations')
-    .select('id, remote_jid, status, instance_id, assigned_user_id, contact_name_cache, contact_photo_url, contacts(name), crm_instances(label)')
-    .eq('id', m.conversation_id)
-    .maybeSingle()
+  const [{ data: c }, { data: shared }, { data: insts }] = await Promise.all([
+    admin
+      .from('crm_conversations')
+      .select('id, remote_jid, status, instance_id, assigned_user_id, contact_name_cache, contact_photo_url, contacts(name), crm_instances(label)')
+      .eq('id', m.conversation_id)
+      .maybeSingle(),
+    admin.from('crm_conversation_access').select('user_id').eq('conversation_id', m.conversation_id).eq('user_id', auth.userId).maybeSingle(),
+    admin.from('crm_instances').select('id, created_at').order('created_at', { ascending: true }),
+  ])
   if (!c || c.status !== 'open' || isGroupJid(c.remote_jid)) return null
-  if (c.assigned_user_id !== auth.userId) {
-    const { data: shared } = await admin
-      .from('crm_conversation_access').select('user_id').eq('conversation_id', c.id).eq('user_id', auth.userId).maybeSingle()
-    if (!shared) return null
-  }
+  if (c.assigned_user_id !== auth.userId && !shared) return null
   const name = (c as any).contacts?.name ?? c.contact_name_cache ?? c.remote_jid.split('@')[0]
   const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
-  const { data: insts } = await admin.from('crm_instances').select('id, created_at').order('created_at', { ascending: true })
   const colorIndex = Math.max(0, (insts ?? []).findIndex((i) => i.id === c.instance_id))
   return {
     conversation_id: c.id,
