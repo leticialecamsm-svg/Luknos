@@ -13,7 +13,9 @@ interface ContactToSend {
 }
 
 interface Payload {
-  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence'
+  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence' | 'watch'
+  // watch: true = o CRM está com a conversa aberta e à vista (fica online e acompanha o contato)
+  online?: boolean
   // "digitando…" para o contato: composing | recording | paused
   presence?: string
   // webhook_presence: false = só mostra a configuração atual; true = liga o evento PRESENCE_UPDATE
@@ -69,6 +71,7 @@ Deno.serve(async (req) => {
     if (payload.action === 'group_participants') return json(await groupParticipants(payload))
     if (payload.action === 'presence') return json(await sendPresence(payload))
     if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply))
+    if (payload.action === 'watch') return json(await watchConversation(payload))
 
     const { conversation_id, sender_user_id } = payload
     if (!conversation_id || !sender_user_id) return json({ sent: false, error: 'missing_fields' }, 400)
@@ -462,6 +465,41 @@ async function sendPresence(payload: Payload) {
   }).then(async (r) => { if (!r.ok) console.warn('sendPresence falhou', r.status, (await r.text().catch(() => '')).slice(0, 200)) })
   const er = (globalThis as Record<string, unknown>).EdgeRuntime as { waitUntil?: (p: Promise<unknown>) => void } | undefined
   if (er?.waitUntil) er.waitUntil(task.catch((e) => console.error('sendPresence erro', e)))
+  else await task.catch(() => {})
+  return { ok: true }
+}
+
+// Conversa aberta no CRM (como o WhatsApp Web aberto): o número fica "online" e passa a receber o
+// "digitando…" do contato — o WhatsApp só entrega esse aviso para quem está online e acompanhando
+// a conversa. online=false (aba escondida/fechada) volta para "offline".
+async function watchConversation(payload: Payload) {
+  if (!payload.conversation_id) return { ok: false, error: 'missing_fields' }
+  const db = createServiceClient()
+  const { data: conv } = await db
+    .from('crm_conversations')
+    .select('remote_jid, crm_instances(instance_name)')
+    .eq('id', payload.conversation_id)
+    .maybeSingle()
+  const instanceName = (conv as any)?.crm_instances?.instance_name as string | undefined
+  if (!conv || !instanceName) return { ok: false, error: 'conversation_not_found' }
+  const task = (async () => {
+    const r = await evolutionFetch(`/instance/setPresence/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({ presence: payload.online ? 'available' : 'unavailable' }),
+    })
+    if (!r.ok) console.warn('setPresence falhou', r.status, (await r.text().catch(() => '')).slice(0, 200))
+    // acompanhar o contato (presenceSubscribe): a Evolution faz isso ao mandar um aviso de presença;
+    // "paused" não aparece para o contato
+    if (payload.online && !conv.remote_jid.endsWith('@g.us')) {
+      const s = await evolutionFetch(`/chat/sendPresence/${instanceName}`, {
+        method: 'POST',
+        body: JSON.stringify({ number: targetNumber(conv.remote_jid), presence: 'paused', delay: 0 }),
+      })
+      if (!s.ok) console.warn('subscribe (sendPresence) falhou', s.status, (await s.text().catch(() => '')).slice(0, 200))
+    }
+  })()
+  const er = (globalThis as Record<string, unknown>).EdgeRuntime as { waitUntil?: (p: Promise<unknown>) => void } | undefined
+  if (er?.waitUntil) er.waitUntil(task.catch((e) => console.error('watch erro', e)))
   else await task.catch(() => {})
   return { ok: true }
 }
