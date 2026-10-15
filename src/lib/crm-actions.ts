@@ -2755,3 +2755,19 @@ export async function setCrmWatch(conversationId: string, online: boolean) {
   }).catch(() => null)
   return res?.ok ? { ok: true } : { error: 'Falha ao avisar o WhatsApp' }
 }
+
+// Edições/apagamentos feitos no WhatsApp antes de o webhook tratar esse aviso: busca no
+// histórico da Evolution desta conversa e aplica no CRM.
+export async function syncCrmEdits(conversationId: string) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+    body: JSON.stringify({ action: 'sync_edits', conversation_id: conversationId }),
+  })
+  return (await res.json().catch(() => ({ error: `Falha (${res.status})` }))) as Record<string, unknown>
+}

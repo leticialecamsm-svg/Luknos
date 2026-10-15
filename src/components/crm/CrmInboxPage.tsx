@@ -30,7 +30,6 @@ import {
   markConversationRead,
   markConversationUnread,
   setConversationArchived,
-  reactToMessage,
   saveMessageAsSticker,
   getGroupParticipants,
   setConversationPinned,
@@ -42,19 +41,17 @@ import {
   editCrmMessage,
   downloadCrmMedia,
   startCrmConversation,
-  forwardCrmMessage,
   completeFollowup,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
-  sendCrmMessage,
   getCrmAttachmentUrl,
   getConversationAttachmentUrls,
   syncCrmContactInfo,
   type ConversationRow,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
-import { fetchCrmMessages, fetchCrmSnapshot } from '@/lib/crm-fetch'
+import { fetchCrmMessages, fetchCrmSnapshot, postCrmSend, postCrmForward, postCrmReact } from '@/lib/crm-fetch'
 import { ConversationListSkeleton, ThreadSkeleton, LuknosSpinner, LoadError } from '@/components/ui/LuknosLoader'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
@@ -853,21 +850,44 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
-  // Encaminhar a mensagem selecionada para conversas e/ou contatos escolhidos.
+  // Encaminhar: a janela fecha na hora; nas conversas de destino já abertas a mensagem aparece com
+  // o relógio (como no WhatsApp) e vira ✓✓ quando o envio confirma. Se falhar, fica marcada com
+  // "Tentar de novo". Arquivo ainda não baixado é baixado antes, sem travar a tela.
   const doForward = async (conversationIds: string[], contacts: { id: string; phone: string }[]) => {
     const msg = forwarding
     if (!msg) return
-    const ids = [...conversationIds]
+    setForwarding(null)
     const srcInst = selected?.instance_id ?? null
+    const ids = [...conversationIds]
     for (const c of contacts) {
       if (!srcInst) continue
       const r = await startCrmConversation({ phone: c.phone, instanceId: srcInst, contactId: c.id })
       if ('conversationId' in r && r.conversationId) ids.push(r.conversationId)
     }
-    const res = await forwardCrmMessage(msg.id, ids)
-    if ('error' in res && res.error) toast.error('NÃO FOI POSSÍVEL ENCAMINHAR', res.error)
-    else toast.success('ENCAMINHADA', `Para ${(res as any).sent} conversa(s)`)
-    setForwarding(null)
+    const targets = ids.filter((id) => id !== selectedIdRef.current) // a própria conversa de origem fica de fora
+    if (!targets.length) return
+    const isMedia = ['image', 'video', 'audio', 'document'].includes(msg.message_type)
+    const temps = targets.map((cid) => {
+      const temp = makeTemp({
+        message_type: msg.message_type, body: msg.body, file_name: msg.file_name, mime_type: msg.mime_type,
+        is_forwarded: true, local_url: isMedia ? (mediaUrlOf(msg) ?? null) : null,
+      }, null)
+      if (threadCache.current.has(cid)) updateThread(cid, (cur) => [...cur, temp])
+      return { cid, temp }
+    })
+    const each = (cid: string) => () => postCrmForward(msg.id, [cid]).then((r) => (r.error ? { error: r.error } : { messageId: null }))
+    if (targets.length === 1) {
+      const { cid, temp } = temps[0]
+      runSend(cid, temp.id, each(cid))
+      return
+    }
+    const res = await postCrmForward(msg.id, targets)
+    for (const { cid, temp } of temps) {
+      if (!threadCache.current.has(cid)) continue
+      updateThread(cid, (cur) => cur.map((m) => (m.id === temp.id ? (res.error ? { ...m, pending: false, failed: true, retry: each(cid) } : { ...m, pending: false }) : m)))
+    }
+    if (res.error) toast.error('NÃO FOI POSSÍVEL ENCAMINHAR', res.error)
+    else toast.success('ENCAMINHADA', `Para ${res.sent} conversa(s)`)
   }
 
   // arquivo no Drive: sai pela rota do sistema; no Supabase: link assinado
@@ -937,7 +957,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     const before = m.reactions ?? []
     pendingReactions.current.set(m.id, emoji)
     updateThread(cid, (cur) => cur.map((x) => (x.id === m.id ? { ...x, reactions: withMyReaction(x.reactions ?? [], emoji) } : x)))
-    reactToMessage(m.id, emoji)
+    postCrmReact(m.id, emoji)
       .catch((e: Error) => ({ error: e?.message || 'Sem conexão com o servidor' }))
       .then((r) => {
         if (pendingReactions.current.get(m.id) !== emoji) return // outra reação veio depois: ela manda
@@ -978,7 +998,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       runSend(cid, temp.id, async () => {
         const up = await uploadCrmFile(cid, file)
         if (up.error) return { error: up.error }
-        return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, text: caption || undefined, replyToMessageId: reply?.id })
+        return postCrmSend({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, text: caption || undefined, replyToMessageId: reply?.id })
       })
     })
   }
@@ -1024,7 +1044,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     stopTyping()
     const temp = makeTemp({ body: out.text }, reply)
     enqueue(cid, temp)
-    runSend(cid, temp.id, () => sendCrmMessage({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all }))
+    runSend(cid, temp.id, () => postCrmSend({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all }))
   }
 
   function stopRecordingTracks() {
@@ -1104,7 +1124,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     runSend(cid, temp.id, async () => {
       const up = await uploadCrmFile(cid, file)
       if (up.error) return { error: up.error }
-      return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, isVoiceNote: true, replyToMessageId: reply?.id })
+      return postCrmSend({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, isVoiceNote: true, replyToMessageId: reply?.id })
     })
   }
 
@@ -1301,7 +1321,18 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       {/* ──────────────────────────────────────────────────────────────────────
           MAIN - Thread de mensagens
           ────────────────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+      <div className="relative flex-1 flex flex-col overflow-hidden bg-gray-50">
+        {/* tela de envio de arquivos: cobre só a área da conversa, como no WhatsApp Web */}
+        {composerFiles && selected && (
+          <MediaComposer
+            initialFiles={composerFiles}
+            contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+            onClose={() => setComposerFiles(null)}
+            onSend={(items) => { setComposerFiles(null); sendFiles(items) }}
+          />
+        )}
+
+
         {!selected && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-gray-400 text-center">
@@ -1794,15 +1825,6 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
-      {composerFiles && selected && (
-        <MediaComposer
-          initialFiles={composerFiles}
-          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
-          onClose={() => setComposerFiles(null)}
-          onSend={(items) => { setComposerFiles(null); sendFiles(items) }}
-        />
-      )}
-
       {forwarding && (
         <ForwardModal
           previewText={messagePreview({ message_type: forwarding.message_type, body: forwarding.body, file_name: forwarding.file_name }) || 'Mensagem'}
@@ -1914,7 +1936,10 @@ function MessageBubble({
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
   const hasFile = !!(msg.storage_path || msg.drive_file_id || msg.local_url)
   // foto, áudio, vídeo ou documento que ainda não foi baixado: mostra o botão "Baixar"
-  const needsDownload = !hasFile && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
+  const isTempMsg = msg.id.startsWith('temp-')
+  const needsDownload = !hasFile && !isTempMsg && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
+  // arquivo ainda saindo (ex.: encaminhado e ainda não baixado): só o nome, sem "Baixar"
+  const pendingFile = !hasFile && isTempMsg && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
   const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
 
   if (msg.deleted_at) {
@@ -2065,6 +2090,12 @@ function MessageBubble({
         {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} tail={tail} />}
 
         {needsDownload && <DownloadCard msg={msg} onDownload={onDownload} />}
+        {pendingFile && (
+          <div className="flex items-center gap-3 rounded-lg bg-black/5 px-3 py-2 min-w-[200px] max-w-full">
+            <FileBadge name={msg.file_name} size={32} />
+            <span className="text-sm font-medium break-all line-clamp-2">{msg.file_name || 'Arquivo'}</span>
+          </div>
+        )}
 
         {msg.message_type === 'audio' && hasFile && (
           url ? (

@@ -230,7 +230,7 @@ export function MediaComposer({ initialFiles, onSend, onClose, contactName }: {
       role="dialog"
       aria-modal="true"
       aria-label="Enviar arquivos"
-      className="fixed inset-0 z-50 bg-[#F7F8FA] flex flex-col"
+      className="absolute inset-0 z-30 bg-[#F7F8FA] flex flex-col"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)) }}
     >

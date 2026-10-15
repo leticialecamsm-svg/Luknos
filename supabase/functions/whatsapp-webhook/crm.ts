@@ -158,6 +158,38 @@ async function fetchGroupSubject(instanceName: string, groupJid: string): Promis
   } catch { return null }
 }
 
+// Aviso de edição/apagamento: vem como protocolMessage (às vezes dentro de editedMessage).
+// type 14 / MESSAGE_EDIT = editou (texto novo em editedMessage); 0 / REVOKE = apagou para todos.
+interface ProtocolInfo { kind: 'edit' | 'revoke'; targetId: string; text: string | null }
+// deno-lint-ignore no-explicit-any
+export function findProtocol(message: Record<string, any> | undefined): ProtocolInfo | null {
+  const m = message ?? {}
+  const pm = m.protocolMessage ?? m.editedMessage?.message?.protocolMessage ?? null
+  if (!pm?.key?.id) return null
+  const t = pm.type
+  if (t === 14 || t === 'MESSAGE_EDIT') {
+    const em = pm.editedMessage ?? {}
+    const text = extractBody(em) ?? em?.imageMessage?.caption ?? em?.videoMessage?.caption ?? null
+    return { kind: 'edit', targetId: String(pm.key.id), text }
+  }
+  if (t === 0 || t === 'REVOKE') return { kind: 'revoke', targetId: String(pm.key.id), text: null }
+  return null
+}
+
+async function handleProtocol(db: SupabaseClient, crmInstance: CrmInstanceRow, remoteJid: string, p: ProtocolInfo) {
+  const { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', crmInstance.id).eq('remote_jid', remoteJid).maybeSingle()
+  if (!conv) return { handled: false, skipped: 'protocol_no_conversation' }
+  const now = new Date().toISOString()
+  const patch = p.kind === 'edit'
+    ? (p.text ? { body: p.text, edited_at: now } : null)
+    : { deleted_at: now }
+  if (!patch) return { handled: false, skipped: 'edit_without_text' }
+  const q = db.from('crm_messages').update(patch).eq('conversation_id', conv.id).eq('provider_message_id', p.targetId)
+  const { error } = p.kind === 'revoke' ? await q.is('deleted_at', null) : await q
+  if (error) return { handled: false, error: error.message }
+  return { handled: true, protocol: p.kind }
+}
+
 // Reacao a uma mensagem (de quem for, inclusive a nossa feita pelo celular).
 // emoji vazio = a pessoa tirou a reacao. So vale para conversas que ja existem no CRM.
 async function handleReaction(
@@ -214,6 +246,9 @@ export async function handleCrmMessage(
 
   const rawType = data.messageType ?? (data.message?.videoMessage ? 'videoMessage' : inferMessageType(data.message))
   if (rawType === 'reactionMessage') return await handleReaction(db, crmInstance, remoteJid, data)
+  // edição ou "apagar para todos" feitos no WhatsApp (pelo contato ou pelo nosso celular)
+  const proto = findProtocol(data.message)
+  if (proto) return await handleProtocol(db, crmInstance, remoteJid, proto)
   if (IGNORED_TYPES.has(rawType)) return { handled: false, skipped: 'ignored_type', rawType }
 
   // Grupos: so viram conversa os que foram ativados em CRM > Grupos > Escolher grupos.
