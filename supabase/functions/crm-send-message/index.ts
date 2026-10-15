@@ -75,15 +75,6 @@ Deno.serve(async (req) => {
     if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply, payload.events))
     if (payload.action === 'watch') return json(await watchConversation(payload))
     if (payload.action === 'sync_edits') return json(await syncEdits(payload))
-    // TEMP: diagnóstico — lê (ou muda) as configurações da instância na Evolution (ex.: alwaysOnline)
-    if ((payload.action as string) === 'instance_settings') {
-      const p = payload as any
-      const r = await evolutionFetch(`/settings/find/${p.instance}`)
-      const cur = await r.json().catch(() => null)
-      if (!p.set) return json({ status: r.status, settings: cur })
-      const s2 = await evolutionFetch(`/settings/set/${p.instance}`, { method: 'POST', body: JSON.stringify({ ...(cur ?? {}), ...p.set }) })
-      return json({ before: cur, setStatus: s2.status, after: await s2.json().catch(() => null) })
-    }
 
     const { conversation_id, sender_user_id } = payload
     if (!conversation_id || !sender_user_id) return json({ sent: false, error: 'missing_fields' }, 400)
