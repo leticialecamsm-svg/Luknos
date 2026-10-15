@@ -30,24 +30,35 @@ export type IndexRow = {
   team: TeamUser[]
 }
 
-const STAGE_PILLS: { id: string; label: string }[] = [
-  { id: 'visita',     label: 'Visita' },
-  { id: 'projeto',    label: 'Projeto' },
-  { id: 'orcamento',  label: 'Orçamento' },
-  { id: 'negociacao', label: 'Negociação' },
-  { id: 'compra',     label: 'Compra' },
-  { id: 'expedicao',  label: 'Separação e e…' },
-  { id: 'instalacao', label: 'Instalação' },
-  { id: 'posVenda',   label: 'Pós-venda' },
+// Cor por etapa — a mesma linha de cores dos cards do hub (grade de "Etapas").
+const STAGE_PILLS: { id: string; label: string; color: string }[] = [
+  { id: 'visita',     label: 'Visita',               color: '#6366f1' }, // indigo
+  { id: 'projeto',    label: 'Projeto',              color: '#6366f1' },
+  { id: 'orcamento',  label: 'Orçamento',            color: '#cba455' }, // amber (brand)
+  { id: 'negociacao', label: 'Negociação',           color: '#cba455' },
+  { id: 'compra',     label: 'Compra',               color: '#eab308' }, // yellow
+  { id: 'expedicao',  label: 'Separação e entrega',  color: '#eab308' },
+  { id: 'instalacao', label: 'Instalação',           color: '#3b82f6' }, // blue
+  { id: 'posVenda',   label: 'Pós-venda',            color: '#3b82f6' },
 ]
 
-// Estilo visual IDÊNTICO ao StagePipeline da solicitação:
-// current = âmbar (filtro ativo), done = verde (etapas concluídas em geral),
-// not_started = tracejado cinza.
-function pillStyle(state: 'current' | 'done' | 'not_started'): React.CSSProperties {
-  if (state === 'current') return { background: 'linear-gradient(180deg,#fdecc0,#f5d78a)', color: '#5c4410', border: '1px solid #e0bd69' }
-  if (state === 'done')    return { background: 'linear-gradient(180deg,#d9f7e6,#bdeed3)', color: '#065f46', border: '1px solid #9fe0bc' }
-  return { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)', color: '#8b94a5', border: '1px dashed #cdd3de' }
+// Pill da pipeline, pensada como se TODAS as etapas estivessem preenchidas:
+// gradiente verde "done" por padrão; selecionada = verde mais escuro + borda
+// 2px pra sinalizar o filtro ativo.
+function pillStyle(selected: boolean): React.CSSProperties {
+  if (selected) {
+    return {
+      background: 'linear-gradient(180deg,#86e4b0,#5bd196)',
+      color: '#064e38',
+      border: '2px solid #0d9f6e',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.45), 0 2px 6px -2px rgba(5,110,70,.35)',
+    }
+  }
+  return {
+    background: 'linear-gradient(180deg,#d9f7e6,#bdeed3)',
+    color: '#065f46',
+    border: '2px solid transparent',
+  }
 }
 
 export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
@@ -114,18 +125,17 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
         {STAGE_PILLS.map(st => {
           const isActive = stageFilter === st.id
           const total = stageTotals[st.id] ?? 0
-          const state: 'current' | 'not_started' = isActive ? 'current' : 'not_started'
           return (
             <button
               key={st.id}
               type="button"
               onClick={() => setStage(isActive ? null : st.id)}
-              className="min-w-[110px] text-left px-3 py-2 transition-shadow hover:opacity-90"
-              style={{ borderRadius: 12, ...pillStyle(state) }}
+              className="min-w-[110px] text-left px-3 py-2 transition-all hover:opacity-90"
+              style={{ borderRadius: 12, ...pillStyle(isActive) }}
             >
               <div className="flex items-center gap-1">
                 <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
-                {isActive && <Clock className="ml-auto shrink-0 w-3 h-3" />}
+                {isActive && <Check className="ml-auto shrink-0 w-3 h-3" />}
               </div>
               <div className="text-[10.5px] font-medium opacity-85 mt-0.5">
                 {total} {total === 1 ? 'solic.' : 'solic.'}
@@ -235,8 +245,14 @@ function ListTable({ rows }: { rows: IndexRow[] }) {
                 </td>
                 <td className="px-6 py-3">
                   {r.currentStage ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md" style={pillStyle(r.status === 'in_progress' ? 'current' : 'done')}>
-                      {r.status === 'in_progress' ? <Clock className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+                    <span
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border"
+                      style={{
+                        background: '#f9fafb',
+                        borderLeft: `3px solid ${STAGE_PILLS.find(s => s.id === r.currentStage)?.color ?? '#9ca3af'}`,
+                        color: '#111827',
+                      }}
+                    >
                       {stLabel}
                     </span>
                   ) : <span className="text-xs text-gray-300">—</span>}
@@ -262,7 +278,11 @@ function ListTable({ rows }: { rows: IndexRow[] }) {
   )
 }
 
-// ── Kanban por etapa atual ────────────────────────────────────────────────────
+// ── Kanban por etapa atual (padrão do CrmBoardPage) ──────────────────────────
+// Colunas w-64 (256px) com fundo cinza-50, borda cinza, header com borda
+// superior de 3px na cor da etapa. Colunas sem cartões ficam RECOLHIDAS num
+// trilho w-10 com o nome em texto vertical. Cartões: fundo branco, border-l-4
+// na cor da etapa, shadow leve, hover com shadow maior.
 
 function KanbanBoard({ rows }: { rows: IndexRow[] }) {
   const router = useRouter()
@@ -277,23 +297,41 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex gap-3 pb-2" style={{ minWidth: 'fit-content' }}>
+      <div className="flex gap-3 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
         {STAGE_PILLS.map(st => {
           const items = byStage[st.id] ?? []
-          return (
-            <div key={st.id} className="w-[260px] shrink-0">
-              <div
-                className="px-3 py-2 mb-2 rounded-xl text-[12px] font-semibold flex items-center justify-between"
-                style={pillStyle(items.length > 0 ? 'current' : 'not_started')}
+          if (items.length === 0) {
+            return (
+              <section
+                key={st.id}
+                aria-label={`Coluna ${st.label} (vazia)`}
+                className="w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl bg-gray-50 border border-gray-200"
+                style={{ borderTop: `3px solid ${st.color}` }}
               >
-                <span>{st.label}</span>
-                <span className="text-[11px] font-bold">{items.length}</span>
+                <span className="text-[11px] text-gray-400">0</span>
+                <span className="text-xs font-medium text-gray-500 whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{st.label}</span>
+              </section>
+            )
+          }
+          return (
+            <section
+              key={st.id}
+              aria-label={`Coluna ${st.label}`}
+              className="w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border border-gray-200"
+            >
+              <header
+                className="px-3 py-2 border-b border-gray-200"
+                style={{ borderTop: `3px solid ${st.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-gray-900 truncate" title={st.label}>{st.label}</span>
+                  <span className="text-xs text-gray-500">{items.length}</span>
+                </div>
+              </header>
+              <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+                {items.map(r => <KanbanCard key={r.id} r={r} stageColor={st.color} onClick={() => router.push(`/solicitacoes/${r.id}`)} />)}
               </div>
-              <div className="space-y-2">
-                {items.map(r => <KanbanCard key={r.id} r={r} onClick={() => router.push(`/solicitacoes/${r.id}`)} />)}
-                {items.length === 0 && <p className="text-[11px] text-gray-300 italic text-center py-2">vazio</p>}
-              </div>
-            </div>
+            </section>
           )
         })}
       </div>
@@ -301,33 +339,42 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
   )
 }
 
-function KanbanCard({ r, onClick }: { r: IndexRow; onClick: () => void }) {
+function KanbanCard({ r, stageColor, onClick }: { r: IndexRow; stageColor: string; onClick: () => void }) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
+  const name = r.title || r.clientName || '—'
   return (
-    <button
-      type="button"
+    <article
       onClick={onClick}
-      className="w-full text-left bg-white border border-surface-border rounded-xl px-3 py-2.5 hover:border-brand-300 hover:shadow-sm transition-all"
+      className="group relative bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md cursor-pointer transition-shadow"
+      style={{ borderLeftColor: stageColor }}
     >
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-[10px] font-mono text-gray-400">#{r.number}</span>
+      <div className="flex items-baseline gap-2">
+        <span className="shrink-0 text-[10px] font-mono text-gray-400">#{r.number}</span>
+        <span className="flex-1 min-w-0 truncate text-sm text-gray-900 font-medium" title={name}>{name}</span>
+        <span className="shrink-0 text-[11px] text-gray-400">{days}d</span>
+      </div>
+      {r.title && r.clientName && (
+        <p className="text-xs text-gray-500 truncate mt-0.5">{r.clientName}</p>
+      )}
+
+      {/* Linha de badges + valor sempre visível */}
+      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
         {r.priority !== 'normal' && priorityC && (
-          <span className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded-full', priorityC.bg, priorityC.text)}>
+          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded border', priorityC.bg, priorityC.text, 'border-transparent')}>
             {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
           </span>
         )}
+        {r.quotedValue != null && (
+          <span className="ml-auto text-[11px] font-medium text-gray-600">{formatCurrency(r.quotedValue)}</span>
+        )}
       </div>
-      <div className="text-[13px] font-semibold text-navy truncate">{r.title || r.clientName || '—'}</div>
-      {r.title && r.clientName && <div className="text-[11px] text-gray-400 truncate">{r.clientName}</div>}
-      <div className="flex items-center justify-between gap-2 mt-2">
-        <TeamStack team={r.team} size={18} />
-        <span className="text-[10px] text-gray-400">{days}d</span>
+
+      {/* Responsáveis — rodapé */}
+      <div className="mt-1.5 flex items-center justify-between">
+        <TeamStack team={r.team} size={20} />
       </div>
-      {r.quotedValue != null && (
-        <div className="text-[11px] font-semibold text-navy mt-1">{formatCurrency(r.quotedValue)}</div>
-      )}
-    </button>
+    </article>
   )
 }
 
