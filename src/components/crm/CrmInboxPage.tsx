@@ -72,7 +72,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -155,6 +155,19 @@ function mergeLatest(cur: Msg[], page: Msg[], pageHasMore: boolean): { items: Ms
   const gap = pageHasMore && !!newestCur && newestCur.created_at < oldest
   const older = gap ? [] : real.filter((m) => !pageIds.has(m.id) && m.created_at <= oldest)
   return { items: [...older, ...page, ...temps], keptOlder: older.length > 0 }
+}
+
+// Minha reação numa mensagem: uma só por pessoa (trocar substitui; '' tira), como no WhatsApp.
+function withMyReaction(chips: ReactionChip[], emoji: string): ReactionChip[] {
+  const out = chips
+    .map((c) => (c.mine ? { ...c, mine: false, count: c.count - 1 } : c))
+    .filter((c) => c.count > 0)
+  if (emoji) {
+    const i = out.findIndex((c) => c.emoji === emoji)
+    if (i >= 0) out[i] = { ...out[i], mine: true, count: out[i].count + 1 }
+    else out.push({ emoji, count: 1, mine: true, names: [] })
+  }
+  return out
 }
 
 const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid'] as const
@@ -331,6 +344,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const loadingOlderRef = useRef(false)
   const [threadError, setThreadError] = useState<string | null>(null)
   const lastThreadSig = useRef('')
+  const pendingReactionsRef = useRef(new Map<string, string>()) // reações ainda sem confirmação (ver reactNow)
   // grava a conversa no cache e, se for a que está aberta, na tela (sem repintar à toa)
   const commitThread = useCallback((id: string, items: Msg[], more?: boolean) => {
     const prev = threadCache.current.get(id)
@@ -351,8 +365,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       .then((r) => {
         if (r.error) throw new Error(r.error)
         const cur = threadCache.current.get(id)?.items ?? []
-        const { items, keptOlder } = mergeLatest(cur, (r.items as Msg[]) ?? [], r.hasMore)
-        commitThread(id, items, keptOlder ? undefined : r.hasMore)
+        const merged = mergeLatest(cur, (r.items as Msg[]) ?? [], r.hasMore)
+        const pend = pendingReactionsRef.current
+        const items = pend.size ? merged.items.map((m) => (pend.has(m.id) ? { ...m, reactions: withMyReaction(m.reactions ?? [], pend.get(m.id)!) } : m)) : merged.items
+        commitThread(id, items, merged.keptOlder ? undefined : r.hasMore)
         if (selectedIdRef.current === id) setThreadError(null)
       })
       .catch((e: Error) => {
@@ -798,6 +814,27 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         scheduleThreadCheck(cid)
       })
   }
+  // Reação aparece na hora (como no WhatsApp); o envio segue por trás. Enquanto o servidor não
+  // confirma, as atualizações da conversa mantêm a reação nova; se falhar, volta a anterior.
+  const pendingReactions = pendingReactionsRef // id da mensagem -> emoji ('' = tirou)
+  const reactNow = (m: Msg, emoji: string) => {
+    const cid = selectedIdRef.current
+    if (!cid) return
+    const before = m.reactions ?? []
+    pendingReactions.current.set(m.id, emoji)
+    updateThread(cid, (cur) => cur.map((x) => (x.id === m.id ? { ...x, reactions: withMyReaction(x.reactions ?? [], emoji) } : x)))
+    reactToMessage(m.id, emoji)
+      .catch((e: Error) => ({ error: e?.message || 'Sem conexão com o servidor' }))
+      .then((r) => {
+        if (pendingReactions.current.get(m.id) !== emoji) return // outra reação veio depois: ela manda
+        pendingReactions.current.delete(m.id)
+        if ('error' in r && r.error) {
+          toast.error('NÃO FOI POSSÍVEL REAGIR', r.error)
+          updateThread(cid, (cur) => cur.map((x) => (x.id === m.id ? { ...x, reactions: before } : x)))
+        } else scheduleThreadCheck(cid)
+      })
+  }
+
   const retrySend = (m: Msg) => {
     const cid = selectedIdRef.current
     if (!cid || !m.retry) return
@@ -1318,11 +1355,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL GUARDAR', r.error)
                     else toast.success('FIGURINHA GUARDADA', 'Já está na biblioteca da equipe')
                   }}
-                  onReact={async (emoji) => {
-                    const r = await reactToMessage(m.id, emoji)
-                    if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL REAGIR', r.error)
-                    else refreshThread(selectedId!, true)
-                  }}
+                  onReact={(emoji) => reactNow(m, emoji)}
                   canDelete={!isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
                   canForward={!isTemp(m) && m.message_type === 'text' && !!(m.body && m.body.trim()) && !m.deleted_at}
                   onRetry={() => retrySend(m)}
@@ -1682,7 +1715,8 @@ function MessageBubble({
   onDiscard?: () => void
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
-  const [menu, setMenu] = useState(false)
+  // 'react' = só a fileira de reações (botão 🙂); 'full' = todas as opções (botão ⌄ ou clique direito)
+  const [menu, setMenu] = useState<false | 'react' | 'full'>(false)
   const [menuUp, setMenuUp] = useState(false)
   useEffect(() => {
     if (!menu) return
@@ -1759,64 +1793,110 @@ function MessageBubble({
   const canReply = !!msg.provider_message_id && !msg.id.startsWith('temp-')
   const canSaveSticker = msg.message_type === 'image' && !!msg.storage_path && (msg.mime_type ?? '').includes('webp')
 
+  const hasActions = canReply || canDelete || canSaveSticker || canEdit || canForward
+  // abre o menu para baixo, ou para cima quando a mensagem está perto do fim da tela
+  const openMenu = (kind: 'react' | 'full', anchor: Element) => {
+    const box = anchor.closest('[data-thread]')?.getBoundingClientRect()
+    const at = anchor.getBoundingClientRect()
+    setMenuUp(!!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80))
+    setMenu((cur) => (cur === kind ? false : kind))
+  }
+  const reactionRow = (
+    <div className="flex items-center gap-0.5" role="group" aria-label="Reagir">
+      {QUICK_REACTIONS.map((e) => {
+        const mine = msg.reactions?.some((r) => r.mine && r.emoji === e)
+        return (
+          <button
+            key={e}
+            type="button"
+            role="menuitem"
+            aria-label={mine ? `Tirar reação ${e}` : `Reagir com ${e}`}
+            aria-pressed={!!mine}
+            onClick={() => { setMenu(false); onReact(mine ? '' : e) }}
+            className={cn('w-9 h-9 rounded-full text-xl leading-none hover:bg-gray-100 hover:scale-110 transition-transform', mine && 'bg-sky-100 ring-1 ring-sky-300')}
+          >{e}</button>
+        )
+      })}
+    </div>
+  )
+  const item = 'w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 text-left'
+  // Botões fora do balão (nunca em cima do texto ou da hora), com área de toque de 32 px.
+  // Aparecem ao passar o mouse em qualquer ponto da linha da mensagem; no toque, ficam sempre visíveis.
+  const actions = hasActions && !msg.pending && !msg.failed ? (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        'relative self-center shrink-0 flex items-center gap-1 transition-opacity',
+        isOutbound ? 'flex-row-reverse' : '',
+        menu ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100',
+      )}
+    >
+      {canReply && (
+        <button
+          type="button"
+          aria-label="Reagir"
+          aria-haspopup="menu"
+          aria-expanded={menu === 'react'}
+          title="Reagir"
+          onClick={(e) => openMenu('react', e.currentTarget)}
+          className="w-8 h-8 rounded-full bg-white/95 text-gray-500 hover:text-gray-900 hover:bg-white shadow-sm ring-1 ring-black/5 flex items-center justify-center"
+        >
+          <Smile className="w-[18px] h-[18px]" />
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label="Mais opções da mensagem"
+        aria-haspopup="menu"
+        aria-expanded={menu === 'full'}
+        title="Mais opções"
+        onClick={(e) => openMenu('full', e.currentTarget)}
+        className="w-8 h-8 rounded-full bg-white/95 text-gray-500 hover:text-gray-900 hover:bg-white shadow-sm ring-1 ring-black/5 flex items-center justify-center"
+      >
+        <ChevronDown className="w-5 h-5" />
+      </button>
+      {menu && (
+        <div
+          role="menu"
+          className={cn(
+            'absolute z-30 bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
+            isOutbound ? 'right-0' : 'left-0',
+            menuUp ? 'bottom-10' : 'top-10',
+            menu === 'react' ? 'p-1' : 'w-56 py-1',
+          )}
+        >
+          {menu === 'react' ? reactionRow : (
+            <>
+              {canReply && <div className="px-1.5 pb-1 mb-1 border-b border-gray-100">{reactionRow}</div>}
+              {canReply && <button role="menuitem" className={item} onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
+              {canForward && <button role="menuitem" className={item} onClick={() => { setMenu(false); onForward() }}><Forward className="w-4 h-4" /> Encaminhar</button>}
+              {canEdit && <button role="menuitem" className={item} onClick={() => { setMenu(false); onEdit() }}><Pencil className="w-4 h-4" /> Editar</button>}
+              {canSaveSticker && <button role="menuitem" className={item} onClick={() => { setMenu(false); onSaveSticker() }}><StickerIcon className="w-4 h-4" /> Salvar como figurinha</button>}
+              {canDelete && <button role="menuitem" className={cn(item, 'hover:bg-red-50 text-red-600')} onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null
+
   return (
-    <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
+    <div id={`msg-${msg.id}`} className={cn('group/row flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
       {groupAvatar}
+      {isOutbound && actions}
       <div
+        onContextMenu={(e) => {
+          if (!actions) return
+          e.preventDefault() // clique direito no balão abre as opções, como no WhatsApp Web
+          const btn = e.currentTarget.parentElement?.querySelector('[aria-label="Mais opções da mensagem"]')
+          if (btn) openMenu('full', btn)
+        }}
         className={cn(
-          'group relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
+          'relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           msg.reactions?.length ? 'mb-4' : '',
           bubbleTone, tailCorner
         )}
       >
-        {(canReply || canDelete || canSaveSticker || canEdit || canForward) && (
-          <div className="absolute top-1 right-1">
-            <button
-              type="button"
-              aria-label="Opções da mensagem"
-              aria-haspopup="menu"
-              onClick={(e) => {
-                e.stopPropagation()
-                // perto do fim da conversa o menu abre para cima, senão ele fica cortado
-                const box = e.currentTarget.closest('[data-thread]')?.getBoundingClientRect()
-                const at = e.currentTarget.getBoundingClientRect()
-                setMenuUp(!!box && box.bottom - at.bottom < 240)
-                setMenu((v) => !v)
-              }}
-              className="p-1 rounded-full bg-white/80 text-gray-500 hover:text-gray-900 opacity-0 group-hover:opacity-100 focus:opacity-100 shadow-sm"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {menu && (
-              <div role="menu" onClick={(e) => e.stopPropagation()} className={cn('absolute right-0 z-30 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm text-gray-800 not-italic', menuUp ? 'bottom-7' : 'top-7')}>
-                {canReply && (
-                  <div className="flex items-center justify-between px-2 pb-1 mb-1 border-b border-gray-100" role="group" aria-label="Reagir">
-                    {QUICK_REACTIONS.map((e) => {
-                      const mine = msg.reactions?.some((r) => r.mine && r.emoji === e)
-                      return (
-                        <button
-                          key={e}
-                          type="button"
-                          role="menuitem"
-                          aria-label={`Reagir com ${e}`}
-                          title={mine ? 'Tirar reação' : 'Reagir'}
-                          onClick={() => { setMenu(false); onReact(mine ? '' : e) }}
-                          className={cn('w-7 h-7 rounded-full text-base leading-none hover:bg-gray-100', mine && 'bg-sky-100 ring-1 ring-sky-300')}
-                        >{e}</button>
-                      )
-                    })}
-                  </div>
-                )}
-                {canReply && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}
-                {canForward && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onForward() }}><Forward className="w-4 h-4" /> Encaminhar</button>}
-                {canEdit && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onEdit() }}><Pencil className="w-4 h-4" /> Editar</button>}
-                {canSaveSticker && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50" onClick={() => { setMenu(false); onSaveSticker() }}><StickerIcon className="w-4 h-4" /> Salvar como figurinha</button>}
-                {canDelete && <button role="menuitem" className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600" onClick={() => { setMenu(false); onDelete() }}><Trash2 className="w-4 h-4" /> Apagar para todos</button>}
-              </div>
-            )}
-          </div>
-        )}
-
         {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
         {outLabel && <p className="text-[12.5px] font-semibold leading-4 mb-0.5 text-emerald-700">{outLabel}</p>}
         {msg.is_forwarded && <p className="flex items-center gap-1 text-[11px] italic text-gray-400 mb-0.5"><Forward className="w-3 h-3" /> Encaminhada</p>}
@@ -1945,6 +2025,7 @@ function MessageBubble({
           </div>
         )}
       </div>
+      {!isOutbound && actions}
       {msg.failed && (
         <div className="order-first flex items-center gap-1 self-end mb-0.5" role="group" aria-label="Mensagem não enviada">
           <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] font-medium text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50">
