@@ -229,6 +229,7 @@ async function handlePresence(payload: EvolutionWebhook) {
   const d = (payload as unknown as { data?: { id?: string; presences?: Record<string, { lastKnownPresence?: string }> } }).data
   const chatJid = String(d?.id ?? '')
   const presences = d?.presences
+  console.log('presence bruto', payload.instance, chatJid, JSON.stringify(presences).slice(0, 300)) // TEMP: diagnóstico do digitando
   if (!chatJid || !presences || typeof presences !== 'object') return { handled: false, skipped: 'presence_empty' }
   const db = createServiceClient()
   const { data: inst } = await db.from('crm_instances').select('id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()

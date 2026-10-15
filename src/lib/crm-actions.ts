@@ -2728,6 +2728,19 @@ export async function setCrmTyping(conversationId: string, state: 'composing' | 
 
 // Administrador: mostra (apply=false) ou liga (apply=true) o aviso de "digitando" do contato
 // no webhook da Evolution de cada número do CRM.
+// TEMP: diagnóstico das configurações da instância (alwaysOnline etc.)
+export async function crmInstanceSettings(instance: string, set?: Record<string, unknown>) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!auth.isAdmin) return { error: 'Só administradores' }
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+    body: JSON.stringify({ action: 'instance_settings', instance, set }),
+  })
+  return (await res.json().catch(() => ({ error: `Falha (${res.status})` }))) as Record<string, unknown>
+}
+
 export async function setupCrmPresenceWebhook(apply: boolean, events?: string[]) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
