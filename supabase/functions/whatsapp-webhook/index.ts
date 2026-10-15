@@ -13,7 +13,7 @@ import {
   inferMessageType,
   mapMessageType,
 } from './_shared/wa-parse.ts'
-import { handleCrmMessage } from './crm.ts'
+import { handleCrmMessage, findProtocol, handleProtocol } from './crm.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 Deno.serve(async (req) => {
@@ -56,6 +56,7 @@ interface EvolutionWebhook {
 async function handle(payload: EvolutionWebhook) {
   const event = payload.event ?? ''
   if (/presence[._]update/i.test(event)) return await handlePresence(payload)
+  if (/messages[._](update|edited)/i.test(event)) return await handleMessageUpdate(payload)
   if (event && !/messages[._]upsert/i.test(event)) {
     return { handled: false, skipped: 'event', event }
   }
@@ -279,4 +280,34 @@ async function lidToJid(db: SupabaseClient, instanceId: string, instanceName: st
     await db.from('crm_lid_map').upsert({ instance_id: instanceId, lid, jid: alt, updated_at: new Date().toISOString() }, { onConflict: 'instance_id,lid' })
     return alt
   } catch { return null }
+}
+
+// Edição/apagamento feitos no WhatsApp chegam como atualização de mensagem (não como mensagem
+// nova). Procura o aviso (protocolMessage/editedMessage) em qualquer ponto do payload.
+// Status de entrega/leitura também chegam aqui: saem logo, sem consultar o banco.
+// deno-lint-ignore no-explicit-any
+function deepFind(o: any, depth = 0): Record<string, unknown> | null {
+  if (!o || typeof o !== 'object' || depth > 6) return null
+  if (o.protocolMessage || o.editedMessage) return o
+  for (const v of Object.values(o)) {
+    const hit = deepFind(v, depth + 1)
+    if (hit) return hit
+  }
+  return null
+}
+
+async function handleMessageUpdate(payload: EvolutionWebhook) {
+  // deno-lint-ignore no-explicit-any
+  const d = (payload as any).data
+  const holder = deepFind(d)
+  if (!holder) return { handled: false, skipped: 'update_without_edit' }
+  const proto = findProtocol(holder)
+  console.log('messages.update com edição', payload.instance, JSON.stringify(d).slice(0, 600)) // TEMP: confirmar formato
+  if (!proto) return { handled: false, skipped: 'update_unparsed' }
+  const db = createServiceClient()
+  const { data: inst } = await db.from('crm_instances').select('id, instance_name, default_user_id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()
+  if (!inst) return { handled: false, skipped: 'unknown_instance' }
+  let jid = String(d?.key?.remoteJid ?? d?.remoteJid ?? '')
+  if (jid.endsWith('@lid')) jid = (await lidToJid(db, inst.id, inst.instance_name, jid)) ?? jid
+  return await handleProtocol(db, inst, jid, proto)
 }

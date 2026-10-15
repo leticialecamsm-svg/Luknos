@@ -176,7 +176,7 @@ export function findProtocol(message: Record<string, any> | undefined): Protocol
   return null
 }
 
-async function handleProtocol(db: SupabaseClient, crmInstance: CrmInstanceRow, remoteJid: string, p: ProtocolInfo) {
+export async function handleProtocol(db: SupabaseClient, crmInstance: CrmInstanceRow, remoteJid: string, p: ProtocolInfo) {
   const { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', crmInstance.id).eq('remote_jid', remoteJid).maybeSingle()
   if (!conv) return { handled: false, skipped: 'protocol_no_conversation' }
   const now = new Date().toISOString()

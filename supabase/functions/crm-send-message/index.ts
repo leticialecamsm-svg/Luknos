@@ -20,6 +20,8 @@ interface Payload {
   presence?: string
   // webhook_presence: false = só mostra a configuração atual; true = liga o evento PRESENCE_UPDATE
   apply?: boolean
+  // webhook_presence: eventos a ligar (padrão: PRESENCE_UPDATE)
+  events?: string[]
   instance_id?: string
   phone?: string
   conversation_id?: string
@@ -70,7 +72,7 @@ Deno.serve(async (req) => {
     if (payload.action === 'send_sticker') return json(await sendSticker(payload))
     if (payload.action === 'group_participants') return json(await groupParticipants(payload))
     if (payload.action === 'presence') return json(await sendPresence(payload))
-    if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply))
+    if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply, payload.events))
     if (payload.action === 'watch') return json(await watchConversation(payload))
     if (payload.action === 'sync_edits') return json(await syncEdits(payload))
 
@@ -507,7 +509,7 @@ async function watchConversation(payload: Payload) {
 
 // Liga o evento PRESENCE_UPDATE (contato digitando) no webhook de cada número do CRM, mantendo
 // o resto da configuração. apply=false só mostra como está (sem os cabeçalhos, que têm segredo).
-async function webhookPresence(apply: boolean) {
+async function webhookPresence(apply: boolean, wanted: string[] = ['PRESENCE_UPDATE']) {
   const db = createServiceClient()
   const { data: insts } = await db.from('crm_instances').select('instance_name').eq('is_active', true)
   const out: unknown[] = []
@@ -519,7 +521,8 @@ async function webhookPresence(apply: boolean) {
       const w = cur?.webhook ?? cur ?? {}
       const events: string[] = Array.isArray(w.events) ? w.events : []
       const info = { instance: name, status: r.status, enabled: w.enabled, url: w.url, byEvents: w.webhookByEvents, events }
-      if (!apply || events.includes('PRESENCE_UPDATE')) { out.push({ ...info, changed: false }); continue }
+      const missing = wanted.filter((e) => !events.includes(e))
+      if (!apply || !missing.length) { out.push({ ...info, changed: false }); continue }
       const url = w.url || `${env.supabaseUrl}/functions/v1/whatsapp-webhook`
       const set = await evolutionFetch(`/webhook/set/${name}`, {
         method: 'POST',
@@ -529,7 +532,7 @@ async function webhookPresence(apply: boolean) {
             url,
             webhookByEvents: w.webhookByEvents ?? false,
             webhookBase64: w.webhookBase64 ?? false,
-            events: [...events, 'PRESENCE_UPDATE'],
+            events: [...events, ...missing],
             headers: w.headers && Object.keys(w.headers).length ? w.headers
               : (env.evolutionWebhookSecret ? { 'x-evolution-webhook-secret': env.evolutionWebhookSecret } : undefined),
           },
