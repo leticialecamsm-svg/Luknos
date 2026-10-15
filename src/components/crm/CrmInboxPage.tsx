@@ -1273,7 +1273,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               {threadError && messages.length === 0 && (
                 <LoadError message="Não foi possível carregar as mensagens." onRetry={() => { setThreadError(null); setLoadingThread(true); refreshThread(selectedId!) }} />
               )}
-              {loadingOlder && <LuknosSpinner size="sm" label="Mensagens anteriores…" delay={150} className="py-2" />}
+              {/* sobreposto (altura zero): não empurra o que você está lendo enquanto as antigas chegam */}
+              {loadingOlder && (
+                <div className="sticky top-0 z-20 h-0 flex justify-center pointer-events-none">
+                  <LuknosSpinner size="sm" label={null} delay={150} className="mt-2" />
+                </div>
+              )}
               {!hasMore && !loadingThread && messages.length >= MSG_PAGE && (
                 <p className="text-center text-[11px] text-gray-500 py-2">Início da conversa</p>
               )}
