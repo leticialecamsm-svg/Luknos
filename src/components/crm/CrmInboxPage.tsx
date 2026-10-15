@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 
 import { getAvatarColor } from '@/lib/crm-ui'
-import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
+import { InstanceFilter, useInstanceFilter, readSavedInstanceSelection } from './InstanceFilter'
 import { ConvAvatar } from './ConvAvatar'
 import { threadLayout } from '@/lib/crm-thread-layout'
 import { WhatsappIcon } from './WhatsappIcon'
@@ -273,7 +273,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // Uma por vez, sem repintar quando nada mudou. O resultado fica guardado por aba/filtro:
   // voltar a uma aba mostra na hora o que já tinha e atualiza por trás.
   const listCache = useRef(new Map<string, { items: ConversationRow[]; counts: typeof counts }>())
-  const listKey = `${scope}|${selectedKey}`
+  const listKey = `${scope}|${filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')}`
   const listKeyRef = useRef(listKey)
   listKeyRef.current = listKey
   const [listError, setListError] = useState<string | null>(null)
@@ -281,13 +281,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const listDirty = useRef(false)
   const lastListSig = useRef('')
   const refreshListRef = useRef<(silent?: boolean) => void>(() => {})
+  const lastStartRef = useRef({ key: '', at: 0 })
   const refreshList = useCallback((silent = false) => {
     void silent // a lista nunca some da tela ao atualizar; o esqueleto só aparece quando não há nada guardado
-    if (!filter.loaded) return
+    // antes de o filtro "carregar", usa a escolha salva direto (mesma chave que ele vai ter)
+    const sel = filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')
+    const key = `${scope}|${sel}`
     if (listInFlight.current) { listDirty.current = true; return }
     listInFlight.current = true
-    const key = `${scope}|${selectedKey}`
-    const ids = selectedKey ? selectedKey.split(',') : undefined
+    lastStartRef.current = { key, at: Date.now() }
+    const ids = sel ? sel.split(',') : undefined
     window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu (limitado a 1 a cada 15 s)
     fetchCrmSnapshot(scope, 200, ids)
       .then((r) => {
@@ -412,7 +415,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     setLoadingThread(!!selectedId && !c)
     if (selectedId) refreshThread(selectedId, true)
   }, [selectedId, refreshThread])
-  useEffect(() => { refreshList() }, [refreshList])
+  useEffect(() => {
+    // o filtro terminar de carregar com a mesma escolha não dispara uma segunda busca igual
+    const sel = filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')
+    const last = lastStartRef.current
+    if (last.key === `${scope}|${sel}` && Date.now() - last.at < 5000) return
+    refreshList()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshList])
 
   // Rolagem: abre no fim; mensagem nova só desce a tela se você já estava no fim (ou se foi
   // você quem enviou). Se você subiu para ler o histórico, a tela fica onde está.

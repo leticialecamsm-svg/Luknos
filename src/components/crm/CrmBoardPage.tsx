@@ -19,7 +19,7 @@ import { useFocusTrap } from '@/components/ui/useFocusTrap'
 import { formatListTime } from '@/lib/crm-time'
 import { ConvAvatar } from './ConvAvatar'
 import { formatCents, sumCents } from '@/lib/crm-money'
-import { InstanceFilter, useInstanceFilter } from './InstanceFilter'
+import { InstanceFilter, useInstanceFilter, readSavedInstanceSelection } from './InstanceFilter'
 import { DealValue } from './DealValue'
 import { ConvTags } from './ConvTags'
 import { DUE_STYLE } from './FollowupPopover'
@@ -70,12 +70,13 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   // o quadro só dá lugar ao carregamento quando ainda não há nada para mostrar.
   const cache = useRef(new Map<string, { items: ConversationRow[]; stages: CrmStage[]; counts: typeof counts }>())
   const keyRef = useRef('')
-  keyRef.current = `${scope}|${selectedKey}`
+  // antes de o filtro "carregar", usa a escolha salva direto (a primeira busca não espera re-renderizar)
+  const sel = filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')
+  keyRef.current = `${scope}|${sel}`
   const load = useCallback(async (silent = false) => {
     void silent
-    if (!filter.loaded) return // espera saber quais WhatsApps a pessoa enxerga
-    const key = `${scope}|${selectedKey}`
-    const ids = selectedKey ? selectedKey.split(',') : undefined
+    const key = `${scope}|${sel}`
+    const ids = sel ? sel.split(',') : undefined
     try {
       const snap = await fetchCrmSnapshot(scope, BOARD_LIMIT, ids, true)
       if (keyRef.current !== key) return // trocou de aba no meio do caminho
@@ -91,12 +92,12 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     } finally {
       if (keyRef.current === key) setLoading(false)
     }
-  }, [scope, selectedKey, filter.loaded])
+  }, [scope, sel])
   useEffect(() => {
-    const c = cache.current.get(`${scope}|${selectedKey}`)
+    const c = cache.current.get(`${scope}|${sel}`)
     if (c) { setCards(c.items); setStages(c.stages); setCounts(c.counts) }
     setLoading(!c)
-  }, [scope, selectedKey])
+  }, [scope, sel])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
