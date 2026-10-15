@@ -210,6 +210,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<Msg | null>(null)
   const [forwarding, setForwarding] = useState<Msg | null>(null)
+  // destinos do encaminhar: todas as conversas que a pessoa enxerga (não só as da aba/WhatsApp filtrados)
+  const [forwardTargets, setForwardTargets] = useState<ConversationRow[] | null>(null)
+  useEffect(() => {
+    if (!forwarding) { setForwardTargets(null); return }
+    let alive = true
+    fetchCrmSnapshot('all', 500).then((r) => { if (alive && r.items?.length) setForwardTargets(r.items) }).catch(() => {})
+    return () => { alive = false }
+  }, [forwarding])
   const [showNewConv, setShowNewConv] = useState(false)
   // trocar de conversa cancela a edição em andamento
   useEffect(() => { setEditing(null) }, [selectedId])
@@ -1799,7 +1807,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <ForwardModal
           previewText={messagePreview({ message_type: forwarding.message_type, body: forwarding.body, file_name: forwarding.file_name }) || 'Mensagem'}
           sourceInstanceId={selected?.instance_id ?? null}
-          conversations={conversations.filter((c) => !c.is_group).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
+          conversations={(forwardTargets ?? conversations).filter((c) => !c.is_group).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
           onForward={doForward}
           onClose={() => setForwarding(null)}
         />
