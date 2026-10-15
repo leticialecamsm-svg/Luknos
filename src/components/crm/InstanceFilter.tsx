@@ -11,6 +11,15 @@ export interface InstanceOption { id: string; label: string; is_private: boolean
 
 const KEY = 'crm-instance-filter'
 
+// Escolha salva neste navegador (vazio = todos). Lida direto para a primeira carga não depender
+// de uma nova renderização — que o Next segura enquanto houver ações do servidor na fila.
+export function readSavedInstanceSelection(): string[] {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+    return Array.isArray(s) ? s.filter((x): x is string => typeof x === 'string') : []
+  } catch { return [] }
+}
+
 // Escolha de WhatsApp(s) compartilhada entre Quadro e Conversas (fica salva no
 // navegador). selected vazio = todos os WhatsApps que a pessoa enxerga.
 export function useInstanceFilter() {
@@ -22,11 +31,7 @@ export function useInstanceFilter() {
     let alive = true
     // A escolha salva vale na hora: a lista não espera a ida ao servidor para começar a carregar
     // (o servidor já limita aos WhatsApps que a pessoa enxerga).
-    let saved: string[] = []
-    try {
-      const s = JSON.parse(localStorage.getItem(KEY) ?? '[]')
-      if (Array.isArray(s)) saved = s.filter((x): x is string => typeof x === 'string')
-    } catch { /* sem preferência salva */ }
+    const saved = readSavedInstanceSelection()
     setSelectedState(saved)
     setLoaded(true)
     getCrmInstanceOptions().then((o) => {
