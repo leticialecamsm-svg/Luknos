@@ -1,7 +1,7 @@
 import { handleOptions, json } from './_shared/cors.ts'
-import { verifyWebhookSecret, getMediaBase64 } from './_shared/evolution.ts'
+import { verifyWebhookSecret, getMediaBase64, evolutionFetch } from './_shared/evolution.ts'
 import { createServiceClient } from './_shared/supabase.ts'
-import { samePhone } from './_shared/phone.ts'
+import { samePhone, phoneVariants } from './_shared/phone.ts'
 import { invokeFunction, runBackground } from './_shared/internal.ts'
 import {
   base64ToBytes,
@@ -232,7 +232,15 @@ async function handlePresence(payload: EvolutionWebhook) {
   const db = createServiceClient()
   const { data: inst } = await db.from('crm_instances').select('id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()
   if (!inst) return { handled: false, skipped: 'unknown_instance' }
-  const { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', inst.id).eq('remote_jid', chatJid).maybeSingle()
+  // conversa individual chega com o id anônimo (…@lid): traduz para o número que o CRM usa
+  const jid = chatJid.endsWith('@lid') ? await lidToJid(db, inst.id, payload.instance ?? '', chatJid) : chatJid
+  if (!jid) return { handled: false, skipped: 'presence_lid_unknown' }
+  let { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', inst.id).eq('remote_jid', jid).maybeSingle()
+  if (!conv && jid.endsWith('@s.whatsapp.net')) {
+    // mesmo número com/sem o 9 extra
+    const variants = phoneVariants(jid.split('@')[0]).map((v) => `${v}@s.whatsapp.net`)
+    conv = (await db.from('crm_conversations').select('id').eq('instance_id', inst.id).in('remote_jid', variants).limit(1).maybeSingle()).data
+  }
   if (!conv) return { handled: false, skipped: 'presence_no_conversation' }
   const isGroup = chatJid.endsWith('@g.us')
   const now = new Date().toISOString()
@@ -254,4 +262,21 @@ async function handlePresence(payload: EvolutionWebhook) {
     if (error) return { handled: false, error: error.message }
   }
   return { handled: true, presence: rows.map((r) => r.state) }
+}
+
+// …@lid -> …@s.whatsapp.net. Primeiro no cache (crm_lid_map); senão pergunta à Evolution, que
+// guarda o número em remoteJidAlt nas mensagens dessa conversa, e grava no cache.
+async function lidToJid(db: SupabaseClient, instanceId: string, instanceName: string, lid: string): Promise<string | null> {
+  const { data: hit } = await db.from('crm_lid_map').select('jid').eq('instance_id', instanceId).eq('lid', lid).maybeSingle()
+  if (hit?.jid) return hit.jid as string
+  try {
+    const r = await evolutionFetch(`/chat/findMessages/${instanceName}`, { method: 'POST', body: JSON.stringify({ where: { key: { remoteJid: lid } }, limit: 5 }) })
+    if (!r.ok) return null
+    const d = await r.json().catch(() => null)
+    const records: Array<{ key?: { remoteJidAlt?: string } }> = d?.messages?.records ?? (Array.isArray(d) ? d : [])
+    const alt = records.map((m) => m?.key?.remoteJidAlt).find((j) => typeof j === 'string' && j.endsWith('@s.whatsapp.net'))
+    if (!alt) return null
+    await db.from('crm_lid_map').upsert({ instance_id: instanceId, lid, jid: alt, updated_at: new Date().toISOString() }, { onConflict: 'instance_id,lid' })
+    return alt
+  } catch { return null }
 }
