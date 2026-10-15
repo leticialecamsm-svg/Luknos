@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
 import { streamEvolutionMediaToDrive } from '@/lib/crm-media'
+import { driveDownload } from '@/lib/google-drive'
 import { vapidKeys, sendTestPush } from '@/lib/crm-push'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
@@ -1041,18 +1042,42 @@ export async function forwardCrmMessage(messageId: string, targetConversationIds
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
-  const { data: m } = await admin
-    .from('crm_messages')
-    .select('id, conversation_id, message_type, body, deleted_at')
-    .eq('id', messageId)
-    .maybeSingle()
+  const cols = 'id, conversation_id, message_type, body, deleted_at, storage_path, drive_file_id, file_name, mime_type, media_size'
+  let { data: m } = await admin.from('crm_messages').select(cols).eq('id', messageId).maybeSingle()
   if (!m || m.deleted_at) return { error: 'Mensagem não encontrada' }
   const srcAcc = await convAccess(admin, auth, m.conversation_id)
   if (!srcAcc.ok) return { error: srcAcc.error }
-  const text = (m.body ?? '').trim()
-  if (!text) return { error: 'Por enquanto dá para encaminhar apenas mensagens de texto.' }
   const targets = Array.from(new Set((targetConversationIds ?? []).filter(Boolean))).slice(0, 20)
   if (!targets.length) return { error: 'Escolha para quem encaminhar' }
+
+  const isMedia = MEDIA_TYPES.includes(m.message_type)
+  const text = (m.body ?? '').trim()
+  // Arquivo: precisa estar no sistema (Supabase) para sair pelo WhatsApp. Ainda não baixado do
+  // WhatsApp: baixa agora; se está só no Drive: copia uma vez para o Supabase (a rotina de
+  // limpeza devolve ao Drive depois) e todas as conversas usam a mesma cópia.
+  let storagePath: string | null = null
+  if (isMedia) {
+    if (!m.storage_path && !m.drive_file_id) {
+      const d = await downloadCrmMedia(m.id)
+      if ('error' in d && d.error) return { error: d.error }
+      m = (await admin.from('crm_messages').select(cols).eq('id', messageId).maybeSingle()).data ?? m
+    }
+    if (m.media_size && m.media_size > CRM_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 16 MB: o WhatsApp não aceita encaminhar por aqui' }
+    storagePath = m.storage_path ?? null
+    if (!storagePath && m.drive_file_id) {
+      const res = await driveDownload(m.drive_file_id)
+      if (!res.ok) return { error: `Não foi possível ler o arquivo no Drive (${res.status})` }
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.byteLength > CRM_ATTACH_MAX_BYTES) return { error: 'Arquivo acima de 16 MB: o WhatsApp não aceita encaminhar por aqui' }
+      const safe = (m.file_name ?? 'arquivo').replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || 'arquivo'
+      storagePath = `forwards/${Date.now()}_${safe}`
+      const { error: upErr } = await admin.storage.from('crm-attachments').upload(storagePath, bytes, { contentType: m.mime_type ?? 'application/octet-stream' })
+      if (upErr) return { error: upErr.message }
+    }
+    if (!storagePath) return { error: 'Arquivo indisponível para encaminhar' }
+  } else if (!text) {
+    return { error: 'Esta mensagem não tem conteúdo para encaminhar' }
+  }
 
   let sent = 0
   const errors: string[] = []
@@ -1060,7 +1085,9 @@ export async function forwardCrmMessage(messageId: string, targetConversationIds
     if (cid === m.conversation_id) continue
     const acc = await convAccess(admin, auth, cid)
     if (!acc.ok) { errors.push(acc.error); continue }
-    const r = await sendCrmMessage({ conversationId: cid, text, forwarded: true })
+    const r = isMedia
+      ? await sendCrmMessage({ conversationId: cid, storagePath: storagePath!, fileName: m.file_name ?? 'arquivo', mimeType: m.mime_type ?? undefined, text: text || undefined, forwarded: true })
+      : await sendCrmMessage({ conversationId: cid, text, forwarded: true })
     if ('error' in r && r.error) errors.push(r.error); else sent++
   }
   if (!sent) return { error: errors[0] ?? 'Não foi possível encaminhar' }
@@ -2711,4 +2738,20 @@ export async function setupCrmPresenceWebhook(apply: boolean) {
     body: JSON.stringify({ action: 'webhook_presence', apply }),
   })
   return (await res.json().catch(() => ({ error: `Falha (${res.status})` }))) as Record<string, unknown>
+}
+
+// Conversa aberta e à vista no CRM: o número fica online e acompanha o contato, para receber o
+// "digitando…" dele (o WhatsApp só manda esse aviso a quem está online). online=false ao sair.
+export async function setCrmWatch(conversationId: string, online: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+    body: JSON.stringify({ action: 'watch', conversation_id: conversationId, online }),
+  }).catch(() => null)
+  return res?.ok ? { ok: true } : { error: 'Falha ao avisar o WhatsApp' }
 }

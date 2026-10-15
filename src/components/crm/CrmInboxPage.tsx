@@ -66,6 +66,7 @@ import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal } from './CrmConversationModals'
+import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
@@ -695,6 +696,36 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }
   useEffect(() => stopTyping, [selectedId, stopTyping]) // trocou de conversa ou saiu da tela: parou
 
+  // Como o WhatsApp Web aberto: com a conversa aberta e a aba à vista, o número fica online e
+  // acompanha o contato — só assim o WhatsApp manda o "digitando…" dele. Renova a cada 50 s;
+  // ao esconder a aba, trocar de conversa ou sair, volta para offline.
+  const watchOff = useRef<{ timer?: ReturnType<typeof setTimeout>; instance?: string | null }>({})
+  useEffect(() => {
+    if (!selectedId) return
+    const cid = selectedId
+    const instance = conversationsRef.current.find((c) => c.id === cid)?.instance_id ?? null
+    // trocou para outra conversa do MESMO número: o "offline" da anterior nem sai (senão poderia
+    // chegar depois do "online" desta)
+    if (watchOff.current.timer && watchOff.current.instance === instance) clearTimeout(watchOff.current.timer)
+    const post = (online: boolean) => fetch('/api/crm/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ c: cid, online }), keepalive: true }).catch(() => {})
+    let on = false
+    const sync = () => {
+      const visible = document.visibilityState === 'visible'
+      if (visible) { post(true); on = true } else if (on) { post(false); on = false }
+    }
+    sync()
+    const iv = setInterval(() => { if (document.visibilityState === 'visible') post(true) }, 50_000)
+    document.addEventListener('visibilitychange', sync)
+    const onHide = () => { if (on) post(false) }
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', sync)
+      window.removeEventListener('pagehide', onHide)
+      if (on) watchOff.current = { instance, timer: setTimeout(() => { post(false); watchOff.current = {} }, 400) }
+    }
+  }, [selectedId])
+
   // Membros do grupo aberto (para mencionar e para trocar "@número" pelo nome nas mensagens)
   const selectedIsGroup = !!selected?.is_group
   useEffect(() => {
@@ -928,22 +959,24 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }
 
   const fileKind = (mime: string) => (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document')
-  const sendFiles = (files: File[]) => {
+  const sendFiles = (items: ComposedFile[]) => {
     const cid = selectedId
     if (!cid) { toast.error('ERRO', 'Escolha uma conversa primeiro'); return }
     const reply = replyTo
     setReplyTo(null)
-    files.forEach((file) => {
-      const temp = makeTemp({ message_type: fileKind(file.type), file_name: file.name, mime_type: file.type, local_url: URL.createObjectURL(file) }, reply)
+    items.forEach(({ file, caption }) => {
+      const temp = makeTemp({ message_type: fileKind(file.type), body: caption || null, file_name: file.name, mime_type: file.type, local_url: URL.createObjectURL(file) }, reply)
       enqueue(cid, temp)
       runSend(cid, temp.id, async () => {
         const up = await uploadCrmFile(cid, file)
         if (up.error) return { error: up.error }
-        return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, replyToMessageId: reply?.id })
+        return sendCrmMessage({ conversationId: cid, storagePath: up.storagePath, fileName: file.name, mimeType: file.type, text: caption || undefined, replyToMessageId: reply?.id })
       })
     })
   }
-  const handleFile = (files: FileList | null) => { if (files) sendFiles(Array.from(files)) }
+  // Arquivos escolhidos, colados ou arrastados passam antes pela tela de envio (legenda, girar, desenhar)
+  const [composerFiles, setComposerFiles] = useState<File[] | null>(null)
+  const handleFile = (files: FileList | null) => { if (files?.length) setComposerFiles(Array.from(files)) }
 
   // Colar (Ctrl+V) uma imagem do clipboard: envia como imagem, igual ao WhatsApp.
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -954,7 +987,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     e.preventDefault()
     const files = imgs.map((it) => it.getAsFile()).filter(Boolean) as File[]
     const named = files.map((f) => new File([f], (f.name && f.name !== 'image.png') ? f.name : `print-${Date.now()}.png`, { type: f.type || 'image/png' }))
-    sendFiles(named)
+    setComposerFiles(named)
   }
 
   const handleSend = () => {
@@ -1396,7 +1429,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div ref={threadRef} data-thread onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
+            <div ref={threadRef} data-thread onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setComposerFiles(Array.from(e.dataTransfer.files)) } }} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
               {loadingThread && messages.length === 0 && !threadError && <ThreadSkeleton />}
               {threadError && messages.length === 0 && (
                 <LoadError message="Não foi possível carregar as mensagens." onRetry={() => { setThreadError(null); setLoadingThread(true); refreshThread(selectedId!) }} />
@@ -1448,7 +1481,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   }}
                   onReact={(emoji) => reactNow(m, emoji)}
                   canDelete={!isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
-                  canForward={!isTemp(m) && m.message_type === 'text' && !!(m.body && m.body.trim()) && !m.deleted_at}
+                  canForward={!isTemp(m) && !m.deleted_at && (['image', 'video', 'audio', 'document'].includes(m.message_type) || !!(m.body && m.body.trim()))}
                   onRetry={() => retrySend(m)}
                   onDiscard={() => discardFailed(m)}
                   onForward={() => setForwarding(m)}
@@ -1750,6 +1783,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           defaultInstanceId={selected?.instance_id ?? filter.selected[0] ?? filter.options[0]?.id ?? null}
           onClose={() => setShowNewConv(false)}
           onStarted={(id) => { setShowNewConv(false); refreshList(true); setSelectedId(id) }}
+        />
+      )}
+
+      {composerFiles && selected && (
+        <MediaComposer
+          initialFiles={composerFiles}
+          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+          onClose={() => setComposerFiles(null)}
+          onSend={(items) => { setComposerFiles(null); sendFiles(items) }}
         />
       )}
 
