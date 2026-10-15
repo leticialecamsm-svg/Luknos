@@ -677,6 +677,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     return { text: `${staff.name?.split(' ')[0] ?? 'Outro atendente'} está digitando…`, contact: false }
   }
 
+  // o balão de "digitando" entrou no fim da conversa: desce junto se você já estava no fim
+  const selectedTyping = !!(selectedId && typing[selectedId]?.some((t) => t.actor === 'contact' || t.actor.includes('@')))
+  useEffect(() => {
+    const el = threadRef.current
+    if (selectedTyping && el && stickRef.current) requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }))
+  }, [selectedTyping])
+
   // Enviado: enquanto você digita, o contato vê "digitando…" no WhatsApp (e os colegas, no CRM).
   // Um aviso a cada 4 s no máximo; 3 s sem digitar (ou ao enviar/trocar de conversa) manda "parou".
   const myTyping = useRef<{ cid: string | null; lastSent: number; idle?: ReturnType<typeof setTimeout> }>({ cid: null, lastSent: 0 })
@@ -1536,6 +1543,21 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </div>
                 </Fragment>
               ))}
+              {/* contato digitando: o balão com os três pontinhos, como no WhatsApp */}
+              {(() => {
+                const tl = typingLabel(selected.id)
+                if (!tl?.contact) return null
+                return (
+                  <div className="mt-2.5 flex justify-start" role="status" aria-label={tl.text}>
+                    <div className="rounded-lg rounded-tl-none bg-white px-3.5 py-3 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+                      {selected.is_group && tl.text.includes(' está ') && <p className="mb-1 text-[12px] font-semibold text-emerald-700">{tl.text.split(' está ')[0]}</p>}
+                      <span className="flex items-center gap-1" aria-hidden>
+                        <span className="crm-typing-dot" /><span className="crm-typing-dot" /><span className="crm-typing-dot" />
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {newBelow > 0 && (
