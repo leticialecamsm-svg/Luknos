@@ -228,7 +228,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => {
     if (!headerMenu) return
     const close = () => setHeaderMenu(false)
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close() } }
     document.addEventListener('click', close)
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey) }
@@ -1721,7 +1721,8 @@ function MessageBubble({
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(false)
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    // o Esc fecha só o menu (preventDefault avisa o atalho da tela para não fechar a conversa)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close() } }
     document.addEventListener('click', close)
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey) }
