@@ -89,7 +89,12 @@ export function MediaComposer({ initialFiles, onSend, onClose, contactName }: {
   useEffect(() => { requestAnimationFrame(() => captionRef.current?.focus()) }, [active?.id])
   useEffect(() => { if (!active?.isImage) setDrawing(false) }, [active?.isImage])
 
-  const markEdited = (id: string) => setItems((cur) => cur.map((i) => (i.id === id ? { ...i, edited: true } : i)))
+  // editou: a miniatura passa a mostrar a imagem como vai sair
+  const markEdited = (id: string) => {
+    const c = canvases.current.get(id)
+    const thumb = c ? c.toDataURL('image/jpeg', 0.6) : null
+    setItems((cur) => cur.map((i) => (i.id === id ? { ...i, edited: true, thumb: thumb ?? i.thumb } : i)))
+  }
   const pushHistory = (id: string, c: HTMLCanvasElement) => {
     const h = history.current.get(id) ?? []
     h.push(c.getContext('2d')!.getImageData(0, 0, c.width, c.height))
@@ -122,7 +127,7 @@ export function MediaComposer({ initialFiles, onSend, onClose, contactName }: {
     activeCanvas.width = last.width
     activeCanvas.height = last.height
     activeCanvas.getContext('2d')!.putImageData(last, 0, 0)
-    force((n) => n + 1)
+    markEdited(active.id)
   }
 
   // desenho livre por cima da imagem
