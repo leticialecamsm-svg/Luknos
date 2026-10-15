@@ -13,7 +13,7 @@ interface ContactToSend {
 }
 
 interface Payload {
-  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence' | 'watch'
+  action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence' | 'watch' | 'sync_edits'
   // watch: true = o CRM está com a conversa aberta e à vista (fica online e acompanha o contato)
   online?: boolean
   // "digitando…" para o contato: composing | recording | paused
@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     if (payload.action === 'presence') return json(await sendPresence(payload))
     if (payload.action === 'webhook_presence') return json(await webhookPresence(!!payload.apply))
     if (payload.action === 'watch') return json(await watchConversation(payload))
+    if (payload.action === 'sync_edits') return json(await syncEdits(payload))
 
     const { conversation_id, sender_user_id } = payload
     if (!conversation_id || !sender_user_id) return json({ sent: false, error: 'missing_fields' }, 400)
@@ -540,6 +541,61 @@ async function webhookPresence(apply: boolean) {
     }
   }
   return { ok: true, instances: out }
+}
+
+// Edições/apagamentos feitos no WhatsApp que o CRM não registrou (antes do webhook tratar esse
+// aviso): procura no histórico da Evolution desta conversa e aplica. Devolve quantos acertou.
+async function syncEdits(payload: Payload) {
+  if (!payload.conversation_id) return { ok: false, error: 'missing_fields' }
+  const db = createServiceClient()
+  const { data: conv } = await db
+    .from('crm_conversations')
+    .select('id, remote_jid, instance_id, crm_instances(instance_name)')
+    .eq('id', payload.conversation_id)
+    .maybeSingle()
+  const instanceName = (conv as any)?.crm_instances?.instance_name as string | undefined
+  if (!conv || !instanceName) return { ok: false, error: 'conversation_not_found' }
+  const { data: lids } = await db.from('crm_lid_map').select('lid').eq('instance_id', conv.instance_id).eq('jid', conv.remote_jid)
+  const jids = [conv.remote_jid, ...((lids ?? []).map((l) => l.lid as string))]
+  let applied = 0
+  const types: Record<string, number> = {}
+  for (const jid of jids) {
+    const r = await evolutionFetch(`/chat/findMessages/${instanceName}`, { method: 'POST', body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 200 }) })
+    if (!r.ok) continue
+    const d = await r.json().catch(() => null)
+    const records: any[] = d?.messages?.records ?? (Array.isArray(d) ? d : [])
+    for (const rec of records) {
+      types[rec?.messageType ?? '?'] = (types[rec?.messageType ?? '?'] ?? 0) + 1
+      const m = rec?.message ?? {}
+      const pm = m.protocolMessage ?? m.editedMessage?.message?.protocolMessage ?? null
+      if (!pm?.key?.id) {
+        // a Evolution também pode guardar a edição na própria mensagem: texto recebido diferente do nosso
+        const txt = m.conversation ?? m.extendedTextMessage?.text ?? null
+        if (txt && rec?.key?.id && rec.key.fromMe === false) {
+          const { data: upd } = await db.from('crm_messages').update({ body: txt, edited_at: new Date().toISOString() })
+            .eq('conversation_id', conv.id).eq('provider_message_id', String(rec.key.id)).eq('direction', 'inbound')
+            .eq('message_type', 'text').is('deleted_at', null).neq('body', txt).select('id')
+          applied += upd?.length ?? 0
+        }
+        continue
+      }
+      const t = pm.type
+      if (t === 14 || t === 'MESSAGE_EDIT') {
+        const em = pm.editedMessage ?? {}
+        const text = em.conversation ?? em.extendedTextMessage?.text ?? em.imageMessage?.caption ?? em.videoMessage?.caption ?? null
+        if (!text) continue
+        const ts = rec.messageTimestamp ? new Date(Number(rec.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
+        const { data: upd } = await db.from('crm_messages').update({ body: text, edited_at: ts })
+          .eq('conversation_id', conv.id).eq('provider_message_id', String(pm.key.id)).neq('body', text).select('id')
+        applied += upd?.length ?? 0
+      } else if (t === 0 || t === 'REVOKE') {
+        const { data: upd } = await db.from('crm_messages').update({ deleted_at: new Date().toISOString() })
+          .eq('conversation_id', conv.id).eq('provider_message_id', String(pm.key.id)).is('deleted_at', null).select('id')
+        applied += upd?.length ?? 0
+      }
+    }
+  }
+  return { ok: true, applied, types }
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

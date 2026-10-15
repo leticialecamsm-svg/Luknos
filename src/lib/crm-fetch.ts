@@ -26,3 +26,17 @@ export function fetchCrmMessages(conversationId: string, opts: { before?: string
   if (opts.limit) p.set('limit', String(opts.limit))
   return getJson<MessagesPage>(`/api/crm/messages?${p}`, signal)
 }
+
+// Escritas que não podem esperar na fila das ações do servidor (uma ação longa, como encaminhar
+// um arquivo, segurava o envio da mensagem seguinte): vão por rota própria, em paralelo.
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const data = await res.json().catch(() => null)
+  if (!data) return { error: `Falha de conexão (${res.status})` } as T
+  return data as T
+}
+
+export type SendInput = Parameters<typeof import('@/lib/crm-actions').sendCrmMessage>[0]
+export const postCrmSend = (input: SendInput) => postJson<{ error?: string; ok?: boolean; messageId?: string | null }>('/api/crm/send', input)
+export const postCrmForward = (messageId: string, targets: string[]) => postJson<{ error?: string; ok?: boolean; sent?: number }>('/api/crm/forward', { messageId, targets })
+export const postCrmReact = (messageId: string, emoji: string) => postJson<{ error?: string; ok?: boolean }>('/api/crm/react', { messageId, emoji })
