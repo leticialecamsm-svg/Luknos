@@ -2673,3 +2673,42 @@ export async function setConversationSignature(conversationId: string, hide: boo
   if (error) return { error: error.message }
   return { ok: true }
 }
+
+// ─── "Digitando…" ────────────────────────────────────────────────────────────
+
+// O atendente está digitando (ou parou): avisa o contato no WhatsApp e os outros atendentes
+// que estão com a conversa aberta (tabela crm_presence, em tempo real).
+export async function setCrmTyping(conversationId: string, state: 'composing' | 'paused') {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const [{ error }] = await Promise.all([
+    admin.from('crm_presence').upsert(
+      { conversation_id: conversationId, actor: auth.userId, actor_name: auth.name, state, updated_at: new Date().toISOString() },
+      { onConflict: 'conversation_id,actor' },
+    ),
+    fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ action: 'presence', conversation_id: conversationId, presence: state }),
+    }).catch(() => null),
+  ])
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// Administrador: mostra (apply=false) ou liga (apply=true) o aviso de "digitando" do contato
+// no webhook da Evolution de cada número do CRM.
+export async function setupCrmPresenceWebhook(apply: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  if (!auth.isAdmin) return { error: 'Só administradores' }
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+    body: JSON.stringify({ action: 'webhook_presence', apply }),
+  })
+  return (await res.json().catch(() => ({ error: `Falha (${res.status})` }))) as Record<string, unknown>
+}
