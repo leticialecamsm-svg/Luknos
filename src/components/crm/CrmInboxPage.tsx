@@ -702,7 +702,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => stopTyping, [selectedId, stopTyping]) // trocou de conversa ou saiu da tela: parou
 
   // Como o WhatsApp Web aberto: com a conversa aberta e a aba à vista, o número fica online e
-  // acompanha o contato — só assim o WhatsApp manda o "digitando…" dele. Renova a cada 50 s;
+  // acompanha o contato — só assim o WhatsApp manda o "digitando…" dele. Renova a cada 20 s (o WhatsApp derruba o "online" se ficar muito tempo sem aviso);
   // ao esconder a aba, trocar de conversa ou sair, volta para offline.
   const watchOff = useRef<{ timer?: ReturnType<typeof setTimeout>; instance?: string | null }>({})
   useEffect(() => {
@@ -719,7 +719,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       if (visible) { post(true); on = true } else if (on) { post(false); on = false }
     }
     sync()
-    const iv = setInterval(() => { if (document.visibilityState === 'visible') post(true) }, 50_000)
+    const iv = setInterval(() => { if (document.visibilityState === 'visible') post(true) }, 20_000)
     document.addEventListener('visibilitychange', sync)
     const onHide = () => { if (on) post(false) }
     window.addEventListener('pagehide', onHide)
