@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { setupCrmPresenceWebhook } from '@/lib/crm-actions'
+import { setupCrmPresenceWebhook, crmInstanceSettings } from '@/lib/crm-actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -7,6 +7,11 @@ export const dynamic = 'force-dynamic'
 // sem apply, só mostra a configuração atual de cada número.
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
+  // TEMP: ?settings=<instância>[&alwaysOnline=1|0]
+  if (sp.get('settings')) {
+    const ao = sp.get('alwaysOnline')
+    return NextResponse.json(await crmInstanceSettings(sp.get('settings')!, ao === null ? undefined : { alwaysOnline: ao === '1' }), { headers: { 'Cache-Control': 'no-store' } })
+  }
   // ?events=PRESENCE_UPDATE,MESSAGES_UPDATE (padrão: PRESENCE_UPDATE)
   const events = sp.get('events')?.split(',').map((e) => e.trim().toUpperCase()).filter((e) => /^[A-Z_]+$/.test(e))
   const r = await setupCrmPresenceWebhook(sp.get('apply') === '1', events?.length ? events : undefined)
