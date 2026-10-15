@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { subscribeCrmMessages } from '@/lib/crm-realtime'
-import { getIncomingNotification, getPushPublicKey, savePushSubscription, removePushSubscription, sendMyTestPush, type IncomingNotice } from '@/lib/crm-actions'
+import { getPushPublicKey, savePushSubscription, removePushSubscription, sendMyTestPush, type IncomingNotice } from '@/lib/crm-actions'
 import { getOpenConversationId } from '@/lib/crm-open-conversation'
 import type { NoticeItem } from '@/components/crm/CrmNoticeStack'
 
@@ -48,8 +48,17 @@ async function ensurePush(): Promise<boolean> {
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(key) as BufferSource })
     }
     const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } }
+    // A inscrição quase nunca muda: grava no servidor só quando é nova ou a cada 24 h
+    // (antes era uma chamada a cada abertura de página, na fila das ações).
+    const SAVED_KEY = 'crm-push-saved'
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVED_KEY) ?? 'null') as { endpoint: string; at: number } | null
+      if (saved?.endpoint === json.endpoint && Date.now() - saved.at < 24 * 3600_000) return true
+    } catch { /* sem armazenamento: grava */ }
     const r = await savePushSubscription(json, navigator.userAgent)
-    return !('error' in r && r.error)
+    const ok = !('error' in r && r.error)
+    if (ok) try { localStorage.setItem(SAVED_KEY, JSON.stringify({ endpoint: json.endpoint, at: Date.now() })) } catch { /* ignore */ }
+    return ok
   } catch {
     return false
   }
@@ -59,6 +68,7 @@ async function dropPush() {
   try {
     const reg = await navigator.serviceWorker.getRegistration('/')
     const sub = await reg?.pushManager.getSubscription()
+    try { localStorage.removeItem('crm-push-saved') } catch { /* ignore */ }
     if (sub) { await removePushSubscription(sub.endpoint); await sub.unsubscribe() }
   } catch { /* ignore */ }
 }
@@ -163,7 +173,9 @@ export function useCrmDesktopNotify(active: boolean) {
       const m = payload.new as { id: string; direction: string; is_system: boolean } | null
       if (!m || m.direction !== 'inbound' || m.is_system || seen.has(m.id) || !enabledRef.current) return
       seen.add(m.id)
-      const info = await getIncomingNotification(m.id).catch(() => null)
+      const info = await fetch(`/api/crm/notice?m=${encodeURIComponent(m.id)}`, { cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<IncomingNotice | null>) : null))
+        .catch(() => null)
       if (!info) return
       if (document.visibilityState === 'visible' && getOpenConversationId() === info.conversation_id) return
       showRef.current(info)

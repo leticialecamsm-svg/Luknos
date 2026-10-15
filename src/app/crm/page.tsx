@@ -7,7 +7,8 @@ export const metadata = { title: 'CRM — Luknos' }
 export default async function Page() {
   // o layout (src/app/crm/layout.tsx) já garante acesso via requirePageAccess.
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user!.id).single()
+  // o layout já validou a sessão com o servidor de login; aqui basta ler o token (verificado localmente)
+  const { data: claims } = await supabase.auth.getClaims()
+  const { data: profile } = await supabase.from('users').select('role').eq('id', claims!.claims.sub).single()
   return <CrmBoardPage isAdmin={profile?.role === 'admin'} />
 }

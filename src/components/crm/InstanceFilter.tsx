@@ -20,15 +20,21 @@ export function useInstanceFilter() {
 
   useEffect(() => {
     let alive = true
+    // A escolha salva vale na hora: a lista não espera a ida ao servidor para começar a carregar
+    // (o servidor já limita aos WhatsApps que a pessoa enxerga).
+    let saved: string[] = []
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+      if (Array.isArray(s)) saved = s.filter((x): x is string => typeof x === 'string')
+    } catch { /* sem preferência salva */ }
+    setSelectedState(saved)
+    setLoaded(true)
     getCrmInstanceOptions().then((o) => {
       if (!alive) return
       setOptions(o)
-      try {
-        const saved = JSON.parse(localStorage.getItem(KEY) ?? '[]') as string[]
-        // ignora ids que a pessoa não enxerga mais
-        setSelectedState(Array.isArray(saved) ? saved.filter((id) => o.some((x) => x.id === id)) : [])
-      } catch { /* sem preferência salva */ }
-      setLoaded(true)
+      // ignora ids que a pessoa não enxerga mais (só troca o estado se mudou de fato)
+      const valid = saved.filter((id) => o.some((x) => x.id === id))
+      if (valid.length !== saved.length) setSelectedState(valid)
     })
     return () => { alive = false }
   }, [])
