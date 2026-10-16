@@ -12,6 +12,8 @@ import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
 import { isDoneStatus, type IndexRow, type TeamUser } from '@/lib/solicitations/index-data'
+import { moveStageCardStatus } from '@/lib/solicitations/actions'
+import { useToast } from '@/components/ui/Toast'
 
 export type { IndexRow, TeamUser }
 
@@ -116,12 +118,61 @@ function visibleIn(r: IndexRow, stage: string, month: Date) {
 }
 
 const PROJECT_KIND: Record<string, { label: string; bg: string; text: string }> = {
-  elaboracao:      { label: 'Elaboração',         bg: 'bg-violet-50', text: 'text-violet-700' },
+  elaboracao:      { label: 'Elaboração para orçamento', bg: 'bg-violet-50', text: 'text-violet-700' },
   alocacao_pontos: { label: 'Alocação de pontos', bg: 'bg-sky-50',    text: 'text-sky-700' },
 }
 
-export function SolicitationsIndex({ rows, month, onMonthChange }: { rows: IndexRow[]; month: Date; onMonthChange: (d: Date) => void }) {
+export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { rows: IndexRow[]; month: Date; onMonthChange: (d: Date) => void }) {
   const router = useRouter()
+  const toast = useToast()
+  // Mudanças otimistas do arrastar: ficam até a lista do servidor chegar atualizada.
+  const [overrides, setOverrides] = useState<Record<string, { status: string; doneAt: string | null }>>({})
+  useEffect(() => { setOverrides({}) }, [rowsProp])
+  const rows = useMemo(() => {
+    const keys = Object.keys(overrides)
+    if (keys.length === 0) return rowsProp
+    return rowsProp.map(r => {
+      const mine = keys.filter(k => k.startsWith(`${r.id}:`))
+      if (mine.length === 0) return r
+      const stageStatus = { ...r.stageStatus }
+      const stageDoneAt = { ...r.stageDoneAt }
+      for (const k of mine) {
+        const stage = k.slice(r.id.length + 1)
+        const o = overrides[k]
+        stageStatus[stage] = o.status
+        if (o.doneAt) stageDoneAt[stage] = o.doneAt; else delete stageDoneAt[stage]
+      }
+      return { ...r, stageStatus, stageDoneAt }
+    })
+  }, [rowsProp, overrides])
+
+  async function moveCard(rowId: string, stage: string, toStatus: string) {
+    const row = rowsProp.find(r => r.id === rowId)
+    if (!row) return
+    const from = (rows.find(r => r.id === rowId) ?? row).stageStatus[stage]
+    if (from === toStatus) return
+    if (stage === 'posVenda') {
+      toast.info('PÓS-VENDA', 'Para marcar como resolvido, registre o encaminhamento na aba Pós-venda da solicitação.')
+      return
+    }
+    const recordId = row.stageRecordId[stage]
+    if (!recordId) return
+    const key = `${rowId}:${stage}`
+    const prev = overrides[key]
+    setOverrides(o => ({ ...o, [key]: { status: toStatus, doneAt: isDoneStatus(stage, toStatus) ? new Date().toISOString() : null } }))
+    const res = await moveStageCardStatus({ solicitationId: rowId, stage, recordId, status: toStatus })
+    if (res.error) {
+      setOverrides(o => {
+        const n = { ...o }
+        if (prev) n[key] = prev; else delete n[key]
+        return n
+      })
+      toast.error('NÃO FOI POSSÍVEL MOVER', res.error)
+      return
+    }
+    router.refresh()
+  }
+
   const searchParams = useSearchParams()
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<string | null>(searchParams.get('etapa'))
@@ -289,7 +340,7 @@ export function SolicitationsIndex({ rows, month, onMonthChange }: { rows: Index
         <ListTable rows={filtered} stageId={stageFilter} />
       ) : (
         stageFilter
-          ? <StatusKanban stageId={stageFilter} rows={filtered} />
+          ? <StatusKanban stageId={stageFilter} rows={filtered} onMove={moveCard} />
           : <KanbanBoard rows={filtered} />
       )}
     </div>
@@ -443,8 +494,20 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
 
 // ── Kanban de UMA etapa: colunas = status daquela etapa ──────────────────────
 
-function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) {
+function StatusKanban({ stageId, rows, onMove }: { stageId: string; rows: IndexRow[]; onMove: (rowId: string, stage: string, toStatus: string) => void }) {
   const router = useRouter()
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overCol, setOverCol] = useState<string | null>(null)
+  const dropProps = (colKey: string) => ({
+    onDragOver: (e: React.DragEvent) => { if (dragId) { e.preventDefault(); setOverCol(colKey) } },
+    onDragLeave: () => setOverCol(o => (o === colKey ? null : o)),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      const id = e.dataTransfer.getData('text/plain') || dragId
+      setOverCol(null); setDragId(null)
+      if (id) onMove(id, stageId, colKey)
+    },
+  })
   const cols = STAGE_STATUSES[stageId] ?? []
   const stageLabel = STAGE_PILLS.find(s => s.id === stageId)?.label ?? ''
 
@@ -472,7 +535,11 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
               <section
                 key={col.key}
                 aria-label={`Coluna ${col.label} (vazia)`}
-                className="w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl bg-gray-50 border border-gray-200"
+                {...dropProps(col.key)}
+                className={cn(
+                  'w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl border transition-colors',
+                  overCol === col.key ? 'border-gray-900 bg-gray-100' : 'bg-gray-50 border-gray-200',
+                )}
                 style={{ borderTop: `3px solid ${col.color}` }}
               >
                 <span className="text-[11px] text-gray-400">0</span>
@@ -484,7 +551,11 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
             <section
               key={col.key}
               aria-label={`Coluna ${col.label}`}
-              className="w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border border-gray-200"
+              {...dropProps(col.key)}
+              className={cn(
+                'w-64 shrink-0 flex flex-col rounded-xl border transition-colors',
+                overCol === col.key ? 'border-gray-900 bg-gray-100' : 'bg-gray-50 border-gray-200',
+              )}
             >
               <header
                 className="px-3 py-2 border-b border-gray-200"
@@ -495,12 +566,15 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
                   <span className="text-xs text-gray-500">{items.length}</span>
                 </div>
               </header>
-              <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+              <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5 min-h-[60px]">
                 {items.length === 0 && <p className="text-xs text-gray-400 text-center py-6">Nenhuma solicitação</p>}
                 {items.map(r => (
                   <KanbanCard
                     key={r.id}
                     kindKey={stageId === 'projeto' ? r.projectKind : null}
+                    dragging={dragId === r.id}
+                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', r.id); e.dataTransfer.effectAllowed = 'move'; setDragId(r.id) }}
+                    onDragEnd={() => { setDragId(null); setOverCol(null) }}
                     r={r}
                     stageColor={col.color}
                     team={r.teamByStage[stageId] ?? []}
@@ -517,14 +591,24 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
   )
 }
 
-function KanbanCard({ r, stageColor, onClick, team, kindKey }: { r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null }) {
+function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd }: {
+  r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null
+  dragging?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void
+}) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
   const name = r.title || r.clientName || '—'
   return (
     <article
       onClick={onClick}
-      className="group relative bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md cursor-pointer transition-shadow"
+      draggable={!!onDragStart}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={cn(
+        'group relative bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md transition-shadow',
+        onDragStart ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
+        dragging && 'opacity-40',
+      )}
       style={{ borderLeftColor: stageColor }}
     >
       <div className="flex items-baseline gap-2">

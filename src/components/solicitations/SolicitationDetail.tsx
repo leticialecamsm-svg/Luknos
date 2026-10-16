@@ -84,7 +84,7 @@ const PROJECT_STATUS_COLOR: Record<string, { bg: string; text: string; accent: s
   em_andamento: { bg: 'bg-amber-50', text: 'text-amber-700', accent: '#f59e0b' },
   concluido: { bg: 'bg-green-50', text: 'text-green-700', accent: '#22c55e' },
 }
-const PROJECT_KIND_LABEL: Record<string, string> = { elaboracao: 'Elaboração', alocacao_pontos: 'Alocação de pontos' }
+const PROJECT_KIND_LABEL: Record<string, string> = { elaboracao: 'Elaboração para orçamento', alocacao_pontos: 'Alocação de pontos' }
 const PROJECT_KIND_COLOR: Record<string, { bg: string; text: string }> = {
   elaboracao: { bg: 'bg-violet-50', text: 'text-violet-700' },
   alocacao_pontos: { bg: 'bg-sky-50', text: 'text-sky-700' },
@@ -469,7 +469,7 @@ function AddProjectForm({ solicitation, onClose }: { solicitation: SolicitationV
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título do projeto" className="input" />
         <div className="flex flex-wrap gap-2">
           <select value={kind} onChange={e => setKind(e.target.value as any)} className="select w-auto">
-            <option value="elaboracao">Elaboração</option>
+            <option value="elaboracao">Elaboração para orçamento</option>
             <option value="alocacao_pontos">Alocação de pontos</option>
           </select>
           <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição (opcional)" className="input flex-1 min-w-[160px]" />

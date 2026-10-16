@@ -15,7 +15,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { updateShipment } from '@/lib/actions'
+import { updateShipment, updateTemperature } from '@/lib/actions'
 import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
 import {
   findOrCreateFolder, uploadFile, createResumableUploadSession, trashFile,
@@ -591,7 +591,7 @@ export async function updateDesignProjectKindForSolicitation(
   if (!user) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('design_projects').update({ kind }).eq('id', id)
   if (error) return { error: error.message }
-  await logSolicitationEvent(solicitationId, 'projeto', `Projeto: categoria → ${kind === 'alocacao_pontos' ? 'Alocação de pontos' : 'Elaboração'}`, user.id)
+  await logSolicitationEvent(solicitationId, 'projeto', `Projeto: categoria → ${kind === 'alocacao_pontos' ? 'Alocação de pontos' : 'Elaboração para orçamento'}`, user.id)
   refresh(solicitationId)
   return { ok: true }
 }
@@ -951,6 +951,8 @@ export async function updateQuoteDeadline(
 
 // Troca o status E registra/limpa completed_at atomicamente — para o cálculo
 // de "vencido" não acusar prazo passado quando o orçamento já foi concluído.
+// Usa o cliente AUTENTICADO (como updateQuoteStatus): o gatilho de atividades
+// do orçamento precisa de auth.uid() para registrar quem mudou o status.
 export async function updateQuoteStatusWithCompletion(
   quoteId: string,
   solicitationId: string,
@@ -961,11 +963,56 @@ export async function updateQuoteStatusWithCompletion(
   const patch: Record<string, any> = { status }
   if (status === 'done') patch.completed_at = new Date().toISOString()
   else patch.completed_at = null
-  const { error } = await createAdminClient().from('quotes').update(patch).eq('id', quoteId)
+  const { error } = await createClient().from('quotes').update(patch).eq('id', quoteId)
   if (error) return { error: error.message }
   await logSolicitationEvent(solicitationId, 'orcamento', `Orçamento → ${status}`, user.id)
+  revalidatePath('/quotes')
+  revalidatePath('/dashboard')
   refresh(solicitationId)
   return { ok: true }
+}
+
+// ── Mover o cartão de uma etapa para outro status (arrastar no kanban) ───────
+// Despacha para a mesma ação que a tela de cada etapa já usa, para manter
+// os efeitos colaterais (atividades, datas, histórico) idênticos.
+export async function moveStageCardStatus(input: {
+  solicitationId: string
+  stage: string
+  recordId: string
+  status: string
+}): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { solicitationId: sid, stage, recordId: id, status } = input
+  switch (stage) {
+    case 'visita':
+      return updateVisitForSolicitation(id, sid, { status: status as any })
+    case 'projeto':
+      return updateDesignProjectStatusForSolicitation(id, sid, status as any)
+    case 'orcamento':
+      return updateQuoteStatusWithCompletion(id, sid, status)
+    case 'negociacao': {
+      // id = quote_id da negociação (mesma regra do quadro de Negociações)
+      const res: any = await updateTemperature(id, status as any)
+      if (res?.error) return { error: res.error }
+      await logSolicitationEvent(sid, 'negociacao', `Negociação → ${status}`, user.id)
+      refresh(sid)
+      return { ok: true }
+    }
+    case 'compra':
+      return updatePurchaseChecklistItemStatus(id, sid, status as any)
+    case 'expedicao':
+      return updateShipmentForSolicitation(id, sid, { separation_status: status as any })
+    case 'instalacao': {
+      const { error } = await createAdminClient().from('installation_trackings').update({ status }).eq('id', id)
+      if (error) return { error: error.message }
+      await logSolicitationEvent(sid, 'instalacao', `Instalação → ${INSTALLATION_LOG_LABEL[status] ?? status}`, user.id)
+      refresh(sid)
+      return { ok: true }
+    }
+    default:
+      return { error: 'Esta etapa não muda de status pelo quadro.' }
+  }
 }
 
 // ── Criar Separação e entrega a partir da Solicitação ────────────────────────

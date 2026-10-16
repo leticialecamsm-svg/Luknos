@@ -25,6 +25,8 @@ export type IndexRow = {
   stageStatus: Record<string, string>
   // quando o registro mais recente da etapa foi concluído (só se está concluído)
   stageDoneAt: Record<string, string>
+  // id do registro mais recente de cada etapa (negociação = quote_id)
+  stageRecordId: Record<string, string>
   teamByStage: Record<string, TeamUser[]>
   projectKind: string | null
   overdue: boolean
@@ -49,7 +51,7 @@ export function isDoneStatus(stage: string, status: string): boolean {
   return (STAGE_DONE_STATUSES[stage] ?? []).includes(status)
 }
 
-type Latest = { stamp: string; status: string; doneAt: string | null; kind: string | null }
+type Latest = { stamp: string; status: string; doneAt: string | null; kind: string | null; recordId: string }
 
 export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> {
   const db = createAdminClient()
@@ -58,14 +60,14 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
     db.from('solicitations')
       .select('id, number, title, created_at, created_by, priority, category, size, client:client_id(name)')
       .order('created_at', { ascending: false }).limit(1000),
-    db.from('quotes').select('solicitation_id, quoted_value, status, deadline, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('negotiations').select('solicitation_id, temperature, closed_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('visits').select('solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('design_projects').select('solicitation_id, status, kind, created_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('purchase_checklist_items').select('solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('shipments').select('solicitation_id, separation_status, is_completed, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('installation_trackings').select('solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('post_sale_followups').select('solicitation_id, resolution, created_at').not('solicitation_id', 'is', null),
+    db.from('quotes').select('id, solicitation_id, quoted_value, status, deadline, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('negotiations').select('quote_id, solicitation_id, temperature, closed_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('visits').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('design_projects').select('id, solicitation_id, status, kind, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('purchase_checklist_items').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('shipments').select('id, solicitation_id, separation_status, is_completed, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('installation_trackings').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('post_sale_followups').select('id, solicitation_id, resolution, created_at').not('solicitation_id', 'is', null),
     db.from('solicitation_stage_responsibles').select('solicitation_id, stage, user:user_id(id, name, avatar_url, avatar_color)'),
   ])
 
@@ -75,7 +77,7 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
   const mark = (m: Map<string, Record<string, boolean>>, sid: string, st: string) => {
     const o = m.get(sid) ?? {}; o[st] = true; m.set(sid, o)
   }
-  function put(sid: string, stage: string, stamp: string | null, status: string, doneAtRaw: string | null, kind: string | null = null) {
+  function put(sid: string, stage: string, recordId: string, stamp: string | null, status: string, doneAtRaw: string | null, kind: string | null = null) {
     mark(started, sid, stage)
     const at = stamp ?? ''
     const cur = latest.get(sid) ?? {}
@@ -86,6 +88,7 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
       status,
       doneAt: isDoneStatus(stage, status) ? (doneAtRaw ?? stamp) : null,
       kind,
+      recordId,
     }
     latest.set(sid, cur)
   }
@@ -95,7 +98,7 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
   const today = new Date().toISOString().slice(0, 10)
 
   for (const q of (quotes.data ?? []) as any[]) {
-    put(q.solicitation_id, 'orcamento', q.created_at, q.status ?? 'queue', q.completed_at ?? q.updated_at)
+    put(q.solicitation_id, 'orcamento', q.id, q.created_at, q.status ?? 'queue', q.completed_at ?? q.updated_at)
     if (q.status === 'done') mark(done, q.solicitation_id, 'orcamento')
     const prev = quoteAgg.get(q.solicitation_id)
     if (!prev || q.created_at > prev.at) quoteAgg.set(q.solicitation_id, { value: q.quoted_value != null ? Number(q.quoted_value) : null, at: q.created_at })
@@ -104,34 +107,34 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
   const closedAtBySid = new Map<string, string>()
   for (const n of (negs.data ?? []) as any[]) {
     const t = n.temperature ?? 'no_forecast'
-    put(n.solicitation_id, 'negociacao', n.updated_at, t, n.closed_at ?? n.updated_at)
+    put(n.solicitation_id, 'negociacao', n.quote_id, n.updated_at, t, n.closed_at ?? n.updated_at)
     if (t === 'closed' || t === 'lost') mark(done, n.solicitation_id, 'negociacao')
     if (t === 'closed') closedAtBySid.set(n.solicitation_id, n.closed_at ?? n.updated_at)
   }
   for (const v of (visits.data ?? []) as any[]) {
-    put(v.solicitation_id, 'visita', v.created_at, v.status ?? 'to_schedule', v.updated_at)
+    put(v.solicitation_id, 'visita', v.id, v.created_at, v.status ?? 'to_schedule', v.updated_at)
     if (v.status === 'done') mark(done, v.solicitation_id, 'visita')
   }
   for (const p of (projects.data ?? []) as any[]) {
-    put(p.solicitation_id, 'projeto', p.created_at, p.status ?? 'fila', p.updated_at, p.kind ?? null)
+    put(p.solicitation_id, 'projeto', p.id, p.created_at, p.status ?? 'fila', p.updated_at, p.kind ?? null)
     if (p.status === 'concluido') mark(done, p.solicitation_id, 'projeto')
   }
   const purchAll = new Map<string, boolean>()
   for (const i of (purchases.data ?? []) as any[]) {
-    put(i.solicitation_id, 'compra', i.created_at, i.status ?? 'a_pedir', i.updated_at)
+    put(i.solicitation_id, 'compra', i.id, i.created_at, i.status ?? 'a_pedir', i.updated_at)
     purchAll.set(i.solicitation_id, (purchAll.get(i.solicitation_id) ?? true) && i.status === 'recebido')
   }
   purchAll.forEach((all, sid) => { if (all) mark(done, sid, 'compra') })
   for (const sh of (shipments.data ?? []) as any[]) {
-    put(sh.solicitation_id, 'expedicao', sh.created_at, sh.separation_status ?? 'queued', sh.completed_at ?? sh.updated_at)
+    put(sh.solicitation_id, 'expedicao', sh.id, sh.created_at, sh.separation_status ?? 'queued', sh.completed_at ?? sh.updated_at)
     if (sh.is_completed || sh.separation_status === 'delivered') mark(done, sh.solicitation_id, 'expedicao')
   }
   for (const i of (installs.data ?? []) as any[]) {
-    put(i.solicitation_id, 'instalacao', i.created_at, i.status ?? 'agendada', i.updated_at)
+    put(i.solicitation_id, 'instalacao', i.id, i.created_at, i.status ?? 'agendada', i.updated_at)
     if (i.status === 'concluida') mark(done, i.solicitation_id, 'instalacao')
   }
   for (const pv of (postSales.data ?? []) as any[]) {
-    put(pv.solicitation_id, 'posVenda', pv.created_at, pv.resolution ? 'resolvido' : 'em_aberto', pv.created_at)
+    put(pv.solicitation_id, 'posVenda', pv.id, pv.created_at, pv.resolution ? 'resolvido' : 'em_aberto', pv.created_at)
     if (pv.resolution) mark(done, pv.solicitation_id, 'posVenda')
   }
 
@@ -158,10 +161,12 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
     const status: IndexRow['status'] = temp === 'closed' ? 'closed' : temp === 'lost' ? 'lost' : 'in_progress'
     const stageStatus: Record<string, string> = {}
     const stageDoneAt: Record<string, string> = {}
+    const stageRecordId: Record<string, string> = {}
     let activeStages = 0
     for (const [stage, l] of Object.entries(lat)) {
       stageStatus[stage] = l.status
       if (l.doneAt) stageDoneAt[stage] = l.doneAt
+      stageRecordId[stage] = l.recordId
       if (!isDoneStatus(stage, l.status)) activeStages++
     }
     return {
@@ -179,6 +184,7 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
       team: Array.from((teamBySid.get(s.id) ?? new Map<string, TeamUser>()).values()),
       stageStatus,
       stageDoneAt,
+      stageRecordId,
       teamByStage: teamByStage.get(s.id) ?? {},
       projectKind: lat.projeto?.kind ?? null,
       overdue: status === 'in_progress' && overdueSids.has(s.id),
