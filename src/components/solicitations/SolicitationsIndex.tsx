@@ -7,33 +7,14 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, X, FileSearch, Check, Clock, LayoutList, LayoutGrid, Users } from 'lucide-react'
+import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR } from '@/types'
-import { NewSolicitationButton } from './NewSolicitationButton'
 import { daysInPipeline } from '@/lib/solicitations/stages'
+import { isDoneStatus, type IndexRow, type TeamUser } from '@/lib/solicitations/index-data'
 
-export type TeamUser = { id: string; name: string; avatar_url: string | null; avatar_color: string | null }
+export type { IndexRow, TeamUser }
 
-export type IndexRow = {
-  id: string
-  number: number
-  title: string | null
-  clientName: string | null
-  createdAt: string
-  priority: string
-  category: string | null
-  size: string | null
-  quotedValue: number | null
-  status: 'in_progress' | 'closed' | 'lost'
-  currentStage: string | null
-  team: TeamUser[]
-  // status do registro mais recente de cada etapa que a solicitação possui
-  stageStatus: Record<string, string>
-  teamByStage: Record<string, TeamUser[]>
-}
-
-// Cor por etapa — a mesma linha de cores dos cards do hub (grade de "Etapas").
 const STAGE_PILLS: { id: string; label: string; color: string }[] = [
   { id: 'visita',     label: 'Visita',               color: '#6366f1' }, // indigo
   { id: 'projeto',    label: 'Projeto',              color: '#6366f1' },
@@ -86,7 +67,7 @@ const STAGE_STATUSES: Record<string, StatusCol[]> = {
     { key: 'queued',            label: 'Na fila',             color: '#9ca3af' },
     { key: 'in_progress',       label: 'Em andamento',        color: '#f59e0b' },
     { key: 'awaiting_material', label: 'Aguardando material', color: '#f97316' },
-    { key: 'completed',         label: 'Concluída',           color: '#22c55e' },
+    { key: 'completed',         label: 'Concluída',           color: '#14b8a6' },
     { key: 'delivered',         label: 'Entregue/Retirada',   color: '#16a34a' },
   ],
   instalacao: [
@@ -120,13 +101,32 @@ function pillStyle(selected: boolean): React.CSSProperties {
   }
 }
 
-export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
+function sameMonth(iso: string, month: Date) {
+  const d = new Date(iso)
+  return d.getFullYear() === month.getFullYear() && d.getMonth() === month.getMonth()
+}
+
+// Visível = tem registro na etapa e, se já concluído, foi concluído no mês escolhido.
+function visibleIn(r: IndexRow, stage: string, month: Date) {
+  const st = r.stageStatus[stage]
+  if (st === undefined) return false
+  if (!isDoneStatus(stage, st)) return true
+  const at = r.stageDoneAt[stage]
+  return !!at && sameMonth(at, month)
+}
+
+const PROJECT_KIND: Record<string, { label: string; bg: string; text: string }> = {
+  elaboracao:      { label: 'Elaboração',         bg: 'bg-violet-50', text: 'text-violet-700' },
+  alocacao_pontos: { label: 'Alocação de pontos', bg: 'bg-sky-50',    text: 'text-sky-700' },
+}
+
+export function SolicitationsIndex({ rows, month, onMonthChange }: { rows: IndexRow[]; month: Date; onMonthChange: (d: Date) => void }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<string | null>(searchParams.get('etapa'))
   const [respFilter, setRespFilter] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'kanban'>('list')
+  const [view, setView] = useState<'list' | 'kanban'>('kanban')
 
   // Sincroniza stageFilter com a URL (?etapa=visita)
   useEffect(() => { setStageFilter(searchParams.get('etapa')) }, [searchParams])
@@ -134,17 +134,19 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
     setStageFilter(id)
     const sp = new URLSearchParams(searchParams.toString())
     if (id) sp.set('etapa', id); else sp.delete('etapa')
-    router.replace(`/solicitacoes/lista${sp.toString() ? `?${sp}` : ''}`, { scroll: false })
+    router.replace(`/solicitacoes${sp.toString() ? `?${sp}` : ''}`, { scroll: false })
   }
 
   // Contadores por etapa (apenas solicitações em andamento)
   const stageTotals = useMemo(() => {
     const t: Record<string, number> = {}
     for (const r of rows) {
-      for (const stId of Object.keys(r.stageStatus)) t[stId] = (t[stId] ?? 0) + 1
+      for (const stId of Object.keys(r.stageStatus)) {
+        if (visibleIn(r, stId, month)) t[stId] = (t[stId] ?? 0) + 1
+      }
     }
     return t
-  }, [rows])
+  }, [rows, month])
 
   // Lista de responsáveis para o dropdown
   const allResponsibles = useMemo(() => {
@@ -159,7 +161,11 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter(r => {
-      if (stageFilter && r.stageStatus[stageFilter] === undefined) return false
+      if (stageFilter) {
+        if (!visibleIn(r, stageFilter, month)) return false
+      } else if (r.currentStage && !visibleIn(r, r.currentStage, month)) {
+        return false
+      }
       const people = stageFilter ? (r.teamByStage[stageFilter] ?? []) : r.team
       if (respFilter && !people.some(u => u.id === respFilter)) return false
       if (!q) return true
@@ -169,7 +175,7 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
         String(r.number).includes(q)
       )
     })
-  }, [rows, search, stageFilter, respFilter])
+  }, [rows, search, stageFilter, respFilter, month])
 
   const hasFilters = !!(search || stageFilter || respFilter)
 
@@ -177,11 +183,6 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Solicitações</h1>
-        <NewSolicitationButton />
-      </div>
-
       {/* Pills de etapa — mesmo visual da pipeline da solicitação */}
       <div className="flex gap-1 flex-wrap">
         {STAGE_PILLS.map(st => {
@@ -240,23 +241,45 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
           </button>
         )}
 
-        <div className="ml-auto inline-flex rounded-lg border border-surface-border bg-white p-0.5">
-          <button
-            type="button"
-            onClick={() => setView('list')}
-            className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-              view === 'list' ? 'bg-navy text-white' : 'text-gray-500 hover:text-gray-700')}
-          >
-            <LayoutList className="w-3.5 h-3.5" /> Lista
-          </button>
-          <button
-            type="button"
-            onClick={() => setView('kanban')}
-            className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-              view === 'kanban' ? 'bg-navy text-white' : 'text-gray-500 hover:text-gray-700')}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" /> Kanban
-          </button>
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          {/* Passador de mês: concluídos aparecem só do mês escolhido */}
+          <div className="inline-flex items-center rounded-lg border border-surface-border bg-white" title="Concluídos de todas as etapas aparecem apenas do mês escolhido">
+            <button
+              type="button"
+              aria-label="Mês anterior"
+              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+              className="p-1.5 text-gray-500 hover:text-gray-800"
+            ><ChevronLeft className="w-4 h-4" /></button>
+            <span className="px-1 text-xs font-medium text-gray-700 min-w-[110px] text-center capitalize">
+              {month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            </span>
+            <button
+              type="button"
+              aria-label="Próximo mês"
+              disabled={month.getFullYear() === new Date().getFullYear() && month.getMonth() === new Date().getMonth()}
+              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+              className="p-1.5 text-gray-500 hover:text-gray-800 disabled:opacity-30"
+            ><ChevronRight className="w-4 h-4" /></button>
+          </div>
+
+          <div className="inline-flex rounded-lg border border-surface-border bg-white p-0.5">
+            <button
+              type="button"
+              onClick={() => setView('kanban')}
+              className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                view === 'kanban' ? 'bg-navy text-white' : 'text-gray-500 hover:text-gray-700')}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('list')}
+              className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                view === 'list' ? 'bg-navy text-white' : 'text-gray-500 hover:text-gray-700')}
+            >
+              <LayoutList className="w-3.5 h-3.5" /> Lista
+            </button>
+          </div>
         </div>
       </div>
 
@@ -311,8 +334,15 @@ function ListTable({ rows, stageId }: { rows: IndexRow[]; stageId: string | null
                   {stageId ? (() => {
                     const col = (STAGE_STATUSES[stageId] ?? []).find(c => c.key === r.stageStatus[stageId])
                     return col ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border" style={{ background: '#f9fafb', borderLeft: `3px solid ${col.color}`, color: '#111827' }}>
-                        {col.label}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border" style={{ background: '#f9fafb', borderLeft: `3px solid ${col.color}`, color: '#111827' }}>
+                          {col.label}
+                        </span>
+                        {stageId === 'projeto' && r.projectKind && PROJECT_KIND[r.projectKind] && (
+                          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[r.projectKind].bg, PROJECT_KIND[r.projectKind].text)}>
+                            {PROJECT_KIND[r.projectKind].label}
+                          </span>
+                        )}
                       </span>
                     ) : <span className="text-xs text-gray-300">—</span>
                   })() : r.currentStage ? (
@@ -436,7 +466,8 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
       <div className="flex gap-3 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
         {cols.map(col => {
           const items = byStatus[col.key] ?? []
-          if (items.length === 0) {
+          // poucas colunas (<= 4): todas ficam abertas; só recolhe vazias quando há muitas
+          if (items.length === 0 && cols.length > 4) {
             return (
               <section
                 key={col.key}
@@ -465,9 +496,11 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
                 </div>
               </header>
               <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+                {items.length === 0 && <p className="text-xs text-gray-400 text-center py-6">Nenhuma solicitação</p>}
                 {items.map(r => (
                   <KanbanCard
                     key={r.id}
+                    kindKey={stageId === 'projeto' ? r.projectKind : null}
                     r={r}
                     stageColor={col.color}
                     team={r.teamByStage[stageId] ?? []}
@@ -484,7 +517,7 @@ function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) 
   )
 }
 
-function KanbanCard({ r, stageColor, onClick, team }: { r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[] }) {
+function KanbanCard({ r, stageColor, onClick, team, kindKey }: { r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null }) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
   const name = r.title || r.clientName || '—'
@@ -505,6 +538,11 @@ function KanbanCard({ r, stageColor, onClick, team }: { r: IndexRow; stageColor:
 
       {/* Linha de badges + valor sempre visível */}
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+        {kindKey && PROJECT_KIND[kindKey] && (
+          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[kindKey].bg, PROJECT_KIND[kindKey].text)}>
+            {PROJECT_KIND[kindKey].label}
+          </span>
+        )}
         {r.priority !== 'normal' && priorityC && (
           <span className={cn('text-[10px] font-medium px-1.5 py-px rounded border', priorityC.bg, priorityC.text, 'border-transparent')}>
             {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
