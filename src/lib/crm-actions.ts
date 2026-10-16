@@ -2742,7 +2742,7 @@ export async function setupCrmPresenceWebhook(apply: boolean, events?: string[])
 
 // Conversa aberta e à vista no CRM: o número fica online e acompanha o contato, para receber o
 // "digitando…" dele (o WhatsApp só manda esse aviso a quem está online). online=false ao sair.
-export async function setCrmWatch(conversationId: string, online: boolean) {
+export async function setCrmWatch(conversationId: string, online: boolean, viewer?: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
@@ -2751,7 +2751,7 @@ export async function setCrmWatch(conversationId: string, online: boolean) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
-    body: JSON.stringify({ action: 'watch', conversation_id: conversationId, online }),
+    body: JSON.stringify({ action: 'watch', conversation_id: conversationId, online, viewer: viewer?.slice(0, 64) }),
   }).catch(() => null)
   return res?.ok ? { ok: true } : { error: 'Falha ao avisar o WhatsApp' }
 }
