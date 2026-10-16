@@ -3,6 +3,8 @@ import { PrecosClient } from '@/components/pricing/PrecosClient'
 import { PricingNav } from '@/components/pricing/PricingNav'
 
 export const dynamic = 'force-dynamic'
+// "Atualizar catálogo" (server action) relê o site do fornecedor: pode levar 1–2 min.
+export const maxDuration = 300
 export const metadata = { title: 'Cotação e Preços — Luknos' }
 
 export default async function Page() {

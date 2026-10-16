@@ -22,6 +22,7 @@ const mask = (v: string | null) => (!v ? null : v.length <= 4 ? '•'.repeat(v.l
 export type FiscalConfig = {
   cnpj: string | null; ie: string | null; crt: number | null; ambiente: 'homologacao' | 'producao'
   focus_token_homologacao: string | null; focus_token_producao: string | null // já mascarados
+  meudanfe_api_key: string | null // mascarada
   nfe_serie_homologacao: number; nfe_serie_producao: number
   nfce_serie_homologacao: number; nfce_serie_producao: number
   updated_at: string
@@ -35,6 +36,7 @@ export async function getFiscalConfig() {
   const config: FiscalConfig = {
     cnpj: data.cnpj, ie: data.ie, crt: data.crt, ambiente: data.ambiente,
     focus_token_homologacao: mask(data.focus_token_homologacao), focus_token_producao: mask(data.focus_token_producao),
+    meudanfe_api_key: mask(data.meudanfe_api_key),
     nfe_serie_homologacao: data.nfe_serie_homologacao, nfe_serie_producao: data.nfe_serie_producao,
     nfce_serie_homologacao: data.nfce_serie_homologacao, nfce_serie_producao: data.nfce_serie_producao,
     updated_at: data.updated_at,
@@ -45,6 +47,7 @@ export async function getFiscalConfig() {
 export async function updateFiscalConfig(input: {
   cnpj?: string; ie?: string; crt?: number; ambiente?: 'homologacao' | 'producao'
   focus_token_homologacao?: string; focus_token_producao?: string // string vazia = não mexe (veio mascarado)
+  meudanfe_api_key?: string
   nfe_serie_homologacao?: number; nfe_serie_producao?: number
   nfce_serie_homologacao?: number; nfce_serie_producao?: number
 }) {
@@ -58,6 +61,7 @@ export async function updateFiscalConfig(input: {
   // token só troca se vier um valor novo de verdade (o campo mostra mascarado; só grava se o usuário digitou algo sem "•")
   if (input.focus_token_homologacao && !input.focus_token_homologacao.includes('•')) patch.focus_token_homologacao = input.focus_token_homologacao.trim()
   if (input.focus_token_producao && !input.focus_token_producao.includes('•')) patch.focus_token_producao = input.focus_token_producao.trim()
+  if (input.meudanfe_api_key && !input.meudanfe_api_key.includes('•')) patch.meudanfe_api_key = input.meudanfe_api_key.trim()
 
   const { error } = await createAdminClient().from('fiscal_config').update(patch).eq('id', true)
   if (error) return { error: error.message }

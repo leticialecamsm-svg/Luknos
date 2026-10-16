@@ -3,20 +3,22 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import type { User } from '@/types'
 
 const NAV = [
   { href: '/dashboard',       label: 'Dashboard',   icon: LayoutDashboard },
   // Tarefas e Agenda viraram uma página só (a Agenda é uma aba lá dentro).
   { href: '/dashboard/tasks', label: 'Tarefas e Agenda', icon: CheckSquare },
-  { href: '/design-projects', label: 'Projetos',    icon: FileBox },
+  // 'Projetos' (/design-projects) e 'Contatos do Site' (/site-leads) saíram do menu:
+  // as rotas continuam existindo, só não aparecem na navegação.
   { href: '/solicitacoes',    label: 'Solicitações', icon: ClipboardList },
   { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
-  { href: '/site-leads',      label: 'Contatos do Site', icon: Inbox },
+  { href: '/crm',             label: 'CRM WhatsApp', icon: MessagesSquare },
   { href: '/shipping',        label: 'Expedição',   icon: Package },
   { href: '/partners',        label: 'Parceiros',   icon: Users2 },
   { href: '/metropolitano',   label: 'Metropolitano', icon: Award },
@@ -33,6 +35,7 @@ const ADMIN_NAV = [
   { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)', icon: Receipt },
   { href: '/admin', label: 'Administração', icon: Settings },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
+  { href: '/crm-instances', label: 'Números do CRM', icon: Smartphone },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
 ]
 const MARKETING_ITEM = { href: '/marketing', label: 'Marketing', icon: Megaphone }
@@ -54,7 +57,13 @@ const LogoIcon = () => (
   </svg>
 )
 
-export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string }) {
+function visibleNavHasCrm(isAdmin: boolean, canAccessNav: (href: string) => boolean) {
+  return isAdmin || canAccessNav('/crm')
+}
+
+// `focus`: telas que precisam de largura (o CRM) começam com o menu recolhido e guardam a escolha à parte.
+export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string; focus?: boolean }) {
+  const collapseKey = focus ? 'sidebar-collapsed-focus' : 'sidebar-collapsed'
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -103,7 +112,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // e como cada seção tem o próprio layout, ele sumia e voltava a cada clique.
   // useLayoutEffect aplica o "recolhido" antes da tela ser pintada, sem esconder nada.
   useLayoutEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed') === 'true'
+    const stored = localStorage.getItem(collapseKey)
+    // sem preferência salva, telas estreitas (celular) — e as telas de foco — começam recolhidas
+    const saved = stored === null ? focus || window.innerWidth < 768 : stored === 'true'
     setCollapsed(saved)
     setMounted(true)
   }, [])
@@ -111,7 +122,7 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   function toggleCollapse() {
     const newState = !collapsed
     setCollapsed(newState)
-    localStorage.setItem('sidebar-collapsed', String(newState))
+    localStorage.setItem(collapseKey, String(newState))
   }
 
   const isAdmin = user?.role === 'admin'
@@ -133,6 +144,9 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
   // antiga /schedules continua enxergando o item no menu.
   const canAccessNav = (href: string) =>
     canAccess(href) || (href === '/dashboard/tasks' && canAccess('/schedules'))
+
+  // contador de conversas do CRM aguardando resposta (só quem tem o item no menu)
+  const crmAwaiting = useCrmAwaiting(visibleNavHasCrm(isAdmin, canAccessNav))
 
   // Treinamento é aberto a todos os logados (cada um vê só as trilhas atribuídas)
   const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || item.href === '/politicas' || canAccessNav(item.href))
@@ -174,11 +188,26 @@ export function Sidebar({ user, allowedPages, roleLabel }: { user: User | null; 
                     active ? 'bg-gradient-navy text-white font-medium shadow-[0_8px_20px_-8px_rgba(10,31,59,0.45)]' : 'text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.03)]'
                   )}
                 >
-                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="relative inline-flex">
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    {collapsed && item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0 && (
+                      <span className={cn('absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center', crmAwaiting.mine_urgent > 0 ? 'bg-red-500' : 'bg-amber-500')}>
+                        {crmAwaiting.mine > 9 ? '9+' : crmAwaiting.mine}
+                      </span>
+                    )}
+                  </span>
                   {!collapsed && (
                     <>
                       {item.label}
-                      {active && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
+                      {item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0 && (
+                        <span
+                          title={`${crmAwaiting.mine} conversa(s) sua(s) aguardando resposta${crmAwaiting.mine_urgent ? ` — ${crmAwaiting.mine_urgent} urgente(s), há mais de 3 h` : ''}`}
+                          className={cn('ml-auto min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white', crmAwaiting.mine_urgent > 0 ? 'bg-red-500' : 'bg-amber-500')}
+                        >
+                          {crmAwaiting.mine > 99 ? '99+' : crmAwaiting.mine}
+                        </span>
+                      )}
+                      {active && !(item.href === '/crm' && crmAwaiting && crmAwaiting.mine > 0) && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
                     </>
                   )}
                 </Link>

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
-import { Poppins } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import './theme.css'
 import { Suspense } from 'react'
@@ -16,9 +16,16 @@ export const metadata: Metadata = {
   },
 }
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+// Poppins hospedada no próprio repositório (subconjunto latin). Antes vinha do
+// Google Fonts na build, e uma build gerou nomes diferentes entre o HTML e o CSS
+// (variável --font-poppins ficou indefinida e o app inteiro caiu em fonte serifada).
+const poppins = localFont({
+  src: [
+    { path: './fonts/Poppins-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/Poppins-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/Poppins-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/Poppins-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-poppins',
   display: 'swap',
 })

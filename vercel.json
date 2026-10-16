@@ -14,6 +14,58 @@
     {
       "path": "/api/cron/financial-daily-summary",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=accord",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "30 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "40 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=usina",
+      "schedule": "50 9 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=sorteluz",
+      "schedule": "0 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=sorteluz",
+      "schedule": "15 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=avant",
+      "schedule": "30 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=avant",
+      "schedule": "45 10 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=embuled",
+      "schedule": "0 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=embuled",
+      "schedule": "15 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "30 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "45 11 * * 1"
+    },
+    {
+      "path": "/api/cron/supplier-catalog?source=blumenau",
+      "schedule": "0 12 * * 1"
     }
   ]
 }

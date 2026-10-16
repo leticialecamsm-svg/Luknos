@@ -6,6 +6,7 @@ export const PAGE_CATALOG: { href: string; label: string }[] = [
   { href: '/schedules', label: 'Agenda' },
   { href: '/quotes', label: 'Orçamentos' },
   { href: '/negotiations', label: 'Negociações' },
+  { href: '/crm', label: 'CRM WhatsApp' },
   { href: '/site-leads', label: 'Contatos do Site' },
   { href: '/shipping', label: 'Expedição' },
   { href: '/partners', label: 'Parceiros' },

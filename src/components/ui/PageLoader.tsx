@@ -3,7 +3,7 @@
 // responde na hora mesmo quando os dados ainda estão chegando.
 
 /** Símbolo da Luknos (a estrela) — só o ícone, sem o nome. */
-function LuknosMark({ className = '' }: { className?: string }) {
+export function LuknosMark({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 201 201" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <path className="luk-star-navy" d="M0 119.909C19.7295 121.966 42.4118 126.746 55.9324 137.742C69.3309 147.791 79.2522 168.175 86.4781 183.022C91.3862 193.106 95.0507 200.635 97.7168 200.635C101.259 200.635 102.414 196.49 104.278 189.802C106.904 180.378 110.938 165.905 125.037 150.866C140.037 135.653 152.09 128.728 153.965 128.371C151.62 120.845 144.319 123.974 144.319 123.974C144.319 123.974 140.669 125.017 137.09 127.296C134.835 128.732 132.814 129.978 130.922 131.146C121.278 137.095 114.958 140.994 97.7168 157.563C97.0372 154.613 97.3339 151.368 97.6406 148.013C99.0937 132.12 100.772 113.759 0 112.657V119.909Z" fill="#0A1F3B"/>

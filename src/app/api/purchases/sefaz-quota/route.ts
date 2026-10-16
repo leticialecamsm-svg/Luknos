@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getSefazQuotaUsage } from '@/lib/sefaz-quota'
+import { getSefazQuotaUsage, getRecentSefazCalls } from '@/lib/sefaz-quota'
 
 export async function GET() {
-  const quota = await getSefazQuotaUsage()
-  return NextResponse.json(quota)
+  const [quota, recent] = await Promise.all([getSefazQuotaUsage(), getRecentSefazCalls(12)])
+  return NextResponse.json({ ...quota, recent })
 }

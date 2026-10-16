@@ -1,0 +1,666 @@
+"""Importa catálogos PDF de fornecedores para supplier_catalog_products.
+
+Um "perfil" por fornecedor sabe ler o desenho da página (onde está a Ref, o nome, as
+medidas) e devolve linhas com a foto do produto (a imagem mais próxima do texto, sem
+fundo de ambiente, QR code nem desenho de medida). O resto é comum: reduz a foto para
+JPEG de até 640 px, grava em saida/img e, se pedido, envia ao Supabase.
+
+Uso (precisa de PyMuPDF e Pillow):
+  python3 scripts/catalog/pdf_catalog.py skylight catalogo.pdf saida/            # só extrai
+  SUPABASE_URL=... SUPABASE_SECRET_KEY=... python3 scripts/catalog/pdf_catalog.py \\
+      skylight catalogo.pdf saida/ --upload
+
+Gera saida/rows.json (para conferir) e saida/img/*.jpg. Com --upload, envia as fotos para o
+bucket 'supplier-catalog' (<fornecedor>/...) e faz upsert das linhas. Fotos enviadas à mão
+pelo sistema (source_image_url = 'upload') são mantidas.
+"""
+import io, json, math, os, re, sys, urllib.request
+import fitz
+from PIL import Image
+
+MAX_SIDE = 640
+KINDS = {'pendente': 'pendente', 'arandela': 'arandela', 'plafon': 'plafon', 'abajur': 'abajur', 'coluna': 'coluna',
+         'luminaria': 'luminaria', 'luminária': 'luminaria', 'spot': 'spot', 'balizador': 'balizador', 'lustre': 'lustre',
+         'trilho': 'trilho', 'perfil': 'perfil', 'fita': 'fita', 'poste': 'poste', 'embutido': 'embutido', 'mesa': 'abajur'}
+
+
+# ---------- geometria e texto ----------
+
+def area(bb):
+    return max(0, bb[2] - bb[0]) * max(0, bb[3] - bb[1])
+
+
+def gap(a, b):
+    """Distância entre dois retângulos (0 se encostam ou se sobrepõem)."""
+    dx = max(a[0] - b[2], 0, b[0] - a[2]); dy = max(a[1] - b[3], 0, b[1] - a[3])
+    return math.hypot(dx, dy)
+
+
+def text_blocks(page):
+    """[(bbox, [linhas])] dos blocos de texto da página."""
+    out = []
+    for b in page.get_text('dict')['blocks']:
+        if b['type'] != 0: continue
+        lines, size = [], 0
+        for l in b['lines']:
+            t = ''.join(s['text'] for s in l['spans']).strip()
+            if t:
+                lines.append(t)
+                size = max(size, max((s['size'] for s in l['spans']), default=0))
+        if lines: out.append((tuple(b['bbox']), lines, size))
+    return out
+
+
+def deslot(s):
+    """'Ō T A K I' -> 'ŌTAKI'; palavras separadas por 2+ espaços continuam separadas.
+    Texto normal ('spot linear magnético') não é espaçado letra a letra e fica como está."""
+    toks = s.split()
+    if len([t for t in toks if len(t) == 1]) < 0.6 * len(toks): return ' '.join(toks)
+    words = [w.replace(' ', '') for w in re.split(r'\s{2,}', s.strip())]
+    return ' '.join(w for w in words if w)
+
+
+def cm_from(text):
+    """'Ø20X25cm', '150X20X18', 'Ø300X110 (mm)' -> dict de medidas em cm."""
+    mm = bool(re.search(r'mm\b', text, re.I))
+    nums = [float(n.replace(',', '.')) for n in re.findall(r'\d+(?:[.,]\d+)?', text)]
+    if mm: nums = [n / 10 for n in nums]
+    nums = [round(n, 2) for n in nums[:3]]
+    d = {'altura_cm': None, 'largura_cm': None, 'profundidade_cm': None, 'diametro_cm': None}
+    if not nums: return d
+    if 'Ø' in text or 'ø' in text:
+        d['diametro_cm'] = nums[0]
+        if len(nums) > 1: d['altura_cm'] = nums[1]
+    elif len(nums) == 3:
+        d['largura_cm'], d['profundidade_cm'], d['altura_cm'] = nums
+    elif len(nums) == 2:
+        d['largura_cm'], d['altura_cm'] = nums
+    else:
+        d['largura_cm'] = nums[0]
+    return d
+
+
+# ---------- imagens ----------
+
+def product_images(page, min_side=40, min_pixels=7000, min_area=1500, max_frac=0.3, allow_big=False, max_aspect=7):
+    """Imagens que parecem foto de produto: nada de linha fina, QR code, amostra de cor,
+    nem fundo de ambiente (cobre grande parte da página)."""
+    pa = page.rect.width * page.rect.height
+    out = []
+    for i in page.get_image_info(xrefs=True):
+        bb = i['bbox']; w, h = bb[2] - bb[0], bb[3] - bb[1]
+        if not i['xref'] or w <= 0 or h <= 0: continue
+        if min(i['width'], i['height']) < min_side or i['width'] * i['height'] < min_pixels or w * h < min_area: continue
+        if w * h > max_frac * pa and not allow_big: continue
+        if max(w / h, h / w) > max_aspect: continue
+        out.append(i)
+    return out
+
+
+def ranked_images(bb, images, limit=220):
+    """Candidatas por proximidade. Distâncias parecidas (mesma faixa de 40 pt) desempatam pela
+    imagem maior: foto > desenho de medida."""
+    near = [i for i in images if gap(bb, i['bbox']) <= limit]
+    return sorted(near, key=lambda i: (int(gap(bb, i['bbox']) // 40), -i['width'] * i['height']))
+
+
+def is_cutout(jpeg):
+    """Foto de produto recortada tem a borda (quase) branca; foto de ambiente, não."""
+    im = Image.open(io.BytesIO(jpeg)).convert('L'); im.thumbnail((64, 64))
+    w, h = im.size; px = im.load()
+    ring = [px[x, y] for x in range(w) for y in range(h) if x < 3 or y < 3 or x >= w - 3 or y >= h - 3]
+    return sum(1 for v in ring if v >= 235) / len(ring) >= 0.45
+
+
+def to_jpeg(pix):
+    if pix.colorspace is not None and pix.colorspace.n == 4:  # CMYK
+        pix = fitz.Pixmap(fitz.csRGB, pix)
+    img = Image.open(io.BytesIO(pix.tobytes('png')))
+    if img.mode in ('RGBA', 'LA', 'P'):
+        img = img.convert('RGBA')
+        bg = Image.new('RGB', img.size, 'white'); bg.paste(img, mask=img.split()[3]); img = bg
+    else:
+        img = img.convert('RGB')
+    img.thumbnail((MAX_SIDE, MAX_SIDE))
+    buf = io.BytesIO(); img.save(buf, 'JPEG', quality=82, optimize=True)
+    return buf.getvalue()
+
+
+def image_jpeg(doc, page, img):
+    try:
+        pix = fitz.Pixmap(doc, img['xref'])
+        smask = next((t[1] for t in page.get_images(full=True) if t[0] == img['xref']), 0)
+        if smask and pix.alpha == 0: pix = fitz.Pixmap(pix, fitz.Pixmap(doc, smask))
+    except Exception:  # máscara de tamanho diferente etc.: recorta a página na área da imagem
+        pix = page.get_pixmap(clip=fitz.Rect(img['bbox']), dpi=110)
+    try:
+        return to_jpeg(pix)
+    except Exception:  # espaço de cor que o PNG não aceita: renderiza a área da imagem na página
+        return to_jpeg(page.get_pixmap(clip=fitz.Rect(img['bbox']), dpi=110))
+
+
+# ---------- perfis ----------
+
+def skylight(doc):
+    """Bloco da Ref ('Ref: SKY-4049' ou 'Ref: SKY-1904DO - DOURADO'); o tipo e o nome ('pendente /
+    Ō T A K I') vêm no mesmo bloco ou num bloco logo acima; medidas e cor, logo abaixo."""
+    ref_re = re.compile(r'Ref:\s*(SKY-[0-9A-Z]+(?:-[0-9A-Z]+)*)(?:\s+-\s+([A-ZÀ-Ü ]+))?')
+    for pn, page in enumerate(doc):
+        blocks = text_blocks(page)
+        imgs = product_images(page)
+        for bb, lines, _ in blocks:
+            m = next((ref_re.search(l) for l in lines if ref_re.search(l)), None)
+            if not m: continue
+            head = [l for l in lines if not ref_re.search(l)]
+            if not head:
+                above = [(bb[1] - b[3], ls) for b, ls, _ in blocks
+                         if abs(b[0] - bb[0]) < 8 and -20 <= bb[1] - b[3] < 60 and not any('Ref:' in l for l in ls)]
+                head = min(above, key=lambda a: abs(a[0]))[1] if above else []
+            kind = KINDS.get(head[0].lower()) if head else None
+            name = ' '.join(deslot(l) for l in (head[1:] if kind else head)).strip()
+            below = [ls for b, ls, _ in blocks if abs(b[0] - bb[0]) < 8 and 0 <= b[1] - bb[3] < 30 and not any('Ref:' in l for l in ls)]
+            dims_line = below[0][0] if below else ''
+            variant = m.group(2) or (' '.join(l for l in below[0][1:] if 'CABO' not in l.upper()).strip() if below else '') or None
+            yield dict(ref=m.group(1), name=f'{kind.capitalize() + " " if kind else ""}{name}'.strip() or m.group(1), kind=kind,
+                       line=name or None, model=m.group(1), variant=variant, page=pn + 1,
+                       cands=ranked_images(bb, imgs, 160), **cm_from(dims_line))
+
+
+def spotline(doc):
+    """Página de família: 'ARANDELA ARK / COM RABICHO', o número do modelo ('1155/1'), a tabela de
+    cores ('7776 PRETO') e a foto do produto ao lado. O número do modelo abre a descrição da nota."""
+    model_re = re.compile(r'^(\d{2,5}/\d{1,2})$')
+    for pn, page in enumerate(doc):
+        blocks = text_blocks(page)
+        imgs = product_images(page, max_frac=0.5)
+        for bb, lines, _ in blocks:
+            for k, l in enumerate(lines):
+                m = model_re.match(l.strip())
+                if not m: continue
+                names = [x for x in lines if not model_re.match(x.strip()) and re.search(r'[A-Za-zÀ-ú]{3}', x) and not x.startswith('•') and ':' not in x][:3]
+                if not names:  # o nome está num bloco logo acima
+                    above = [(bb[1] - b[3], ls) for b, ls, _ in blocks if b is not bb and -5 <= bb[1] - b[3] < 70 and abs(b[0] - bb[0]) < 40
+                             and re.match(r'^[A-ZÀ-Ú]', ls[0]) and not ls[0].startswith('•') and not any(model_re.match(x.strip()) for x in ls)]
+                    names = min(above, key=lambda a: a[0])[1] if above else []
+                name = ' '.join(names).title().strip()
+                kind = KINDS.get(name.split(' ')[0].lower()) if name else None
+                colors = [x for b, ls, _ in blocks if 0 <= b[1] - bb[3] < 130 and abs(b[0] - bb[0]) < 60
+                          for x in ls if re.fullmatch(r'[A-ZÀ-Ú/ ]{4,}', x) and x not in ('LED',)]
+                yield dict(ref=m.group(1), name=name or m.group(1), kind=kind, line=None, model=m.group(1),
+                           variant=', '.join(dict.fromkeys(colors)) or None, page=pn + 1,
+                           cands=ranked_images(bb, imgs, 260), **cm_from(''))
+
+
+def pix(doc):
+    """Cada seção da página tem um título grande ('LUMINÁRIA PUNTO'), a foto do produto e uma ou
+    mais tabelas 'CÓDIGO | COR | TEMPERATURA | FLUXO | DIMENSÕES' com os códigos 3.650.NNNN. Fluxo,
+    potência e medidas costumam ser uma célula só para todos os códigos da tabela."""
+    code_re = re.compile(r'^3\.650\.\d{4}$')
+    color_re = re.compile(r'^(preto|branco|cinza|dourado|bronze|cobre|champagne|inox|grafite|natural|prata|aço|amarelo|verde|vermelho|azul|bege|marrom|rgb|transparente|fosco)\b', re.I)
+    for pn, page in enumerate(doc):
+        blocks = text_blocks(page)
+        not_product = {'vigo', 'infinity', 'fitas e fontes', 'outdoor', 'lâmpadas', 'spots', 'battery', 'painéis', 'soluções e ferramentas', 'architectural', 'duplo', 'triplo'}
+        titles = sorted([(bb, ' '.join(ls)) for bb, ls, sz in blocks
+                         if sz >= 14 and re.search(r'[A-Za-zÀ-ú]{3}', ' '.join(ls)) and not re.search(r'dados|garantia|catálogo', ' '.join(ls), re.I)
+                         and ' '.join(ls).strip().lower() not in not_product and not color_re.match(' '.join(ls).strip())],
+                        key=lambda t: t[0][1])
+        linha = next((l.split('Linha ', 1)[1].strip() for bb, ls, _ in blocks for l in ls if l.startswith('Linha ')), None)
+        imgs = product_images(page, max_frac=0.5)
+        if not titles:  # página só de tabela (acessórios): sem título, sem foto
+            titles = [((0, 0, 0, 0), 'Acessórios' if not linha else linha)]
+        for k, (tbb, title) in enumerate(titles):
+            lo, hi = (0 if k == 0 else tbb[1] - 4), (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
+            sec = sorted([(bb, ls) for bb, ls, _ in blocks if lo <= bb[1] < hi], key=lambda t: (round(t[0][1]), t[0][0]))
+            tokens = [l for _, ls in sec for l in ls]
+            # linhas com posição: o nome do produto numa tabela "MODELO"/"LARGURA" está na mesma linha do código
+            sec_lines = [(round((l['bbox'][1] + l['bbox'][3]) / 2, 1), l['bbox'][0], ''.join(sp['text'] for sp in l['spans']).strip())
+                         for b in page.get_text('dict')['blocks'] if b['type'] == 0 and lo <= b['bbox'][1] < hi for l in b['lines']]
+            tables, cur = [], None
+            for t in tokens:
+                if t == 'CÓDIGO': cur = []; tables.append(cur)
+                elif cur is not None: cur.append(t)
+            sec_imgs = [i for i in imgs if lo <= (i['bbox'][1] + i['bbox'][3]) / 2 < hi]
+            cands = ranked_images(tbb, sec_imgs, 400) if tbb[3] else []
+            words = title.split()
+            kind = next((KINDS[w.lower()] for w in words if w.lower() in KINDS), None)
+            accessory_page = bool(re.search(r'emenda|conector|cabo|kit|plug|acess|interruptor|sensor|controle|receptor', title, re.I))
+            for tab in tables:
+                shared = ' '.join(tab)
+                dims_m = re.search(r'\d+(?:[.,]\d+)?\s?x\s?\d+(?:[.,]\d+)?(?:\s?x\s?\d+(?:[.,]\d+)?)?\s?(?:mm|cm)', shared)
+                dims = cm_from(dims_m.group(0)) if dims_m else cm_from('')
+                idx = [i for i, t in enumerate(tab) if code_re.match(t)]
+                for n, i in enumerate(idx):
+                    seg = tab[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(tab))]
+                    name, kind_row = title.title(), kind
+                    cl = next((l for l in sec_lines if l[2] == tab[i]), None)
+                    row = [t for yc, x0, t in sorted(sec_lines, key=lambda l: l[1]) if cl and abs(yc - cl[0]) < 4 and cl[1] + 5 < x0 < page.rect.width - 60 and t != tab[i]]
+                    row_cands, auth = cands, False
+                    if 'MODELO' in tab:  # 'Emenda Linear 180º Fita COB', 'Cabo Conector Fonte/Fita 8mm'
+                        model = next((t for t in row if re.search(r'[A-Za-zÀ-ú]{4}', t) and not color_re.match(t) and t.lower() not in not_product), None)
+                        if model:
+                            name = model
+                            kind_row = KINDS.get(model.split()[0].lower(), model.split()[0].lower())
+                            if not accessory_page: row_cands = []  # acessório citado na página de uma fita: a foto é da fita
+                            else: auth = True  # tabela de acessórios: fonte confiável do nome e da foto
+                    elif 'LARGURA' in tab:  # 'Conector Pix Mult' + '8mm'
+                        width = next((t for t in row if re.fullmatch(r'\d+\s?mm', t)), None)
+                        if width:
+                            name = f'{title.title()} {width}'
+                            if not accessory_page: row_cands = []
+                            else: auth = True
+                    color = next((t for t in seg if color_re.match(t)), None)
+                    temp = next((t for t in seg if re.fullmatch(r'\d{4}K', t)), None)
+                    yield dict(ref=tab[i], name=name, kind=kind_row, line=(linha or '').title() or None, model=tab[i],
+                               variant=' '.join(x for x in (color, temp) if x) or None, page=pn + 1, cands=row_cands, auth=auth, **dims)
+
+
+def darkness(jpeg):
+    """Fração de pixels escuros (<80) no objeto: distingue a foto da versão preta da branca."""
+    im = Image.open(io.BytesIO(jpeg)).convert('L'); im.thumbnail((64, 64))
+    px = list(im.getdata())
+    return sum(1 for v in px if v < 80) / len(px)
+
+
+def lumi(doc):
+    """Seção por título grande (linhas com fonte >= 20: 'ARANDELA XBOX'), 1-2 fotos (versão branca e
+    preta), tabela de especificações e linhas de código: 'LM831 · 3.000K · BRANCO · EAN13', ou, nos
+    perfis e acessórios, '1 metro · LM1932 · EAN · LM1932AC · EAN'. A foto do código é a escura se a cor
+    é PRETO e a clara se é BRANCO."""
+    code_re = re.compile(r'^LM\d{3,5}[A-Z]{0,2}$')
+    nav = {'decorativo', 'lâmpadas', 'fitas e drivers', 'sistemas lineares', 'perfis', 'área externa', 'luminárias'}
+    for pn, page in enumerate(doc):
+        # blocos com tamanho por linha: o título é só a(s) linha(s) grandes do bloco
+        blocks = []
+        for b in page.get_text('dict')['blocks']:
+            if b['type'] != 0: continue
+            ls = [(''.join(sp['text'] for sp in l['spans']).strip(), max((sp['size'] for sp in l['spans']), default=0)) for l in b['lines']]
+            ls = [(t, z) for t, z in ls if t]
+            if ls: blocks.append((tuple(b['bbox']), ls))
+        titles = []
+        for bb, ls in blocks:
+            # título: 16-35 pt (acima disso são capas de capítulo); rótulos de especificação não são título
+            spec = re.compile(r'^(pot[êe]ncia|efici|dimens|[âa]ngulo|material|vida|prote|garantia|tens[ãa]o|irc|ip\d|conhe|lumens?|\d)', re.I)
+            big = [t for t, z in ls if 16 <= z <= 35 and re.search(r'[A-Za-zÀ-ú]{3}', t) and t.lower() not in nav and not spec.match(t)]
+            if big and not code_re.match(big[0]):
+                rest = [t for t, z in ls if z < 16 and z >= 7 and not re.fullmatch(r'(IRC|\d+)', t) and not code_re.match(t) and len(t) > 3]
+                titles.append((bb, ' '.join(big), rest[:2]))
+        titles.sort(key=lambda t: t[0][1])
+        if not titles: continue
+        # A linha Tiny só tem o nome na capa (imagem): as páginas dela têm a etiqueta MAGNÉTICO e 24V DC.
+        ptext = page.get_text()
+        pill = any(t.strip().upper() == 'MAGNÉTICO' for _, ls in blocks for t, _ in ls)
+        series = ('Tiny Magnético' if '24V DC' in ptext else 'Magnético 48V' if '48V DC' in ptext else None) if pill else None
+        imgs = product_images(page, max_frac=0.5)
+        for k, (tbb, title, extra) in enumerate(titles):
+            lo, hi = tbb[1] - 4, (titles[k + 1][0][1] - 4 if k + 1 < len(titles) else 10 ** 6)
+            sec = [(bb, [t for t, _ in ls]) for bb, ls in blocks if lo <= bb[1] < hi]
+            sec_imgs = [i for i in imgs if lo <= (i['bbox'][1] + i['bbox'][3]) / 2 < hi]
+            cands = sorted(ranked_images(tbb, sec_imgs, 500), key=lambda i: i['bbox'][0])
+            dim_text = ''
+            for bb, ls in sec:
+                if ls[0].lower().startswith('dimens'):
+                    dim_text = ' '.join(ls[1:])
+                    for b2, l2 in sec:
+                        if b2 is not bb and re.fullmatch(r'[\d.,]+\s?mm', l2[0]) and abs(b2[0] - bb[0]) < 120 and bb[1] - 6 <= b2[1] <= bb[3] + 24:
+                            dim_text += ' ' + l2[0]
+                    break
+            power = next((ls[0] for bb, ls in sec if re.fullmatch(r'\d+(?:,\d+)?W', ls[0])), None)
+            dims = cm_from(dim_text) if dim_text else cm_from('')
+            kind = next((KINDS[w.lower()] for w in title.split() if w.lower() in KINDS), None)
+            sub_re = re.compile(r'^(PERFIL:|ACESSÓRIOS|DIFUSORES|CONECTORES|ADAPTADORES)[A-ZÀ-Ú :/\-]*$')
+            for bb, ls in sec:
+                idx = [i for i, t in enumerate(ls) if code_re.match(t)]
+                if not idx: continue
+                label_re = re.compile(r'^(\d+\s*(metros?|m)\b|Parede/Parede|Teto/Parede|Positivo|Tampas|Fixa[çc][ãa]o|Cabo|Emenda|Kit|Conector|Plug|Suporte)', re.I)
+                label = ls[0] if label_re.match(ls[0]) else None
+                # subtítulo da tabela ('PERFIL: PRETO', 'ACESSÓRIOS', 'DIFUSORES'): último bloco em maiúsculas acima da linha
+                above = [(bb[1] - b2[3], l2[0]) for b2, l2 in sec if b2[3] <= bb[1] + 2 and sub_re.match(l2[0]) and not code_re.match(l2[0])]
+                sub = min(above)[1] if above else None
+                for n, i in enumerate(idx):
+                    seg = ls[i + 1:(idx[n + 1] if n + 1 < len(idx) else len(ls))]
+                    temp = next((t for t in seg if re.fullmatch(r'\d[.,]?\d{3}K', t)), None)
+                    color = next((t for t in seg if re.fullmatch(r'[A-ZÀ-Ú]{3,}(?:[ /][A-ZÀ-Ú]{3,})*', t) and t != 'LED'), None)
+                    ean = next((t for t in seg if re.fullmatch(r'\d{13}', t)), None)
+                    mat = 'Acrílico' if ls[i].endswith('AC') else None
+                    parts = [title] + [x for x in (sub if sub and sub != title.upper() else None, label) if x]
+                    yield dict(ref=ls[i], name=' '.join(parts).title(), kind=kind, line=' '.join(extra + ([series] if series else [])).title() or None, model=ls[i], ean=ean,
+                               variant=' '.join(x for x in (power, temp, color, mat) if x) or None, page=pn + 1,
+                               cands=cands, want=(color or '').upper(), **dims)
+
+
+def sized_blocks(page):
+    """[(bbox, [(texto, tamanho)])] — tamanho por linha, para separar o título do resto do bloco."""
+    out = []
+    for b in page.get_text('dict')['blocks']:
+        if b['type'] != 0: continue
+        ls = [(''.join(sp['text'] for sp in l['spans']).strip(), max((sp['size'] for sp in l['spans']), default=0), tuple(l['bbox'])) for l in b['lines']]
+        ls = [x for x in ls if x[0]]
+        if ls: out.append((tuple(b['bbox']), ls))
+    return out
+
+
+def coded(doc, code_re, label_max=8.5, title_min=13.0, aspect=14, spec_re=None, page_title_min=20.0):
+    """Leitor ancorado no código: cada código achado na página vira uma ref. O título é o texto grande
+    mais próximo acima dele; a foto é a imagem logo acima do código (etiqueta sob a foto), ou a mais
+    próxima. Serve a catálogos em que o código vem escrito junto da foto/cartão."""
+    nav = re.compile(r'^(catálogo|saiba mais|garantia|unidade de medida|\d+)$', re.I)
+    for pn, page in enumerate(doc):
+        blocks = sized_blocks(page)
+        imgs = product_images(page, min_side=20, min_pixels=2000, min_area=800, max_frac=0.45, max_aspect=aspect)
+        titles = []   # (bbox, texto)
+        for bb, ls in blocks:
+            if not any(z >= title_min for _, z, _ in ls): continue
+            # o bloco do título inteiro: 'spot de embutir quad.' (linha menor) + 'LOYO' (linha grande); sem 'Ref:' nem códigos
+            parts = [t for t, _, _ in ls if re.search(r'[A-Za-zÀ-ú]{3}', t) and not nav.match(t) and not code_re.search(t)
+                     and not re.match(r'^(ref|cor|tens|grau|material|pot|fluxo|temp|bocal|para|\*|ip\d)', t, re.I) and len(t) <= 46]
+            if parts: titles.append((bb, deslot(' '.join(parts[:3]))))
+        page_title = next((t for (bb, t), (_, ls) in zip(titles, [x for x in blocks if any(z >= title_min for _, z, _ in x[1])])
+                           if any(z >= page_title_min for _, z, _ in ls)), None)
+        for bb, ls in blocks:
+            for k, (t, z, lb) in enumerate(ls):
+                for m in code_re.finditer(t):
+                    code = m.group(1)
+                    cx = (lb[0] + lb[2]) / 2
+                    if pn == 0: continue  # capa ('CATÁLOGO GERAL DE PRODUTOS 2025') não tem produto
+                    own = next((tt for tb, tt in titles if tb == bb), None)   # o código está dentro do bloco do título
+                    above = [(lb[1] - tb[3], tt) for tb, tt in titles if tb[3] <= lb[1] + 6 and abs((tb[0] + tb[2]) / 2 - cx) <= 450]
+                    title = own or (min(above)[1] if above else page_title)
+                    name = title
+                    if page_title and title and page_title.lower() not in title.lower() and title is not page_title and page_title_min and False: name = f'{page_title} {title}'
+                    # cor/versão: a linha seguinte do bloco ('Preto') ou o texto depois do código ('6820 - Branco')
+                    after = t[m.end():].strip(' -–')
+                    nxt = ls[k + 1][0] if k + 1 < len(ls) else ''
+                    color = after if re.fullmatch(r'[A-Za-zÀ-ú ]{3,20}', after or '') else (nxt if re.fullmatch(r'[A-Za-zÀ-ú ]{3,20}', nxt) and not code_re.search(nxt) else None)
+                    spec = None
+                    if spec_re:
+                        card = [tt for b2, l2 in blocks for tt, _, _ in l2 if b2 != bb and b2[3] <= lb[1] + 4 and lb[1] - b2[3] < 90 and b2[0] - 10 <= cx <= b2[2] + 10]
+                        spec = ' '.join(x for tt in card for x in spec_re.findall(tt)) or None
+                    # foto: imagem logo acima do código (etiqueta embaixo da foto), senão a mais próxima
+                    ab = [i for i in imgs if i['bbox'][3] <= lb[1] + 8 and lb[1] - i['bbox'][3] < 160 and i['bbox'][0] - 25 <= cx <= i['bbox'][2] + 25]
+                    cands = sorted(ab, key=lambda i: lb[1] - i['bbox'][3]) + [i for i in ranked_images(lb, imgs, 220) if i not in ab]
+                    yield dict(ref=code, name=(name or code).title() if name and name.islower() else (name or code), kind=(KINDS.get(name.split()[0].lower()) if name else None),
+                               line=page_title, model=code, variant=' '.join(x for x in (color, spec) if x) or None, page=pn + 1, cands=cands, named=bool(title), **cm_from(''))
+
+
+def nordecor(doc):
+    """Código de 4 dígitos escrito sob a foto (etiqueta pequena) e 'Ref: 6820 - Branco' no título."""
+    # a linha É o código: '6820' (etiqueta sob a foto), 'Ref: 6820 - Branco', '6821 - Preto', '2261 - Branco | 3.000K'
+    return coded(doc, re.compile(r'^(?:Ref:\s*)?(\d{4})(?:\s*[-–]\s*\S.*)?$'), label_max=8.5, title_min=13.0)
+
+
+def avant(doc):
+    """Código 9NC de 9 dígitos: cartão de driver sob o título da família, ou código vertical junto do nome."""
+    return coded(doc, re.compile(r'(?<!\d)(\d{9})(?!\d)'), title_min=11.0, aspect=14,
+                 spec_re=re.compile(r'\b\d+(?:,\d+)?(?:W|A)\b'), page_title_min=20.0)
+
+
+def blumenau(doc):
+    """Bloco por produto: título em negrito 12pt ('ARANDELA LED DUNA'), ficha técnica, tabela
+    'Variante | Temperatura | Referência' (códigos de 8 dígitos, os mesmos da nota) e a foto grande
+    à direita. Cada código herda o título e a foto do bloco; cor e temperatura vêm da mesma linha."""
+    code_re = re.compile(r'^(?:\d{8}|\d{6}-\d{2})$')
+    for pn, page in enumerate(doc):
+        titles = []; big_title = []; title_x = []
+        for b in page.get_text('dict')['blocks']:
+            if b['type'] != 0: continue
+            for l in b['lines']:
+                sp = l['spans']; t = ''.join(x['text'] for x in sp).strip()
+                if sp and (11.5 <= max(x['size'] for x in sp) <= 12.6 or (9.8 <= max(x['size'] for x in sp) < 11.5 and t.startswith('PERFIL'))) and (t.upper() == t or t.startswith('PERFIL')) and re.search(r'[A-ZÀ-Ú]{4}', t) and len(t) > 6:
+                    titles.append((l['bbox'][1], re.sub(r'\s+', ' ', t))); title_x.append(l['bbox'][0])  # alinhado a titles antes do sort
+                elif sp and max(x['size'] for x in sp) >= 25 and t.upper() == t and l['bbox'][1] < 140 and len(t) > 3:  # título de página inteira (2 linhas)
+                    big_title.append((l['bbox'][1], t))
+        if big_title and not titles: titles = [(min(y for y, _ in big_title) - 5, re.sub(r'\s+', ' ', ' '.join(t for _, t in sorted(big_title))))]; title_x = [0]
+        if not titles or any('NDICE' in t.upper() for _, t in titles): continue
+        tl = sorted((y, x0, t) for (y, t), x0 in zip(titles, title_x))
+        words = page.get_text('words')
+        imgs = [i for i in product_images(page, min_side=60, min_pixels=15000, min_area=6000, max_frac=0.3, max_aspect=3)]
+        for w in words:
+            if not code_re.match(w[4]) or w[0] < 20: continue
+            above = [t for t in tl if t[0] <= w[1] + 2]
+            if not above: continue
+            # colunas: o título cuja coluna (x0 .. próximo x0 da mesma faixa) contém o código; senão o mais próximo acima
+            cols = [t for t in above if t[1] - 15 <= w[0]]
+            cols = cols or above
+            ymax = max(t[0] for t in cols)
+            row = [t for t in cols if abs(t[0] - ymax) < 40] or [t for t in cols if t[0] == ymax]
+            y0, x0, title = max(row, key=lambda t: t[1])
+            nxt = [t[1] for t in tl if t[1] > x0 + 40 and abs(t[0] - y0) < 40]
+            xr = (x0 - 20, min(nxt) - 5 if nxt else page.rect.width)
+            ny = min([t[0] for t in tl if t[0] > y0 + 30 and t[1] <= x0 + 40], default=page.rect.height)
+            block_imgs = sorted([i for i in imgs if y0 - 5 <= i['bbox'][1] < ny - 20 and xr[0] <= (i['bbox'][0] + i['bbox'][2]) / 2 < xr[1]],
+                                key=lambda i: -(i['bbox'][2] - i['bbox'][0]) * (i['bbox'][3] - i['bbox'][1]))
+            if not block_imgs:   # sem foto na coluna/faixa do bloco: a mais próxima do título na página
+                block_imgs = sorted(imgs, key=lambda i: gap((x0, y0, x0 + 200, y0 + 40), i['bbox']))[:2]
+            kind = KINDS.get(title.split()[0].lower()) or ('espeto' if title.startswith('ESPETO') else None)
+            row_w = [x for x in words if abs((x[1] + x[3]) / 2 - (w[1] + w[3]) / 2) < 5 and x[0] < w[0]]
+            row_w.sort(key=lambda x: x[0])
+            txt = ' '.join(x[4] for x in row_w)
+            color = next((c for c in ('Branco', 'Preto', 'Marrom', 'Bronze', 'Cinza', 'Dourado', 'Cobre', 'Grafite', 'Prata', 'Inox', 'Natural') if c in txt), None)
+            temp = re.search(r'\d\.\d{3}K', txt)
+            name = title.title().replace(' Led ', ' LED ')
+            yield dict(ref=w[4], name=name, kind=kind, line=None, model=w[4], variant=' '.join(x for x in (color, temp.group(0) if temp else None) if x) or None,
+                       page=pn + 1, cands=block_imgs, named=True, want=(color or '').upper(), **cm_from(''))
+
+
+def spaced_text(page, bb):
+    """Texto de uma linha com letras espaçadas ('S P O T S   F O C C O'): junta as letras e põe espaço onde o vão é maior."""
+    chars = [c for b in page.get_text('rawdict', clip=fitz.Rect(bb[0] - 1, bb[1] - 1, bb[2] + 1, bb[3] + 1))['blocks'] if b['type'] == 0
+             for l in b['lines'] for sp in l['spans'] for c in sp['chars'] if c['c'].strip()]
+    if len(chars) < 2: return ''.join(c['c'] for c in chars)
+    gaps = sorted(chars[i + 1]['bbox'][0] - chars[i]['bbox'][2] for i in range(len(chars) - 1))
+    wide = max(gaps[len(gaps) // 2] * 2.2, 3.0)
+    out = chars[0]['c']
+    for a, b in zip(chars, chars[1:]):
+        out += (' ' if b['bbox'][0] - a['bbox'][2] > wide else '') + b['c']
+    return out
+
+
+def gaya(doc):
+    """Dois desenhos. Cartão de acessório: título em negrito, 'MEDIDAS: ...' e 'CÓD.: 1757', foto logo
+    abaixo. Tabela de produto ('SPOTS FOCCO ANTIOFUSCANTE EMBUTIR'): linhas '2700K  CÓD.: 7280' sob a
+    cor (PRETO/BRANCO) e o ângulo, e uma foto grande por grupo de cor à direita."""
+    code_re = re.compile(r'CÓD\.?:?\s*(\d{3,5})')
+    colors = ('BRANCO E PRETO', 'PRETO', 'BRANCO', 'DOURADO', 'CHAMPAGNE', 'CINZA', 'BRONZE', 'GRAFITE', 'INOX', 'CROMADO')
+    for pn, page in enumerate(doc):
+        blocks = sized_blocks(page)
+        imgs = product_images(page, min_side=30, min_pixels=4000, min_area=1500, max_frac=0.3, max_aspect=8)
+        line = next((' '.join(t for t, _, _ in ls) for bb, ls in blocks if bb[1] < 120 and re.match(r'^Linha\b', ls[0][0])), None)
+        lines = []   # (y, x0, texto) de todas as linhas da página
+        for bb, ls in blocks:
+            for t, z, lb in ls: lines.append((lb[1], lb[0], t, z))
+        lines.sort()
+        codes = [(y, x, m.group(1), t) for y, x, t, z in lines for m in [code_re.search(t)] if m]
+        if not codes: continue
+        # tabela: linha com temperatura (2700K) antes do código
+        temps = [(y, x, t) for y, x, t, z in lines if re.fullmatch(r'\d{4}K', t.strip())]
+        table = sum(1 for y, x, c, t in codes if any(abs(ty - y) < 4 for ty, _, _ in temps)) >= 3
+        if table:
+            head = ' '.join(spaced_text(page, (x2, y2, x2 + 400, y2 + z + 2)) if len(t.split()) > 4 and len([w for w in t.split() if len(w) == 1]) > 0.6 * len(t.split()) else t.strip() for y2, x2, t, z in lines if y2 < 200 and re.match(r'^[A-ZÀ-Ú ]{8,}$', t.strip()) and x2 < 200)
+            title = re.sub(r'\s+', ' ', head or line or '').strip()
+            title = re.sub(r'(?<=[A-ZÀ-Ú])(EMBUTIR|SOBREPOR|ANTIOFUSCANTE|LINEAR|MAGNÉTICO|ARTICULÁVEL)', r' \1', title).replace('SPOTSFOCCO', 'SPOT FOCCO').replace('SPOTS ', 'SPOT ')
+            power = next((re.match(r'(\d+(?:[.,]\d+)?W)', t.replace('3W', '3W')).group(1) for y2, x2, t, z in lines if re.match(r'^\d+(?:[.,]\d+)?W\b', t.strip())), None)
+            for y, x, code, t in codes:
+                temp = next((tt.strip() for ty, tx, tt in temps if abs(ty - y) < 4), None)
+                above = [(y2, t2.strip()) for y2, x2, t2, z2 in lines if y2 < y and abs(x2 - x) < 90]
+                color = next((t2 for y2, t2 in sorted(above, reverse=True) if t2 in colors), None)
+                angle = next((t2 for y2, t2 in sorted(above, reverse=True) if t2.startswith('ÂNGULO')), None)
+                cy = next((y2 for y2, t2 in sorted(above, reverse=True) if t2 in colors), y)
+                big = sorted([i for i in imgs if i['bbox'][2] - i['bbox'][0] > 70], key=lambda i: i['bbox'][1])
+                heads = sorted({y2 for y2, x2, t2, z2 in lines if t2.strip() in colors})
+                cands = [big[heads.index(cy)]] if len(big) == len(heads) and cy in heads else sorted(big, key=lambda i: abs((i['bbox'][1] + i['bbox'][3]) / 2 - (cy + 90)))
+                name = ' '.join(x for x in (title.title(), power, color and color.title(), angle and angle.title().replace('º', '°'), temp) if x)
+                yield dict(ref=code, name=name, kind=KINDS.get((title.split() or [''])[0].lower().rstrip('s')) or ('spot' if title.upper().startswith('SPOT') else None),
+                           line=line, model=code, variant=' '.join(x for x in (color and color.title(), temp) if x) or None, page=pn + 1, cands=cands, named=True,
+                           want=(color or '').upper(), **cm_from(''))
+            continue
+        page_title = next((t.strip() for y2, x2, t, z in lines if y2 < 200 and z >= 8 and re.match(r'^[A-ZÀ-Ú ]{8,}$', t.strip()) and len(t.split()) > 4 and len([w for w in t.split() if len(w) == 1]) > 0.6 * len(t.split())), None)
+        if page_title: page_title = spaced_text(page, next((x2, y2, x2 + 400, y2 + z + 2) for y2, x2, t, z in lines if t.strip() == page_title))
+        for y, x, code, t in codes:
+            blk = next((b for b in blocks if any(code_re.search(tt) and code in tt for tt, _, _ in b[1])), None)
+            own = None
+            if blk and sum(1 for tt, _, _ in blk[1] if code_re.search(tt)) == 1:
+                own = ' '.join(tt for tt, _, _ in blk[1] if tt.upper() == tt and not code_re.search(tt) and not tt.startswith(('MEDIDAS', 'COMPOSI', 'INCLUI', 'ENTRADA', 'SA')) and re.search(r'[A-ZÀ-Ú]{3}', tt))
+            if own:   # cartão de acessório: título, medidas e código no mesmo bloco; foto logo abaixo
+                bb = blk[0]; cx = (bb[0] + bb[2]) / 2
+                below = [i for i in imgs if i['bbox'][1] >= bb[3] - 10 and i['bbox'][1] - bb[3] < 140 and i['bbox'][0] - 80 <= cx <= i['bbox'][2] + 80]
+                cands = sorted(below, key=lambda i: i['bbox'][1] - bb[3]) + [i for i in ranked_images(bb, imgs, 220) if i not in below]
+                dims = cm_from(next((a.split(':', 1)[-1] for a, _, _ in blk[1] if a.startswith('MEDIDAS')), ''))
+                yield dict(ref=code, name=own.title(), kind=KINDS.get(own.split()[0].lower()), line=line, model=code, variant=None, page=pn + 1, cands=cands, named=True, **dims)
+                continue
+            above = sorted([(y2, x2, t2.strip(), z2) for y2, x2, t2, z2 in lines if y2 < y - 1 and y - y2 < 260], reverse=True)
+            near = [a for a in above if abs(a[1] - x) < 60]
+            color = next((a[2] for a in near if a[2] in colors), None)
+            power = next((re.search(r'(\d+(?:[.,]\d+)?W)', a[2]).group(1) for a in near if re.search(r'^\d+(?:[.,]\d+)?W\b|^[-–]\s*\d+\s*Lúmens', a[2]) and re.search(r'\d+W', a[2])), None)
+            if not power:  # '- 3000 Lúmens' com a potência na linha de baixo ('36W')
+                power = next((m.group(1) for a in near + [b for b in above if abs(b[1] - x) < 60] for m in [re.match(r'^(\d+W)$', a[2])] if m), None)
+            title = next((a[2] for a in above if a[3] >= 9.5 and re.match(r'^[A-ZÀ-Ú0-9 /]{4,}$', a[2]) and a[2] not in colors and not re.fullmatch(r'[\d.K/ ]+', a[2])
+                          and not a[2].startswith(('CCT', 'MEDIDAS', 'NICHO', 'ÂNGULO'))), None)
+            sec = [a[2] for a in above if a[3] >= 9.5 and a[2] == title or False]
+            dims = cm_from(next((a[2].split(':', 1)[-1] for a in near if a[2].startswith('MEDIDAS')), ''))
+            big = [i for i in imgs if i['bbox'][2] - i['bbox'][0] > 60]
+            cands = sorted(big, key=lambda i: gap((x, y - 40, x + 200, y + 10), i['bbox']))[:4]
+            name = ' '.join(z for z in (title and title.title(), power, color and color.title()) if z) or code
+            yield dict(ref=code, name=name, kind=KINDS.get((title or '').split(' ')[0].lower()), line=line or page_title, model=code, variant=color and color.title(),
+                       page=pn + 1, cands=cands, named=bool(title), want=(color or '').upper(), **dims)
+
+
+def tks(doc):
+    """Linhas de plafon/pendente: 'PIPE 1056' (nome da linha + código de 4 dígitos), tipo acima ('PLAFON') e a
+    foto acima do texto. As páginas são uma imagem única de fundo (as fotos não são imagens separadas): a foto
+    é recortada da página, subindo da etiqueta pela coluna enquanto houver pixels que não são fundo."""
+    code_re = re.compile(r'^([A-ZÀ-Ú][A-ZÀ-Ú0-9 ]{2,18}?)\s+(\d{4})$')
+    Z = 2.0
+    for pn, page in enumerate(doc):
+        blocks = sized_blocks(page)
+        if not any(code_re.match(t) for _, ls in blocks for t, _, _ in ls): continue
+        pm = page.get_pixmap(matrix=fitz.Matrix(Z, Z), colorspace=fitz.csGRAY)
+        gray = Image.frombytes('L', (pm.width, pm.height), pm.samples)
+        px = gray.load()
+        labels = [(bb, ls) for bb, ls in blocks if any(code_re.match(t) for t, _, _ in ls)]
+        for bb, ls in labels:
+            for k, (t, z, lb) in enumerate(ls):
+                m = code_re.match(t)
+                if not m: continue
+                kind_txt = ls[k - 1][0] if k else None
+                kind = KINDS.get((kind_txt or '').lower().replace('ô', 'o').split(' ')[0])
+                spec = ' '.join(x for x, _, _ in ls[k + 1:k + 6] if re.search(r'GU10|G9|E27|MR1\d|PAR\d+|LED|mm|Ø', x))
+                dims = cm_from(next((x for x, _, _ in ls if re.search(r'Ø', x) and 'mm' in x), ''))
+                y = int((bb[1] - 4) * Z)
+                cx = int((bb[0] + bb[2]) / 2 * Z)
+                lo, hi = max(int(bb[0] * Z) - 40, 0), min(int(bb[2] * Z) + 40, pm.width - 1)
+                # largura do produto logo acima da etiqueta: o trecho contínuo de colunas escuras mais perto do centro dela
+                probe = range(y - int(40 * Z), y - 4, 2)
+                darkcol = [xx for xx in range(lo, hi) if sum(1 for yy in probe if px[xx, yy] < 225) >= len(probe) * 0.4]
+                runs, cur = [], []
+                for xx in darkcol:
+                    if cur and xx - cur[-1] > 6: runs.append(cur); cur = []
+                    cur.append(xx)
+                if cur: runs.append(cur)
+                if not runs: yield dict(ref=m.group(2), name=f"{(kind_txt or '').title()} {m.group(1).title()} {m.group(2)}".strip(), kind=kind, line=m.group(1).title(), model=m.group(2), variant=spec or None, page=pn + 1, cands=[], named=True, **dims); continue
+                run = min(runs, key=lambda r: abs((r[0] + r[-1]) / 2 - cx))
+                x0, x1 = max(run[0] - 4, 0), min(run[-1] + 4, pm.width - 1)
+                def dark(yy): return sum(1 for xx in range(x0, x1, 2) if px[xx, yy] < 225) >= 2
+                top, gaps = y, 0
+                for yy in range(y, max(y - int(380 * Z), 0), -1):
+                    if dark(yy): top, gaps = yy, 0
+                    else:
+                        gaps += 1
+                        if gaps > int(14 * Z) and top != y: break
+                        if gaps > int(60 * Z): break
+                if y - top < 30 or x1 - x0 > 160 * Z:  # nada acima da etiqueta, ou largo demais (vários produtos): sem foto
+                    cands = []
+                else:
+                    cands = [dict(xref=-(pn * 100000 + int(m.group(2))), bbox=(x0 / Z - 3, top / Z - 3, x1 / Z + 3, y / Z - 2), width=999, height=999)]
+                yield dict(ref=m.group(2), name=f"{(kind_txt or '').title()} {m.group(1).title()} {m.group(2)}".strip(), kind=kind, line=m.group(1).title(),
+                           model=m.group(2), variant=spec or None, page=pn + 1, cands=cands, named=True, **dims)
+
+
+PROFILES = {'skylight': skylight, 'spotline': spotline, 'pix': pix, 'lumi': lumi, 'nordecor': nordecor, 'avant': avant, 'blumenau': blumenau, 'gaya': gaya, 'tks': tks}
+
+
+# ---------- extração e envio ----------
+
+# cutout=True: só aceita foto recortada (borda branca). Catálogos que só têm foto de ambiente usam False.
+PROFILE_OPTS = {'skylight': dict(cutout=True), 'spotline': dict(cutout=True), 'pix': dict(cutout=True), 'lumi': dict(cutout=True), 'nordecor': dict(cutout=True), 'avant': dict(cutout=False), 'blumenau': dict(cutout=False), 'gaya': dict(cutout=False), 'tks': dict(cutout=False)}
+
+
+def extract(profile, pdf_path, out_dir):
+    doc = fitz.open(pdf_path)
+    os.makedirs(os.path.join(out_dir, 'img'), exist_ok=True)
+    cutout = PROFILE_OPTS.get(profile, {}).get('cutout', True)
+    found = {}
+    for r in PROFILES[profile](doc):
+        cur = found.get(r['ref'])
+        # Mesma ref em várias páginas: vale a de tabela de acessórios (auth), depois a que tem foto
+        # candidata; empate fica com a primeira.
+        rank = lambda x: (bool(x.get('auth')), bool(x.get('named')), bool(x['cands']))
+        if cur is None or rank(r) > rank(cur): found[r['ref']] = r
+    rows, jpegs = [], {}
+    for r in found.values():
+        pick = None
+        want = r.pop('want', '')
+        good = []
+        for img in r.pop('cands'):
+            if img['xref'] not in jpegs: jpegs[img['xref']] = image_jpeg(doc, doc[r['page'] - 1], img)
+            if not cutout or is_cutout(jpegs[img['xref']]): good.append(img['xref'])
+        if good:
+            pick = good[0]
+            if len(good) > 1 and ('PRETO' in want or 'BRANCO' in want):  # foto escura p/ preto, clara p/ branco
+                by_dark = sorted(good, key=lambda x: darkness(jpegs[x]))
+                pick = by_dark[-1] if 'PRETO' in want else by_dark[0]
+        r['image_file'] = f'x{pick}.jpg' if pick else None
+        if pick: open(os.path.join(out_dir, 'img', r['image_file']), 'wb').write(jpegs[pick])
+        r['source'] = profile
+        r['source_product_id'] = (r['image_file'] or r['ref']).rsplit('.', 1)[0]
+        rows.append(r)
+    # Fita de LED sem foto própria (o catálogo só tem foto de ambiente): usa a foto de outra fita do mesmo
+    # catálogo, marcada como ilustrativa, só para sinalizar na tela que o produto é uma fita.
+    is_strip = lambda r: bool(re.match(r'^(mini |super )?fitas?\b', r['name'], re.I))
+    strip_photo = next((r['image_file'] for r in sorted(rows, key=lambda r: r['ref']) if is_strip(r) and r['image_file'] and not r.get('generic')), None)
+    if strip_photo:
+        for r in rows:
+            if is_strip(r) and not r['image_file']:
+                r['image_file'] = strip_photo; r['generic'] = True
+    rows.sort(key=lambda r: r['ref'])
+    json.dump(rows, open(os.path.join(out_dir, 'rows.json'), 'w'), ensure_ascii=False, indent=1)
+    return rows
+
+
+COLUMNS = ('source', 'ref', 'source_product_id', 'name', 'kind', 'line', 'model', 'ean', 'variant',
+           'altura_cm', 'largura_cm', 'profundidade_cm', 'diametro_cm')
+
+
+def upload(rows, out_dir):
+    url, key = os.environ['SUPABASE_URL'].rstrip('/'), os.environ['SUPABASE_SECRET_KEY']
+    # Chaves novas (sb_secret_...) vão só no apikey; as antigas (JWT) também no Authorization.
+    h = {'apikey': key} | ({'Authorization': f'Bearer {key}'} if key.startswith('eyJ') else {})
+    source = rows[0]['source']
+    for f in sorted({r['image_file'] for r in rows if r['image_file']}):
+        req = urllib.request.Request(f'{url}/storage/v1/object/supplier-catalog/{source}/{f}', method='POST',
+                                     data=open(os.path.join(out_dir, 'img', f), 'rb').read(),
+                                     headers={**h, 'Content-Type': 'image/jpeg', 'x-upsert': 'true'})
+        urllib.request.urlopen(req).read()
+    body = []
+    for r in rows:
+        b = {k: r.get(k) for k in COLUMNS}
+        b['image_url'] = f"{url}/storage/v1/object/public/supplier-catalog/{source}/{r['image_file']}" if r['image_file'] else None
+        b['source_image_url'] = f"catalogo-pdf#page={r['page']}" + ('#generic' if r.get('generic') else '')
+        body.append(b)
+    # Refs com foto enviada à mão no sistema mantêm a foto (só o resto é atualizado).
+    q = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?source=eq.{source}&source_image_url=eq.upload&select=ref', headers=h)
+    manual = {r['ref'] for r in json.loads(urllib.request.urlopen(q).read() or b'[]')}
+    keep = [{k: v for k, v in b.items() if k not in ('image_url', 'source_image_url')} for b in body if b['ref'] in manual]
+    for part in ([b for b in body if b['ref'] not in manual], keep):
+        for i in range(0, len(part), 200):
+            req = urllib.request.Request(f'{url}/rest/v1/supplier_catalog_products?on_conflict=source,ref', method='POST',
+                                         data=json.dumps(part[i:i + 200]).encode(),
+                                         headers={**h, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'})
+            urllib.request.urlopen(req).read()
+
+
+if __name__ == '__main__':
+    profile, pdf, out = sys.argv[1:4]
+    rows = extract(profile, pdf, out)
+    print(len(rows), 'refs;', sum(1 for r in rows if r['image_file']), 'com foto;', len({r['image_file'] for r in rows if r['image_file']}), 'fotos distintas')
+    if '--upload' in sys.argv:
+        upload(rows, out); print('enviado')

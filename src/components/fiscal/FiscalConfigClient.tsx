@@ -12,6 +12,7 @@ export function FiscalConfigClient({ initial }: { initial: FiscalConfig }) {
   const [form, setForm] = useState({
     cnpj: initial.cnpj ?? '', ie: initial.ie ?? '', crt: initial.crt ?? 1, ambiente: initial.ambiente,
     focus_token_homologacao: initial.focus_token_homologacao ?? '', focus_token_producao: initial.focus_token_producao ?? '',
+    meudanfe_api_key: initial.meudanfe_api_key ?? '',
     nfe_serie_homologacao: initial.nfe_serie_homologacao, nfe_serie_producao: initial.nfe_serie_producao,
     nfce_serie_homologacao: initial.nfce_serie_homologacao, nfce_serie_producao: initial.nfce_serie_producao,
   })
@@ -30,6 +31,7 @@ export function FiscalConfigClient({ initial }: { initial: FiscalConfig }) {
       setForm({
         cnpj: fresh.config.cnpj ?? '', ie: fresh.config.ie ?? '', crt: fresh.config.crt ?? 1, ambiente: fresh.config.ambiente,
         focus_token_homologacao: fresh.config.focus_token_homologacao ?? '', focus_token_producao: fresh.config.focus_token_producao ?? '',
+        meudanfe_api_key: fresh.config.meudanfe_api_key ?? '',
         nfe_serie_homologacao: fresh.config.nfe_serie_homologacao, nfe_serie_producao: fresh.config.nfe_serie_producao,
         nfce_serie_homologacao: fresh.config.nfce_serie_homologacao, nfce_serie_producao: fresh.config.nfce_serie_producao,
       })
@@ -102,6 +104,19 @@ export function FiscalConfigClient({ initial }: { initial: FiscalConfig }) {
               onChange={e => setForm(f => ({ ...f, focus_token_producao: e.target.value }))} placeholder="cole o token aqui" />
           </label>
         </div>
+      </div>
+
+      <div className="card p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-gray-700">Meu Danfe</h2>
+        <p className="text-xs text-gray-500">
+          Usada pelo botão &quot;Visualizar DANFE&quot; em Notas de Entrada → NFs Recebidas. Crie a chave em{' '}
+          <a href="https://web.meudanfe.com.br/signed/apikey" target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">web.meudanfe.com.br → API / Integração</a>.
+          Fica salva mascarada; para trocar, apague o campo e cole a nova.
+        </p>
+        <label className="block text-xs text-gray-500 sm:max-w-md">Api-Key
+          <input className={inputCls} value={form.meudanfe_api_key}
+            onChange={e => setForm(f => ({ ...f, meudanfe_api_key: e.target.value }))} placeholder="cole a Api-Key aqui" />
+        </label>
       </div>
 
       <div className="card p-5 space-y-4">

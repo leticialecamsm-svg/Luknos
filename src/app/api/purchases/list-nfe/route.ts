@@ -3,7 +3,8 @@ import https from 'https'
 import zlib from 'zlib'
 import { promisify } from 'util'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { logSefazDistCall } from '@/lib/sefaz-quota'
+import { registrarCiencia } from '@/lib/nfe-manifestacao'
+import { logSefazDistCall, setSefazCallStat } from '@/lib/sefaz-quota'
 import { getAgent } from '@/lib/nfe'
 
 const gunzip = promisify(zlib.gunzip)
@@ -20,8 +21,8 @@ function buildDistNsuSoap(ultNSU: string) {
 async function soapPost(body: string): Promise<string> {
   // Ver comentário em lib/nfe.ts: certificado inválido não deve consumir cota.
   const agent = getAgent()
-  await logSefazDistCall()
-  return new Promise((resolve, reject) => {
+  const logId = await logSefazDistCall('sincronizacao')
+  const xml = await new Promise<string>((resolve, reject) => {
     const url = new URL(DIST_URL)
     const req = https.request({
       hostname: url.hostname, path: url.pathname, method: 'POST', agent,
@@ -38,6 +39,8 @@ async function soapPost(body: string): Promise<string> {
     req.write(body)
     req.end()
   })
+  await setSefazCallStat(logId, get(xml, 'cStat'))
+  return xml
 }
 
 function get(xml: string, tag: string) {
@@ -76,6 +79,7 @@ interface NFeResumida {
   transportadoraCnpj: string
   transportadoraNome: string
   items: NFeItem[] | null // preenchido só quando há XML completo (nfeProc)
+  xml: string | null      // nfeProc bruto, guardado pra gerar o DANFE
 }
 
 interface EventoPassagem {
@@ -115,7 +119,7 @@ function parseResNFe(xml: string, nsu: string, schema: string): NFeResumida {
   const xNome = get(xml, 'xNome')
   const vNF = parseFloat(get(xml, 'vNF') || get(xml, 'vNFe') || '0') || 0
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '', items: null }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj: cnpjEmit, fornecedorNome: xNome, valorTotal: vNF, transportadoraCnpj: '', transportadoraNome: '', items: null, xml: null }
 }
 
 function parseItems(xml: string): NFeItem[] {
@@ -148,14 +152,15 @@ function parseNFeProc(xml: string, nsu: string, schema: string): NFeResumida {
   const dhEmi = (get(xml, 'dhEmi') || get(xml, 'dEmi')).slice(0, 10)
   const emitBlock = xml.match(/<emit>([\s\S]*?)<\/emit>/)?.[1] ?? ''
   const fornecedorCnpj = get(emitBlock, 'CNPJ')
-  const fornecedorNome = get(emitBlock, 'xFant') || get(emitBlock, 'xNome')
+  const fornecedorNome = get(emitBlock, 'xNome') || get(emitBlock, 'xFant')
   const vNF = parseFloat(get(xml, 'vNF') || get(xml, 'vNFe') || '0') || 0
   const transpBlock = xml.match(/<transporta>([\s\S]*?)<\/transporta>/)?.[1] ?? ''
   const transportadoraCnpj = get(transpBlock, 'CNPJ') || get(transpBlock, 'CPF')
   const transportadoraNome = get(transpBlock, 'xNome')
   const items = parseItems(xml)
+  const proc = xml.match(/<nfeProc[\s>][\s\S]*?<\/nfeProc>/)?.[0] ?? null
 
-  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null }
+  return { chave, nsu, schema, numeroNota: nNF, dataEmissao: dhEmi, fornecedorCnpj, fornecedorNome, valorTotal: vNF, transportadoraCnpj, transportadoraNome, items: items.length ? items : null, xml: proc }
 }
 
 // A SEFAZ exige esperar 1h depois de uma resposta "sem documentos novos" (cStat 137)
@@ -264,6 +269,7 @@ export async function POST() {
         transportadora_cnpj: d.transportadoraCnpj || null,
         transportadora_nome: d.transportadoraNome || null,
         items_json: d.items,
+        xml_nfe: d.xml,
         tem_xml_completo: !!d.items,
         xml_fetched_at: d.items ? new Date().toISOString() : null,
         nsu: d.nsu,
@@ -298,7 +304,27 @@ export async function POST() {
       if (!maxNSU || ultNSU >= maxNSU || docs.length === 0) break
     }
 
-    return NextResponse.json({ ok: true, novasNFs: newCount, ultimoStatusSefaz: lastStat })
+    // Ciência da Operação automática nas notas que só vieram em resumo: a SEFAZ
+    // libera o XML completo depois, e ele chega numa próxima sincronização.
+    // Não usa a cota do DistDFe; falha aqui não derruba a sincronização.
+    let ciencias = 0
+    let cienciaErro: string | undefined
+    try {
+      const { data: pendentes } = await supabase
+        .from('nfe_received')
+        .select('chave_nfe')
+        .is('ciencia_em', null)
+        .is('ciencia_cstat', null)
+        .or('tem_xml_completo.is.null,tem_xml_completo.eq.false')
+        .limit(100)
+      const res = await registrarCiencia(supabase, (pendentes ?? []).map(p => p.chave_nfe))
+      ciencias = res.filter(r => r.ok).length
+    } catch (e: any) {
+      cienciaErro = e.message
+      console.warn(`[list-nfe] ciência da operação: ${e.message}`)
+    }
+
+    return NextResponse.json({ ok: true, novasNFs: newCount, ultimoStatusSefaz: lastStat, ciencias, cienciaErro })
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Erro inesperado' }, { status: 500 })
   }
@@ -319,8 +345,10 @@ export async function GET() {
       .select('chave_nfe')
     const chavesLancadas = new Set((lancadas ?? []).map(l => l.chave_nfe))
 
-    const nfes = (data ?? []).map(n => ({
+    // xml_nfe fica só no servidor (pesado); o front só precisa saber se existe
+    const nfes = (data ?? []).map(({ xml_nfe, ...n }) => ({
       ...n,
+      tem_xml_danfe: !!xml_nfe,
       status: chavesLancadas.has(n.chave_nfe) ? 'added' : n.status,
     }))
 

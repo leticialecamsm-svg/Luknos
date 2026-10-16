@@ -11,12 +11,12 @@ import {
   createPowerSupply, updatePowerSupply, deletePowerSupply,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, closestPointOnPolyline, type Point } from '@/lib/project-reading/geometry'
-import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario } from '@/lib/project-reading/calculations'
+import { calcularFita, calcularPlanoDeCorte, planejarCortes, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario, type EmendaInfo, type PlanoOtimizado } from '@/lib/project-reading/calculations'
 import { cn } from '@/lib/utils'
 import {
-  ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, MousePointer2, Shapes, Ruler,
+  ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, ChevronDown, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download, Zap, EyeOff, Locate, Copy,
+  RotateCw, X, Layers, Download, Zap, EyeOff, Locate, Copy, Move,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -28,7 +28,7 @@ if (typeof window !== 'undefined') {
 
 // ── Tipos ─────────────────────────────────────────────────────────────────
 
-type Tool = 'select' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
+type Tool = 'select' | 'mover' | 'ambiente' | 'medir' | 'medir-perfil' | 'medir-fita' | 'medir-perfil-vertical' | 'medir-fita-vertical' | 'simbolo' | 'calibrar' | 'anot-retangulo' | 'anot-livre' | 'anot-texto'
 type MeasureKind = 'perfil' | 'fita' | 'medida'
 type EntityKind = 'environment' | 'symbol' | 'measurement' | 'annotation' | 'powerSupply'
 
@@ -57,6 +57,7 @@ interface Plan {
 
 const TOOLS: { id: Tool; label: string; icon: any }[] = [
   { id: 'select', label: 'Selecionar', icon: MousePointer2 },
+  { id: 'mover', label: 'Mover', icon: Move },
   { id: 'ambiente', label: 'Ambiente', icon: Shapes },
   { id: 'simbolo', label: 'Símbolo', icon: Lightbulb },
   { id: 'medir', label: 'Medir', icon: Ruler },
@@ -114,13 +115,35 @@ type PlanoResult = { kind: 'erro'; mensagem: string } | { kind: 'ok'; plano: Ret
 // Um grupo de trechos que compartilham modelo+tamanho/embalagem comercial —
 // não dá pra misturar barra de perfil de 2m com 3m (nem fita 12V com 24V)
 // num mesmo plano de corte, então cada combinação vira seu próprio grupo.
+// Alternativa de compra usando barras de 2m E 3m juntas — só vira o plano
+// ativo se a pessoa confirmar que tem os dois tamanhos em estoque.
+interface AlternativaBarra {
+  plano: PlanoOtimizado
+  economiaM: number
+  descPadrao: string
+  descMisto: string
+}
 interface GrupoPlano {
   key: string
   groupLabel: string
+  produtoBase: string // sem o tamanho da barra (o tamanho vem da peça)
   trechos: Measurement[]
   comercialM: number | null // null = vendido no metro, sem plano de corte
   plano: PlanoResult
   emendaWarnings: string[] // trechos maiores que a peça comercial, quebrados em partes
+  emendas: EmendaInfo[]
+  alternativa: AlternativaBarra | null
+  decisao: 'mixed' | 'padrao' | null
+}
+// "2× 3m + 1× 2m"
+function resumoBarras(plano: PlanoOtimizado, unidade = ''): string {
+  const por = new Map<number, number>()
+  for (const p of plano.pecas) por.set(p.comprimentoM ?? plano.comprimentoComercialM, (por.get(p.comprimentoM ?? plano.comprimentoComercialM) ?? 0) + 1)
+  return Array.from(por.entries()).sort((a, b) => b[0] - a[0]).map(([m, n]) => `${n}× ${m}m${unidade}`).join(' + ')
+}
+// Nome do produto de UMA peça — no perfil o tamanho da barra faz parte do nome.
+function labelPeca(g: GrupoPlano, tamanhoM?: number): string {
+  return g.comercialM != null && g.produtoBase !== g.groupLabel ? `${g.produtoBase} · barra ${tamanhoM ?? g.comercialM}m` : g.groupLabel
 }
 type PieceBadge = { label: string; color: string; siblings: string[] }
 
@@ -133,6 +156,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 }) {
   const [tab, setTab] = useState<'ambientes' | 'legenda' | 'medicoes' | 'resultado'>('ambientes')
   const [panelOpen, setPanelOpen] = useState(true)
+  const [measureDropdown, setMeasureDropdown] = useState<'perfil' | 'fita' | null>(null)
   const [tool, setTool] = useState<Tool>('select')
   // Abre direto na última página que o consultor deixou selecionada — útil
   // pra PDF de várias páginas onde só uma é a planta luminotécnica.
@@ -150,6 +174,22 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // canvas — usado pra saber quando dá pra capturar em alta resolução na
   // exportação (aguardar o zoom temporário terminar de desenhar).
   const renderVersionRef = useRef(0)
+  const zoomingRef = useRef(false)
+  // Decisão de estoque por grupo de perfil (usar 2m+3m ou só o tamanho
+  // escolhido). Guardada no navegador, por planta — não é dado do projeto.
+  const barDecisionsKey = `plan-bar-decisions-${plan.id}`
+  const [barDecisions, setBarDecisions] = useState<Record<string, string>>({})
+  useEffect(() => {
+    try { const raw = localStorage.getItem(barDecisionsKey); if (raw) setBarDecisions(JSON.parse(raw)) } catch {}
+  }, [barDecisionsKey])
+  function decideBarras(groupKey: string, decisao: 'mixed' | 'padrao' | null) {
+    setBarDecisions(prev => {
+      const next = { ...prev }
+      if (decisao) next[groupKey] = decisao; else delete next[groupKey]
+      try { localStorage.setItem(barDecisionsKey, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
 
   const [environments, setEnvironments] = useState<Environment[]>(initEnvs)
   const [legendItems, setLegendItems] = useState<LegendItem[]>(initLegend)
@@ -180,6 +220,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [draggingCotaOffset, setDraggingCotaOffset] = useState<{ measurementId: string } | null>(null)
   const [draggingFonte, setDraggingFonte] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   const [draggingSymbol, setDraggingSymbol] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
+  const [panning, setPanning] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null)
   // Empilha badges (Peça/Rolo) que caem perto do mesmo pontinho na planta —
   // sem isso, duas medições que terminam próximas uma da outra (comum em
   // ambientes pequenos) desenhavam os badges um em cima do outro.
@@ -200,6 +241,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // "Carimbo" — depois de escolher um produto uma vez, continua marcando
   // esse mesmo produto em cada clique, sem abrir o seletor de novo.
   const [stampLegendItemId, setStampLegendItemId] = useState<string | null>(null)
+  // Medida vertical: clique único (sem traço) + comprimento digitado.
+  const [pendingVerticalMeasure, setPendingVerticalMeasure] = useState<{ point: Point; kind: 'perfil' | 'fita' } | null>(null)
+  const [pendingVerticalAnchor, setPendingVerticalAnchor] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<Selection>(null)
 
@@ -253,6 +297,13 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         e.preventDefault()
         finalizeDraft()
         return
+      }
+      // M liga a ferramenta "Mover", S volta pra "Selecionar" — igual
+      // SketchUp/AutoCAD. Só quando não há letras maiúsculas acidentais
+      // (sem modificadores) e fora de um desenho em andamento.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && draftPoints.length === 0) {
+        if (e.key.toLowerCase() === 'm') { e.preventDefault(); setTool('mover'); return }
+        if (e.key.toLowerCase() === 's') { e.preventDefault(); setTool('select'); return }
       }
       if (e.key === 'Escape') {
         setSelection(null)
@@ -499,6 +550,9 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // ferramenta ativa), cliques em cima de ambiente/símbolo/medição/anotação
   // não podem "roubar" o clique pra seleção — senão nunca dá pra marcar um
   // ponto que caia dentro de um ambiente já desenhado.
+  // "Mover" é um apelido de "Selecionar" com foco em arrastar — mesma
+  // mecânica de clique/arraste já usada em todo canto, só muda o cursor e
+  // o atalho de teclado (M liga, S volta pra seleção normal).
   function canSelectShape() { return tool === 'select' && !pendingFontePlacement }
 
   function selectShape(kind: EntityKind, id: string, e: React.MouseEvent) {
@@ -535,50 +589,56 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     return Array.from(groups.entries()).map(([key, trechos]) => {
       const first = trechos[0]
       let groupLabel: string
+      let produtoBase: string
       let comercialM: number | null
       if (kind === 'perfil') {
         const bar = first.bar_size ?? 3
-        groupLabel = `${first.product_model || 'Sem modelo'} · ${first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'} · barra ${bar}m`
+        produtoBase = `${first.product_model || 'Sem modelo'} · ${first.mount_type === 'sobrepor' ? 'Sobrepor' : 'Embutir'}`
+        groupLabel = `${produtoBase} · barra ${bar}m`
         comercialM = bar
       } else {
         const isMetro = first.packaging === 'metro'
         groupLabel = `${first.product_model || 'Sem modelo'} · ${first.voltage || '12V'}${first.color_temp_k ? ` · ${first.color_temp_k}K` : ''} · ${isMetro ? 'vendida no metro' : 'rolo de 5m'}`
+        produtoBase = groupLabel
         comercialM = isMetro ? null : 5
       }
       let plano: PlanoResult = null
-      const emendaWarnings: string[] = []
+      let emendas: EmendaInfo[] = []
+      let alternativa: AlternativaBarra | null = null
+      const decisao = (barDecisions[key] as 'mixed' | 'padrao' | undefined) ?? null
       if (comercialM != null) {
         // Perfil largo pode levar mais de uma tira de fita lado a lado
         // (strand_count) — cada tira consome seu próprio pedaço de rolo.
-        // Um trecho medido MAIOR que a peça comercial (ex: 4.52m medidos de
-        // uma vez, mas só tem barra de 3m) antes travava o plano de corte
-        // inteiro do grupo com erro — e como o erro não aparecia em lugar
-        // nenhum fora da aba Medições, o produto simplesmente sumia do
-        // quantitativo sem explicação. Agora esse trecho é quebrado
-        // automaticamente em pedaços do tamanho comercial (indicando que
-        // precisa de emenda), e o plano sempre é gerado.
         const list: TrechoNecessario[] = trechos.flatMap(t => {
           const strands = kind === 'fita' ? (t.strand_count ?? 1) : 1
-          const parts: TrechoNecessario[] = []
-          for (let i = 0; i < strands; i++) {
-            const baseId = strands > 1 ? `${t.id}#${i + 1}` : t.id
-            const ambiente = envNameFor(t.environment_id)
-            if (t.length_m > comercialM!) {
-              const n = Math.ceil(t.length_m / comercialM!)
-              emendaWarnings.push(`${t.label || MEASURE_LABEL[t.kind]} (${round2(t.length_m)}m, ${ambiente}) precisa de emenda: ${n} ${kind === 'perfil' ? 'barras' : 'rolos'} de ${comercialM}m.`)
-              for (let p = 0; p < n; p++) {
-                const restante = round2(t.length_m - comercialM! * p)
-                parts.push({ id: p === 0 ? baseId : `${baseId}~emenda${p}`, comprimentoM: Math.min(comercialM!, restante), ambiente })
-              }
-            } else {
-              parts.push({ id: baseId, comprimentoM: t.length_m, ambiente })
-            }
-          }
-          return parts
+          return Array.from({ length: strands }, (_, i) => ({
+            id: strands > 1 ? `${t.id}#${i + 1}` : t.id, comprimentoM: t.length_m, ambiente: envNameFor(t.environment_id),
+          }))
         })
-        plano = { kind: 'ok', plano: calcularPlanoDeCorte(list, comercialM) }
+        // Trecho maior que a barra vira emenda, e a sobra da emenda entra no
+        // encaixe com os outros trechos (ver planejarCortes).
+        const padrao = planejarCortes(list, [comercialM])
+        let ativo = padrao
+        // Perfil de 2m/3m: se usar os dois tamanhos compra menos material,
+        // oferece como alternativa — quem confirma é a pessoa (estoque).
+        if (kind === 'perfil' && (comercialM === 2 || comercialM === 3)) {
+          const misto = planejarCortes(list, [2, 3])
+          if (misto.totalComercialM < padrao.totalComercialM - 1e-9) {
+            alternativa = {
+              plano: misto, economiaM: round2(padrao.totalComercialM - misto.totalComercialM),
+              descPadrao: resumoBarras(padrao), descMisto: resumoBarras(misto),
+            }
+            if (decisao === 'mixed') ativo = misto
+          }
+        }
+        plano = { kind: 'ok', plano: ativo }
+        emendas = ativo.emendas
       }
-      return { key, groupLabel, trechos, comercialM, plano, emendaWarnings }
+      const emendaWarnings = emendas.map(e => {
+        const m = trechos.find(t => t.id === baseMeasurementId(e.id))
+        return `${m?.label || MEASURE_LABEL[kind]} (${e.comprimentoTotalM}m, ${e.ambiente ?? 'Sem ambiente'}): emenda ${e.partesM.map(x => `${x}m`).join(' + ')}`
+      })
+      return { key, groupLabel, produtoBase, trechos, comercialM, plano, emendaWarnings, emendas, alternativa, decisao }
     })
   }
 
@@ -586,10 +646,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const fitasList = measurements.filter(m => m.kind === 'fita')
   const perfilGroups = useMemo(() => groupAndPlan(perfisList, 'perfil'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [measurements, environments])
+    [measurements, environments, barDecisions])
   const fitaGroups = useMemo(() => groupAndPlan(fitasList, 'fita'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [measurements, environments])
+    [measurements, environments, barDecisions])
 
   // Perfil compra em "peça" (barra), fita compra em "rolo" — nomes
   // diferentes mesmo sendo o mesmo mecanismo de plano de corte por baixo.
@@ -638,24 +698,40 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   useEffect(() => {
     if (!pdfDoc) return
     let cancelled = false
+    let localTask: any = null
     setRendering(true)
     pdfDoc.getPage(pageNum).then((page: any) => {
+      if (cancelled) return
       const viewport = page.getViewport({ scale: renderScale, rotation: totalRotation(page) })
       const canvas = canvasRef.current
       if (!canvas || cancelled) return
       canvas.width = viewport.width
       canvas.height = viewport.height
       const ctx = canvas.getContext('2d')!
-      page.render({ canvasContext: ctx, viewport }).promise.then(() => {
+      const task = page.render({ canvasContext: ctx, viewport })
+      localTask = task
+      task.promise.then(() => {
         if (!cancelled) {
           viewportRef.current = viewport
           setPageSize({ width: viewport.width, height: viewport.height })
           setRendering(false)
           renderVersionRef.current++
         }
+      }).catch((err: any) => {
+        // Cancelamento esperado (uma render mais nova começou antes dessa
+        // terminar, ex: vários "ticks" seguidos da rodinha do zoom) — não é
+        // erro de verdade, só ignora.
+        if (err?.name !== 'RenderingCancelledException') console.error(err)
       })
     })
-    return () => { cancelled = true }
+    // O cleanup roda ANTES do efeito seguinte começar (garantido pelo
+    // React) — cancelar aqui, fechado sobre a task desta instância
+    // específica do efeito, evita a corrida de duas renders disputando o
+    // mesmo canvas que travava o pdf.js pra sempre.
+    return () => {
+      cancelled = true
+      try { localTask?.cancel() } catch { /* já tinha terminado, ignora */ }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfDoc, pageNum, renderScale, rotationMap])
 
@@ -667,6 +743,40 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const targetWidth = container.clientWidth - 32
       setRenderScale(Math.max(0.3, targetWidth / base.width))
     })
+  }
+
+  // Zoom com a rodinha do mouse — centrado no cursor, não no canto da
+  // tela, senão o ponto que a pessoa está olhando "foge" a cada scroll.
+  async function handleWheelZoom(e: React.WheelEvent) {
+    e.preventDefault()
+    const container = e.currentTarget
+    const rect = container.getBoundingClientRect()
+    const clientX = e.clientX, clientY = e.clientY
+    const cursorX = clientX - rect.left + container.scrollLeft
+    const cursorY = clientY - rect.top + container.scrollTop
+    const prevScale = renderScale
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+    const nextScale = Math.min(4, Math.max(0.3, prevScale * factor))
+    if (nextScale === prevScale) return
+    const ratio = nextScale / prevScale
+    setRenderScale(nextScale)
+    // Se o usuário girar a rodinha rápido, vários "ticks" chamam essa
+    // função quase juntos — só o primeiro espera a render terminar pra
+    // ajustar o scroll; os outros só atualizam a escala e saem, pra não
+    // empilhar várias esperas concorrentes brigando pelo mesmo scroll.
+    if (zoomingRef.current) return
+    zoomingRef.current = true
+    const v0 = renderVersionRef.current
+    // Só ajusta o scroll depois que o pdf.js terminar de re-renderizar
+    // nessa escala — senão o ponto sob o cursor "pula" no meio do caminho.
+    await new Promise<void>(resolve => {
+      const iv = setInterval(() => {
+        if (renderVersionRef.current > v0) { clearInterval(iv); resolve() }
+      }, 15)
+    })
+    container.scrollLeft = cursorX * ratio - (clientX - rect.left)
+    container.scrollTop = cursorY * ratio - (clientY - rect.top)
+    zoomingRef.current = false
   }
 
   // Clicar num ambiente na aba lateral centraliza e dá zoom nele na planta,
@@ -698,6 +808,36 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     const cx = (minX + maxX) / 2 * targetScale
     const cy = (minY + maxY) / 2 * targetScale
     container.scrollTo({ left: cx - container.clientWidth / 2, top: cy - container.clientHeight / 2, behavior: 'smooth' })
+  }
+
+  // Leva a planta até um item (medição/símbolo) e já o seleciona abrindo o
+  // card — usado pelos avisos da aba Resultado, pra ir direto ao item com
+  // pendência em vez de procurar na planta.
+  async function focusOnItem(page: number, points: Point[], sel: { kind: EntityKind; id: string }) {
+    const container = canvasRef.current?.parentElement?.parentElement
+    if (!container || points.length === 0) return
+    setTool('select')
+    const xs = points.map(p => p[0]), ys = points.map(p => p[1])
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
+    const bboxW = Math.max(1, maxX - minX), bboxH = Math.max(1, maxY - minY)
+    const fit = Math.min((container.clientWidth - 160) / bboxW, (container.clientHeight - 160) / bboxH)
+    const targetScale = Math.min(3, Math.max(1, fit))
+    const mudou = page !== pageNum || Math.abs(targetScale - renderScale) > 0.001
+    if (mudou) {
+      const v0 = renderVersionRef.current
+      if (page !== pageNum) setPageNum(page)
+      setRenderScale(targetScale)
+      await new Promise<void>(resolve => {
+        const iv = setInterval(() => { if (renderVersionRef.current > v0) { clearInterval(iv); resolve() } }, 30)
+      })
+    }
+    const cx = (minX + maxX) / 2 * targetScale, cy = (minY + maxY) / 2 * targetScale
+    container.scrollTo({ left: cx - container.clientWidth / 2, top: cy - container.clientHeight / 2, behavior: 'auto' })
+    setTimeout(() => {
+      setSelection(sel)
+      const r = container.getBoundingClientRect()
+      setPopoverAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+    }, 80)
   }
 
   async function rotatePage() {
@@ -811,7 +951,11 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
   // ── Interações do canvas ──────────────────────────────────────────────────
 
-  function resetDrafts() { setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null); setPendingSymbol(null); setPendingSymbolAnchor(null) }
+  function resetDrafts() {
+    setDraftPoints([]); setDraftFreehand([]); setRectStart(null); setRectCur(null)
+    setPendingSymbol(null); setPendingSymbolAnchor(null)
+    setPendingVerticalMeasure(null); setPendingVerticalAnchor(null)
+  }
 
   useEffect(() => { resetDrafts(); setSelection(null); setStampLegendItemId(null) }, [tool])
 
@@ -838,6 +982,15 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
     if (tool === 'select') { setSelection(null); return }
     const p = toBase(e)
+    // Trecho vertical (sobe/desce uma parede, dentro de um forro...) não dá
+    // pra traçar na planta baixa — ela só mostra a vista de cima. Em vez de
+    // dois pontos, clica uma vez só pra marcar onde fica e digita o
+    // comprimento direto.
+    if (tool === 'medir-perfil-vertical' || tool === 'medir-fita-vertical') {
+      setPendingVerticalMeasure({ point: p, kind: tool === 'medir-perfil-vertical' ? 'perfil' : 'fita' })
+      setPendingVerticalAnchor({ x: e.clientX, y: e.clientY })
+      return
+    }
     if (tool === 'ambiente' || MEASURE_TOOLS.includes(tool) || tool === 'calibrar') {
       setDraftPoints(prev => [...prev, p])
       return
@@ -965,13 +1118,94 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
 
+  // Medida vertical: comprimento digitado direto (não dá pra traçar uma
+  // subida de parede ou um trecho dentro do forro numa planta baixa, que só
+  // mostra a vista de cima) — ainda assim precisa contar no quantitativo
+  // igual qualquer outro perfil/fita. Os pontos armazenados são só um
+  // traço curto sintético (pro mesmo desenho de cota/badge funcionar sem
+  // precisar de um caminho especial de renderização).
+  async function confirmVerticalMeasure(lengthStr: string) {
+    if (!pendingVerticalMeasure) return
+    const lengthM = Number(lengthStr.replace(',', '.'))
+    if (!(lengthM > 0)) { window.alert('Digite um comprimento válido, em metros.'); return }
+    const { point, kind } = pendingVerticalMeasure
+    const points: Point[] = [point, [point[0], point[1] + 24]]
+    const envMatch = environments.find(env => env.page === pageNum && pointInPolygon(point, env.polygon))
+    const countSameKind = measurements.filter(m => m.kind === kind).length
+    const lastSameKind = [...measurements].reverse().find(m => m.kind === kind)
+    setBusy(true)
+    const res = await createMeasurement(plan.id, {
+      page: pageNum, kind, label: `${MEASURE_LABEL[kind]} vertical ${countSameKind + 1}`,
+      points, length_m: round2(lengthM), environment_id: envMatch?.id ?? null,
+      power_w_per_m: kind === 'fita' ? (lastSameKind?.power_w_per_m ?? 0) : undefined,
+      bar_size: kind === 'perfil' ? (lastSameKind?.bar_size ?? 3) : undefined,
+      packaging: kind === 'fita' ? (lastSameKind?.packaging ?? 'rolo_5m') : undefined,
+      product_model: lastSameKind?.product_model ?? undefined,
+      mount_type: kind === 'perfil' ? (lastSameKind?.mount_type ?? undefined) : undefined,
+      voltage: kind === 'fita' ? (lastSameKind?.voltage ?? undefined) : undefined,
+      color_temp_k: kind === 'fita' ? (lastSameKind?.color_temp_k ?? undefined) : undefined,
+      strand_count: kind === 'fita' ? (lastSameKind?.strand_count ?? undefined) : undefined,
+    })
+    if (res?.data) {
+      setMeasurements(prev => [...prev, res.data])
+      pushCreateHistory('measurement', res.data)
+      if (kind === 'perfil') {
+        const countFitas = measurements.filter(m => m.kind === 'fita').length
+        const lastFita = [...measurements].reverse().find(m => m.kind === 'fita')
+        const resFita = await createMeasurement(plan.id, {
+          page: pageNum, kind: 'fita', label: `Fita vertical ${countFitas + 1} (do ${res.data.label})`,
+          points, length_m: round2(lengthM), environment_id: envMatch?.id ?? null,
+          power_w_per_m: lastFita?.power_w_per_m ?? 0, linked_measurement_id: res.data.id,
+          packaging: lastFita?.packaging ?? 'rolo_5m',
+          product_model: lastFita?.product_model ?? undefined, voltage: lastFita?.voltage ?? undefined,
+          color_temp_k: lastFita?.color_temp_k ?? undefined, strand_count: lastFita?.strand_count ?? undefined,
+        })
+        if (resFita?.data) { setMeasurements(prev => [...prev, resFita.data]); pushCreateHistory('measurement', resFita.data) }
+      }
+    }
+    setBusy(false)
+    const anchor = pendingVerticalAnchor
+    setPendingVerticalMeasure(null)
+    setPendingVerticalAnchor(null)
+    // Volta pra Selecionar e já abre o card da medição criada, pra
+    // preencher modelo/W/m etc. — se ficasse na ferramenta vertical, o
+    // próximo clique em cima dela criaria outra medição em vez de abrir
+    // o card (parecia "não clicável"). O efeito de troca de ferramenta
+    // limpa a seleção, então ela é aplicada logo depois.
+    if (res?.data && anchor) {
+      setTool('select')
+      setTimeout(() => {
+        setSelection({ kind: 'measurement', id: res.data.id })
+        setPopoverAnchor(anchor)
+      }, 60)
+    }
+  }
+
+  // "Mover" é um pan da visualização (arrasta a planta pra qualquer lado),
+  // não um arrastar de marcação — pro caso de trechos muito grandes onde a
+  // barra de rolagem não ajuda. Funciona com a ferramenta Mover ativa (ou
+  // segurando o botão do meio do mouse, em qualquer ferramenta).
   function handleMouseDown(e: React.MouseEvent) {
+    if (e.button === 1 || tool === 'mover') {
+      e.preventDefault()
+      const container = canvasRef.current?.parentElement?.parentElement
+      if (container) setPanning({ x: e.clientX, y: e.clientY, scrollLeft: container.scrollLeft, scrollTop: container.scrollTop })
+      return
+    }
     if (tool === 'select') return
     const p = toBase(e)
     if (tool === 'anot-retangulo') { setRectStart(p); setRectCur(p) }
     if (tool === 'anot-livre') { setDrawingFreehand(true); setDraftFreehand([p]) }
   }
   function handleMouseMove(e: React.MouseEvent) {
+    if (panning) {
+      const container = canvasRef.current?.parentElement?.parentElement
+      if (container) {
+        container.scrollLeft = panning.scrollLeft - (e.clientX - panning.x)
+        container.scrollTop = panning.scrollTop - (e.clientY - panning.y)
+      }
+      return
+    }
     const p = toBase(e)
     if (tool === 'anot-retangulo' && rectStart) setRectCur(p)
     if (tool === 'anot-livre' && drawingFreehand) setDraftFreehand(prev => [...prev, p])
@@ -1009,6 +1243,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     }
   }
   async function handleMouseUp() {
+    if (panning) { setPanning(null); return }
     if (draggingAnnotation) {
       const a = annotations.find(x => x.id === draggingAnnotation.id)
       setDraggingAnnotation(null)
@@ -1105,7 +1340,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // metros escrito ao lado, por segmento — igual uma cota de projeto.
   function renderCota(points: Point[], color: string, key: string, mScale: number | null, opts?: {
     selected?: boolean; onClick?: (e: React.MouseEvent) => void; dashed?: boolean; badges?: PieceBadge[]
-    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number; badgeYOffset?: number
+    cotaOffset?: number; onOffsetDragStart?: () => void; totalLengthM?: number; badgeYOffset?: number; subtle?: boolean
   }) {
     const offsetPx = opts?.cotaOffset ?? 16
     // Quando a medição já foi salva, o número mostrado na cota vem do
@@ -1131,18 +1366,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       const midX = (a2x + b2x) / 2, midY = (a2y + b2y) / 2
       let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI
       if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
-      const dimWidth = opts?.selected ? 3.5 : 2.5
+      const dimWidth = opts?.selected ? 3 : opts?.subtle ? 1.25 : 2.5
       segs.push(
         <g key={`${key}-${i}`}>
           {/* Halo branco por baixo de tudo — sem isso a cota some no meio dos
               traços que já existem no PDF original (linhas, cotas do CAD). */}
-          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
-          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke="white" strokeWidth={3.5} opacity={0.95} />
+          {!opts?.subtle && <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke="white" strokeWidth={3.5} opacity={0.95} />}
+          {!opts?.subtle && <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke="white" strokeWidth={3.5} opacity={0.95} />}
           <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke="white" strokeWidth={dimWidth + 3}
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
 
-          <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
-          <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1.25} opacity={0.7} />
+          {!opts?.subtle && <line x1={sax} y1={say} x2={a2x} y2={a2y} stroke={color} strokeWidth={1.25} opacity={0.7} />}
+          {!opts?.subtle && <line x1={sbx} y1={sby} x2={b2x} y2={b2y} stroke={color} strokeWidth={1.25} opacity={0.7} />}
           <line x1={a2x} y1={a2y} x2={b2x} y2={b2y} stroke={color} strokeWidth={dimWidth}
             strokeDasharray={opts?.dashed ? '4 3' : undefined} />
           {opts?.onClick && (
@@ -1185,35 +1420,25 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // trecho medido — a cor é sempre a mesma pra composição idêntica
   // (mesmo perfil + mesma fita, ou mesma fita sozinha) e muda assim que
   // qualquer um dos dois produtos muda.
-  function renderComposicaoRibbon(points: Point[], color: string, key: string, halfWidthPx = 6) {
+  function renderComposicaoRibbon(points: Point[], color: string, key: string, onClick?: (e: React.MouseEvent) => void, halfWidthPx = 7, selected = false) {
     const screenPts = points.map(toScreen)
     if (screenPts.length < 2) return null
-    const left: [number, number][] = []
-    const right: [number, number][] = []
-    for (let i = 0; i < screenPts.length - 1; i++) {
-      const [ax, ay] = screenPts[i]
-      const [bx, by] = screenPts[i + 1]
-      const dx = bx - ax, dy = by - ay
-      const len = Math.hypot(dx, dy) || 1
-      const nx = (-dy / len) * halfWidthPx, ny = (dx / len) * halfWidthPx
-      left.push([ax + nx, ay + ny])
-      right.push([ax - nx, ay - ny])
-      if (i === screenPts.length - 2) {
-        left.push([bx + nx, by + ny])
-        right.push([bx - nx, by - ny])
-      }
-    }
-    // Duas polilinhas abertas (uma de cada lado) em vez de um polígono
-    // fechado — um trecho em L ou que "volta" sobre si mesmo fazia o
-    // polígono se auto-cruzar, desenhando um X feio na virada.
-    const leftPts = left.map(p => p.join(',')).join(' ')
-    const rightPts = right.map(p => p.join(',')).join(' ')
+    const pts = screenPts.map(p => p.join(',')).join(' ')
+    // Efeito marca-texto: um traço grosso e translúcido da cor da composição
+    // (multiply deixa o desenho da planta aparecendo por baixo), sem
+    // contorno — em vez de duas linhas de borda que poluíam a planta.
     return (
       <g key={key}>
-        <polyline points={leftPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={rightPts} fill="none" stroke="white" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={leftPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        <polyline points={rightPts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={pts} fill="none" stroke={color} strokeOpacity={selected ? 0.55 : 0.38}
+          strokeWidth={halfWidthPx * 2} strokeLinecap="butt" strokeLinejoin="round" style={{ mixBlendMode: 'multiply' }} />
+        {/* Área de clique larga sobre o trecho todo — o único alvo antes era
+            a linha de cota deslocada, difícil de acertar em trechos curtos
+            (ex: medida vertical). */}
+        {onClick && (
+          <polyline points={pts} fill="none" stroke="transparent" strokeWidth={halfWidthPx * 2 + 10}
+            strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer' }}
+            onClick={e => { if (!canSelectShape()) return; e.stopPropagation(); onClick(e) }} />
+        )}
       </g>
     )
   }
@@ -1231,13 +1456,51 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       <div className="flex-1 flex flex-col min-w-0 bg-gradient-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center gap-1 px-3 py-2 border-b border-surface-border bg-surface-secondary flex-wrap">
-          {TOOLS.map(t => (
-            <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
-              className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                tool === t.id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
-              <t.icon className="w-3.5 h-3.5" /> {t.label}
-            </button>
-          ))}
+          {TOOLS.map(t => {
+            // "Medir perfil"/"Medir fita" escondem uma segunda opção —
+            // trecho vertical, que não dá pra traçar numa planta baixa (só
+            // mostra vista de cima) e por isso usa clique único + comprimento
+            // digitado em vez do traço normal.
+            if (t.id === 'medir-perfil' || t.id === 'medir-fita') {
+              const kind = t.id === 'medir-perfil' ? 'perfil' : 'fita'
+              const verticalTool: Tool = t.id === 'medir-perfil' ? 'medir-perfil-vertical' : 'medir-fita-vertical'
+              const active = tool === t.id || tool === verticalTool
+              const open = measureDropdown === kind
+              return (
+                <div key={t.id} className="relative flex items-stretch">
+                  <button onClick={() => { setTool(t.id); setMeasureDropdown(null) }} title={t.label}
+                    className={cn('flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-l-lg text-xs font-medium transition-colors',
+                      active ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
+                    <t.icon className="w-3.5 h-3.5" /> {tool === verticalTool ? `${t.label} (vertical)` : t.label}
+                  </button>
+                  <button onClick={() => setMeasureDropdown(open ? null : kind)} title="Mais opções"
+                    className={cn('flex items-center px-1 rounded-r-lg border-l transition-colors',
+                      active ? 'bg-brand-600 text-white border-brand-500' : 'text-navy-muted hover:bg-surface-secondary border-transparent')}>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {open && (
+                    <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-44">
+                      <button onClick={() => { setTool(t.id); setMeasureDropdown(null) }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                        <Ruler className="w-3 h-3 inline mr-1.5" /> Horizontal (traço)
+                      </button>
+                      <button onClick={() => { setTool(verticalTool); setMeasureDropdown(null) }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                        ↕ Vertical (digitado)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
+                className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  tool === t.id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
+                <t.icon className="w-3.5 h-3.5" /> {t.label}
+              </button>
+            )
+          })}
           <div className="ml-auto flex items-center gap-1">
             <button onClick={undo} disabled={undoStack.length === 0} title="Desfazer (Cmd+Z)"
               className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30 disabled:hover:bg-transparent">
@@ -1258,7 +1521,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 reaproveitamentoView ? 'bg-amber-500 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Layers className="w-3.5 h-3.5" /> Reaproveitamento
             </button>
-            <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes (12V) já posicionadas"
+            <button onClick={() => { setFontesView(v => !v); setReaproveitamentoView(false) }} title="Visualizar só as fontes já posicionadas"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
                 fontesView ? 'bg-amber-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <Zap className="w-3.5 h-3.5" /> Fontes
@@ -1291,6 +1554,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
 
         {tool !== 'select' && (
           <div className="px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-medium border-b border-brand-100">
+            {tool === 'mover' && 'Clique e arraste em qualquer lugar da planta pra deslocar a visualização (Esc ou "S" volta pra seleção normal). Funciona também segurando o botão do meio do mouse em qualquer ferramenta.'}
+            {(tool === 'medir-perfil-vertical' || tool === 'medir-fita-vertical') && 'Clique no ponto da planta onde fica o trecho vertical e digite o comprimento direto (Esc cancela).'}
             {tool === 'ambiente' && 'Clique pra marcar os cantos do ambiente e aperte Enter pra fechar o polígono (Esc cancela).'}
             {isMeasuring && `Clique em cada ponto do trecho — inclusive nos cantos de um L ou U, sem parar — e aperte Enter só no final pra salvar tudo como uma peça só (Esc cancela).${!scale ? ' Escala não calibrada nesta página ainda.' : ''}`}
             {tool === 'calibrar' && 'Clique em dois pontos de distância real conhecida na planta e aperte Enter pra confirmar (Esc cancela).'}
@@ -1320,7 +1585,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
         )}
 
         {/* Canvas + overlay */}
-        <div className="flex-1 overflow-auto bg-gray-100 p-4">
+        <div className="flex-1 overflow-auto bg-gray-100 p-4" onWheel={handleWheelZoom}>
           <div className="relative inline-block" style={{ width: pageSize.width, height: pageSize.height }}>
             <canvas ref={canvasRef} className="block shadow-md" />
             {rendering && (
@@ -1331,7 +1596,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <svg
               width={pageSize.width} height={pageSize.height}
               className="absolute inset-0"
-              style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
+              style={{ cursor: panning ? 'grabbing' : tool === 'mover' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
               onClick={handleCanvasClick}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
@@ -1421,7 +1686,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   }
                   return (
                     <g key={m.id}>
-                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`)}
+                      {isComposicao && !reaproveitamentoView && renderComposicaoRibbon(m.points, color, `${m.id}-ribbon`, (e: React.MouseEvent) => selectShape('measurement', m.id, e), 7, selected)}
                       {renderCota(m.points, color, m.id, scale, {
                         selected,
                         onClick: (e: React.MouseEvent) => selectShape('measurement', m.id, e),
@@ -1430,6 +1695,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                         cotaOffset: m.cota_offset ?? 16,
                         onOffsetDragStart: tool === 'select' ? () => setDraggingCotaOffset({ measurementId: m.id }) : undefined,
                         totalLengthM: m.length_m,
+                        subtle: isComposicao && !reaproveitamentoView,
                       })}
                       {!reaproveitamentoView && !fontesView && m.label && (m.kind === 'perfil' || (m.kind === 'fita' && !m.linked_measurement_id)) && (() => {
                         const [fx, fy] = toScreen(m.points[0])
@@ -1464,7 +1730,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                   )
                 })}
 
-              {/* Fontes (12V) + cabo pontilhado até a fita — só aparece na
+              {/* Fontes + cabo pontilhado até a fita — só aparece na
                   "Visualizar fontes", pra nunca poluir a visão geral. */}
               {fontesView && powerSupplies.filter(ps => ps.page === pageNum).map(ps => {
                 const feeding = measurements.find(m => m.id === ps.measurement_id)
@@ -1669,7 +1935,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             )}
             {tab === 'resultado' && (
               <ResultadoTab environments={environments} legendItems={legendItems} symbols={symbols} measurements={measurements} powerSupplies={powerSupplies}
-                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} />
+                perfilGroups={perfilGroups} fitaGroups={fitaGroups} onFocusEnvironment={focusOnEnvironment} onDecideBarras={decideBarras} onFocusItem={focusOnItem} />
             )}
           </div>
         )}
@@ -1734,6 +2000,26 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               )
             })}
           </div>
+        </div>
+      )}
+
+      {pendingVerticalMeasure && pendingVerticalAnchor && (
+        <div
+          style={{ position: 'fixed', left: Math.min(pendingVerticalAnchor.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 240), top: Math.min(pendingVerticalAnchor.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 140), zIndex: 50, width: 228 }}
+          className="bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-3 pt-2">
+            <p className="text-[10px] font-bold text-violet-500 uppercase">↕ {MEASURE_LABEL[pendingVerticalMeasure.kind]} vertical</p>
+            <button onClick={() => { setPendingVerticalMeasure(null); setPendingVerticalAnchor(null) }} className="p-1 text-gray-300 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          <form className="p-2.5 pt-1 space-y-2" onSubmit={e => { e.preventDefault(); confirmVerticalMeasure((e.currentTarget.elements.namedItem('len') as HTMLInputElement).value) }}>
+            <div className="flex items-center gap-1.5">
+              <input name="len" type="text" inputMode="decimal" autoFocus placeholder="0.00"
+                className="w-full text-sm border border-gray-200 rounded-md px-2 py-1.5 outline-none focus:border-brand-400" />
+              <span className="text-xs text-gray-400 shrink-0">m</span>
+            </div>
+            <button type="submit" className="btn-primary text-xs w-full justify-center !py-1.5">Confirmar</button>
+          </form>
         </div>
       )}
     </>
@@ -2611,7 +2897,7 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
       {preenchido ? (
         <div>
           <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} powerSupplies={powerSupplies}
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={m.id} voltage={m.voltage} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {m.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {m.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
@@ -2626,14 +2912,19 @@ function FitaCard({ m, environments, onChangeEnv, onChangeLabel, onDelete, onCha
 
 // Linha "Fonte sugerida: 60W (12V)" — catálogo real de estoque (18 a 400W),
 // sempre a próxima potência IGUAL OU ACIMA do mínimo calculado, nunca abaixo.
-function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlacement, onDeleteFonte }: {
-  minimaW: number; measurementId: string; powerSupplies: PowerSupply[]
+function FonteSugeridaLine({ minimaW, measurementId, voltage = '12V', powerSupplies, onStartPlacement, onDeleteFonte }: {
+  minimaW: number; measurementId: string; voltage?: '12V' | '24V' | null; powerSupplies: PowerSupply[]
   onStartPlacement: (measurementId: string, watts: number) => void; onDeleteFonte: (id: string) => void
 }) {
   const sugestao = sugerirFonte(minimaW)
   const existente = powerSupplies.find(p => p.measurement_id === measurementId)
   const [picking, setPicking] = useState(false)
-  const [escolha, setEscolha] = useState(sugestao ?? CATALOGO_FONTES_12V[0])
+  // Só guarda o que o usuário escolheu na mão. Antes o valor inicial era
+  // congelado na primeira renderização (com o W/m ainda mudando), então o
+  // seletor ficava preso numa potência antiga (ex: 60W com sugestão de 18W).
+  const [escolhaManual, setEscolhaManual] = useState<number | null>(null)
+  useEffect(() => { setEscolhaManual(null) }, [minimaW])
+  const escolha = escolhaManual != null && escolhaManual >= minimaW ? escolhaManual : (sugestao ?? CATALOGO_FONTES_12V[0])
 
   if (existente) {
     return (
@@ -2646,7 +2937,7 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
   return (
     <div className="mt-0.5">
       <p className="text-xs font-semibold text-sky-600">
-        {sugestao ? `Fonte sugerida: ${sugestao}W (12V)` : 'Acima do catálogo — divida em mais de uma fonte'}
+        {sugestao ? `Fonte sugerida: ${sugestao}W (${voltage ?? '12V'})` : 'Acima do catálogo — divida em mais de uma fonte'}
       </p>
       {sugestao && !picking && (
         <button onClick={() => setPicking(true)} className="text-[11px] font-medium text-brand-600 hover:underline mt-0.5">
@@ -2655,7 +2946,7 @@ function FonteSugeridaLine({ minimaW, measurementId, powerSupplies, onStartPlace
       )}
       {picking && (
         <div className="flex items-center gap-1.5 bg-sky-50 rounded-md p-1.5 mt-1 flex-wrap">
-          <select value={escolha} onChange={e => setEscolha(Number(e.target.value))} className="text-xs border border-surface-border rounded px-1 py-0.5">
+          <select value={escolha} onChange={e => setEscolhaManual(Number(e.target.value))} className="text-xs border border-surface-border rounded px-1 py-0.5">
             {CATALOGO_FONTES_12V.filter(w => w >= minimaW).map(w => <option key={w} value={w}>{w}W</option>)}
           </select>
           <button onClick={() => { onStartPlacement(measurementId, escolha); setPicking(false) }}
@@ -2763,7 +3054,7 @@ function PerfilFitaCard({
       {preenchido ? (
         <div>
           <p className="text-base font-bold text-emerald-600 leading-tight">Fonte mínima: {Math.ceil(calc.fonteMinimaW)}W</p>
-          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} powerSupplies={powerSupplies}
+          <FonteSugeridaLine minimaW={calc.fonteMinimaW} measurementId={fita.id} voltage={fita.voltage} powerSupplies={powerSupplies}
             onStartPlacement={onStartFontePlacement} onDeleteFonte={onDeleteFonte} />
           <p className="text-[10px] text-gray-400 mt-0.5">
             {fita.length_m.toFixed(2)}m{strands > 1 ? ` × ${strands} tiras` : ''} × {fita.power_w_per_m}W/m = {calc.consumoW}W · +20% = {calc.fonteMinimaW}W
@@ -2793,7 +3084,7 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
           <div key={p.pecaIndex} className="bg-white rounded-md px-2 py-1.5 border border-surface-border flex items-start gap-1.5 text-[11px]">
             <span className="shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: PIECE_COLORS[(p.pecaIndex - 1) % PIECE_COLORS.length] }} />
             <span className="text-gray-600">
-              <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}</span>{' '}
+              <span className="font-semibold text-gray-700">{noun} {p.pecaIndex}{p.comprimentoM ? ` (${p.comprimentoM}m)` : ''}</span>{' '}
               {p.cortes.map(c => `${c.comprimentoM}m (${c.ambiente ?? '—'})`).join(' + ')}
               <span className="text-gray-400"> → sobra {p.sobraM}m</span>
             </span>
@@ -2808,7 +3099,13 @@ function PlanoDeCorteView({ plano, noun = 'Peça' }: { plano: ReturnType<typeof 
 
 // Uma linha do quantitativo — um produto com sua unidade e quantidade,
 // pronto pra digitar no Master Lojista sem precisar recalcular nada.
-interface BomLine { produto: string; unidade: string; quantidade: string; detalhe?: string; compartilhada?: boolean; subgrupo?: string | null; copyText?: string }
+interface BomNota { tipo: 'divide' | 'usa' | 'emenda' | 'liga'; texto: string; copyText?: string }
+interface BomLine {
+  produto: string; unidade: string; quantidade: string
+  subgrupo?: string | null
+  secao: 'luminaria' | 'perfil' | 'fita' | 'fonte'
+  notas?: BomNota[]
+}
 
 // Ids sintéticos ganham sufixo (tira #N, emenda ~emendaN) — pra achar de
 // volta a medição original (e seu ponto de instalação) a partir do id de
@@ -2834,127 +3131,240 @@ function CopyButton({ text, compact }: { text: string; compact?: boolean }) {
   )
 }
 
-// A partir do plano de corte GLOBAL (que já faz bin-packing entre ambientes),
-// monta as linhas de compra por ambiente e detecta peças compartilhadas —
-// quando uma barra/rolo atende mais de um ambiente, só o "dono" (primeiro
-// corte da peça) deve comprar; o outro ambiente reaproveita a sobra.
+// A partir do plano de corte GLOBAL (que já encaixa as sobras entre
+// ambientes), monta as linhas de compra de UM ambiente. Cada barra/rolo é
+// "comprada" por um único ambiente (o do primeiro corte); os outros que
+// aproveitam a sobra dela aparecem com quantidade 0 e a explicação, pra não
+// comprar a mais no Master Lojista.
 function bomFromGroups(groups: GrupoPlano[], noun: 'barra' | 'rolo', envId: string, envName: string): { lines: BomLine[] } {
-  const lines: BomLine[] = []
+  const secao: BomLine['secao'] = noun === 'barra' ? 'perfil' : 'fita'
+  const lines: (BomLine & { zero?: boolean; shared?: boolean })[] = []
   for (const g of groups) {
     if (g.comercialM == null) {
       // Vendida no metro — cortada exata, não há sobra pra reaproveitar.
       const trechos = g.trechos.filter(t => t.environment_id === envId)
-      if (trechos.length === 0) continue
       const bySub = new Map<string, number>()
       for (const t of trechos) {
         const sub = t.installation_location || ''
         bySub.set(sub, round2((bySub.get(sub) ?? 0) + t.length_m * (t.strand_count ?? 1)))
       }
       for (const [sub, totalM] of Array.from(bySub.entries())) {
-        lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM), subgrupo: sub || null })
+        lines.push({ produto: g.groupLabel, unidade: 'm', quantidade: String(totalM), subgrupo: sub || null, secao })
       }
       continue
     }
     if (g.plano?.kind !== 'ok') continue
     for (const peca of g.plano.plano.pecas) {
-      const ambientesDaPeca = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
+      const ambientes = Array.from(new Set(peca.cortes.map(c => c.ambiente ?? 'Sem ambiente')))
+      if (!ambientes.includes(envName)) continue
       const dono = peca.cortes[0]?.ambiente ?? 'Sem ambiente'
-      if (!ambientesDaPeca.includes(envName)) continue
-      const corteDesteAmbiente = peca.cortes.find(c => c.ambiente === envName)
-      const origem = corteDesteAmbiente ? g.trechos.find(t => t.id === baseMeasurementId(corteDesteAmbiente.id)) : undefined
-      const subgrupo = origem?.installation_location || null
-      if (ambientesDaPeca.length === 1) {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '1', subgrupo })
+      const meusCortes = peca.cortes.filter(c => c.ambiente === envName)
+      const origem = g.trechos.find(t => t.id === baseMeasurementId(meusCortes[0].id))
+      const produto = labelPeca(g, peca.comprimentoM)
+      const notas: BomNota[] = []
+      for (const c of meusCortes) {
+        const e = g.emendas.find(x => baseMeasurementId(x.id) === baseMeasurementId(c.id))
+        if (e) {
+          const t = g.trechos.find(x => x.id === baseMeasurementId(e.id))
+          const txt = `emenda: ${t?.label ? t.label + ' ' : ''}${e.comprimentoTotalM}m = ${e.partesM.map(x => `${x}m`).join(' + ')}`
+          if (!notas.some(n => n.texto === txt)) notas.push({ tipo: 'emenda', texto: txt })
+        }
+      }
+      const base = { produto, unidade: noun, secao, subgrupo: origem?.installation_location || null }
+      if (ambientes.length === 1) {
+        lines.push({ ...base, quantidade: '1', notas })
       } else if (envName === dono) {
-        const outros = ambientesDaPeca.filter(a => a !== envName)
-        const detalheCortes = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
-        lines.push({
-          produto: g.groupLabel, unidade: noun, quantidade: '1', compartilhada: true, subgrupo,
-          detalhe: `compartilhada com ${outros.join(', ')}`,
-          copyText: `Reaproveitamento: 1 ${noun} de ${g.groupLabel} atende ${ambientesDaPeca.join(' e ')} (${detalheCortes}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
+        const outros = ambientes.filter(a => a !== envName)
+        const detalhe = peca.cortes.map(c => `${c.comprimentoM}m (${c.ambiente})`).join(' + ')
+        notas.unshift({
+          tipo: 'divide', texto: `1 ${noun} atende também ${outros.join(', ')}`,
+          copyText: `Reaproveitamento: 1 ${noun} de ${produto} atende ${ambientes.join(' e ')} (${detalhe}) — comprar apenas 1 ${noun} no total, não uma pra cada ambiente.`,
         })
+        lines.push({ ...base, quantidade: '1', notas, shared: true })
       } else {
-        lines.push({ produto: g.groupLabel, unidade: noun, quantidade: '0', compartilhada: true, subgrupo,
-          detalhe: `reaproveita sobra de ${dono} — não comprar` })
+        notas.unshift({ tipo: 'usa', texto: `usa a sobra da ${noun} de ${dono} — não comprar` })
+        lines.push({ ...base, quantidade: '0', notas, zero: true, shared: true })
       }
     }
   }
-  // Agrupa linhas iguais (mesmo produto, mesmo subgrupo, não-compartilhadas) somando quantidade.
-  const merged = new Map<string, BomLine>()
+  // Soma barras/rolos idênticos e sem observação de compartilhamento.
+  const merged = new Map<string, BomLine & { shared?: boolean }>()
   for (const l of lines) {
-    const key = `${l.produto}__${l.subgrupo ?? ''}__${l.compartilhada ? 'shared' : 'plain'}__${l.detalhe ?? ''}`
-    if (l.compartilhada) { merged.set(key + Math.random(), l); continue } // compartilhadas ficam cada uma na sua linha
-    const existing = merged.get(key)
-    if (existing) existing.quantidade = String(Number(existing.quantidade) + Number(l.quantidade))
+    const key = `${l.produto}__${l.subgrupo ?? ''}__${(l.notas ?? []).map(n => n.texto).join('|')}`
+    if (l.shared) { merged.set(key + Math.random(), l); continue }
+    const ex = merged.get(key)
+    if (ex) ex.quantidade = String(round2(Number(ex.quantidade) + Number(l.quantidade)))
     else merged.set(key, { ...l })
   }
   return { lines: Array.from(merged.values()) }
 }
 
-function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment }: {
+const fmtM = (n: number) => String(round2(n)).replace('.', ',')
+
+function ResultadoTab({ environments, legendItems, symbols, measurements, powerSupplies, perfilGroups, fitaGroups, onFocusEnvironment, onDecideBarras, onFocusItem }: {
   environments: Environment[]; legendItems: LegendItem[]; symbols: SymbolOccurrence[]; measurements: Measurement[]
   powerSupplies: PowerSupply[]; perfilGroups: GrupoPlano[]; fitaGroups: GrupoPlano[]
   onFocusEnvironment: (env: Environment) => void
+  onDecideBarras: (groupKey: string, decisao: 'mixed' | 'padrao' | null) => void
+  onFocusItem: (page: number, points: Point[], sel: { kind: EntityKind; id: string }) => void
 }) {
   const perfis = measurements.filter(m => m.kind === 'perfil')
   const fitas = measurements.filter(m => m.kind === 'fita')
-  const totalPerfilM = round2(perfis.reduce((s, m) => s + m.length_m, 0))
-  const totalFitaM = round2(fitas.reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0))
-  const totalFonteW = round2(fitas.reduce((s, m) => s + calcularFita(m.length_m * (m.strand_count ?? 1), m.power_w_per_m ?? 0).fonteMinimaW, 0))
-  const semAmbiente = symbols.filter(s => !s.environment_id).length
 
-  // Fonte entra no mesmo ponto de instalação da fita que ela alimenta (é
-  // uma composição perfil+fita+fonte) — e quando duas fontes iguais caem
-  // no mesmo ponto (duas fitas separadas que precisam de fonte própria),
-  // sinaliza pra qual fita cada uma liga, pra não ter dúvida na instalação.
-  function fonteBomFor(envId: string | null): BomLine[] {
-    const envFitaIds = new Set(measurements.filter(m => m.environment_id === envId && m.kind === 'fita').map(m => m.id))
-    const envFontes = powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))
-    const byGroup = new Map<string, { watts: number; subgrupo: string | null; fitas: string[] }>()
-    for (const f of envFontes) {
+  // Fonte entra no mesmo ponto de instalação da fita que ela alimenta; se
+  // duas fontes iguais caem no mesmo ponto, diz pra qual fita cada uma liga.
+  function fonteBomFor(envId: string): BomLine[] {
+    const envFitaIds = new Set(fitas.filter(m => m.environment_id === envId).map(m => m.id))
+    const byGroup = new Map<string, { watts: number; voltage: string; subgrupo: string | null; fitas: string[] }>()
+    for (const f of powerSupplies.filter(ps => envFitaIds.has(ps.measurement_id))) {
       const fita = measurements.find(m => m.id === f.measurement_id)
+      const voltage = fita?.voltage || '12V'
       const subgrupo = fita?.installation_location || null
-      const key = `${f.watts}__${subgrupo ?? ''}`
-      if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, subgrupo, fitas: [] })
+      const key = `${f.watts}__${voltage}__${subgrupo ?? ''}`
+      if (!byGroup.has(key)) byGroup.set(key, { watts: f.watts, voltage, subgrupo, fitas: [] })
       byGroup.get(key)!.fitas.push(fita?.label || 'fita')
     }
     return Array.from(byGroup.values()).sort((a, b) => a.watts - b.watts).map(g => ({
-      produto: `Fonte 12V ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo,
-      detalhe: g.fitas.length > 1 ? `liga: ${g.fitas.join(', ')}` : undefined,
+      produto: `Fonte ${g.voltage} ${g.watts}W`, unidade: 'un', quantidade: String(g.fitas.length), subgrupo: g.subgrupo, secao: 'fonte' as const,
+      notas: g.fitas.length > 1 ? [{ tipo: 'liga' as const, texto: `liga: ${g.fitas.join(', ')}` }] : [],
     }))
+  }
+
+  // ── Pendências: o que precisa de uma decisão/dado ANTES de lançar ────────
+  const decisoesEstoque = perfilGroups.filter(g => g.alternativa)
+  const pendentes = decisoesEstoque.filter(g => !g.decisao)
+  const resolvidas = decisoesEstoque.filter(g => g.decisao)
+  const fitasSemW = fitas.filter(f => !f.power_w_per_m)
+  const fitasSemFonte = fitas.filter(f => f.power_w_per_m && !powerSupplies.some(ps => ps.measurement_id === f.id))
+  const semModelo = [...perfis, ...fitas].filter(m => !m.product_model)
+  const medicoesSemAmbiente = [...perfis, ...fitas].filter(m => !m.environment_id)
+  const simbolosSemAmbiente = symbols.filter(s => !s.environment_id)
+  const simbolosSemLegenda = symbols.filter(s => !s.legend_item_id)
+  // Cada aviso lista os itens com pendência — clicar leva direto até o item
+  // na planta e abre o card dele.
+  type ItemAviso = { label: string; ir: () => void }
+  const envNome = (id: string | null) => environments.find(e => e.id === id)?.name
+  const itemMedicao = (m: Measurement): ItemAviso => ({
+    label: `${m.label || MEASURE_LABEL[m.kind]}${envNome(m.environment_id) ? ` · ${envNome(m.environment_id)}` : ''}`,
+    ir: () => onFocusItem(m.page, m.points, { kind: 'measurement', id: m.id }),
+  })
+  const itemSimbolo = (sy: SymbolOccurrence): ItemAviso => ({
+    label: legendItems.find(l => l.id === sy.legend_item_id)?.description || 'Símbolo',
+    ir: () => onFocusItem(sy.page, [[sy.x, sy.y]], { kind: 'symbol', id: sy.id }),
+  })
+  // Duas fitas com as pontas praticamente no mesmo lugar = provável medida
+  // duplicada (ex: mediu a fita e depois o perfil, que cria outra fita) —
+  // soma metro e rolo em dobro e só uma delas costuma ter a fonte.
+  const fitasSobrepostas = fitas.filter((a, i) => fitas.some((b, j) => {
+    if (i === j || a.page !== b.page || a.points.length < 2 || b.points.length < 2) return false
+    const a0 = a.points[0], an = a.points[a.points.length - 1], b0 = b.points[0], bn = b.points[b.points.length - 1]
+    return Math.min(distance(a0, b0) + distance(an, bn), distance(a0, bn) + distance(an, b0)) < 20
+  }))
+  const avisos: { texto: string; itens: ItemAviso[] }[] = []
+  if (fitasSobrepostas.length) avisos.push({ texto: 'Fitas sobrepostas no mesmo lugar (provável medida duplicada) — metro e rolo contam em dobro; apague a que sobrar', itens: fitasSobrepostas.map(itemMedicao) })
+  if (fitasSemW.length) avisos.push({ texto: 'Fita sem consumo (W/m) — a fonte não é calculada', itens: fitasSemW.map(itemMedicao) })
+  if (fitasSemFonte.length) avisos.push({ texto: 'Fita sem fonte posicionada — a fonte dela não entra no resumo', itens: fitasSemFonte.map(itemMedicao) })
+  if (semModelo.length) avisos.push({ texto: 'Perfil/fita sem modelo — aparece como "Sem modelo"', itens: semModelo.map(itemMedicao) })
+  if (medicoesSemAmbiente.length) avisos.push({ texto: 'Perfil/fita sem ambiente — não entra em nenhum ambiente abaixo', itens: medicoesSemAmbiente.map(itemMedicao) })
+  if (simbolosSemAmbiente.length) avisos.push({ texto: 'Símbolo fora de qualquer ambiente — não entra no resumo', itens: simbolosSemAmbiente.map(itemSimbolo) })
+  if (simbolosSemLegenda.length) avisos.push({ texto: 'Símbolo sem item de legenda', itens: simbolosSemLegenda.map(itemSimbolo) })
+  const tudoCerto = pendentes.length === 0 && avisos.length === 0
+
+  const totalLum = symbols.filter(s => s.environment_id).length
+
+  const NOTA_COR: Record<BomNota['tipo'], string> = {
+    divide: 'text-amber-700', usa: 'text-amber-700', emenda: 'text-gray-500', liga: 'text-gray-500',
+  }
+  const NOTA_ICONE: Record<BomNota['tipo'], string> = { divide: '↔', usa: '↔', emenda: '✂', liga: '⚡' }
+  const ORDEM: Record<BomLine['secao'], number> = { luminaria: 0, perfil: 1, fita: 2, fonte: 3 }
+
+  function LinhaItem({ l }: { l: BomLine }) {
+    const zero = l.quantidade === '0'
+    return (
+      <div className="flex items-start justify-between gap-3 py-1.5 border-t border-gray-100 first:border-t-0">
+        <div className="min-w-0">
+          <p className={cn('text-[13px] leading-snug', zero ? 'text-gray-400' : 'text-gray-800')}>{l.produto}</p>
+          {(l.notas ?? []).map((n, i) => (
+            <p key={i} className={cn('text-[11px] leading-snug mt-0.5 flex items-center gap-1.5 flex-wrap', NOTA_COR[n.tipo])}>
+              <span>{NOTA_ICONE[n.tipo]} {n.texto}</span>
+              {n.copyText && <CopyButton text={n.copyText} compact />}
+            </p>
+          ))}
+        </div>
+        <p className={cn('text-sm font-bold tabular-nums whitespace-nowrap', zero ? 'text-gray-300' : 'text-gray-900')}>
+          {zero ? '—' : l.quantidade} <span className="text-[11px] font-medium text-gray-400">{zero ? '' : l.unidade}</span>
+        </p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
-        <StatBox label="Ambientes" value={environments.length} />
-        <StatBox label="Pontos de luz" value={symbols.length} />
-        <StatBox label="Metros de perfil" value={`${totalPerfilM}m`} />
-        <StatBox label="Metros de fita" value={`${totalFitaM}m`} />
-        <StatBox label="Fonte mínima total" value={`${Math.ceil(totalFonteW)}W`} />
-        <StatBox label="Sem ambiente" value={semAmbiente} warn={semAmbiente > 0} />
+      <div>
+        <p className="text-sm font-bold text-gray-900">Resumo pra lançar no Master Lojista</p>
+        <p className="text-[11px] text-gray-500 mt-0.5">
+          {environments.length} ambientes · {totalLum} luminárias · {fmtM(perfis.reduce((s, m) => s + m.length_m, 0))} m de perfil · {fmtM(fitas.reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0))} m de fita
+        </p>
       </div>
 
-      <p className="text-[11px] text-gray-400 bg-surface-secondary rounded-lg px-2.5 py-2">
-        💡 Quantitativo por ambiente — pra digitar direto no Master Lojista. Quando uma barra/rolo é
-        compartilhado entre ambientes (sobra reaproveitada), aparece um aviso com botão de copiar.
-      </p>
+      {/* Antes de lançar */}
+      <div className={cn('rounded-xl border p-3 space-y-2.5', tudoCerto ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50/60 border-amber-200')}>
+        <p className={cn('text-xs font-bold uppercase tracking-wide', tudoCerto ? 'text-emerald-700' : 'text-amber-700')}>
+          {tudoCerto ? '✓ Nada pendente — pode lançar' : 'Antes de lançar'}
+        </p>
 
-      {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).length > 0 && (
-        <div className="space-y-1">
-          {[...perfilGroups, ...fitaGroups].flatMap(g => g.emendaWarnings).map((w, i) => (
-            <p key={i} className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">⚠️ {w}</p>
-          ))}
-        </div>
-      )}
+        {pendentes.map(g => (
+          <div key={g.key} className="bg-white rounded-lg border border-amber-200 p-2.5 space-y-2">
+            <p className="text-[13px] font-semibold text-gray-800 leading-snug">{g.produtoBase}</p>
+            <p className="text-xs text-gray-600 leading-snug">
+              Hoje o plano compra <b>{g.alternativa!.descPadrao}</b>. Com barras de 2m e 3m dá pra comprar{' '}
+              <b>{g.alternativa!.descMisto}</b> e economizar {fmtM(g.alternativa!.economiaM)} m. Tem os dois tamanhos em estoque?
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => onDecideBarras(g.key, 'mixed')}
+                className="text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg px-3 py-1.5">Sim, usar {g.alternativa!.descMisto}</button>
+              <button onClick={() => onDecideBarras(g.key, 'padrao')}
+                className="text-xs font-semibold text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg px-3 py-1.5">Não, só {g.alternativa!.descPadrao}</button>
+            </div>
+          </div>
+        ))}
 
+        {avisos.length > 0 && (
+          <div className="space-y-2">
+            {avisos.map((a, i) => (
+              <div key={i}>
+                <p className="text-xs text-amber-800 leading-snug">{a.itens.length} · {a.texto}</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {a.itens.slice(0, 12).map((it, j) => (
+                    <button key={j} onClick={it.ir} title="Ir até o item na planta"
+                      className="text-[11px] font-medium text-amber-900 bg-white border border-amber-300 hover:bg-amber-100 rounded-md px-2 py-0.5">
+                      📍 {it.label}
+                    </button>
+                  ))}
+                  {a.itens.length > 12 && <span className="text-[11px] text-amber-700 self-center">+{a.itens.length - 12}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {resolvidas.length > 0 && (
+          <div className="pt-1 border-t border-amber-200/70 space-y-0.5">
+            {resolvidas.map(g => (
+              <p key={g.key} className="text-[11px] text-gray-500">
+                ✓ {g.produtoBase}: {g.decisao === 'mixed' ? g.alternativa!.descMisto : g.alternativa!.descPadrao}{' '}
+                <button onClick={() => onDecideBarras(g.key, null)} className="underline hover:text-gray-700">alterar</button>
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Por ambiente */}
       <div className="space-y-3">
         {environments.map(env => {
           const envSymbols = symbols.filter(s => s.environment_id === env.id)
           const byName = new Map<string, number>()
-          // Lâmpadas contam separado do corpo da luminária — um spot duplo
-          // é 1 peça de corpo, mas 2 lâmpadas, e no Master Lojista isso é
-          // comprado como itens distintos.
           const byLamp = new Map<string, number>()
           for (const s of envSymbols) {
             const li = legendItems.find(x => x.id === s.legend_item_id)
@@ -2967,63 +3377,57 @@ function ResultadoTab({ environments, legendItems, symbols, measurements, powerS
             }
           }
           const envMedidas = measurements.filter(m => m.environment_id === env.id && m.kind === 'medida')
-          const perfilBom = bomFromGroups(perfilGroups, 'barra', env.id, env.name)
-          const fitaBom = bomFromGroups(fitaGroups, 'rolo', env.id, env.name)
-          // Símbolos e fontes não têm ponto de instalação — ficam no
-          // subgrupo "Geral" junto com qualquer perfil/fita sem local
-          // definido. Os demais viram sub-blocos tipo "Sanca", "Marcenaria"
-          // — igual à convenção "Ambiente - Subgrupo" do Master Lojista,
-          // sem repetir o nome do ambiente (que já é o título do card).
-          const allLines: BomLine[] = [
-            ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n) })),
-            ...Array.from(byLamp.entries()).map(([nome, n]) => ({ produto: `💡 ${nome}`, unidade: 'un', quantidade: String(n) })),
-            ...perfilBom.lines,
-            ...fitaBom.lines,
+          const luminarias: BomLine[] = [
+            ...Array.from(byName.entries()).map(([nome, n]) => ({ produto: nome, unidade: 'un', quantidade: String(n), secao: 'luminaria' as const })),
+            ...Array.from(byLamp.entries()).map(([nome, n]) => ({ produto: `💡 ${nome}`, unidade: 'un', quantidade: String(n), secao: 'luminaria' as const })),
+          ]
+          const instal: BomLine[] = [
+            ...bomFromGroups(perfilGroups, 'barra', env.id, env.name).lines,
+            ...bomFromGroups(fitaGroups, 'rolo', env.id, env.name).lines,
             ...fonteBomFor(env.id),
           ]
-          const bySubgrupo = new Map<string, BomLine[]>()
-          for (const l of allLines) {
-            const key = l.subgrupo || 'Geral'
-            if (!bySubgrupo.has(key)) bySubgrupo.set(key, [])
-            bySubgrupo.get(key)!.push(l)
+          const bySub = new Map<string, BomLine[]>()
+          for (const l of instal) {
+            const key = l.subgrupo || ''
+            if (!bySub.has(key)) bySub.set(key, [])
+            bySub.get(key)!.push(l)
           }
-          const subgrupos = Array.from(bySubgrupo.keys()).sort((a, b) => a === 'Geral' ? 1 : b === 'Geral' ? -1 : a.localeCompare(b))
+          const subs = Array.from(bySub.keys()).sort((a, b) => a === '' ? 1 : b === '' ? -1 : a.localeCompare(b))
+          const envPerfilM = perfis.filter(m => m.environment_id === env.id).reduce((s, m) => s + m.length_m, 0)
+          const envFitaM = fitas.filter(m => m.environment_id === env.id).reduce((s, m) => s + m.length_m * (m.strand_count ?? 1), 0)
+          const chips = [
+            envSymbols.length ? `${envSymbols.length} luminária(s)` : null,
+            envPerfilM ? `${fmtM(envPerfilM)} m perfil` : null,
+            envFitaM ? `${fmtM(envFitaM)} m fita` : null,
+          ].filter(Boolean).join(' · ')
+          const vazio = luminarias.length === 0 && instal.length === 0 && envMedidas.length === 0
           return (
-            <div key={env.id} className="border border-surface-border rounded-xl p-3 space-y-2">
-              <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
-                className="text-sm font-bold text-gray-800 hover:text-brand-600 hover:underline text-left">{env.name}</button>
-              {subgrupos.map(sub => (
-                <div key={sub}>
-                  {sub !== 'Geral' && <p className="text-[11px] font-bold text-gray-500 mt-1">{sub}</p>}
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {bySubgrupo.get(sub)!.map((l, i) => (
-                        // A nota de reaproveitamento fica colada embaixo do
-                        // próprio produto (não num aviso solto lá em cima,
-                        // longe do item a que se refere) — curta, só o
-                        // essencial, com o texto completo a um clique via
-                        // "Copiar" pra colar no Master Lojista.
-                        <tr key={i} className={cn('border-t border-surface-border', l.compartilhada && 'bg-amber-50/40')}>
-                          <td className="py-1 text-gray-700 align-top">
-                            <div>{l.produto}</div>
-                            {l.detalhe && (
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] text-amber-700">↔ {l.detalhe}</span>
-                                {l.copyText && <CopyButton text={l.copyText} compact />}
-                              </div>
-                            )}
-                          </td>
-                          <td className={cn('py-1 text-right font-semibold whitespace-nowrap align-top', l.quantidade === '0' ? 'text-gray-300' : 'text-gray-800')}>{l.quantidade} {l.unidade}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-              {envMedidas.map(m => (
-                <p key={m.id} className="text-xs text-gray-500">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m</p>
-              ))}
-              {allLines.length === 0 && envMedidas.length === 0 && <p className="text-xs text-gray-400">Nada registrado ainda.</p>}
+            <div key={env.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+              <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-baseline justify-between gap-2">
+                <button onClick={() => onFocusEnvironment(env)} title="Ver este ambiente na planta"
+                  className="text-sm font-bold text-gray-900 hover:text-brand-600 hover:underline text-left">{env.name}</button>
+                {chips && <span className="text-[11px] text-gray-500 text-right">{chips}</span>}
+              </div>
+              <div className="px-3 py-1 space-y-2">
+                {luminarias.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 pt-1.5">Luminárias</p>
+                    {luminarias.map((l, i) => <LinhaItem key={i} l={l} />)}
+                  </div>
+                )}
+                {subs.map(sub => (
+                  <div key={sub || '__sem__'}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 pt-1.5">
+                      {sub || (subs.length > 1 ? 'Sem ponto de instalação' : 'Perfil / fita')}
+                    </p>
+                    {[...bySub.get(sub)!].sort((a, b) => ORDEM[a.secao] - ORDEM[b.secao]).map((l, i) => <LinhaItem key={i} l={l} />)}
+                  </div>
+                ))}
+                {envMedidas.map(m => (
+                  <p key={m.id} className="text-[11px] text-gray-400 py-1">{MEASURE_LABEL[m.kind]} {m.label} — {m.length_m.toFixed(2)}m (medida solta, não entra no resumo)</p>
+                ))}
+                {vazio && <p className="text-xs text-gray-400 py-2">Nada registrado ainda.</p>}
+              </div>
             </div>
           )
         })}

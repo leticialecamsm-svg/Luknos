@@ -4,8 +4,8 @@ import { useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck } from 'lucide-react'
-import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice } from '@/lib/actions'
+import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck, FileSearch } from 'lucide-react'
+import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice, createFinanceEntriesFromInvoice } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ interface NFeItem {
   ipiPercent: number
 }
 
-function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; dataEmissao: string; fornecedorCnpj: string; fornecedorNome: string } | null {
+function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; dataEmissao: string; fornecedorCnpj: string; fornecedorNome: string; duplicatas: NFeDuplicata[] } | null {
   try {
     const parser = new DOMParser()
     const doc = parser.parseFromString(xmlText, 'application/xml')
@@ -59,7 +59,7 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
     const numeroNota = get(doc, 'ide nNF')
     const dataEmissao = get(doc, 'ide dhEmi') || get(doc, 'ide dEmi')
     const fornecedorCnpj = get(doc, 'emit CNPJ')
-    const fornecedorNome = get(doc, 'emit xFant') || get(doc, 'emit xNome')
+    const fornecedorNome = get(doc, 'emit xNome') || get(doc, 'emit xFant')
 
     const detElements = doc.querySelectorAll('det')
     const items: NFeItem[] = Array.from(detElements).map(det => {
@@ -72,7 +72,6 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
       const quantidade = parseFloat(get(prod, 'qCom')) || 0
       const valorTotal = parseFloat(get(prod, 'vProd')) || 0
 
-      // IPI: pIPI é a alíquota (%), ou calcular por vIPI/vProd
       let ipiPercent = 0
       if (ipi) {
         const pIPI = get(ipi, 'pIPI')
@@ -86,10 +85,27 @@ function parseNFeXML(xmlText: string): { items: NFeItem[]; numeroNota: string; d
       return { nItem, cProd, xProd, ncm, quantidade, valorTotal, ipiPercent }
     })
 
-    return { items, numeroNota, dataEmissao: dataEmissao.slice(0, 10), fornecedorCnpj, fornecedorNome }
+    // Duplicatas (boletos parcelados) do bloco <cobr>
+    const cobrEl = doc.querySelector('cobr')
+    const dupEls = cobrEl ? Array.from(cobrEl.querySelectorAll('dup')) : []
+    const duplicatas: NFeDuplicata[] = dupEls
+      .map(dup => ({
+        nDup: get(dup, 'nDup'),
+        dVenc: get(dup, 'dVenc').slice(0, 10),
+        vDup: parseFloat(get(dup, 'vDup')) || 0,
+      }))
+      .filter(d => d.dVenc && d.vDup > 0)
+
+    return { items, numeroNota, dataEmissao: dataEmissao.slice(0, 10), fornecedorCnpj, fornecedorNome, duplicatas }
   } catch {
     return null
   }
+}
+
+interface NFeDuplicata {
+  nDup: string
+  dVenc: string
+  vDup: number
 }
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -160,6 +176,11 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
 
   const [saving, setSaving] = useState(false)
 
+  // Duplicatas extraídas da NF-e para geração de contas a pagar
+  const [duplicatas, setDuplicatas] = useState<NFeDuplicata[]>([])
+  const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
+  const [showContasModal, setShowContasModal] = useState(false)
+
   async function handleFetch() {
     const clean = chave.replace(/\D/g, '')
     if (clean.length !== 44) { setError('A chave deve ter exatamente 44 dígitos numéricos.'); return }
@@ -179,6 +200,9 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       // Mapa de itens da NF-e nacional por número do item
       const nfeMap = new Map<number, any>()
       if (nfeData?.items) nfeData.items.forEach((it: any) => nfeMap.set(it.nItem, it))
+
+      // Duplicatas (boletos) retornadas pela API da NF-e
+      if (nfeData?.duplicatas?.length) setDuplicatas(nfeData.duplicatas)
 
       // XML upload tem prioridade se disponível
       const xmlMap = nfeItemsFromXML
@@ -230,6 +254,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       const chaveFromXML = text.match(/\d{44}/)?.[0] ?? ''
       if (chaveFromXML) setChave(chaveFromXML)
       if (parsed.fornecedorNome) setFornecedorNome(parsed.fornecedorNome)
+      if (parsed.duplicatas?.length) setDuplicatas(parsed.duplicatas)
       const map = new Map<number, NFeItem>()
       parsed.items.forEach(it => map.set(it.nItem, it))
       setNfeItemsFromXML(map)
@@ -295,8 +320,14 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       const itemsResult = await savePurchaseInvoiceItems(invoiceId, itemsPayload)
       if (itemsResult && 'error' in itemsResult) { setError(itemsResult.error ?? 'Erro ao salvar itens'); return }
 
-      onSaved()
-      onClose()
+      // Se há duplicatas (boletos) na NF-e, oferecer geração de contas a pagar
+      if (duplicatas.length > 0) {
+        setSavedInvoiceId(invoiceId)
+        setShowContasModal(true)
+      } else {
+        onSaved()
+        onClose()
+      }
     } catch (e: any) {
       setError(e.message ?? 'Erro inesperado')
     } finally {
@@ -309,6 +340,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
   const m = parseBR(maquininha) / 100
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
         {/* Header */}
@@ -554,6 +586,110 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
         )}
       </div>
     </div>
+
+    {showContasModal && savedInvoiceId && (
+      <GerarContasModal
+        invoiceId={savedInvoiceId}
+        fornecedorNome={fornecedorNome}
+        numeroNota={meta?.numeroNota ?? ''}
+        duplicatas={duplicatas}
+        onDone={() => { setShowContasModal(false); onSaved(); onClose() }}
+      />
+    )}
+  </>
+  )
+}
+
+// ── Modal: Gerar Contas a Pagar da NF-e ───────────────────────────────────────
+
+function GerarContasModal({ invoiceId, fornecedorNome, numeroNota, duplicatas, onDone }: {
+  invoiceId: string
+  fornecedorNome: string
+  numeroNota: string
+  duplicatas: NFeDuplicata[]
+  onDone: () => void
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set(duplicatas.map((_, i) => i)))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function toggle(i: number) {
+    setSelected(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+  }
+
+  async function handleGerar() {
+    const chosen = duplicatas.filter((_, i) => selected.has(i))
+    if (!chosen.length) { onDone(); return }
+    setSaving(true)
+    setError(null)
+    const prefix = `NF-e ${numeroNota || invoiceId.slice(0,8)} — ${fornecedorNome}`
+    const res = await createFinanceEntriesFromInvoice({
+      invoiceId,
+      fornecedorNome,
+      descriptionPrefix: prefix,
+      duplicatas: chosen,
+    })
+    setSaving(false)
+    if (res && 'error' in res) { setError(res.error ?? null); return }
+    onDone()
+  }
+
+  const totalSelecionado = duplicatas.filter((_, i) => selected.has(i)).reduce((s, d) => s + d.vDup, 0)
+  const fmtDate = (d: string) => {
+    if (!d) return '—'
+    const [y, m, day] = d.split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
+          <h2 className="text-base font-bold text-gray-900">Gerar Contas a Pagar</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-600">
+            A NF-e contém <strong>{duplicatas.length}</strong> boleto{duplicatas.length !== 1 ? 's' : ''} ({fornecedorNome}).
+            Selecione quais deseja criar como contas a pagar:
+          </p>
+          <div className="divide-y divide-surface-border rounded-xl border border-surface-border overflow-hidden">
+            {duplicatas.map((dup, i) => (
+              <label key={i} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-surface-secondary">
+                <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} className="rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">
+                    Parcela {dup.nDup || `${i + 1}/${duplicatas.length}`}
+                  </p>
+                  <p className="text-xs text-gray-500">Venc. {fmtDate(dup.dVenc)}</p>
+                </div>
+                <span className="text-sm font-semibold text-gray-800 tabular-nums">
+                  {dup.vDup.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </label>
+            ))}
+          </div>
+          {selected.size > 0 && (
+            <p className="text-xs text-gray-500 text-right">
+              Total selecionado: <strong className="text-gray-800">
+                {totalSelecionado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </strong>
+            </p>
+          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
+          <button onClick={onDone} className="btn-secondary flex-1">Pular</button>
+          <button
+            onClick={handleGerar}
+            disabled={saving || selected.size === 0}
+            className="btn-primary flex-1 flex items-center justify-center gap-2"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {saving ? 'Criando...' : `Criar ${selected.size} conta${selected.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -663,11 +799,42 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
     setError(null)
     try {
       const r = await fetch(`/api/purchases/nfe-detail?chave=${clean}&fetch=1`)
-      applyResult(await r.json())
+      const d = await r.json()
+      applyResult(d)
+      if (d._fonte === 'sefaz') onUpdated(nfe.chave_nfe, { tem_xml_danfe: true })
     } catch (e: any) {
       setError(e.message)
     } finally {
       setFetching(false)
+    }
+  }
+
+  const [danfeLoading, setDanfeLoading] = useState(false)
+  const [danfeError, setDanfeError] = useState<{ text: string; aviso: boolean } | null>(null)
+
+  // Abre a aba já no clique (senão o bloqueador de pop-up barra, porque o
+  // window.open viria depois do await) e só troca pro PDF quando ele chega.
+  async function visualizarDanfe() {
+    setDanfeError(null)
+    setDanfeLoading(true)
+    const win = window.open('', '_blank')
+    win?.document.write('<p style="font-family:sans-serif;padding:24px;color:#666">Gerando DANFE...</p>')
+    try {
+      const r = await fetch(`/api/purchases/danfe?chave=${clean}`)
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        // 409 = ciência acabou de ser registrada: não é erro, é "aguarde"
+        throw Object.assign(new Error(d.error ?? `Erro ${r.status}`), { aviso: r.status === 409 })
+      }
+      const url = URL.createObjectURL(await r.blob())
+      if (win) win.location.href = url
+      else window.open(url, '_blank')
+      if (!nfe.tem_xml_danfe) onUpdated(nfe.chave_nfe, { tem_xml_danfe: true, tem_xml_completo: true })
+    } catch (e: any) {
+      win?.close()
+      setDanfeError({ text: e.message, aviso: !!e.aviso })
+    } finally {
+      setDanfeLoading(false)
     }
   }
 
@@ -771,8 +938,24 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-surface-border flex justify-between items-center">
-          <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
+        <div className="px-6 py-4 border-t border-surface-border flex justify-between items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onClose} className="btn-secondary px-6">Fechar</button>
+            <button
+              onClick={visualizarDanfe}
+              disabled={danfeLoading}
+              title={nfe.tem_xml_danfe ? undefined : 'O XML desta nota ainda não foi baixado: gerar o DANFE consome 1 das 20 consultas/hora da SEFAZ.'}
+              className="btn-secondary flex items-center gap-2 px-5 disabled:opacity-60"
+            >
+              {danfeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSearch className="w-4 h-4" />}
+              {danfeLoading ? 'Gerando DANFE...' : 'Visualizar DANFE'}
+            </button>
+            {danfeError && (
+              <span className={cn('flex items-center gap-1.5 text-xs min-w-0', danfeError.aviso ? 'text-amber-700' : 'text-red-600')}>
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {danfeError.text}
+              </span>
+            )}
+          </div>
           {nfe.status !== 'added' && (
             <button onClick={onAdd} className="btn-primary flex items-center gap-2 px-6">
               <Plus className="w-4 h-4" /> Adicionar ao sistema
@@ -803,6 +986,7 @@ interface NFeRecebida {
   ultima_passagem_data?: string | null
   ultima_passagem_desc?: string | null
   entregue?: boolean
+  tem_xml_danfe?: boolean
 }
 
 export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] }) {
@@ -824,7 +1008,8 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [cooldownMinutesLeft, setCooldownMinutesLeft] = useState(0)
 
   // Cota de 20 consultas/hora da SEFAZ (compartilhada por todas as buscas nesta tela)
-  const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null)
+  const [quota, setQuota] = useState<{ used: number; limit: number; recent?: { quando: string; origem: string | null; quem: string | null; chave: string | null; cstat: string | null }[] } | null>(null)
+  const [showHistorico, setShowHistorico] = useState(false)
   async function loadQuota() {
     try {
       const res = await fetch('/api/purchases/sefaz-quota')
@@ -869,26 +1054,32 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
     }
   }
 
-  const [refreshingPassagem, setRefreshingPassagem] = useState(false)
-  async function refreshPassagem() {
-    setRefreshingPassagem(true)
+  // Consulta o histórico de passagem de UMA nota (1 consulta da cota da SEFAZ)
+  const [refreshingChave, setRefreshingChave] = useState<string | null>(null)
+  async function refreshPassagem(nfe: NFeRecebida, e: React.MouseEvent) {
+    e.stopPropagation()
+    setRefreshingChave(nfe.chave_nfe)
     setSyncMsg('')
     try {
-      const res = await fetch('/api/purchases/refresh-passagem', { method: 'POST' })
+      const res = await fetch('/api/purchases/refresh-passagem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chave: nfe.chave_nfe }),
+      })
       const data = await res.json()
-      if (res.ok) {
-        let msg = `Passagem atualizada em ${data.updated} de ${data.checked} nota(s) verificada(s)`
-        if (data.updated === 0 && data.checked > 0) {
-          if (data.ultimoMotivo) msg += ` — ${data.ultimoMotivo}`
-          else if (data.semEvento === data.checked) msg += ' — nenhuma tinha evento de passagem disponível'
-        }
-        setSyncMsg(msg)
+      if (!res.ok) { setSyncMsg(`Erro: ${data.error}`); return }
+      if (data.updated) {
+        setSyncMsg(`Passagem atualizada: ${data.uf}.`)
         await loadNfesRecebidas()
+      } else if (data.semEvento) {
+        setSyncMsg('Nenhum evento de passagem disponível pra esta nota ainda.')
       } else {
-        setSyncMsg(`Erro: ${data.error}`)
+        setSyncMsg('Sem novidade: a última passagem já era essa.')
       }
+    } catch (err: any) {
+      setSyncMsg(`Erro: ${err.message}`)
     } finally {
-      setRefreshingPassagem(false)
+      setRefreshingChave(null)
       loadQuota()
     }
   }
@@ -961,20 +1152,43 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
         {tab === 'recebidas' && (
           <div className="flex items-center gap-2">
             {quota && (
-              <span
-                className={cn(
-                  'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
-                  quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-surface-secondary text-gray-500'
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowHistorico(v => !v)}
+                  className={cn(
+                    'text-xs font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap',
+                    quota.used >= quota.limit ? 'bg-red-50 text-red-600' : quota.used >= quota.limit * 0.75 ? 'bg-amber-50 text-amber-600' : 'bg-surface-secondary text-gray-500'
+                  )}
+                  title="Consultas ao webservice nacional da SEFAZ usadas na última hora — o limite é por CNPJ e vale pra todos os sistemas que usam o certificado. Clique pra ver quem consultou."
+                >
+                  {quota.used}/{quota.limit} consultas SEFAZ nessa hora
+                </button>
+                {showHistorico && (
+                  <div className="absolute right-0 top-full mt-2 z-30 w-[26rem] max-w-[90vw] bg-white border border-surface-border rounded-xl shadow-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-gray-700">Últimas consultas feitas por este sistema</p>
+                      <button type="button" onClick={() => setShowHistorico(false)} className="text-gray-400 hover:text-gray-600 text-base leading-none">×</button>
+                    </div>
+                    {(quota.recent ?? []).length === 0 ? (
+                      <p className="text-xs text-gray-400 py-2">Nenhuma consulta registrada ainda.</p>
+                    ) : (
+                      <ul className="space-y-1.5 max-h-72 overflow-auto">
+                        {(quota.recent ?? []).map((c, i) => (
+                          <li key={i} className="text-xs text-gray-600 flex items-baseline gap-2">
+                            <span className="tabular-nums text-gray-400 shrink-0">{new Date(c.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Maceio' })}</span>
+                            <span className="font-semibold text-gray-700 shrink-0">{c.quem ?? 'sem usuário'}</span>
+                            <span className="truncate">{({ sincronizacao: 'buscar novas NFs', produtos: 'produtos da nota', danfe: 'DANFE', passagem: 'passagem', 'cadastro-nota': 'cadastro de nota' } as Record<string, string>)[c.origem ?? ''] ?? 'antes do registro'}{c.chave ? ` · …${c.chave.slice(-8)}` : ''}</span>
+                            {c.cstat && <span className={cn('ml-auto shrink-0 tabular-nums', c.cstat === '656' ? 'text-red-600 font-semibold' : 'text-gray-400')}>{c.cstat}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-[11px] text-gray-400 mt-2 leading-snug">Consultas de outros sistemas que usam o mesmo certificado (ERP, contador) também gastam a cota, mas não aparecem aqui.</p>
+                  </div>
                 )}
-                title="Consultas ao webservice nacional da SEFAZ (NFeDistribuicaoDFe) usadas na última hora — limite é por CNPJ, compartilhado entre todas as buscas"
-              >
-                {quota.used}/{quota.limit} consultas SEFAZ nessa hora
-              </span>
+              </div>
             )}
-            <button onClick={refreshPassagem} disabled={refreshingPassagem} className="btn-secondary flex items-center gap-2" title="Consulta o histórico completo de cada nota recente pra recuperar registros de passagem antigos (limitado por causa da cota da SEFAZ)">
-              <RefreshCw className={cn('w-4 h-4', refreshingPassagem && 'animate-spin')} />
-              {refreshingPassagem ? 'Atualizando...' : 'Atualizar passagens'}
-            </button>
             <button
               onClick={syncNfes}
               disabled={syncingNfes || cooldownMinutesLeft > 0}
@@ -1070,6 +1284,16 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
                         </span>
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
+                      )}
+                      {!nfe.entregue && (
+                        <button
+                          onClick={e => refreshPassagem(nfe, e)}
+                          disabled={refreshingChave !== null}
+                          className="text-gray-400 hover:text-gray-600 disabled:opacity-40 shrink-0"
+                          title="Atualizar a passagem só desta nota (gasta 1 consulta da SEFAZ)"
+                        >
+                          <RefreshCw className={cn('w-3.5 h-3.5', refreshingChave === nfe.chave_nfe && 'animate-spin')} />
+                        </button>
                       )}
                       <button
                         onClick={e => toggleEntregue(nfe, e)}

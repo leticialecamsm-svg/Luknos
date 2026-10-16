@@ -12,10 +12,14 @@ async function getSefazToken(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: user, password: pass, rememberMe: false }),
   })
-  if (!res.ok) throw new Error(`Falha ao autenticar na SEFAZ: ${res.status}`)
-  const data = await res.json()
-  if (!data.id_token) throw new Error('Token não retornado pela SEFAZ')
-  return data.id_token
+  if (!res.ok) throw new Error(`Falha ao autenticar na SEFAZ AL (${res.status}). Confira usuário/senha do portal Cobrança DF-e.`)
+  // O portal entrega o token no header Authorization (é de lá que o front deles lê);
+  // id_token no corpo fica como reserva
+  const header = res.headers.get('authorization') ?? ''
+  const data = await res.json().catch(() => ({}))
+  const token = header.startsWith('Bearer ') ? header.slice(7) : data.id_token
+  if (!token) throw new Error('Token não retornado pela SEFAZ AL')
+  return token
 }
 
 export interface SefazItem {
@@ -39,15 +43,27 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const token = await getSefazToken()
-
-    const res = await fetch(
-      `${SEFAZ_BASE}/sfz-cobranca-dfe-api/api/detalhe-calculo-nfes?chaveNota.equals=${chave}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    // A consulta de detalhe é pública no portal Cobrança DF-e (funciona sem login).
+    // O token do login passou a ser recusado com 401 nessa rota, então vai sem
+    // autenticação; o login só entra como reserva se a SEFAZ voltar a exigir.
+    const url = `${SEFAZ_BASE}/sfz-cobranca-dfe-api/api/detalhe-calculo-nfes?chaveNota.equals=${chave}`
+    let res = await fetch(url, { cache: 'no-store' })
+    if ((res.status === 401 || res.status === 403) && process.env.SEFAZ_AL_USER && process.env.SEFAZ_AL_PASSWORD) {
+      const token = await getSefazToken()
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+    }
     if (!res.ok) {
       if (res.status === 404) return NextResponse.json({ error: 'Nota não encontrada na SEFAZ AL' }, { status: 404 })
-      throw new Error(`SEFAZ retornou ${res.status}`)
+      const corpo = (await res.text().catch(() => '')).slice(0, 300)
+      // O portal responde 400 {"message":"Nota não encontrada."} quando não existe
+      // cálculo de imposto (ICMS antecipado/ST) pra aquela chave — não é falha de rede
+      if (res.status === 400 && /n[ãa]o encontrada/i.test(corpo)) {
+        return NextResponse.json({
+          error: 'A SEFAZ AL não tem cálculo de imposto (antecipação/ST) para esta nota. Isso é comum quando o fornecedor já recolheu o ICMS ou a nota não gera cobrança em Alagoas; confira no portal Cobrança DF-e ou cadastre a nota pelo XML.',
+        }, { status: 404 })
+      }
+      console.error(`fetch-sefaz ${res.status}:`, corpo)
+      throw new Error(`SEFAZ AL retornou ${res.status}`)
     }
 
     const raw: any[] = await res.json()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularFita, calcularPlanoDeCorte, round2, sugerirFonte } from './calculations'
+import { calcularFita, calcularPlanoDeCorte, planejarCortes, round2, sugerirFonte } from './calculations'
 
 describe('calcularFita', () => {
   it('exemplo do documento: 5m × 10W/m → 60W com margem de 20%', () => {
@@ -131,5 +131,41 @@ describe('sugerirFonte', () => {
   it('mínimo zero ou negativo retorna null', () => {
     expect(sugerirFonte(0)).toBeNull()
     expect(sugerirFonte(-5)).toBeNull()
+  })
+})
+
+describe('planejarCortes', () => {
+  it('4,2m com barras de 2m e 3m vira 3m + 2m (5m comprados), não 3m + 3m', () => {
+    const r = planejarCortes([{ id: 'a', comprimentoM: 4.2 }], [2, 3])
+    expect(r.totalComercialM).toBe(5)
+    expect(r.pecas.map(p => p.comprimentoM).sort()).toEqual([2, 3])
+    expect(r.emendas[0].partesM).toEqual([3, 1.2])
+  })
+
+  it('4,2m só com barra de 3m compra 2 barras de 3m', () => {
+    const r = planejarCortes([{ id: 'a', comprimentoM: 4.2 }], [3])
+    expect(r.quantidadePecas).toBe(2)
+    expect(r.totalComercialM).toBe(6)
+  })
+
+  it('duas sancas de 2,43m e 2,49m com barra de 2m usam 3 barras (sobras dividem 1)', () => {
+    const r = planejarCortes([
+      { id: 'v', comprimentoM: 2.43, ambiente: 'Visitas' },
+      { id: 'c', comprimentoM: 2.49, ambiente: 'Casal' },
+    ], [2])
+    expect(r.quantidadePecas).toBe(3)
+    const dividida = r.pecas.find(p => p.cortes.length === 2)!
+    expect(dividida.cortes.map(c => c.ambiente).sort()).toEqual(['Casal', 'Visitas'])
+  })
+
+  it('7,5m com 2m e 3m: 2 barras de 3m + 1 de 2m (exemplo do consultor)', () => {
+    const r = planejarCortes([{ id: 'a', comprimentoM: 7.5 }], [2, 3])
+    expect(r.totalComercialM).toBe(8)
+    expect(r.pecas.map(p => p.comprimentoM).sort()).toEqual([2, 3, 3])
+  })
+
+  it('encolhe a barra pro menor tamanho que comporta os cortes', () => {
+    const r = planejarCortes([{ id: 'a', comprimentoM: 1.5 }], [2, 3])
+    expect(r.pecas[0].comprimentoM).toBe(2)
   })
 })

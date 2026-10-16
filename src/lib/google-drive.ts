@@ -306,3 +306,48 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
   }
   return syncQuoteFilesToDrive(data.id)
 }
+
+// Conteúdo de um arquivo (com Range opcional, para áudio/vídeo em partes). Não lança erro:
+// quem chama decide o que fazer com o status.
+export async function driveDownload(fileId: string, range?: string | null): Promise<Response> {
+  const token = await getAccessToken()
+  return fetch(`${DRIVE}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {
+    headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) },
+  })
+}
+
+// Envio em partes (resumable) para arquivos grandes: abre a sessão e devolve a URL de envio.
+export async function driveResumableStart(opts: { folderId: string; name: string; mimeType: string }): Promise<string> {
+  const token = await getAccessToken()
+  const res = await fetch(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': opts.mimeType },
+    body: JSON.stringify({ name: opts.name, parents: [opts.folderId] }),
+  })
+  const location = res.headers.get('location')
+  if (!res.ok || !location) throw new Error(`Drive ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`)
+  return location
+}
+
+// Manda uma parte. `total` só na última (antes disso o tamanho final ainda não é conhecido).
+// Partes intermediárias precisam ter tamanho múltiplo de 256 KB.
+export async function driveResumablePut(uploadUrl: string, chunk: Uint8Array, start: number, total: number | null): Promise<{ id: string; webViewLink: string } | null> {
+  const token = await getAccessToken()
+  const end = start + chunk.length - 1
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Range': chunk.length ? `bytes ${start}-${end}/${total ?? '*'}` : `bytes */${total}` },
+    body: Buffer.from(chunk),
+  })
+  if (res.status === 308) return null
+  if (!res.ok) throw new Error(`Drive ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`)
+  return res.json()
+}
+
+export async function driveUpdateMeta(fileId: string, meta: { name?: string; mimeType?: string }): Promise<void> {
+  await gfetch(`${DRIVE}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  })
+}

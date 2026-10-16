@@ -1,24 +1,19 @@
-// whatsapp-webhook — ponto de entrada das mensagens do número dedicado do robô.
-//
-// Auth: webhook assinado (x-evolution-webhook-secret ou ?secret=) + confere o
-//       `instance` contra wa_bot_config.evolution_instance_name.
-// Fluxo:
-//   1. valida assinatura e evento (messages.upsert)
-//   2. extrai phone_e164 do remoteJid e valida contra wa_collaborators ativos
-//      (fora da whitelist -> ignora silenciosamente)
-//   3. dedupe por provider_message_id (índice único parcial em wa_messages)
-//   4. cria/recupera a wa_conversations ativa do colaborador
-//   5. grava a mensagem em wa_messages (direction = inbound)
-//   6. [background] baixa documento/imagem para o bucket wa-attachments +
-//      wa_attachments com detected_kind; toca last_message_at; delega ao
-//      bot-conversation-engine
-//   Sempre responde 200 rápido para não gerar reentrega da Evolution.
-
-import { handleOptions, json } from '../_shared/cors.ts'
-import { verifyWebhookSecret, getMediaBase64 } from '../_shared/evolution.ts'
-import { createServiceClient } from '../_shared/supabase.ts'
-import { samePhone } from '../_shared/phone.ts'
-import { invokeFunction, runBackground } from '../_shared/internal.ts'
+import { handleOptions, json } from './_shared/cors.ts'
+import { verifyWebhookSecret, getMediaBase64, evolutionFetch } from './_shared/evolution.ts'
+import { createServiceClient } from './_shared/supabase.ts'
+import { samePhone, phoneVariants } from './_shared/phone.ts'
+import { invokeFunction, runBackground } from './_shared/internal.ts'
+import {
+  base64ToBytes,
+  detectKind,
+  extractBody,
+  extractMediaFileName,
+  extractMediaMimeType,
+  extForMime,
+  inferMessageType,
+  mapMessageType,
+} from './_shared/wa-parse.ts'
+import { handleCrmMessage, findProtocol, handleProtocol } from './crm.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 Deno.serve(async (req) => {
@@ -41,13 +36,10 @@ Deno.serve(async (req) => {
     const result = await handle(payload)
     return json({ ok: true, ...result })
   } catch (err) {
-    // Erro interno: loga e ainda responde 200 (Evolution não deve reentregar).
     console.error('whatsapp-webhook erro:', err)
     return json({ ok: true, handled: false, error: String((err as Error)?.message ?? err) })
   }
 })
-
-// ───────────────────────────────────────────────────────────────────────────
 
 interface EvolutionWebhook {
   event?: string
@@ -57,11 +49,14 @@ interface EvolutionWebhook {
     message?: Record<string, unknown>
     messageType?: string
     pushName?: string
+    profilePicUrl?: string
   }
 }
 
 async function handle(payload: EvolutionWebhook) {
   const event = payload.event ?? ''
+  if (/presence[._]update/i.test(event)) return await handlePresence(payload)
+  if (/messages[._](update|edited)/i.test(event)) return await handleMessageUpdate(payload)
   if (event && !/messages[._]upsert/i.test(event)) {
     return { handled: false, skipped: 'event', event }
   }
@@ -76,8 +71,17 @@ async function handle(payload: EvolutionWebhook) {
     .maybeSingle()
 
   const instance = payload.instance ?? ''
-  if (config?.evolution_instance_name && instance && instance !== config.evolution_instance_name) {
-    return { handled: false, skipped: 'instance_mismatch', instance }
+  const isRobotInstance = !!config?.evolution_instance_name && instance === config.evolution_instance_name
+
+  if (!isRobotInstance) {
+    const { data: crmInstance } = await db
+      .from('crm_instances')
+      .select('id, instance_name, default_user_id')
+      .eq('instance_name', instance)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (!crmInstance) return { handled: false, skipped: 'unknown_instance', instance }
+    return await handleCrmMessage(db, crmInstance, payload)
   }
 
   const data = payload.data ?? {}
@@ -86,14 +90,12 @@ async function handle(payload: EvolutionWebhook) {
 
   const remoteJid = key.remoteJid ?? ''
   if (!remoteJid.endsWith('@s.whatsapp.net')) {
-    // grupos (@g.us), broadcast, @lid — fora do escopo do robô
     return { handled: false, skipped: 'not_individual', remoteJid }
   }
 
   const senderDigits = remoteJid.split('@')[0]
   const providerMessageId = key.id ?? null
 
-  // ── whitelist ────────────────────────────────────────────────────────────
   const { data: collaborators } = await db
     .from('wa_collaborators')
     .select('id, phone_e164, display_name, system_user_id, is_active')
@@ -101,11 +103,9 @@ async function handle(payload: EvolutionWebhook) {
 
   const collaborator = (collaborators ?? []).find((c) => samePhone(c.phone_e164, senderDigits))
   if (!collaborator) {
-    // Remetente fora da whitelist é ignorado silenciosamente (não cria conversa).
     return { handled: false, skipped: 'not_whitelisted' }
   }
 
-  // ── dedupe ───────────────────────────────────────────────────────────────
   if (providerMessageId) {
     const { data: dup } = await db
       .from('wa_messages')
@@ -115,7 +115,6 @@ async function handle(payload: EvolutionWebhook) {
     if (dup) return { handled: true, deduped: true, provider_message_id: providerMessageId }
   }
 
-  // ── conversa ativa ───────────────────────────────────────────────────────
   let conversation = (
     await db
       .from('wa_conversations')
@@ -137,7 +136,6 @@ async function handle(payload: EvolutionWebhook) {
     conversation = created
   }
 
-  // ── mensagem ─────────────────────────────────────────────────────────────
   const rawType = data.messageType ?? inferMessageType(data.message)
   const messageType = mapMessageType(rawType)
   const body = extractBody(data.message)
@@ -159,7 +157,6 @@ async function handle(payload: EvolutionWebhook) {
     throw msgErr
   }
 
-  // ── restante em background (responde rápido) ─────────────────────────────
   const conversationId = conversation.id
   await runBackground(
     (async () => {
@@ -186,8 +183,6 @@ async function handle(payload: EvolutionWebhook) {
   return { handled: true, conversation_id: conversationId, message_id: msg.id }
 }
 
-// ── anexos ─────────────────────────────────────────────────────────────────
-
 async function saveAttachment(
   db: SupabaseClient,
   conversationId: string,
@@ -195,28 +190,11 @@ async function saveAttachment(
   data: NonNullable<EvolutionWebhook['data']>,
 ) {
   const media = await getMediaBase64(instance, data.key)
-  if (!media?.base64) {
-    console.warn('sem base64 de mídia para conversa', conversationId)
-    return null
-  }
+  if (!media?.base64) return null
 
   const bytes = base64ToBytes(media.base64)
-  const msg = (data.message ?? {}) as Record<string, unknown>
-
-  // Fallbacks caso getBase64FromMediaMessage não traga fileName/mimetype.
-  const docWithCaption = msg.documentWithCaptionMessage as
-    | { message?: { documentMessage?: { fileName?: string; mimetype?: string } } }
-    | undefined
-  const docNode =
-    (msg.documentMessage as { fileName?: string; mimetype?: string } | undefined) ??
-    docWithCaption?.message?.documentMessage
-  const imgNode = msg.imageMessage as { mimetype?: string } | undefined
-
-  const fileName =
-    media.fileName ??
-    docNode?.fileName ??
-    `arquivo-${Date.now()}${extForMime(media.mimetype)}`
-  const mimeType = media.mimetype ?? docNode?.mimetype ?? imgNode?.mimetype ?? null
+  const fileName = extractMediaFileName(data.message, media)
+  const mimeType = extractMediaMimeType(data.message, media)
 
   const detectedKind = detectKind(fileName, mimeType)
   const safeName = fileName.replace(/[^\w.\- ]+/g, '_').trim().slice(-120) || `arquivo-${Date.now()}`
@@ -244,77 +222,92 @@ async function saveAttachment(
   return att.id
 }
 
-function detectKind(fileName: string, mime: string | null): string {
-  const ext = (fileName.split('.').pop() ?? '').toLowerCase()
-  const m = (mime ?? '').toLowerCase()
-  if (ext === 'pdf' || m === 'application/pdf') return 'plant_pdf'
-  if (ext === 'dwg' || m.includes('dwg') || m.includes('acad')) return 'dwg'
-  if (['skp', 'skb'].includes(ext) || m.includes('sketchup')) return 'sketchup'
-  if (
-    ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'heic'].includes(ext) ||
-    m.startsWith('image/')
-  ) {
-    return 'image_3d'
+// "Digitando…" do contato (evento PRESENCE_UPDATE): grava o estado em crm_presence, que o CRM
+// escuta em tempo real. data = { id: <jid da conversa>, presences: { <jid de quem>: { lastKnownPresence } } }.
+// Em grupo, cada participante vira uma linha (actor = jid dele); em conversa individual, actor = 'contact'.
+async function handlePresence(payload: EvolutionWebhook) {
+  const d = (payload as unknown as { data?: { id?: string; presences?: Record<string, { lastKnownPresence?: string }> } }).data
+  const chatJid = String(d?.id ?? '')
+  const presences = d?.presences
+  if (!chatJid || !presences || typeof presences !== 'object') return { handled: false, skipped: 'presence_empty' }
+  const db = createServiceClient()
+  const { data: inst } = await db.from('crm_instances').select('id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()
+  if (!inst) return { handled: false, skipped: 'unknown_instance' }
+  // conversa individual chega com o id anônimo (…@lid): traduz para o número que o CRM usa
+  const jid = chatJid.endsWith('@lid') ? await lidToJid(db, inst.id, payload.instance ?? '', chatJid) : chatJid
+  if (!jid) return { handled: false, skipped: 'presence_lid_unknown' }
+  let { data: conv } = await db.from('crm_conversations').select('id').eq('instance_id', inst.id).eq('remote_jid', jid).maybeSingle()
+  if (!conv && jid.endsWith('@s.whatsapp.net')) {
+    // mesmo número com/sem o 9 extra
+    const variants = phoneVariants(jid.split('@')[0]).map((v) => `${v}@s.whatsapp.net`)
+    conv = (await db.from('crm_conversations').select('id').eq('instance_id', inst.id).in('remote_jid', variants).limit(1).maybeSingle()).data
   }
-  return 'other'
-}
-
-function extForMime(mime?: string): string {
-  if (!mime) return ''
-  if (mime === 'application/pdf') return '.pdf'
-  if (mime.startsWith('image/')) return '.' + mime.split('/')[1]
-  return ''
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const clean = b64.includes(',') ? b64.split(',')[1] : b64
-  const bin = atob(clean)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
-}
-
-// ── parsing de mensagem ────────────────────────────────────────────────────
-
-function inferMessageType(message?: Record<string, unknown>): string {
-  if (!message) return 'unknown'
-  if (message.conversation || message.extendedTextMessage) return 'conversation'
-  if (message.imageMessage) return 'imageMessage'
-  if (message.documentMessage || message.documentWithCaptionMessage) return 'documentMessage'
-  if (message.audioMessage) return 'audioMessage'
-  return 'unknown'
-}
-
-function mapMessageType(t: string): 'text' | 'document' | 'image' | 'audio' | 'other' {
-  switch (t) {
-    case 'conversation':
-    case 'extendedTextMessage':
-      return 'text'
-    case 'documentMessage':
-    case 'documentWithCaptionMessage':
-      return 'document'
-    case 'imageMessage':
-      return 'image'
-    case 'audioMessage':
-    case 'pttMessage':
-      return 'audio'
-    default:
-      return 'other'
+  if (!conv) return { handled: false, skipped: 'presence_no_conversation' }
+  const isGroup = chatJid.endsWith('@g.us')
+  const now = new Date().toISOString()
+  const rows = []
+  for (const [jid, v] of Object.entries(presences)) {
+    const p = v?.lastKnownPresence
+    const state = p === 'composing' ? 'composing' : p === 'recording' ? 'recording' : 'paused'
+    let actorName: string | null = null
+    if (isGroup && state !== 'paused') {
+      const { data: last } = await db.from('crm_messages').select('participant_name')
+        .eq('conversation_id', conv.id).eq('participant_jid', jid).not('participant_name', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle()
+      actorName = (last?.participant_name as string | undefined) ?? null
+    }
+    rows.push({ conversation_id: conv.id, actor: isGroup ? jid : 'contact', actor_name: actorName, state, updated_at: now })
   }
+  if (rows.length) {
+    const { error } = await db.from('crm_presence').upsert(rows, { onConflict: 'conversation_id,actor' })
+    if (error) return { handled: false, error: error.message }
+  }
+  return { handled: true, presence: rows.map((r) => r.state) }
 }
 
-function extractBody(message?: Record<string, unknown>): string | null {
-  if (!message) return null
-  if (typeof message.conversation === 'string') return message.conversation
-  const ext = message.extendedTextMessage as { text?: string } | undefined
-  if (ext?.text) return ext.text
-  const img = message.imageMessage as { caption?: string } | undefined
-  if (img?.caption) return img.caption
-  const doc = message.documentMessage as { caption?: string } | undefined
-  if (doc?.caption) return doc.caption
-  const docCap = message.documentWithCaptionMessage as
-    | { message?: { documentMessage?: { caption?: string } } }
-    | undefined
-  if (docCap?.message?.documentMessage?.caption) return docCap.message.documentMessage.caption
+// …@lid -> …@s.whatsapp.net. Primeiro no cache (crm_lid_map); senão pergunta à Evolution, que
+// guarda o número em remoteJidAlt nas mensagens dessa conversa, e grava no cache.
+async function lidToJid(db: SupabaseClient, instanceId: string, instanceName: string, lid: string): Promise<string | null> {
+  const { data: hit } = await db.from('crm_lid_map').select('jid').eq('instance_id', instanceId).eq('lid', lid).maybeSingle()
+  if (hit?.jid) return hit.jid as string
+  try {
+    const r = await evolutionFetch(`/chat/findMessages/${instanceName}`, { method: 'POST', body: JSON.stringify({ where: { key: { remoteJid: lid } }, limit: 5 }) })
+    if (!r.ok) return null
+    const d = await r.json().catch(() => null)
+    const records: Array<{ key?: { remoteJidAlt?: string } }> = d?.messages?.records ?? (Array.isArray(d) ? d : [])
+    const alt = records.map((m) => m?.key?.remoteJidAlt).find((j) => typeof j === 'string' && j.endsWith('@s.whatsapp.net'))
+    if (!alt) return null
+    await db.from('crm_lid_map').upsert({ instance_id: instanceId, lid, jid: alt, updated_at: new Date().toISOString() }, { onConflict: 'instance_id,lid' })
+    return alt
+  } catch { return null }
+}
+
+// Edição/apagamento feitos no WhatsApp chegam como atualização de mensagem (não como mensagem
+// nova). Procura o aviso (protocolMessage/editedMessage) em qualquer ponto do payload.
+// Status de entrega/leitura também chegam aqui: saem logo, sem consultar o banco.
+// deno-lint-ignore no-explicit-any
+function deepFind(o: any, depth = 0): Record<string, unknown> | null {
+  if (!o || typeof o !== 'object' || depth > 6) return null
+  if (o.protocolMessage || o.editedMessage) return o
+  for (const v of Object.values(o)) {
+    const hit = deepFind(v, depth + 1)
+    if (hit) return hit
+  }
   return null
+}
+
+async function handleMessageUpdate(payload: EvolutionWebhook) {
+  // deno-lint-ignore no-explicit-any
+  const d = (payload as any).data
+  const holder = deepFind(d)
+  if (!holder) return { handled: false, skipped: 'update_without_edit' }
+  const proto = findProtocol(holder)
+  console.log('messages.update com edição', payload.instance, JSON.stringify(d).slice(0, 600)) // TEMP: confirmar formato
+  if (!proto) return { handled: false, skipped: 'update_unparsed' }
+  const db = createServiceClient()
+  const { data: inst } = await db.from('crm_instances').select('id, instance_name, default_user_id').eq('instance_name', payload.instance ?? '').eq('is_active', true).maybeSingle()
+  if (!inst) return { handled: false, skipped: 'unknown_instance' }
+  let jid = String(d?.key?.remoteJid ?? d?.remoteJid ?? '')
+  if (jid.endsWith('@lid')) jid = (await lidToJid(db, inst.id, inst.instance_name, jid)) ?? jid
+  return await handleProtocol(db, inst, jid, proto)
 }

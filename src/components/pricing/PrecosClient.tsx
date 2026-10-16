@@ -7,8 +7,10 @@ import { brl, pct } from '@/lib/pricing/engine'
 import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import { SupplierLogo } from './SupplierLogo'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
+import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
+import { catalogSourceFor, AUTO_SYNC_SOURCES, type CatalogEntry } from '@/lib/catalog/match'
 import {
-  getSupplierSheet, getSupplierQuotes,
+  getSupplierSheet, getSupplierQuotes, getSupplierCatalog,
   type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
 } from '@/lib/pricing/actions'
 
@@ -27,13 +29,27 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   const [search, setSearch] = useState('')
   const [closed, setClosed] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<SheetItem | null>(null)
+  const [picking, setPicking] = useState<SheetItem | null>(null)
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
+  // Fornecedores com catálogo de fotos (site do fabricante ou catálogo PDF).
+  // Todo fornecedor aceita foto enviada à mão; Accord e Hevvy também têm o catálogo completo.
+  const catalogSource = supplier ? catalogSourceFor(supplier.name) : null
+  const hasCatalog = !!supplier
+  const replaceItem = (u: SheetItem) => setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) })))
+  const loadCatalog = async () => {
+    const r = await getSupplierCatalog(supplierId)
+    const list = 'error' in r ? [] : r.catalog
+    setCatalog(list)
+    return list
+  }
+  const openPicker = (i: SheetItem) => { setPicking(i); if (catalog === null) loadCatalog() }
 
   useEffect(() => {
     if (!supplierId) return
     let cancelled = false
-    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set())
+    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set()); setCatalog(null)
     getSupplierSheet(supplierId).then(r => { if (!cancelled && !('error' in r)) setInvoices(r.invoices) })
     getSupplierQuotes(supplierId, 100).then(r => { if (!cancelled && !('error' in r)) setQuotes(r.quotes) })
     return () => { cancelled = true }
@@ -117,7 +133,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-<tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide"><th className="px-3 py-2.5 text-right whitespace-nowrap">Qtd</th><th className="px-3 py-2.5 whitespace-nowrap">Produto</th><th className="px-3 py-2.5 whitespace-nowrap">NCM</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Valor total</th><th className="px-3 py-2.5 whitespace-nowrap">ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">IPI</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">% ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr FECOEP</th><th className="px-3 py-2.5 text-right whitespace-nowrap">% FECOEP</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Custo un.</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Maquininha</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Imposto</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Comissão</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Lucro</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Venda (crédito)</th></tr>
+<tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide"><th className="px-3 py-2.5 text-right whitespace-nowrap">Qtd</th><th className="px-3 py-2.5 whitespace-nowrap">Produto</th><th className="px-3 py-2.5 border-r-2 border-gray-300 text-right whitespace-nowrap">Venda (crédito)</th><th className="px-3 py-2.5 whitespace-nowrap">NCM</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">Valor unit.</th><th className="px-3 py-2.5 whitespace-nowrap">ICMS</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">IPI</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr ICMS</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">% ICMS</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Vlr FECOEP</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">% FECOEP</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Custo un.</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">Maquininha</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Imposto</th><th className="px-3 py-2.5 bg-gray-100 text-right whitespace-nowrap">Comissão</th><th className="px-3 py-2.5 text-right whitespace-nowrap">Lucro</th></tr>
 </thead>
                 <tbody>
                   {filtered.map(inv => {
@@ -139,21 +155,25 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
                         {open && inv.items.map(i => (
                           <tr key={i.id} onClick={() => setEditing(i)} className="border-t border-surface-border hover:bg-surface-secondary/50 cursor-pointer">
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{i.quantidade}</td>
-                            <td className="px-3 py-2 text-gray-800 min-w-[280px]">{i.descricao}</td>
+                            <td className="px-3 py-2 text-gray-800 min-w-[280px]">
+                              {hasCatalog ? (
+                                <span className="flex items-center gap-2.5"><ProductThumb item={i} onPick={() => openPicker(i)} />{i.descricao}</span>
+                              ) : i.descricao}
+                            </td>
+                            <td className="px-3 py-2 border-r-2 border-gray-300 text-right tabular-nums font-semibold text-emerald-700">{brl(i.preco_credito)}</td>
                             <td className="px-3 py-2 font-mono text-xs text-gray-500">{i.ncm}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{brl(i.valor_total)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums" title={`Total do item: ${brl(i.valor_total)}`}>{brl(i.quantidade ? i.valor_total / i.quantidade : i.valor_total)}</td>
                             <td className="px-3 py-2"><span className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded', i.tipo_icms?.toUpperCase() === 'ANT' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700')}>{i.tipo_icms ?? '—'}</span></td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.ipi_percent, 2)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums text-gray-600">{pct(i.ipi_percent, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{brl(i.valor_icms)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.valor_icms / i.valor_total, 2)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums text-gray-600">{pct(i.valor_icms / i.valor_total, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{brl(i.valor_fecoep)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.valor_fecoep / i.valor_total, 2)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums text-gray-600">{pct(i.valor_fecoep / i.valor_total, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{brl(i.custo_unitario)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.maquininha, 2)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums text-gray-600">{pct(i.maquininha, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.imposto_ant_percent, 2)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.comissao, 2)}</td>
+                            <td className="px-3 py-2 bg-gray-50 text-right tabular-nums text-gray-600">{pct(i.comissao, 2)}</td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600">{pct(i.lucro, 2)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700">{brl(i.preco_credito)}</td>
                           </tr>
                         ))}
                       </FragmentRows>
@@ -168,7 +188,12 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
 
       {editing && (
         <ItemSimulatorModal item={editing} onClose={() => setEditing(null)}
-          onSaved={u => { setInvoices(prev => prev && prev.map(inv => ({ ...inv, items: inv.items.map(x => x.id === u.id ? u : x) }))); setEditing(null) }} />
+          onSaved={u => { replaceItem(u); setEditing(null) }} />
+      )}
+
+      {picking && (
+        <CatalogPickerModal item={picking} supplierId={supplierId} catalog={catalog} canSync={!!catalogSource && AUTO_SYNC_SOURCES.includes(catalogSource)} onClose={() => setPicking(null)} onCatalogReload={loadCatalog}
+          onChanged={u => { replaceItem(u); setPicking(u) }} />
       )}
 
       {view === 'cotacoes' && (
