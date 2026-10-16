@@ -18,11 +18,12 @@ interface ScheduleModalProps {
   schedule?: any           // se presente → modo edição
   defaultDate?: string     // data pré-preenchida (criação inline a partir de um dia)
   defaultQuote?: { id: string; label: string }  // pré-vincular orçamento (a partir da página de orçamento)
+  allowedTypes?: string[]  // restringe os tipos de agendamento disponíveis
   onClose: () => void
   onSuccess: (saved?: any) => void
 }
 
-export function ScheduleModal({ schedule, defaultDate, defaultQuote, onClose, onSuccess }: ScheduleModalProps) {
+export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedTypes, onClose, onSuccess }: ScheduleModalProps) {
   const toast = useToast()
   const isEdit = !!schedule
   const [saving, setSaving] = useState(false)
@@ -158,7 +159,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, onClose, on
           <div>
             <label className="label">Tipo</label>
             <div className="flex gap-2 mt-1">
-              {TYPE_OPTIONS.map(opt => (
+              {(allowedTypes ? TYPE_OPTIONS.filter(o => allowedTypes.includes(o.value)) : TYPE_OPTIONS).map(opt => (
                 <button key={opt.value} type="button" onClick={() => setType(opt.value)}
                   className={cn('flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all',
                     type === opt.value ? 'bg-gradient-navy text-white border-transparent shadow-[0_4px_10px_-2px_rgba(10,31,59,0.4)]' : 'bg-white text-gray-600 border-surface-border hover:border-brand-300')}>

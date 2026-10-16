@@ -111,6 +111,46 @@
   user-select: none;
 }
 
+/* Editor de texto rico do Projeto (RichTextEditor/RichTextView, aba Projeto
+   da Solicitação) — checklist clicável com risco no texto quando marcado,
+   placeholder do contentEditable vazio, e listas com indentação normal. */
+.rich-text-editable:empty:before,
+.rich-text-view:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.rich-text-editable ul,
+.rich-text-view ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+/* Linha de checklist: checkbox e texto alinhados ao centro (em vez de
+   flex-start, que deixava o checkbox "flutuando" acima do texto) e um
+   respiro vertical mínimo entre itens consecutivos. */
+.rich-text-editable [data-check-row],
+.rich-text-view [data-check-row] {
+  align-items: center;
+  min-height: 22px;
+}
+.rich-text-editable [data-check-row] input[type='checkbox'],
+.rich-text-view [data-check-row] input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #CBA455;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.rich-text-editable [data-check-row] span,
+.rich-text-view [data-check-row] span {
+  flex: 1;
+  min-width: 1px;
+}
+.rt-checked span {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
 /* CRM: pontinhos do "digitando…" do contato */
 .crm-typing-dot {
   width: 7px; height: 7px; border-radius: 9999px; background: #8696a0;
