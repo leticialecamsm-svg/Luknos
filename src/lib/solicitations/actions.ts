@@ -972,6 +972,24 @@ export async function updateQuoteStatusWithCompletion(
   return { ok: true }
 }
 
+// ── Preferências de propriedades do quadro (por usuário e escopo) ───────────
+
+const PREF_SCOPES = ['all', 'visita', 'projeto', 'orcamento', 'negociacao', 'compra', 'expedicao', 'instalacao', 'posVenda']
+
+export async function saveCardProps(scope: string, config: { order: string[]; hidden: string[] }): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!PREF_SCOPES.includes(scope)) return { error: 'Escopo inválido' }
+  const clean = (a: unknown) =>
+    Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string').slice(0, 20) : []
+  const { error } = await createAdminClient().from('solicitation_view_prefs').upsert(
+    { user_id: user.id, scope, config: { order: clean(config.order), hidden: clean(config.hidden) }, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id,scope' },
+  )
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
 // ── Mover o cartão de uma etapa para outro status (arrastar no kanban) ───────
 // Despacha para a mesma ação que a tela de cada etapa já usa, para manter
 // os efeitos colaterais (atividades, datas, histórico) idênticos.

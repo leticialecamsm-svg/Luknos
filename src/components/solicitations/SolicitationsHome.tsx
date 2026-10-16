@@ -10,7 +10,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NewSolicitationButton } from './NewSolicitationButton'
 import { SolicitationsIndex } from './SolicitationsIndex'
-import { dueState, localYmd, type IndexRow } from '@/lib/solicitations/index-types'
+import { dueState, localYmd, type IndexRow, type CardPropsConfig } from '@/lib/solicitations/index-types'
 
 type Focus = 'today' | 'overdue' | 'new' | 'changed' | 'stalled' | 'unassigned'
 
@@ -66,7 +66,7 @@ function Small({ value, label }: { value: string; label: string }) {
   )
 }
 
-export function SolicitationsHome({ rows, userName }: { rows: IndexRow[]; userName: string }) {
+export function SolicitationsHome({ rows, userName, cardPrefs }: { rows: IndexRow[]; userName: string; cardPrefs: Record<string, CardPropsConfig> }) {
   const [view, setView] = useState<'team' | 'mine'>(rows.some(r => r.isMine) ? 'mine' : 'team')
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [focus, setFocus] = useState<Focus | null>(null)
@@ -199,7 +199,7 @@ export function SolicitationsHome({ rows, userName }: { rows: IndexRow[]; userNa
         </div>
       )}
 
-      <SolicitationsIndex rows={boardRows} month={month} onMonthChange={setMonth} />
+      <SolicitationsIndex rows={boardRows} month={month} onMonthChange={setMonth} cardPrefs={cardPrefs} />
     </div>
   )
 }

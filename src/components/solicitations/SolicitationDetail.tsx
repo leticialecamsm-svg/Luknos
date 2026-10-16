@@ -37,6 +37,7 @@ import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/componen
 import { avatarColor } from '@/lib/avatar-color'
 import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/StageRecords'
 import { StageResponsibles } from '@/components/solicitations/StageResponsibles'
+import { Select } from '@/components/ui/Select'
 
 type Team = SolicitationView['team']
 
@@ -468,10 +469,11 @@ function AddProjectForm({ solicitation, onClose }: { solicitation: SolicitationV
       <div className="space-y-2">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título do projeto" className="input" />
         <div className="flex flex-wrap gap-2">
-          <select value={kind} onChange={e => setKind(e.target.value as any)} className="select w-auto">
-            <option value="elaboracao">Elaboração para orçamento</option>
-            <option value="alocacao_pontos">Alocação de pontos</option>
-          </select>
+          <Select
+            value={kind}
+            onChange={v => setKind(v as any)}
+            options={Object.entries(PROJECT_KIND_LABEL).map(([k, l]) => ({ value: k, label: l, tag: PROJECT_KIND_COLOR[k] }))}
+          />
           <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição (opcional)" className="input flex-1 min-w-[160px]" />
         </div>
         <div className="flex gap-2 pt-1">
@@ -565,10 +567,12 @@ function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationI
       <FormHeading icon={ShoppingCart}>Novo item de compra</FormHeading>
       <div className="flex flex-wrap gap-2">
         <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input flex-1 min-w-[180px]" />
-        <select value={supplier} onChange={e => setSupplier(e.target.value)} className="select min-w-[140px] w-auto">
-          <option value="">Fornecedor (opcional)</option>
-          {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-        </select>
+        <Select
+          value={supplier}
+          onChange={setSupplier}
+          className="min-w-[160px]"
+          options={[{ value: '', label: 'Fornecedor (opcional)' }, ...suppliers.map(s => ({ value: s.name, label: s.name }))]}
+        />
         <input type="date" value={expectedDeliveryDate} onChange={e => setExpectedDeliveryDate(e.target.value)} title="Previsão de entrega informada ao cliente" className="input w-auto" />
         <button type="button" onClick={add} disabled={pending} className="btn-primary px-4 py-1.5 text-sm"><Plus className="w-4 h-4" /> Adicionar</button>
       </div>
@@ -617,11 +621,16 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
           <InlineEdit>
             <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input" />
             <div className="flex flex-wrap gap-2">
-              <select value={supplier} onChange={e => setSupplier(e.target.value)} className="select min-w-[140px] w-auto">
-                <option value="">Fornecedor (opcional)</option>
-                {item.supplier && !suppliers.some(s => s.name === item.supplier) && <option value={item.supplier}>{item.supplier}</option>}
-                {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
+              <Select
+                value={supplier}
+                onChange={setSupplier}
+                className="min-w-[160px]"
+                options={[
+                  { value: '', label: 'Fornecedor (opcional)' },
+                  ...(item.supplier && !suppliers.some(s => s.name === item.supplier) ? [{ value: item.supplier as string, label: item.supplier as string }] : []),
+                  ...suppliers.map(s => ({ value: s.name, label: s.name })),
+                ]}
+              />
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input w-auto" />
             </div>
             <div className="flex gap-2">
@@ -650,16 +659,17 @@ function AddShipmentForm({ solicitationId, clientAddress, onClose }: { solicitat
       <FormHeading icon={Truck}>Nova separação/entrega</FormHeading>
       <div className="space-y-2">
         <div className="flex flex-wrap gap-2">
-          <select value={deliveryType} onChange={e => setDeliveryType(e.target.value as any)} className="select w-auto">
-            <option value="delivery">Entrega</option>
-            <option value="pickup">Retirada</option>
-          </select>
+          <Select value={deliveryType} onChange={v => setDeliveryType(v as any)} options={[{ value: 'delivery', label: 'Entrega' }, { value: 'pickup', label: 'Retirada' }]} />
           <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="input w-auto" title="Data prevista" />
-          <select value={priority} onChange={e => setPriority(e.target.value as any)} className="select w-auto">
-            <option value="low">Baixa</option>
-            <option value="mid">Média</option>
-            <option value="high">Alta</option>
-          </select>
+          <Select
+            value={priority}
+            onChange={v => setPriority(v as any)}
+            options={(['low', 'mid', 'high'] as const).map(k => ({
+              value: k,
+              label: SHIPMENT_PRIORITY_LABEL[k],
+              tag: (SHIPMENT_PRIORITY_COLOR as Record<string, { bg: string; text: string }>)[k],
+            }))}
+          />
         </div>
         {deliveryType === 'delivery' && (
           <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Endereço de entrega" className="input w-full" />
@@ -754,10 +764,7 @@ function ShipmentRow({ shipment: s, team }: { shipment: any; team: Team }) {
             <StatusSelect value={priority} options={SHIPMENT_PRIORITY_LABEL as Record<string, string>} colors={priorityColors} onChange={setPriority} />
           </div>
           <div className="flex flex-wrap gap-2">
-            <select value={deliveryType} onChange={e => setDeliveryType(e.target.value as any)} className="select w-auto">
-              <option value="delivery">Entrega</option>
-              <option value="pickup">Retirada</option>
-            </select>
+            <Select value={deliveryType} onChange={v => setDeliveryType(v as any)} options={[{ value: 'delivery', label: 'Entrega' }, { value: 'pickup', label: 'Retirada' }]} />
             <input type="date" value={deliveryDate ? String(deliveryDate).slice(0, 10) : ''} onChange={e => setDeliveryDate(e.target.value)} className="input w-auto" title="Data prevista" />
           </div>
           {deliveryType === 'delivery' && (
@@ -790,9 +797,11 @@ function AddInstallationForm({ solicitationId, onClose }: { solicitationId: stri
         <div className="flex flex-wrap gap-2">
           <input value={team} onChange={e => setTeam(e.target.value)} placeholder="Equipe" className="input flex-1 min-w-[160px]" />
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input w-auto" />
-          <select value={status} onChange={e => setStatus(e.target.value as any)} className="select w-auto">
-            {Object.entries(INSTALLATION_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <Select
+            value={status}
+            onChange={v => setStatus(v as any)}
+            options={Object.entries(INSTALLATION_STATUS_LABEL).map(([k, l]) => ({ value: k, label: l, tag: INSTALLATION_STATUS_COLOR[k] }))}
+          />
         </div>
         <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notas (opcional)" className="input" />
         <div className="flex gap-2 pt-1">

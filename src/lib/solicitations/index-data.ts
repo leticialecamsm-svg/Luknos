@@ -4,7 +4,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { pickCurrentStage, STAGES } from '@/lib/solicitations/stages'
-import { isDoneStatus, type IndexRow, type TeamUser } from '@/lib/solicitations/index-types'
+import { isDoneStatus, type IndexRow, type TeamUser, type CardPropsConfig } from '@/lib/solicitations/index-types'
 
 export type { IndexRow, TeamUser } from '@/lib/solicitations/index-types'
 
@@ -177,4 +177,21 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
       isMine: s.created_by === userId || mineSids.has(s.id),
     } satisfies IndexRow
   })
+}
+
+// Preferências de propriedades dos cartões do usuário (escopo -> config).
+export async function loadCardPrefs(userId: string): Promise<Record<string, CardPropsConfig>> {
+  const { data } = await createAdminClient()
+    .from('solicitation_view_prefs')
+    .select('scope, config')
+    .eq('user_id', userId)
+  const out: Record<string, CardPropsConfig> = {}
+  for (const r of (data ?? []) as any[]) {
+    const c = r.config ?? {}
+    out[r.scope] = {
+      order: Array.isArray(c.order) ? c.order.filter((x: unknown) => typeof x === 'string') : [],
+      hidden: Array.isArray(c.hidden) ? c.hidden.filter((x: unknown) => typeof x === 'string') : [],
+    }
+  }
+  return out
 }

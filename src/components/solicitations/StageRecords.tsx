@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, MoreHorizontal, Pencil, Trash2, Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Select } from '@/components/ui/Select'
 import { shortDayLabel, localToday } from '@/lib/solicitations/stages'
 import { DateChip } from '@/components/solicitations/SolicitationOverview'
 import { StageFilesColumn } from '@/components/solicitations/StageFiles'
@@ -20,16 +21,14 @@ export function StatusSelect({ value, options, colors, onChange, disabled }: {
   onChange: (v: string) => void
   disabled?: boolean
 }) {
-  const c = colors[value] ?? Object.values(colors)[0]
   return (
-    <select
+    <Select
       value={value}
       disabled={disabled}
-      onChange={e => onChange(e.target.value)}
-      className={cn('badge font-semibold border-0 cursor-pointer', c?.bg, c?.text)}
-    >
-      {Object.entries(options).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-    </select>
+      onChange={onChange}
+      options={Object.entries(options).map(([k, v]) => ({ value: k, label: v, tag: colors[k] }))}
+      className="!border-0 !bg-transparent !px-0 !py-0 hover:!border-0 !shadow-none"
+    />
   )
 }
 

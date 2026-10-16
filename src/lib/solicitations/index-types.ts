@@ -62,3 +62,44 @@ export function dueState(r: Pick<IndexRow, 'nextDue'>, todayYmd: string): 'overd
   if (r.nextDue === todayYmd) return 'today'
   return null
 }
+
+// ── Propriedades dos cartões (o que aparece e em que ordem) ─────────────────
+
+export type CardPropKey =
+  | 'number' | 'client' | 'priority' | 'value' | 'team' | 'days' | 'due' | 'kind' | 'category' | 'size'
+
+export type CardPropDef = { key: CardPropKey; label: string; stageOnly?: string; defaultHidden?: boolean }
+
+export const CARD_PROPS: CardPropDef[] = [
+  { key: 'number',   label: 'Número' },
+  { key: 'client',   label: 'Cliente' },
+  { key: 'priority', label: 'Prioridade' },
+  { key: 'value',    label: 'Valor' },
+  { key: 'team',     label: 'Responsáveis' },
+  { key: 'days',     label: 'Dias na esteira' },
+  { key: 'due',      label: 'Prazo (hoje / atrasada)' },
+  { key: 'kind',     label: 'Tipo do projeto', stageOnly: 'projeto' },
+  { key: 'category', label: 'Categoria', defaultHidden: true },
+  { key: 'size',     label: 'Tamanho', defaultHidden: true },
+]
+
+export type CardPropsConfig = { order: string[]; hidden: string[] }
+export type ResolvedCardProp = { key: CardPropKey; label: string; visible: boolean }
+
+// Junta o que o usuário salvou com o catálogo: propriedades novas entram no
+// fim, desconhecidas somem, e "Tipo do projeto" só existe no escopo Projeto.
+export function resolveCardProps(scope: string, cfg?: CardPropsConfig | null): ResolvedCardProp[] {
+  const base = CARD_PROPS.filter(p => !p.stageOnly || p.stageOnly === scope)
+  const saved = cfg?.order ?? []
+  const ordered = [
+    ...saved.map(k => base.find(p => p.key === k)).filter((p): p is CardPropDef => !!p),
+    ...base.filter(p => !saved.includes(p.key)),
+  ]
+  return ordered.map(p => ({
+    key: p.key,
+    label: p.label,
+    visible: cfg
+      ? !cfg.hidden.includes(p.key) && !(p.defaultHidden && !saved.includes(p.key))
+      : !p.defaultHidden,
+  }))
+}

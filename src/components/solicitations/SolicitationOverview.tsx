@@ -11,17 +11,23 @@ import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
   MoreHorizontal, Flag, ArrowLeft, Filter, Ruler, Hammer, Flame, Tag, ChevronDown, ChevronUp,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, MapPin, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse,
 } from 'lucide-react'
+
+const STAGE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  visita: MapPin, projeto: Ruler, orcamento: FileText, negociacao: HandCoins,
+  compra: ShoppingCart, expedicao: Package, instalacao: Wrench, posVenda: HeartPulse,
+}
 import { avatarColor } from '@/lib/avatar-color'
 import {
   computeStages, nextStep, bigMetric, currentStageId, stageDeadline, dateChip, daysInPipeline, localToday,
   mergeHistory, STAGES, type DateTone,
 } from '@/lib/solicitations/stages'
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
-import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
+import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationIdForClient, type SolicitationView } from '@/lib/solicitations/actions'
 import { searchContacts } from '@/lib/actions'
+import { Select } from '@/components/ui/Select'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
   if (url) {
@@ -309,7 +315,8 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
                     : { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)', color: '#8b94a5', border: '1px dashed #cdd3de' }),
                 }}
               >
-                <div className="flex items-center gap-1 w-full">
+                <div className="flex items-center gap-1.5 w-full">
+                  {(() => { const Icon = STAGE_ICON[st.id]; return Icon ? <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" /> : null })()}
                   <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
                   {isDone && <Check className="ml-auto shrink-0 w-3 h-3" />}
                   {isCur && <Clock className="ml-auto shrink-0 w-3 h-3" />}
@@ -605,37 +612,28 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Categoria</label>
-                <select value={category} onChange={e => setCategory(e.target.value)} className="select w-full text-xs">
-                  <option value="">—</option>
-                  {CATEGORY_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
+                <Select value={category} onChange={setCategory} className="w-full text-xs" options={[{ value: '', label: '—' }, ...CATEGORY_OPTIONS.map(([k, l]) => ({ value: k, label: l }))]} />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Tamanho</label>
-                <select value={size} onChange={e => setSize(e.target.value)} className="select w-full text-xs">
-                  <option value="">—</option>
-                  {SIZE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
+                <Select value={size} onChange={setSize} className="w-full text-xs" options={[{ value: '', label: '—' }, ...SIZE_OPTIONS.map(([k, l]) => ({ value: k, label: l }))]} />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Origem</label>
-                <select value={origin} onChange={e => setOrigin(e.target.value)} className="select w-full text-xs">
-                  <option value="">—</option>
-                  {ORIGIN_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
+                <Select value={origin} onChange={setOrigin} className="w-full text-xs" options={[{ value: '', label: '—' }, ...ORIGIN_OPTIONS.map(([k, l]) => ({ value: k, label: l }))]} />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Etapa da obra</label>
-                <select value={workStage} onChange={e => setWorkStage(e.target.value)} className="select w-full text-xs">
-                  <option value="">—</option>
-                  {WORK_STAGE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
+                <Select value={workStage} onChange={setWorkStage} className="w-full text-xs" options={[{ value: '', label: '—' }, ...WORK_STAGE_OPTIONS.map(([k, l]) => ({ value: k, label: l }))]} />
               </div>
               <div className="col-span-2">
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Prioridade</label>
-                <select value={priority} onChange={e => setPriority(e.target.value)} className="select w-full text-xs">
-                  {PRIORITY_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
+                <Select
+                  value={priority}
+                  onChange={setPriority}
+                  className="w-full text-xs"
+                  options={PRIORITY_OPTIONS.map(([k, l]) => ({ value: k, label: l, tag: PRIORITY_COLOR[k as keyof typeof PRIORITY_COLOR] }))}
+                />
               </div>
               <div className="col-span-2" ref={archRef}>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Arquiteto(a)</label>

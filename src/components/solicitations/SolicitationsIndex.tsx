@@ -5,15 +5,16 @@
 // cinza = futura/não iniciada), toggle Lista / Kanban, avatares da equipe
 // designada por solicitação e filtro por responsável.
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock } from 'lucide-react'
+import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock, SlidersHorizontal, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
-import { PRIORITY_LABEL, PRIORITY_COLOR } from '@/types'
+import { PRIORITY_LABEL, PRIORITY_COLOR, CATEGORY_LABEL, SIZE_LABEL } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
-import { isDoneStatus, dueState, localYmd, type IndexRow, type TeamUser } from '@/lib/solicitations/index-types'
-import { moveStageCardStatus } from '@/lib/solicitations/actions'
+import { isDoneStatus, dueState, localYmd, resolveCardProps, type IndexRow, type TeamUser, type CardPropsConfig, type ResolvedCardProp } from '@/lib/solicitations/index-types'
+import { moveStageCardStatus, saveCardProps } from '@/lib/solicitations/actions'
 import { useToast } from '@/components/ui/Toast'
+import { Select } from '@/components/ui/Select'
 
 export type { IndexRow, TeamUser }
 
@@ -109,9 +110,12 @@ const PROJECT_KIND: Record<string, { label: string; bg: string; text: string }> 
   alocacao_pontos: { label: 'Alocação de pontos', bg: 'bg-sky-50',    text: 'text-sky-700' },
 }
 
-export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { rows: IndexRow[]; month: Date; onMonthChange: (d: Date) => void }) {
+export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange, cardPrefs }: { rows: IndexRow[]; month: Date; onMonthChange: (d: Date) => void; cardPrefs: Record<string, CardPropsConfig> }) {
   const router = useRouter()
   const toast = useToast()
+  // Propriedades dos cartões: por usuário, uma configuração para cada etapa
+  // (e uma para a visão geral). Salvas no servidor a cada mudança.
+  const [prefs, setPrefs] = useState<Record<string, CardPropsConfig>>(cardPrefs)
   // Mudanças otimistas do arrastar: ficam até a lista do servidor chegar atualizada.
   const [overrides, setOverrides] = useState<Record<string, { status: string; doneAt: string | null }>>({})
   useEffect(() => { setOverrides({}) }, [rowsProp])
@@ -173,6 +177,17 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
     const sp = new URLSearchParams(searchParams.toString())
     if (id) sp.set('etapa', id); else sp.delete('etapa')
     router.replace(`/solicitacoes${sp.toString() ? `?${sp}` : ''}`, { scroll: false })
+  }
+
+  const scope = stageFilter ?? 'all'
+  const resolvedProps = useMemo(() => resolveCardProps(scope, prefs[scope]), [scope, prefs])
+
+  function updateProps(next: ResolvedCardProp[]) {
+    const cfg: CardPropsConfig = { order: next.map(p => p.key), hidden: next.filter(p => !p.visible).map(p => p.key) }
+    setPrefs(p => ({ ...p, [scope]: cfg }))
+    saveCardProps(scope, cfg).then(r => {
+      if (r.error) toast.error('NÃO FOI POSSÍVEL SALVAR', r.error)
+    })
   }
 
   // Contadores por etapa (apenas solicitações em andamento)
@@ -268,19 +283,16 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
           )}
         </div>
 
-        <div className="relative">
-          <Users className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
-          <select value={respFilter ?? ''} onChange={e => setRespFilter(e.target.value || null)}
-            className={cn('select pl-8 pr-8', respFilter ? 'border-brand-400 text-brand-700 bg-brand-50' : '')}>
-            <option value="">Responsável</option>
-            {allResponsibles.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-          {respFilter && (
-            <button onClick={() => setRespFilter(null)} className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        <Select
+          value={respFilter ?? ''}
+          onChange={v => setRespFilter(v || null)}
+          aria-label="Filtrar por responsável"
+          className={cn('min-w-[190px]', respFilter && 'border-brand-400 bg-brand-50')}
+          options={[
+            { value: '', label: 'Todos os responsáveis' },
+            ...allResponsibles.map(u => ({ value: u.id, label: u.name, avatar: { name: u.name, avatar_url: u.avatar_url, avatar_color: u.avatar_color } })),
+          ]}
+        />
 
         {hasFilters && (
           <button onClick={clearAll} className="text-xs font-medium text-brand-600 hover:text-brand-700">
@@ -309,6 +321,12 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
             ><ChevronRight className="w-4 h-4" /></button>
           </div>
 
+          <PropertiesMenu
+            scopeLabel={stageFilter ? (STAGE_PILLS.find(s => s.id === stageFilter)?.label ?? '') : 'Todas as etapas'}
+            props={resolvedProps}
+            onChange={updateProps}
+          />
+
           <div className="inline-flex rounded-lg border border-surface-border bg-white p-0.5">
             <button
               type="button"
@@ -333,11 +351,11 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
       {filtered.length === 0 ? (
         <EmptyState hasFilters={hasFilters} onClear={clearAll} />
       ) : view === 'list' ? (
-        <ListTable rows={filtered} stageId={stageFilter} />
+        <ListTable rows={filtered} stageId={stageFilter} props={resolvedProps} />
       ) : (
         stageFilter
-          ? <StatusKanban stageId={stageFilter} rows={filtered} onMove={moveCard} />
-          : <KanbanBoard rows={filtered} />
+          ? <StatusKanban stageId={stageFilter} rows={filtered} onMove={moveCard} props={resolvedProps} />
+          : <KanbanBoard rows={filtered} props={resolvedProps} />
       )}
     </div>
   )
@@ -345,78 +363,98 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
 
 // ── Lista (tabela) ────────────────────────────────────────────────────────────
 
-function ListTable({ rows, stageId }: { rows: IndexRow[]; stageId: string | null }) {
+function ListTable({ rows, stageId, props }: { rows: IndexRow[]; stageId: string | null; props: ResolvedCardProp[] }) {
   const router = useRouter()
+  // "Cliente" aparece sob o título; as demais viram colunas, na ordem escolhida.
+  const showClient = props.some(p => p.key === 'client' && p.visible)
+  const cols = props.filter(p => p.visible && p.key !== 'client')
+  const today = localYmd()
+  const th = 'px-5 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide uppercase'
+
+  function cell(r: IndexRow, key: string) {
+    switch (key) {
+      case 'number':
+        return <span className="text-xs font-mono text-gray-400">#{r.number}</span>
+      case 'team':
+        return <TeamStack team={stageId ? (r.teamByStage[stageId] ?? []) : r.team} />
+      case 'priority': {
+        const c = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
+        return r.priority !== 'normal' && c
+          ? <span className={cn('inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold', c.bg, c.text)}>
+              {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
+            </span>
+          : <span className="text-xs text-gray-300">—</span>
+      }
+      case 'days': {
+        const d = daysInPipeline(r.createdAt)
+        return <span className="text-xs text-gray-500">{d} {d === 1 ? 'dia' : 'dias'}</span>
+      }
+      case 'value':
+        return r.quotedValue != null
+          ? <span className="text-sm font-medium text-navy whitespace-nowrap">{formatCurrency(r.quotedValue)}</span>
+          : <span className="text-xs text-gray-300 italic">sem orçamento</span>
+      case 'due': {
+        const due = dueState(r, today)
+        return due === 'overdue'
+          ? <span className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded bg-red-50 text-red-700"><AlertTriangle className="w-3 h-3" /> Atrasada</span>
+          : due === 'today'
+            ? <span className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded bg-amber-50 text-amber-800"><CalendarClock className="w-3 h-3" /> Hoje</span>
+            : <span className="text-xs text-gray-300">—</span>
+      }
+      case 'kind':
+        return r.projectKind && PROJECT_KIND[r.projectKind]
+          ? <span className={cn('text-[11px] font-medium px-1.5 py-px rounded', PROJECT_KIND[r.projectKind].bg, PROJECT_KIND[r.projectKind].text)}>{PROJECT_KIND[r.projectKind].label}</span>
+          : <span className="text-xs text-gray-300">—</span>
+      case 'category':
+        return <span className="text-xs text-gray-600">{r.category ? (CATEGORY_LABEL[r.category as keyof typeof CATEGORY_LABEL] ?? r.category) : '—'}</span>
+      case 'size':
+        return <span className="text-xs text-gray-600">{r.size ? (SIZE_LABEL[r.size as keyof typeof SIZE_LABEL] ?? r.size) : '—'}</span>
+      default:
+        return null
+    }
+  }
+
   return (
-    <div className="bg-white rounded-xl border border-surface-border overflow-hidden">
+    <div className="bg-white rounded-xl border border-surface-border overflow-x-auto">
       <table className="w-full">
         <thead className="bg-surface-secondary border-b border-surface-border">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">Nº</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">TÍTULO / CLIENTE</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">{stageId ? 'STATUS' : 'ETAPA ATUAL'}</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">RESPONSÁVEIS</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">PRIORIDADE</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">ESTEIRA</th>
-            <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 tracking-wide">VALOR</th>
+            <th className={th}>Título</th>
+            <th className={th}>{stageId ? 'Status' : 'Etapa atual'}</th>
+            {cols.map(c => <th key={c.key} className={th}>{c.label}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map(r => {
-            const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
             const stLabel = STAGE_PILLS.find(s => s.id === r.currentStage)?.label ?? '—'
-            const days = daysInPipeline(r.createdAt)
             return (
               <tr
                 key={r.id}
                 onClick={() => router.push(`/solicitacoes/${r.id}`)}
                 className="border-b border-surface-border last:border-0 hover:bg-surface-secondary/40 cursor-pointer transition-colors"
               >
-                <td className="px-6 py-3 text-xs font-mono text-gray-400">#{r.number}</td>
-                <td className="px-6 py-3">
+                <td className="px-5 py-3">
                   <div className="text-sm font-medium text-navy">{r.title || r.clientName || '—'}</div>
-                  {r.title && r.clientName && <div className="text-xs text-gray-400 truncate max-w-[280px]">{r.clientName}</div>}
+                  {showClient && r.title && r.clientName && <div className="text-xs text-gray-400 truncate max-w-[280px]">{r.clientName}</div>}
                 </td>
-                <td className="px-6 py-3">
+                <td className="px-5 py-3">
                   {stageId ? (() => {
                     const col = (STAGE_STATUSES[stageId] ?? []).find(c => c.key === r.stageStatus[stageId])
                     return col ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border" style={{ background: '#f9fafb', borderLeft: `3px solid ${col.color}`, color: '#111827' }}>
-                          {col.label}
-                        </span>
-                        {stageId === 'projeto' && r.projectKind && PROJECT_KIND[r.projectKind] && (
-                          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[r.projectKind].bg, PROJECT_KIND[r.projectKind].text)}>
-                            {PROJECT_KIND[r.projectKind].label}
-                          </span>
-                        )}
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border" style={{ background: '#f9fafb', borderLeft: `3px solid ${col.color}`, color: '#111827' }}>
+                        {col.label}
                       </span>
                     ) : <span className="text-xs text-gray-300">—</span>
                   })() : r.currentStage ? (
                     <span
                       className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border"
-                      style={{
-                        background: '#f9fafb',
-                        borderLeft: `3px solid ${STAGE_PILLS.find(s => s.id === r.currentStage)?.color ?? '#9ca3af'}`,
-                        color: '#111827',
-                      }}
+                      style={{ background: '#f9fafb', borderLeft: `3px solid ${STAGE_PILLS.find(s => s.id === r.currentStage)?.color ?? '#9ca3af'}`, color: '#111827' }}
                     >
                       {stLabel}
                     </span>
                   ) : <span className="text-xs text-gray-300">—</span>}
                 </td>
-                <td className="px-6 py-3"><TeamStack team={stageId ? (r.teamByStage[stageId] ?? []) : r.team} /></td>
-                <td className="px-6 py-3">
-                  {r.priority !== 'normal' && priorityC ? (
-                    <span className={cn('inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold', priorityC.bg, priorityC.text)}>
-                      {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
-                    </span>
-                  ) : <span className="text-xs text-gray-300">—</span>}
-                </td>
-                <td className="px-6 py-3 text-xs text-gray-500">{days} {days === 1 ? 'dia' : 'dias'}</td>
-                <td className="px-6 py-3 text-right text-sm font-medium text-navy whitespace-nowrap">
-                  {r.quotedValue != null ? formatCurrency(r.quotedValue) : <span className="text-xs text-gray-300 italic">sem orçamento</span>}
-                </td>
+                {cols.map(c => <td key={c.key} className="px-5 py-3">{cell(r, c.key)}</td>)}
               </tr>
             )
           })}
@@ -432,7 +470,7 @@ function ListTable({ rows, stageId }: { rows: IndexRow[]; stageId: string | null
 // trilho w-10 com o nome em texto vertical. Cartões: fundo branco, border-l-4
 // na cor da etapa, shadow leve, hover com shadow maior.
 
-function KanbanBoard({ rows }: { rows: IndexRow[] }) {
+function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardProp[] }) {
   const router = useRouter()
   const byStage = useMemo(() => {
     const map: Record<string, IndexRow[]> = {}
@@ -477,7 +515,7 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
                 </div>
               </header>
               <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-                {items.map(r => <KanbanCard key={r.id} r={r} stageColor={st.color} onClick={() => router.push(`/solicitacoes/${r.id}`)} />)}
+                {items.map(r => <KanbanCard key={r.id} r={r} props={props} stageColor={st.color} onClick={() => router.push(`/solicitacoes/${r.id}`)} />)}
               </div>
             </section>
           )
@@ -490,7 +528,7 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
 
 // ── Kanban de UMA etapa: colunas = status daquela etapa ──────────────────────
 
-function StatusKanban({ stageId, rows, onMove }: { stageId: string; rows: IndexRow[]; onMove: (rowId: string, stage: string, toStatus: string) => void }) {
+function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows: IndexRow[]; onMove: (rowId: string, stage: string, toStatus: string) => void; props: ResolvedCardProp[] }) {
   const router = useRouter()
   const [dragId, setDragId] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
@@ -567,6 +605,7 @@ function StatusKanban({ stageId, rows, onMove }: { stageId: string; rows: IndexR
                 {items.map(r => (
                   <KanbanCard
                     key={r.id}
+                    props={props}
                     kindKey={stageId === 'projeto' ? r.projectKind : null}
                     dragging={dragId === r.id}
                     onDragStart={(e) => { e.dataTransfer.setData('text/plain', r.id); e.dataTransfer.effectAllowed = 'move'; setDragId(r.id) }}
@@ -587,14 +626,72 @@ function StatusKanban({ stageId, rows, onMove }: { stageId: string; rows: IndexR
   )
 }
 
-function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd }: {
+function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd, props }: {
   r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null
   dragging?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void
+  props: ResolvedCardProp[]
 }) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
   const name = r.title || r.clientName || '—'
   const due = dueState(r, localYmd())
+
+  // Cada propriedade devolve seu pedaço (ou nada); a ordem é a do usuário.
+  const parts = props.filter(p => p.visible).map(p => {
+    switch (p.key) {
+      case 'number':
+        return <span key="number" className="text-[10px] font-mono text-gray-400">#{r.number}</span>
+      case 'client':
+        return r.title && r.clientName
+          ? <span key="client" className="text-xs text-gray-500 truncate max-w-full">{r.clientName}</span>
+          : null
+      case 'priority':
+        return r.priority !== 'normal' && priorityC
+          ? <span key="priority" className={cn('text-[10px] font-medium px-1.5 py-px rounded', priorityC.bg, priorityC.text)}>
+              {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
+            </span>
+          : null
+      case 'value':
+        return r.quotedValue != null
+          ? <span key="value" className="text-[11px] font-medium text-gray-700">{formatCurrency(r.quotedValue)}</span>
+          : null
+      case 'team':
+        return <TeamStack key="team" team={team ?? r.team} size={20} />
+      case 'days':
+        return <span key="days" className="text-[11px] text-gray-400">{days}d</span>
+      case 'due':
+        return due === 'overdue'
+          ? <span key="due" className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-red-50 text-red-700" title="Há algo em aberto com data vencida">
+              <AlertTriangle className="w-3 h-3" /> Atrasada
+            </span>
+          : due === 'today'
+            ? <span key="due" className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-amber-50 text-amber-800" title="Há algo marcado para hoje">
+                <CalendarClock className="w-3 h-3" /> Hoje
+              </span>
+            : null
+      case 'kind':
+        return kindKey && PROJECT_KIND[kindKey]
+          ? <span key="kind" className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[kindKey].bg, PROJECT_KIND[kindKey].text)}>
+              {PROJECT_KIND[kindKey].label}
+            </span>
+          : null
+      case 'category':
+        return r.category
+          ? <span key="category" className="text-[10px] font-medium px-1.5 py-px rounded bg-gray-100 text-gray-600">
+              {CATEGORY_LABEL[r.category as keyof typeof CATEGORY_LABEL] ?? r.category}
+            </span>
+          : null
+      case 'size':
+        return r.size
+          ? <span key="size" className="text-[10px] font-medium px-1.5 py-px rounded bg-gray-100 text-gray-600">
+              {SIZE_LABEL[r.size as keyof typeof SIZE_LABEL] ?? r.size}
+            </span>
+          : null
+      default:
+        return null
+    }
+  }).filter(Boolean)
+
   return (
     <article
       onClick={onClick}
@@ -608,47 +705,105 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
       )}
       style={{ borderLeftColor: stageColor }}
     >
-      <div className="flex items-baseline gap-2">
-        <span className="shrink-0 text-[10px] font-mono text-gray-400">#{r.number}</span>
-        <span className="flex-1 min-w-0 truncate text-sm text-gray-900 font-medium" title={name}>{name}</span>
-        <span className="shrink-0 text-[11px] text-gray-400">{days}d</span>
-      </div>
-      {r.title && r.clientName && (
-        <p className="text-xs text-gray-500 truncate mt-0.5">{r.clientName}</p>
+      <span className="block truncate text-sm text-gray-900 font-medium" title={name}>{name}</span>
+      {parts.length > 0 && (
+        <div className="mt-1.5 flex items-center gap-x-2 gap-y-1 flex-wrap">{parts}</div>
       )}
-
-      {/* Linha de badges + valor sempre visível */}
-      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-        {due === 'overdue' && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-red-50 text-red-700" title="Há algo em aberto com data vencida">
-            <AlertTriangle className="w-3 h-3" /> Atrasada
-          </span>
-        )}
-        {due === 'today' && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-amber-50 text-amber-800" title="Há algo marcado para hoje">
-            <CalendarClock className="w-3 h-3" /> Hoje
-          </span>
-        )}
-        {kindKey && PROJECT_KIND[kindKey] && (
-          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[kindKey].bg, PROJECT_KIND[kindKey].text)}>
-            {PROJECT_KIND[kindKey].label}
-          </span>
-        )}
-        {r.priority !== 'normal' && priorityC && (
-          <span className={cn('text-[10px] font-medium px-1.5 py-px rounded border', priorityC.bg, priorityC.text, 'border-transparent')}>
-            {PRIORITY_LABEL[r.priority as keyof typeof PRIORITY_LABEL] ?? r.priority}
-          </span>
-        )}
-        {r.quotedValue != null && (
-          <span className="ml-auto text-[11px] font-medium text-gray-600">{formatCurrency(r.quotedValue)}</span>
-        )}
-      </div>
-
-      {/* Responsáveis — rodapé */}
-      <div className="mt-1.5 flex items-center justify-between">
-        <TeamStack team={team ?? r.team} size={20} />
-      </div>
     </article>
+  )
+}
+
+// ── Propriedades: mostrar/ocultar (olho) e reordenar ─────────────────────────
+
+function PropertiesMenu({ scopeLabel, props, onChange }: { scopeLabel: string; props: ResolvedCardProp[]; onChange: (next: ResolvedCardProp[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  const hiddenCount = props.filter(p => !p.visible).length
+
+  function toggle(key: string) {
+    onChange(props.map(p => (p.key === key ? { ...p, visible: !p.visible } : p)))
+  }
+  function move(from: number, to: number) {
+    if (to < 0 || to >= props.length || from === to) return
+    const next = [...props]
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    onChange(next)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        title="Escolher quais propriedades aparecem nos cartões e em que ordem"
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-medium transition-colors',
+          open ? 'border-brand-400 text-brand-700' : 'border-surface-border text-gray-600 hover:text-gray-900',
+        )}
+      >
+        <SlidersHorizontal className="w-3.5 h-3.5" /> Propriedades
+        {hiddenCount > 0 && <span className="text-[10px] rounded-full bg-gray-100 text-gray-500 px-1.5">{hiddenCount} oculta{hiddenCount > 1 ? 's' : ''}</span>}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 z-30 w-72 rounded-xl border border-surface-border bg-white shadow-xl">
+          <div className="px-3 py-2.5 border-b border-gray-100">
+            <p className="text-xs font-semibold text-gray-800">Propriedades dos cartões</p>
+            <p className="text-[11px] text-gray-400">{scopeLabel} · salvo para você</p>
+          </div>
+          <ul className="py-1 max-h-80 overflow-y-auto">
+            {props.map((p, i) => (
+              <li
+                key={p.key}
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('text/plain', p.key); e.dataTransfer.effectAllowed = 'move'; setDragKey(p.key) }}
+                onDragOver={e => { if (dragKey) e.preventDefault() }}
+                onDrop={e => {
+                  e.preventDefault()
+                  const from = props.findIndex(x => x.key === dragKey)
+                  setDragKey(null)
+                  if (from >= 0) move(from, i)
+                }}
+                onDragEnd={() => setDragKey(null)}
+                className={cn('flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50', dragKey === p.key && 'opacity-40')}
+              >
+                <GripVertical className="w-3.5 h-3.5 text-gray-300 cursor-grab shrink-0" />
+                <span className={cn('flex-1 text-sm', p.visible ? 'text-gray-800' : 'text-gray-400')}>{p.label}</span>
+                <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Subir ${p.label}`}
+                  className="p-1 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowUp className="w-3.5 h-3.5" /></button>
+                <button type="button" onClick={() => move(i, i + 1)} disabled={i === props.length - 1} aria-label={`Descer ${p.label}`}
+                  className="p-1 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowDown className="w-3.5 h-3.5" /></button>
+                <button
+                  type="button"
+                  onClick={() => toggle(p.key)}
+                  aria-label={p.visible ? `Ocultar ${p.label}` : `Mostrar ${p.label}`}
+                  aria-pressed={p.visible}
+                  className={cn('p-1 rounded', p.visible ? 'text-brand-600 hover:bg-brand-50' : 'text-gray-300 hover:bg-gray-100')}
+                >
+                  {p.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="px-3 py-2 border-t border-gray-100 text-[11px] text-gray-400">
+            Cada etapa tem a sua configuração. O título do cartão sempre aparece.
+          </p>
+        </div>
+      )}
+    </div>
   )
 }
 
