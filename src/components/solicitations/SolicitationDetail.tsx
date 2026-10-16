@@ -37,6 +37,7 @@ import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/componen
 import { avatarColor } from '@/lib/avatar-color'
 import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/StageRecords'
 import { StageResponsibles } from '@/components/solicitations/StageResponsibles'
+import { StageLinks } from '@/components/solicitations/StageLinks'
 import { Select } from '@/components/ui/Select'
 
 type Team = SolicitationView['team']
@@ -195,14 +196,23 @@ export function SolicitationDetail({
   function withResponsibles(stage: string, stageLabel: string, content: React.ReactNode) {
     return (
       <>
-        <div className="flex items-center justify-between gap-2 mb-3 -mt-1 flex-wrap">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Responsáveis desta etapa</span>
-          <StageResponsibles
+        <div className="flex items-start justify-between gap-x-4 gap-y-2 mb-3 -mt-1 flex-wrap">
+          <StageLinks
             solicitationId={sid}
             stage={stage}
             stageLabel={stageLabel}
-            responsibles={solicitation.stageResponsibles[stage] ?? []}
+            clientId={solicitation.clientId}
+            links={solicitation.stageLinks[stage] ?? []}
           />
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Responsáveis</span>
+            <StageResponsibles
+              solicitationId={sid}
+              stage={stage}
+              stageLabel={stageLabel}
+              responsibles={solicitation.stageResponsibles[stage] ?? []}
+            />
+          </div>
         </div>
         {content}
       </>

@@ -37,6 +37,28 @@ export type SolicitationEvent = {
   authorAvatarUrl: string | null
 }
 
+export type CrmConversationOption = {
+  id: string
+  instanceLabel: string
+  phone: string | null
+  contactName: string | null
+  assignedName: string | null
+  lastAt: string | null
+  lastBody: string | null
+  lastDirection: 'inbound' | 'outbound' | null
+  lastType: string | null
+}
+
+export type StageLink = {
+  id: string
+  kind: 'contact' | 'conversation'
+  refId: string
+  label: string
+  sublabel: string | null
+  phone: string | null
+  href: string | null
+}
+
 export type StageFileStage = 'visita' | 'projeto' | 'orcamento' | 'compra' | 'expedicao' | 'instalacao' | 'posVenda'
 
 async function requireUser() {
@@ -123,6 +145,8 @@ export type SolicitationView = {
   events: SolicitationEvent[]
   // Usuários distintos que criaram registros desta Solicitação (created_by).
   team: { id: string; name: string; avatar_color: string | null; avatar_url: string | null }[]
+  // Contatos e conversas do CRM ligados a cada etapa (chave = stage id).
+  stageLinks: Record<string, StageLink[]>
   // Responsáveis designados por etapa (chave = stage id).
   stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
@@ -188,6 +212,36 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       ;(stageRespMap[row.stage] ??= []).push({
         id: u.id, name: u.name, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null,
       })
+    }
+  } catch {}
+
+  // Contatos/conversas ligados às etapas. Conversas são lidas com a sessão do
+  // próprio usuário: o RLS do CRM esconde as privadas/restritas.
+  const stageLinks: Record<string, StageLink[]> = {}
+  try {
+    const { data: links } = await db
+      .from('solicitation_stage_links')
+      .select('id, stage, kind, ref_id')
+      .eq('solicitation_id', id)
+      .order('created_at', { ascending: true })
+    const rows = (links ?? []) as any[]
+    const contactIds = rows.filter(l => l.kind === 'contact').map(l => l.ref_id)
+    const convIds = rows.filter(l => l.kind === 'conversation').map(l => l.ref_id)
+    const [{ data: cs }, convInfo] = await Promise.all([
+      contactIds.length ? db.from('contacts').select('id, name, phone').in('id', contactIds) : Promise.resolve({ data: [] as any[] }),
+      convIds.length ? resolveConversationLabels(convIds) : Promise.resolve(new Map<string, { label: string; sublabel: string | null; phone: string | null }>()),
+    ])
+    const contactById = new Map<string, any>((cs ?? []).map((c: any) => [c.id, c]))
+    for (const l of rows) {
+      let item: StageLink | null = null
+      if (l.kind === 'contact') {
+        const c = contactById.get(l.ref_id)
+        if (c) item = { id: l.id, kind: 'contact', refId: l.ref_id, label: c.name, sublabel: c.phone ?? null, phone: c.phone ?? null, href: null }
+      } else {
+        const c = convInfo.get(l.ref_id)
+        if (c) item = { id: l.id, kind: 'conversation', refId: l.ref_id, label: c.label, sublabel: c.sublabel, phone: c.phone, href: `/crm/conversas?c=${l.ref_id}` }
+      }
+      if (item) (stageLinks[l.stage] ??= []).push(item)
     }
   } catch {}
 
@@ -265,6 +319,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     events,
     team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
     stageResponsibles: stageRespMap,
+    stageLinks,
     tabs: {
       visita: (visits ?? []).length > 0,
       projeto: (designProjects ?? []).length > 0,
@@ -968,6 +1023,141 @@ export async function updateQuoteStatusWithCompletion(
   await logSolicitationEvent(solicitationId, 'orcamento', `Orçamento → ${status}`, user.id)
   revalidatePath('/quotes')
   revalidatePath('/dashboard')
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+// ── CRM: conversas do cliente e vínculos das etapas ──────────────────────────
+// Tudo aqui lê o CRM com a sessão do usuário (createClient): as políticas
+// (crm_can_see_conversation) já escondem conversas privadas e restritas.
+
+function jidPhone(jid: string | null): string | null {
+  const d = (jid ?? '').split('@')[0].replace(/\D/g, '')
+  return d ? `+${d}` : null
+}
+
+async function resolveConversationLabels(ids: string[]) {
+  const sb = createClient()
+  const { data: convs } = await sb
+    .from('crm_conversations')
+    .select('id, instance_id, remote_jid, contact_name_cache')
+    .in('id', ids)
+  const instIds = Array.from(new Set((convs ?? []).map((c: any) => c.instance_id)))
+  const { data: insts } = instIds.length
+    ? await sb.from('crm_instances').select('id, label').in('id', instIds)
+    : { data: [] as any[] }
+  const instLabel = new Map<string, string>((insts ?? []).map((i: any) => [i.id, i.label]))
+  const out = new Map<string, { label: string; sublabel: string | null; phone: string | null }>()
+  for (const c of (convs ?? []) as any[]) {
+    const phone = jidPhone(c.remote_jid)
+    out.set(c.id, { label: c.contact_name_cache || phone || 'Conversa', sublabel: instLabel.get(c.instance_id) ?? null, phone })
+  }
+  return out
+}
+
+async function conversationOptions(convs: any[]): Promise<CrmConversationOption[]> {
+  if (convs.length === 0) return []
+  const sb = createClient()
+  const instIds = Array.from(new Set(convs.map(c => c.instance_id)))
+  const userIds = Array.from(new Set(convs.map(c => c.assigned_user_id).filter(Boolean)))
+  const [{ data: insts }, { data: users }, last] = await Promise.all([
+    sb.from('crm_instances').select('id, label').in('id', instIds),
+    userIds.length ? createAdminClient().from('users').select('id, name').in('id', userIds) : Promise.resolve({ data: [] as any[] }),
+    Promise.all(convs.map(c =>
+      sb.from('crm_messages')
+        .select('body, direction, message_type, created_at')
+        .eq('conversation_id', c.id)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(r => r.data as any),
+    )),
+  ])
+  const instLabel = new Map<string, string>((insts ?? []).map((i: any) => [i.id, i.label]))
+  const userName = new Map<string, string>((users ?? []).map((u: any) => [u.id, u.name]))
+  return convs.map((c, i) => {
+    const m = last[i]
+    return {
+      id: c.id,
+      instanceLabel: instLabel.get(c.instance_id) ?? 'WhatsApp',
+      phone: jidPhone(c.remote_jid),
+      contactName: c.contact_name_cache ?? null,
+      assignedName: c.assigned_user_id ? (userName.get(c.assigned_user_id) ?? null) : null,
+      lastAt: m?.created_at ?? c.last_message_at ?? null,
+      lastBody: m?.body ?? null,
+      lastDirection: m?.direction === 'outbound' ? 'outbound' : m?.direction === 'inbound' ? 'inbound' : null,
+      lastType: m?.message_type ?? null,
+    } satisfies CrmConversationOption
+  }).sort((a, b) => String(b.lastAt ?? '').localeCompare(String(a.lastAt ?? '')))
+}
+
+// Conversas do cliente em todos os WhatsApps da empresa que o usuário enxerga.
+// Casa pelo contato vinculado e, quando não há vínculo, pelo final do telefone.
+export async function getCrmConversationsForClient(clientId: string): Promise<CrmConversationOption[]> {
+  const user = await requireUser()
+  if (!user) return []
+  try {
+    const { data: client } = await createAdminClient().from('contacts').select('phone').eq('id', clientId).maybeSingle()
+    const digits = String(client?.phone ?? '').replace(/\D/g, '')
+    const tail = digits.length >= 8 ? digits.slice(-8) : null
+    let q = createClient()
+      .from('crm_conversations')
+      .select('id, instance_id, remote_jid, contact_name_cache, assigned_user_id, last_message_at')
+    q = tail ? q.or(`contact_id.eq.${clientId},remote_jid.ilike.%${tail}@%`) : q.eq('contact_id', clientId)
+    const { data } = await q.order('last_message_at', { ascending: false }).limit(10)
+    return await conversationOptions((data ?? []) as any[])
+  } catch (e) {
+    console.error('[getCrmConversationsForClient]', e)
+    return []
+  }
+}
+
+// Busca para o seletor de vínculos: contatos (cadastro) e conversas do CRM.
+export async function searchStageLinkTargets(query: string): Promise<{
+  contacts: { id: string; name: string; phone: string | null }[]
+  conversations: { id: string; label: string; sublabel: string | null; phone: string | null }[]
+}> {
+  const user = await requireUser()
+  const q = query.trim()
+  if (!user || q.length < 2) return { contacts: [], conversations: [] }
+  const safe = q.replace(/[%,()]/g, ' ')
+  const digits = q.replace(/\D/g, '')
+  const [{ data: contacts }, { data: convs }] = await Promise.all([
+    createAdminClient().from('contacts').select('id, name, phone').ilike('name', `%${safe}%`).order('name').limit(6),
+    createClient()
+      .from('crm_conversations')
+      .select('id')
+      .or(digits.length >= 4 ? `contact_name_cache.ilike.%${safe}%,remote_jid.ilike.%${digits}%` : `contact_name_cache.ilike.%${safe}%`)
+      .order('last_message_at', { ascending: false })
+      .limit(6),
+  ])
+  const labels = await resolveConversationLabels((convs ?? []).map((c: any) => c.id))
+  return {
+    contacts: (contacts ?? []).map((c: any) => ({ id: c.id, name: c.name, phone: c.phone ?? null })),
+    conversations: Array.from(labels.entries()).map(([id, v]) => ({ id, ...v })),
+  }
+}
+
+export async function addStageLink(solicitationId: string, stage: string, kind: 'contact' | 'conversation', refId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!PREF_SCOPES.includes(stage) || stage === 'all') return { error: 'Etapa inválida' }
+  const { error } = await createAdminClient().from('solicitation_stage_links').upsert(
+    { solicitation_id: solicitationId, stage, kind, ref_id: refId, created_by: user.id },
+    { onConflict: 'solicitation_id,stage,kind,ref_id', ignoreDuplicates: true },
+  )
+  if (error) return { error: error.message }
+  await logSolicitationEvent(solicitationId, stage, kind === 'contact' ? 'Contato vinculado à etapa' : 'Conversa do CRM vinculada à etapa', user.id)
+  refresh(solicitationId)
+  return { ok: true }
+}
+
+export async function removeStageLink(linkId: string, solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('solicitation_stage_links').delete().eq('id', linkId)
+  if (error) return { error: error.message }
   refresh(solicitationId)
   return { ok: true }
 }

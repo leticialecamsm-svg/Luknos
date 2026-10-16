@@ -11,7 +11,7 @@ import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
   MoreHorizontal, Flag, ArrowLeft, Filter, Ruler, Hammer, Flame, Tag, ChevronDown, ChevronUp,
-  ChevronsLeft, ChevronsRight, MapPin, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse,
+  ChevronsLeft, ChevronsRight, MapPin, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, X,
 } from 'lucide-react'
 
 const STAGE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -25,8 +25,9 @@ import {
 } from '@/lib/solicitations/stages'
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationIdForClient, type SolicitationView } from '@/lib/solicitations/actions'
+import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationsForClient, type CrmConversationOption, type SolicitationView } from '@/lib/solicitations/actions'
 import { searchContacts } from '@/lib/actions'
+import { Portal } from '@/components/ui/Portal'
 import { Select } from '@/components/ui/Select'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
@@ -215,6 +216,7 @@ export function SolicitationHero({
   const name = s.clientName ?? 'Cliente'
   const neg = s.negotiations[0]
   const temp = neg?.temperature as keyof typeof TEMPERATURE_LABEL | undefined
+  const heroDeadline = stageDeadline(s, primaryQuote, currentStageId(s))
 
   return (
     <div className="mb-4">
@@ -237,6 +239,20 @@ export function SolicitationHero({
           {doneCount} de {startedCount} etapas concluídas
         </span>
         {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">Arq. {s.architectName}</span>}
+        {heroDeadline && (
+          <button
+            type="button"
+            onClick={() => onSelect(heroDeadline.stage)}
+            className="ml-auto flex items-center gap-2 hover:opacity-80 transition-opacity"
+            title="Prazo da etapa atual"
+          >
+            <Flag className="w-4 h-4 text-brand-500 shrink-0" />
+            <div className="text-left">
+              <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold leading-none mb-0.5">Prazo da etapa atual</p>
+              <p className="text-[13px] font-semibold text-gray-900 leading-none">{formatDate(heroDeadline.date)}</p>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Linha 2: Valor grande à esquerda + status/ações à direita */}
@@ -305,7 +321,7 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
                 key={st.id}
                 type="button"
                 onClick={() => onSelect(st.id)}
-                className="flex-1 min-w-[100px] text-left px-3 py-2.5 transition-shadow hover:opacity-90"
+                className="flex-1 min-w-[96px] text-left px-3 py-2.5 transition-shadow hover:opacity-90"
                 style={{
                   borderRadius: 12,
                   ...(isDone
@@ -315,9 +331,9 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
                     : { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)', color: '#8b94a5', border: '1px dashed #cdd3de' }),
                 }}
               >
-                <div className="flex items-center gap-1.5 w-full">
+                <div className="flex items-start gap-1.5 w-full">
                   {(() => { const Icon = STAGE_ICON[st.id]; return Icon ? <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" /> : null })()}
-                  <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
+                  <span className="text-[11.5px] font-semibold leading-tight">{st.label}</span>
                   {isDone && <Check className="ml-auto shrink-0 w-3 h-3" />}
                   {isCur && <Clock className="ml-auto shrink-0 w-3 h-3" />}
                 </div>
@@ -328,20 +344,6 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
             )
           })}
         </div>
-        {/* Prazo da etapa atual — canto direito da barra */}
-        {deadline && (
-          <button
-            type="button"
-            onClick={() => onSelect(deadline.stage)}
-            className="shrink-0 flex items-center gap-2 pl-3 pr-2 hover:opacity-80 transition-opacity"
-          >
-            <Flag className="w-4 h-4 text-brand-500 shrink-0" />
-            <div className="text-left">
-              <p className="text-[9.5px] uppercase tracking-wide text-gray-400 font-semibold leading-none mb-0.5">Prazo da etapa atual</p>
-              <p className="text-[12.5px] font-semibold text-gray-900 leading-none">{formatDate(deadline.date)}</p>
-            </div>
-          </button>
-        )}
       </div>
 
       {/* Chips — pill com ícone colorido + label + valor, igual ao wireframe */}
@@ -467,24 +469,93 @@ const WORK_STAGE_OPTIONS = [
   ['delivered', 'Entregue'],
 ] as [string, string][]
 
-// Botão discreto que busca a conversa do CRM pelo contact_id do cliente e,
-// se existir, abre em /crm?open=<id>. Sem conversa, não renderiza nada.
-function CrmLinkButton({ clientId }: { clientId: string }) {
-  const [conversationId, setConversationId] = useState<string | null>(null)
+// WhatsApp do cliente: abre a conversa no CRM. Se o contato tem conversa em
+// mais de um WhatsApp da empresa, mostra as opções (com a última interação de
+// cada uma) para a pessoa identificar de onde está sendo o atendimento.
+// Sem conversa no CRM, cai no wa.me como antes.
+function WhatsAppCrmButton({ clientId, phone }: { clientId: string; phone: string | null }) {
+  const router = useRouter()
+  const [convs, setConvs] = useState<CrmConversationOption[] | null>(null)
+  const [open, setOpen] = useState(false)
+
   useEffect(() => {
-    getCrmConversationIdForClient(clientId).then(r => setConversationId(r.conversationId))
+    let alive = true
+    getCrmConversationsForClient(clientId).then(r => { if (alive) setConvs(r) }).catch(() => { if (alive) setConvs([]) })
+    return () => { alive = false }
   }, [clientId])
-  if (!conversationId) return null
+
+  if (!phone && !(convs && convs.length)) return null
+
+  const go = (id: string) => { setOpen(false); router.push(`/crm/conversas?c=${id}`) }
+  function click() {
+    if (convs && convs.length === 1) return go(convs[0].id)
+    if (convs && convs.length > 1) return setOpen(true)
+    if (phone) window.open(waLink(phone), '_blank', 'noopener,noreferrer')
+  }
+  const title = !convs
+    ? 'WhatsApp'
+    : convs.length > 1 ? `Conversas no CRM (${convs.length} WhatsApps)`
+    : convs.length === 1 ? 'Abrir a conversa no CRM'
+    : 'WhatsApp (sem conversa no CRM)'
+
   return (
-    <a
-      href={`/crm?open=${conversationId}`}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/80 hover:bg-white border border-green-300/60 text-green-800 transition-colors"
-      title="Abrir conversa do cliente no CRM"
-    >
-      <MessageCircle className="w-3 h-3" /> Conversa CRM
-    </a>
+    <>
+      <button
+        type="button"
+        onClick={click}
+        title={title}
+        aria-label={title}
+        className="relative w-8 h-8 rounded-full bg-white flex items-center justify-center text-navy hover:bg-brand-500 hover:text-white transition-colors shadow-sm"
+      >
+        <MessageCircle className="w-4 h-4" />
+        {convs && convs.length > 1 && (
+          <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-emerald-500 text-white text-[9px] font-bold flex items-center justify-center">
+            {convs.length}
+          </span>
+        )}
+      </button>
+
+      {open && convs && (
+        <Portal>
+          <div className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
+            <div role="dialog" aria-modal="true" aria-label="Escolher conversa" className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Qual conversa abrir?</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Este contato tem conversa em {convs.length} WhatsApps da empresa.</p>
+                </div>
+                <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+              </div>
+              <ul className="mt-3 space-y-2 max-h-[60vh] overflow-y-auto">
+                {convs.map(c => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => go(c.id)}
+                      className="w-full text-left rounded-xl border border-surface-border hover:border-brand-400 hover:bg-brand-50/40 px-3 py-2.5 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-navy truncate">{c.instanceLabel}</span>
+                        {c.phone && <span className="text-[11px] text-gray-400 shrink-0">{c.phone}</span>}
+                        {c.lastAt && (
+                          <span className="ml-auto text-[11px] text-gray-400 shrink-0" title="Última interação">{formatRelativeWithTime(c.lastAt)}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1 truncate">
+                        {c.lastBody
+                          ? <><span className="text-gray-400">{c.lastDirection === 'outbound' ? 'Nós: ' : 'Cliente: '}</span>{c.lastBody}</>
+                          : <span className="text-gray-400 italic">{c.lastType ? `[${c.lastType}]` : 'Sem mensagens'}</span>}
+                      </p>
+                      {c.assignedName && <p className="text-[11px] text-gray-400 mt-0.5">Atendente: {c.assignedName}</p>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Portal>
+      )}
+    </>
   )
 }
 
@@ -679,10 +750,9 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
           </div>
         )}
         <div className="flex items-center gap-2 pt-1 flex-wrap">
-          {s.clientPhone && <RoundAction href={waLink(s.clientPhone)} title="WhatsApp" icon={MessageCircle} external />}
+          <WhatsAppCrmButton clientId={s.clientId} phone={s.clientPhone} />
           {s.clientPhone && <RoundAction href={`tel:${s.clientPhone.replace(/[^\d+]/g, '')}`} title="Ligar" icon={Phone} />}
           {s.clientEmail && <RoundAction href={`mailto:${s.clientEmail}`} title="Enviar e-mail" icon={Mail} />}
-          <CrmLinkButton clientId={s.clientId} />
           <DriveFolderButton solicitationId={s.id} />
         </div>
       </div>
