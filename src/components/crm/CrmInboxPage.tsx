@@ -712,6 +712,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // acompanha o contato — só assim o WhatsApp manda o "digitando…" dele. Renova a cada 20 s (o WhatsApp derruba o "online" se ficar muito tempo sem aviso);
   // ao esconder a aba, trocar de conversa ou sair, volta para offline.
   const watchOff = useRef<{ timer?: ReturnType<typeof setTimeout>; instance?: string | null }>({})
+  const watchViewer = useRef(Math.random().toString(36).slice(2) + Date.now().toString(36)) // uma por aba
   useEffect(() => {
     if (!selectedId) return
     const cid = selectedId
@@ -719,7 +720,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     // trocou para outra conversa do MESMO número: o "offline" da anterior nem sai (senão poderia
     // chegar depois do "online" desta)
     if (watchOff.current.timer && watchOff.current.instance === instance) clearTimeout(watchOff.current.timer)
-    const post = (online: boolean) => fetch('/api/crm/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ c: cid, online }), keepalive: true }).catch(() => {})
+    const post = (online: boolean) => fetch('/api/crm/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ c: cid, online, v: watchViewer.current }), keepalive: true }).catch(() => {})
     let on = false
     const sync = () => {
       const visible = document.visibilityState === 'visible'

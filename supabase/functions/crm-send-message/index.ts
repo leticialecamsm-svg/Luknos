@@ -16,6 +16,8 @@ interface Payload {
   action?: 'send' | 'delete' | 'edit' | 'fetch_media' | 'react' | 'send_contact' | 'send_sticker' | 'group_participants' | 'resolve_number' | 'presence' | 'webhook_presence' | 'watch' | 'sync_edits'
   // watch: true = o CRM está com a conversa aberta e à vista (fica online e acompanha o contato)
   online?: boolean
+  // watch: identifica a aba (várias abas/atendentes podem acompanhar o mesmo número)
+  viewer?: string
   // "digitando…" para o contato: composing | recording | paused
   presence?: string
   // webhook_presence: false = só mostra a configuração atual; true = liga o evento PRESENCE_UPDATE
@@ -457,7 +459,7 @@ async function sendPresence(payload: Payload) {
   const db = createServiceClient()
   const { data: conv } = await db
     .from('crm_conversations')
-    .select('remote_jid, crm_instances(instance_name)')
+    .select('remote_jid, instance_id, crm_instances(instance_name)')
     .eq('id', payload.conversation_id)
     .maybeSingle()
   const instanceName = (conv as any)?.crm_instances?.instance_name as string | undefined
@@ -480,20 +482,32 @@ async function watchConversation(payload: Payload) {
   const db = createServiceClient()
   const { data: conv } = await db
     .from('crm_conversations')
-    .select('remote_jid, crm_instances(instance_name)')
+    .select('remote_jid, instance_id, crm_instances(instance_name)')
     .eq('id', payload.conversation_id)
     .maybeSingle()
   const instanceName = (conv as any)?.crm_instances?.instance_name as string | undefined
   if (!conv || !instanceName) return { ok: false, error: 'conversation_not_found' }
+  const instanceId = (conv as any).instance_id as string
+  const viewer = payload.viewer || 'anon'
   const task = (async () => {
+    let online = !!payload.online
+    if (online) {
+      await db.from('crm_watch').upsert({ instance_id: instanceId, viewer, seen_at: new Date().toISOString() }, { onConflict: 'instance_id,viewer' })
+    } else {
+      await db.from('crm_watch').delete().eq('instance_id', instanceId).eq('viewer', viewer)
+      // outra aba/atendente ainda acompanha este número (batimento nos últimos 60 s): continua online
+      const since = new Date(Date.now() - 60_000).toISOString()
+      const { count } = await db.from('crm_watch').select('viewer', { count: 'exact', head: true }).eq('instance_id', instanceId).gt('seen_at', since)
+      if ((count ?? 0) > 0) return
+    }
     const r = await evolutionFetch(`/instance/setPresence/${instanceName}`, {
       method: 'POST',
-      body: JSON.stringify({ presence: payload.online ? 'available' : 'unavailable' }),
+      body: JSON.stringify({ presence: online ? 'available' : 'unavailable' }),
     })
     if (!r.ok) console.warn('setPresence falhou', r.status, (await r.text().catch(() => '')).slice(0, 200))
     // acompanhar o contato (presenceSubscribe): a Evolution faz isso ao mandar um aviso de presença;
     // "paused" não aparece para o contato
-    if (payload.online && !conv.remote_jid.endsWith('@g.us')) {
+    if (online && !conv.remote_jid.endsWith('@g.us')) {
       const s = await evolutionFetch(`/chat/sendPresence/${instanceName}`, {
         method: 'POST',
         body: JSON.stringify({ number: targetNumber(conv.remote_jid), presence: 'paused', delay: 0 }),
