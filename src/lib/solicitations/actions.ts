@@ -1162,6 +1162,98 @@ export async function removeStageLink(linkId: string, solicitationId: string): P
   return { ok: true }
 }
 
+// ── Excluir a Solicitação ─────────────────────────────────────────────────────
+// O banco bloqueia (NO ACTION) excluir solicitação que ainda tem registros, e
+// excluir um orçamento cascateia para comissões e lançamentos financeiros. Por
+// isso a exclusão é feita aqui, em ordem, e RECUSADA quando há venda fechada,
+// comissão, lançamento financeiro, nota fiscal ou lançamento do Metropolitano.
+
+export type SolicitationDeleteImpact = {
+  canDelete: boolean
+  // por que não pode (venda fechada, financeiro...) ou por que a pessoa não tem permissão
+  blockers: string[]
+  counts: { orcamentos: number; negociacoes: number; visitas: number; projetos: number; compras: number; expedicoes: number; instalacoes: number; posVenda: number }
+}
+
+async function computeDeleteImpact(solicitationId: string, userId: string): Promise<SolicitationDeleteImpact & { number?: number }> {
+  const db = createAdminClient()
+  const [sol, quotes, negs, visits, projects, purchases, ships, installs, posts, me] = await Promise.all([
+    db.from('solicitations').select('id, number, created_by').eq('id', solicitationId).maybeSingle(),
+    db.from('quotes').select('id').eq('solicitation_id', solicitationId),
+    db.from('negotiations').select('quote_id, temperature').eq('solicitation_id', solicitationId),
+    db.from('visits').select('id').eq('solicitation_id', solicitationId),
+    db.from('design_projects').select('id').eq('solicitation_id', solicitationId),
+    db.from('purchase_checklist_items').select('id').eq('solicitation_id', solicitationId),
+    db.from('shipments').select('id').eq('solicitation_id', solicitationId),
+    db.from('installation_trackings').select('id').eq('solicitation_id', solicitationId),
+    db.from('post_sale_followups').select('id').eq('solicitation_id', solicitationId),
+    db.from('users').select('role').eq('id', userId).maybeSingle(),
+  ])
+  const counts = {
+    orcamentos: (quotes.data ?? []).length,
+    negociacoes: (negs.data ?? []).length,
+    visitas: (visits.data ?? []).length,
+    projetos: (projects.data ?? []).length,
+    compras: (purchases.data ?? []).length,
+    expedicoes: (ships.data ?? []).length,
+    instalacoes: (installs.data ?? []).length,
+    posVenda: (posts.data ?? []).length,
+  }
+  const blockers: string[] = []
+  if (!sol.data) return { canDelete: false, blockers: ['Solicitação não encontrada.'], counts }
+
+  const isAdmin = me.data?.role === 'admin'
+  if (!isAdmin && sol.data.created_by !== userId) {
+    blockers.push('Só quem criou a solicitação ou um administrador pode excluí-la.')
+  }
+  if ((negs.data ?? []).some((n: any) => n.temperature === 'closed')) {
+    blockers.push('Há uma venda fechada. Cancele a venda na aba Negociação antes de excluir.')
+  }
+  const quoteIds = (quotes.data ?? []).map((q: any) => q.id)
+  if (quoteIds.length) {
+    const head = (table: string) => db.from(table).select('id', { count: 'exact', head: true }).in('quote_id', quoteIds)
+    const [fin, com, fis, met] = await Promise.all([head('finance_entries'), head('commissions'), head('fiscal_documents'), head('metropolitano_launches')])
+    if ((fin.count ?? 0) > 0) blockers.push('Há lançamentos financeiros ligados ao orçamento.')
+    if ((com.count ?? 0) > 0) blockers.push('Há comissões geradas para o orçamento.')
+    if ((fis.count ?? 0) > 0) blockers.push('Há nota fiscal emitida para o orçamento.')
+    if ((met.count ?? 0) > 0) blockers.push('Há lançamento do Metropolitano ligado ao orçamento.')
+  }
+  return { canDelete: blockers.length === 0, blockers, counts, number: sol.data.number }
+}
+
+export async function getSolicitationDeleteImpact(solicitationId: string): Promise<SolicitationDeleteImpact> {
+  const user = await requireUser()
+  if (!user) return { canDelete: false, blockers: ['Não autenticado'], counts: { orcamentos: 0, negociacoes: 0, visitas: 0, projetos: 0, compras: 0, expedicoes: 0, instalacoes: 0, posVenda: 0 } }
+  const { number: _n, ...impact } = await computeDeleteImpact(solicitationId, user.id)
+  return impact
+}
+
+export async function deleteSolicitation(solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  // Recalcula no servidor: não confia no que a tela mostrou.
+  const impact = await computeDeleteImpact(solicitationId, user.id)
+  if (!impact.canDelete) return { error: impact.blockers[0] ?? 'Não é possível excluir esta solicitação.' }
+
+  const db = createAdminClient()
+  // Ordem importa: design_projects.quote_id é NO ACTION, então projetos e
+  // demais registros saem antes dos orçamentos; o orçamento leva negociação,
+  // propostas, anexos e expedição por cascata.
+  for (const table of ['visits', 'design_projects', 'purchase_checklist_items', 'installation_trackings', 'post_sale_followups', 'shipments', 'negotiations', 'quotes']) {
+    const { error } = await db.from(table).delete().eq('solicitation_id', solicitationId)
+    if (error) return { error: `Não foi possível excluir (${table}): ${error.message}` }
+  }
+  const { error } = await db.from('solicitations').delete().eq('id', solicitationId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/solicitacoes')
+  revalidatePath('/quotes')
+  revalidatePath('/negotiations')
+  revalidatePath('/shipping')
+  revalidatePath('/dashboard')
+  return { ok: true }
+}
+
 // ── Preferências de propriedades do quadro (por usuário e escopo) ───────────
 
 const PREF_SCOPES = ['all', 'visita', 'projeto', 'orcamento', 'negociacao', 'compra', 'expedicao', 'instalacao', 'posVenda']

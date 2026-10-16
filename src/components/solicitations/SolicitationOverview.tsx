@@ -11,7 +11,7 @@ import {
   Check, Clock, Lock, Phone, Mail, MessageCircle, FolderOpen, User, Users, Compass, Pencil,
   Timer, CalendarDays, Thermometer, ArrowRightCircle, History, Plus, Loader2, Bot, StickyNote,
   MoreHorizontal, Flag, ArrowLeft, Filter, Ruler, Hammer, Flame, Tag, ChevronDown, ChevronUp,
-  ChevronsLeft, ChevronsRight, MapPin, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, X,
+  ChevronsLeft, ChevronsRight, MapPin, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, X, Trash2,
 } from 'lucide-react'
 
 const STAGE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -25,9 +25,11 @@ import {
 } from '@/lib/solicitations/stages'
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
-import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationsForClient, type CrmConversationOption, type SolicitationView } from '@/lib/solicitations/actions'
+import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationsForClient, getSolicitationDeleteImpact, deleteSolicitation, type CrmConversationOption, type SolicitationView } from '@/lib/solicitations/actions'
 import { searchContacts } from '@/lib/actions'
 import { Portal } from '@/components/ui/Portal'
+import { useConfirm } from '@/components/ui/useConfirm'
+import { useToast } from '@/components/ui/Toast'
 import { Select } from '@/components/ui/Select'
 
 export function InitialsAvatar({ seed, name, url, size = 56, square = false }: { seed: string; name: string; url?: string | null; size?: number; square?: boolean }) {
@@ -168,7 +170,11 @@ function BigNumber({ s, primaryQuote }: { s: SolicitationView; primaryQuote: any
 // Dispara eventos custom window para o DetailsCard reagir (abrir em modo
 // edição, scrollar até a seção da equipe).
 function HeroActionsMenu({ s }: { s: SolicitationView }) {
+  const router = useRouter()
+  const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -182,6 +188,40 @@ function HeroActionsMenu({ s }: { s: SolicitationView }) {
   function editDetails() {
     setOpen(false)
     window.dispatchEvent(new CustomEvent('solicitation:edit-details'))
+  }
+
+  // Mostra o que será apagado e só segue se o servidor não vir impedimento
+  // (venda fechada, financeiro, nota fiscal...). O servidor confere de novo.
+  async function removeSolicitation() {
+    setOpen(false)
+    setDeleting(true)
+    try {
+      const impact = await getSolicitationDeleteImpact(s.id)
+      if (!impact.canDelete) {
+        toast.error('NÃO É POSSÍVEL EXCLUIR', impact.blockers.join(' '))
+        return
+      }
+      const c = impact.counts
+      const parts = [
+        [c.orcamentos, 'orçamento', 'orçamentos'], [c.negociacoes, 'negociação', 'negociações'],
+        [c.visitas, 'visita', 'visitas'], [c.projetos, 'projeto', 'projetos'],
+        [c.compras, 'item de compra', 'itens de compra'], [c.expedicoes, 'separação/entrega', 'separações/entregas'],
+        [c.instalacoes, 'instalação', 'instalações'], [c.posVenda, 'contato de pós-venda', 'contatos de pós-venda'],
+      ].filter(([n]) => (n as number) > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
+      const what = parts.length ? `Isso apaga também: ${parts.join(', ')}.` : 'Ela não tem registros nas etapas.'
+      const yes = await confirm(
+        `Excluir a solicitação #${s.number} (${s.title || s.clientName || 'sem nome'})? ${what} Histórico, responsáveis e vínculos também somem. Arquivos no Drive não são apagados. Não dá para desfazer.`,
+        'Excluir solicitação',
+      )
+      if (!yes) return
+      const res = await deleteSolicitation(s.id)
+      if (res.error) { toast.error('NÃO FOI POSSÍVEL EXCLUIR', res.error); return }
+      toast.success('SOLICITAÇÃO EXCLUÍDA', `#${s.number} foi removida.`)
+      router.push('/solicitacoes')
+      router.refresh()
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -204,8 +244,14 @@ function HeroActionsMenu({ s }: { s: SolicitationView }) {
           <p className="px-3 py-2 text-[10.5px] text-gray-400 italic">
             Para gerenciar a equipe envolvida, abra o card Detalhes (ela aparece conforme quem registra ações).
           </p>
+          <div className="my-1 border-t border-gray-100" />
+          <button type="button" onClick={removeSolicitation} disabled={deleting}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left disabled:opacity-50">
+            <Trash2 className="w-3.5 h-3.5" /> Excluir solicitação
+          </button>
         </div>
       )}
+      {ConfirmDialog}
     </div>
   )
 }
