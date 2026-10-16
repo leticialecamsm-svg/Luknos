@@ -28,6 +28,9 @@ export type IndexRow = {
   status: 'in_progress' | 'closed' | 'lost'
   currentStage: string | null
   team: TeamUser[]
+  // status do registro mais recente de cada etapa que a solicitação possui
+  stageStatus: Record<string, string>
+  teamByStage: Record<string, TeamUser[]>
 }
 
 // Cor por etapa — a mesma linha de cores dos cards do hub (grade de "Etapas").
@@ -41,6 +44,62 @@ const STAGE_PILLS: { id: string; label: string; color: string }[] = [
   { id: 'instalacao', label: 'Instalação',           color: '#3b82f6' }, // blue
   { id: 'posVenda',   label: 'Pós-venda',            color: '#3b82f6' },
 ]
+
+
+// Colunas do kanban de cada etapa = lista de status DAQUELA etapa (os mesmos
+// das telas atuais: Orçamentos, Negociações, Expedição, etc.).
+type StatusCol = { key: string; label: string; color: string }
+const STAGE_STATUSES: Record<string, StatusCol[]> = {
+  visita: [
+    { key: 'to_schedule', label: 'A agendar',      color: '#9ca3af' },
+    { key: 'scheduled',   label: 'Agendada',       color: '#3b82f6' },
+    { key: 'done',        label: 'Realizada',      color: '#22c55e' },
+    { key: 'not_needed',  label: 'Não necessária', color: '#d1d5db' },
+  ],
+  projeto: [
+    { key: 'fila',         label: 'Na fila',      color: '#9ca3af' },
+    { key: 'em_andamento', label: 'Em andamento', color: '#f59e0b' },
+    { key: 'concluido',    label: 'Concluído',    color: '#22c55e' },
+  ],
+  orcamento: [
+    { key: 'queue',       label: 'Na fila',                color: '#3b82f6' },
+    { key: 'in_progress', label: 'Em andamento',           color: '#f59e0b' },
+    { key: 'review',      label: 'Revisão',                color: '#a855f7' },
+    { key: 'revision',    label: 'Elaborando nova versão', color: '#ec4899' },
+    { key: 'paused',      label: 'Pausado',                color: '#9ca3af' },
+    { key: 'done',        label: 'Concluído',              color: '#22c55e' },
+  ],
+  negociacao: [
+    { key: 'no_forecast', label: 'Sem previsão',  color: '#9ca3af' },
+    { key: 'cold',        label: 'Frio',          color: '#38bdf8' },
+    { key: 'warm',        label: 'Morno',         color: '#f59e0b' },
+    { key: 'hot',         label: 'Quente',        color: '#ef4444' },
+    { key: 'closed',      label: 'Venda fechada', color: '#22c55e' },
+    { key: 'lost',        label: 'Perdida',       color: '#6b7280' },
+  ],
+  compra: [
+    { key: 'a_pedir',  label: 'A pedir',  color: '#9ca3af' },
+    { key: 'pedido',   label: 'Pedido',   color: '#f59e0b' },
+    { key: 'recebido', label: 'Recebido', color: '#22c55e' },
+  ],
+  expedicao: [
+    { key: 'queued',            label: 'Na fila',             color: '#9ca3af' },
+    { key: 'in_progress',       label: 'Em andamento',        color: '#f59e0b' },
+    { key: 'awaiting_material', label: 'Aguardando material', color: '#f97316' },
+    { key: 'completed',         label: 'Concluída',           color: '#22c55e' },
+    { key: 'delivered',         label: 'Entregue/Retirada',   color: '#16a34a' },
+  ],
+  instalacao: [
+    { key: 'agendada',      label: 'Agendada',      color: '#3b82f6' },
+    { key: 'em_andamento',  label: 'Em andamento',  color: '#f59e0b' },
+    { key: 'com_pendencia', label: 'Com pendência', color: '#ef4444' },
+    { key: 'concluida',     label: 'Concluída',     color: '#22c55e' },
+  ],
+  posVenda: [
+    { key: 'em_aberto', label: 'Em aberto', color: '#f59e0b' },
+    { key: 'resolvido', label: 'Resolvido', color: '#22c55e' },
+  ],
+}
 
 // Pill da pipeline, pensada como se TODAS as etapas estivessem preenchidas:
 // gradiente verde "done" por padrão; selecionada = verde mais escuro + borda
@@ -82,8 +141,7 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
   const stageTotals = useMemo(() => {
     const t: Record<string, number> = {}
     for (const r of rows) {
-      if (r.status !== 'in_progress') continue
-      if (r.currentStage) t[r.currentStage] = (t[r.currentStage] ?? 0) + 1
+      for (const stId of Object.keys(r.stageStatus)) t[stId] = (t[stId] ?? 0) + 1
     }
     return t
   }, [rows])
@@ -91,15 +149,19 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
   // Lista de responsáveis para o dropdown
   const allResponsibles = useMemo(() => {
     const seen = new Map<string, TeamUser>()
-    for (const r of rows) for (const u of r.team) if (!seen.has(u.id)) seen.set(u.id, u)
+    for (const r of rows) {
+      const list = stageFilter ? (r.teamByStage[stageFilter] ?? []) : r.team
+      for (const u of list) if (!seen.has(u.id)) seen.set(u.id, u)
+    }
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [rows])
+  }, [rows, stageFilter])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter(r => {
-      if (stageFilter && r.currentStage !== stageFilter) return false
-      if (respFilter && !r.team.some(u => u.id === respFilter)) return false
+      if (stageFilter && r.stageStatus[stageFilter] === undefined) return false
+      const people = stageFilter ? (r.teamByStage[stageFilter] ?? []) : r.team
+      if (respFilter && !people.some(u => u.id === respFilter)) return false
       if (!q) return true
       return (
         (r.title ?? '').toLowerCase().includes(q) ||
@@ -201,9 +263,11 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
       {filtered.length === 0 ? (
         <EmptyState hasFilters={hasFilters} onClear={clearAll} />
       ) : view === 'list' ? (
-        <ListTable rows={filtered} />
+        <ListTable rows={filtered} stageId={stageFilter} />
       ) : (
-        <KanbanBoard rows={filtered} />
+        stageFilter
+          ? <StatusKanban stageId={stageFilter} rows={filtered} />
+          : <KanbanBoard rows={filtered} />
       )}
     </div>
   )
@@ -211,7 +275,7 @@ export function SolicitationsIndex({ rows }: { rows: IndexRow[] }) {
 
 // ── Lista (tabela) ────────────────────────────────────────────────────────────
 
-function ListTable({ rows }: { rows: IndexRow[] }) {
+function ListTable({ rows, stageId }: { rows: IndexRow[]; stageId: string | null }) {
   const router = useRouter()
   return (
     <div className="bg-white rounded-xl border border-surface-border overflow-hidden">
@@ -220,7 +284,7 @@ function ListTable({ rows }: { rows: IndexRow[] }) {
           <tr>
             <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">Nº</th>
             <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">TÍTULO / CLIENTE</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">ETAPA ATUAL</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">{stageId ? 'STATUS' : 'ETAPA ATUAL'}</th>
             <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">RESPONSÁVEIS</th>
             <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">PRIORIDADE</th>
             <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 tracking-wide">ESTEIRA</th>
@@ -244,7 +308,14 @@ function ListTable({ rows }: { rows: IndexRow[] }) {
                   {r.title && r.clientName && <div className="text-xs text-gray-400 truncate max-w-[280px]">{r.clientName}</div>}
                 </td>
                 <td className="px-6 py-3">
-                  {r.currentStage ? (
+                  {stageId ? (() => {
+                    const col = (STAGE_STATUSES[stageId] ?? []).find(c => c.key === r.stageStatus[stageId])
+                    return col ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border" style={{ background: '#f9fafb', borderLeft: `3px solid ${col.color}`, color: '#111827' }}>
+                        {col.label}
+                      </span>
+                    ) : <span className="text-xs text-gray-300">—</span>
+                  })() : r.currentStage ? (
                     <span
                       className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border"
                       style={{
@@ -257,7 +328,7 @@ function ListTable({ rows }: { rows: IndexRow[] }) {
                     </span>
                   ) : <span className="text-xs text-gray-300">—</span>}
                 </td>
-                <td className="px-6 py-3"><TeamStack team={r.team} /></td>
+                <td className="px-6 py-3"><TeamStack team={stageId ? (r.teamByStage[stageId] ?? []) : r.team} /></td>
                 <td className="px-6 py-3">
                   {r.priority !== 'normal' && priorityC ? (
                     <span className={cn('inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold', priorityC.bg, priorityC.text)}>
@@ -339,7 +410,81 @@ function KanbanBoard({ rows }: { rows: IndexRow[] }) {
   )
 }
 
-function KanbanCard({ r, stageColor, onClick }: { r: IndexRow; stageColor: string; onClick: () => void }) {
+
+// ── Kanban de UMA etapa: colunas = status daquela etapa ──────────────────────
+
+function StatusKanban({ stageId, rows }: { stageId: string; rows: IndexRow[] }) {
+  const router = useRouter()
+  const cols = STAGE_STATUSES[stageId] ?? []
+  const stageLabel = STAGE_PILLS.find(s => s.id === stageId)?.label ?? ''
+
+  const byStatus = useMemo(() => {
+    const map: Record<string, IndexRow[]> = {}
+    const known = new Set(cols.map(c => c.key))
+    for (const r of rows) {
+      const raw = r.stageStatus[stageId]
+      // status fora da lista conhecida cai na primeira coluna, para o cartão não sumir
+      const key = raw && known.has(raw) ? raw : cols[0]?.key
+      if (!key) continue
+      ;(map[key] ??= []).push(r)
+    }
+    return map
+  }, [rows, cols, stageId])
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex gap-3 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
+        {cols.map(col => {
+          const items = byStatus[col.key] ?? []
+          if (items.length === 0) {
+            return (
+              <section
+                key={col.key}
+                aria-label={`Coluna ${col.label} (vazia)`}
+                className="w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl bg-gray-50 border border-gray-200"
+                style={{ borderTop: `3px solid ${col.color}` }}
+              >
+                <span className="text-[11px] text-gray-400">0</span>
+                <span className="text-xs font-medium text-gray-500 whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{col.label}</span>
+              </section>
+            )
+          }
+          return (
+            <section
+              key={col.key}
+              aria-label={`Coluna ${col.label}`}
+              className="w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border border-gray-200"
+            >
+              <header
+                className="px-3 py-2 border-b border-gray-200"
+                style={{ borderTop: `3px solid ${col.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-gray-900 truncate" title={col.label}>{col.label}</span>
+                  <span className="text-xs text-gray-500">{items.length}</span>
+                </div>
+              </header>
+              <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+                {items.map(r => (
+                  <KanbanCard
+                    key={r.id}
+                    r={r}
+                    stageColor={col.color}
+                    team={r.teamByStage[stageId] ?? []}
+                    onClick={() => router.push(`/solicitacoes/${r.id}?tab=${stageId}`)}
+                  />
+                ))}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1">Colunas = status da etapa {stageLabel}. Clique no cartão para abrir direto nessa aba.</p>
+    </div>
+  )
+}
+
+function KanbanCard({ r, stageColor, onClick, team }: { r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[] }) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
   const name = r.title || r.clientName || '—'
@@ -372,7 +517,7 @@ function KanbanCard({ r, stageColor, onClick }: { r: IndexRow; stageColor: strin
 
       {/* Responsáveis — rodapé */}
       <div className="mt-1.5 flex items-center justify-between">
-        <TeamStack team={r.team} size={20} />
+        <TeamStack team={team ?? r.team} size={20} />
       </div>
     </article>
   )
