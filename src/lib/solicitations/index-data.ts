@@ -4,71 +4,30 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { pickCurrentStage, STAGES } from '@/lib/solicitations/stages'
+import { isDoneStatus, type IndexRow, type TeamUser } from '@/lib/solicitations/index-types'
 
-export type TeamUser = { id: string; name: string; avatar_url: string | null; avatar_color: string | null }
-
-export type IndexRow = {
-  id: string
-  number: number
-  title: string | null
-  clientName: string | null
-  createdAt: string
-  priority: string
-  category: string | null
-  size: string | null
-  quotedValue: number | null
-  // desfecho da negociação
-  status: 'in_progress' | 'closed' | 'lost'
-  currentStage: string | null
-  team: TeamUser[]
-  // status do registro mais recente de cada etapa que a solicitação possui
-  stageStatus: Record<string, string>
-  // quando o registro mais recente da etapa foi concluído (só se está concluído)
-  stageDoneAt: Record<string, string>
-  // id do registro mais recente de cada etapa (negociação = quote_id)
-  stageRecordId: Record<string, string>
-  teamByStage: Record<string, TeamUser[]>
-  projectKind: string | null
-  overdue: boolean
-  activeStages: number
-  closedAt: string | null
-  isMine: boolean
-}
-
-// Status que contam como "concluído" em cada etapa (alimentam o filtro de mês).
-export const STAGE_DONE_STATUSES: Record<string, string[]> = {
-  visita: ['done', 'not_needed'],
-  projeto: ['concluido'],
-  orcamento: ['done'],
-  negociacao: ['closed', 'lost'],
-  compra: ['recebido'],
-  expedicao: ['completed', 'delivered'],
-  instalacao: ['concluida'],
-  posVenda: ['resolvido'],
-}
-
-export function isDoneStatus(stage: string, status: string): boolean {
-  return (STAGE_DONE_STATUSES[stage] ?? []).includes(status)
-}
+export type { IndexRow, TeamUser } from '@/lib/solicitations/index-types'
 
 type Latest = { stamp: string; status: string; doneAt: string | null; kind: string | null; recordId: string }
 
 export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> {
   const db = createAdminClient()
 
-  const [sol, quotes, negs, visits, projects, purchases, shipments, installs, postSales, resp] = await Promise.all([
+  const since = new Date(Date.now() - 14 * 86_400_000).toISOString()
+  const [sol, quotes, negs, visits, projects, purchases, shipments, installs, postSales, resp, events] = await Promise.all([
     db.from('solicitations')
       .select('id, number, title, created_at, created_by, priority, category, size, client:client_id(name)')
       .order('created_at', { ascending: false }).limit(1000),
     db.from('quotes').select('id, solicitation_id, quoted_value, status, deadline, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
     db.from('negotiations').select('quote_id, solicitation_id, temperature, closed_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('visits').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('visits').select('id, solicitation_id, status, scheduled_at, created_at, updated_at').not('solicitation_id', 'is', null),
     db.from('design_projects').select('id, solicitation_id, status, kind, created_at, updated_at').not('solicitation_id', 'is', null),
     db.from('purchase_checklist_items').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('shipments').select('id, solicitation_id, separation_status, is_completed, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
-    db.from('installation_trackings').select('id, solicitation_id, status, created_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('shipments').select('id, solicitation_id, separation_status, is_completed, delivery_date, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
+    db.from('installation_trackings').select('id, solicitation_id, status, scheduled_date, created_at, updated_at').not('solicitation_id', 'is', null),
     db.from('post_sale_followups').select('id, solicitation_id, resolution, created_at').not('solicitation_id', 'is', null),
     db.from('solicitation_stage_responsibles').select('solicitation_id, stage, user:user_id(id, name, avatar_url, avatar_color)'),
+    db.from('solicitation_events').select('solicitation_id, created_at').gte('created_at', since).order('created_at', { ascending: false }).limit(1000),
   ])
 
   const latest = new Map<string, Record<string, Latest>>()
@@ -94,15 +53,12 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
   }
 
   const quoteAgg = new Map<string, { value: number | null; at: string }>()
-  const overdueSids = new Set<string>()
-  const today = new Date().toISOString().slice(0, 10)
 
   for (const q of (quotes.data ?? []) as any[]) {
     put(q.solicitation_id, 'orcamento', q.id, q.created_at, q.status ?? 'queue', q.completed_at ?? q.updated_at)
     if (q.status === 'done') mark(done, q.solicitation_id, 'orcamento')
     const prev = quoteAgg.get(q.solicitation_id)
     if (!prev || q.created_at > prev.at) quoteAgg.set(q.solicitation_id, { value: q.quoted_value != null ? Number(q.quoted_value) : null, at: q.created_at })
-    if (q.deadline && String(q.deadline).slice(0, 10) < today && q.status !== 'done') overdueSids.add(q.solicitation_id)
   }
   const closedAtBySid = new Map<string, string>()
   for (const n of (negs.data ?? []) as any[]) {
@@ -153,6 +109,33 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
     if (tu.id === userId) mineSids.add(r.solicitation_id)
   }
 
+  // Próximo compromisso em aberto por solicitação
+  const dueBySid = new Map<string, string>()
+  const due = (sid: string, raw: any) => {
+    const d = raw ? String(raw).slice(0, 10) : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return
+    const cur = dueBySid.get(sid)
+    if (!cur || d < cur) dueBySid.set(sid, d)
+  }
+  for (const q of (quotes.data ?? []) as any[]) if (q.status !== 'done') due(q.solicitation_id, q.deadline)
+  for (const v of (visits.data ?? []) as any[]) if (v.status === 'scheduled') due(v.solicitation_id, v.scheduled_at)
+  for (const sh of (shipments.data ?? []) as any[]) if (!sh.is_completed && sh.separation_status !== 'delivered') due(sh.solicitation_id, sh.delivery_date)
+  for (const i of (installs.data ?? []) as any[]) if (i.status !== 'concluida') due(i.solicitation_id, i.scheduled_date)
+
+  // Última movimentação: o mais recente entre registros e eventos do histórico
+  const touchBySid = new Map<string, string>()
+  const touch = (sid: string, ...isos: (string | null | undefined)[]) => {
+    for (const iso of isos) {
+      if (!iso) continue
+      const cur = touchBySid.get(sid)
+      if (!cur || iso > cur) touchBySid.set(sid, iso)
+    }
+  }
+  for (const arr of [quotes.data, negs.data, visits.data, projects.data, purchases.data, shipments.data, installs.data, postSales.data] as any[][]) {
+    for (const r of arr ?? []) touch(r.solicitation_id, r.updated_at, r.created_at, r.completed_at)
+  }
+  for (const e of (events.data ?? []) as any[]) touch(e.solicitation_id, e.created_at)
+
   const order = STAGES.map(s => s.id)
 
   return ((sol.data ?? []) as any[]).map(s => {
@@ -187,7 +170,8 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
       stageRecordId,
       teamByStage: teamByStage.get(s.id) ?? {},
       projectKind: lat.projeto?.kind ?? null,
-      overdue: status === 'in_progress' && overdueSids.has(s.id),
+      nextDue: status === 'lost' ? null : (dueBySid.get(s.id) ?? null),
+      lastActivityAt: touchBySid.get(s.id) ?? s.created_at,
       activeStages,
       closedAt: closedAtBySid.get(s.id) ?? null,
       isMine: s.created_by === userId || mineSids.has(s.id),

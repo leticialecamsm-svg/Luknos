@@ -7,15 +7,20 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
-import { isDoneStatus, type IndexRow, type TeamUser } from '@/lib/solicitations/index-data'
+import { isDoneStatus, dueState, localYmd, type IndexRow, type TeamUser } from '@/lib/solicitations/index-types'
 import { moveStageCardStatus } from '@/lib/solicitations/actions'
 import { useToast } from '@/components/ui/Toast'
 
 export type { IndexRow, TeamUser }
+
+const STAGE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  visita: MapPin, projeto: Ruler, orcamento: FileText, negociacao: HandCoins,
+  compra: ShoppingCart, expedicao: Package, instalacao: Wrench, posVenda: HeartPulse,
+}
 
 const STAGE_PILLS: { id: string; label: string; color: string }[] = [
   { id: 'visita',     label: 'Visita',               color: '#6366f1' }, // indigo
@@ -84,24 +89,6 @@ const STAGE_STATUSES: Record<string, StatusCol[]> = {
   ],
 }
 
-// Pill da pipeline, pensada como se TODAS as etapas estivessem preenchidas:
-// gradiente verde "done" por padrão; selecionada = verde mais escuro + borda
-// 2px pra sinalizar o filtro ativo.
-function pillStyle(selected: boolean): React.CSSProperties {
-  if (selected) {
-    return {
-      background: 'linear-gradient(180deg,#86e4b0,#5bd196)',
-      color: '#064e38',
-      border: '2px solid #0d9f6e',
-      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.45), 0 2px 6px -2px rgba(5,110,70,.35)',
-    }
-  }
-  return {
-    background: 'linear-gradient(180deg,#d9f7e6,#bdeed3)',
-    color: '#065f46',
-    border: '2px solid transparent',
-  }
-}
 
 function sameMonth(iso: string, month: Date) {
   const d = new Date(iso)
@@ -234,26 +221,35 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange }: { r
 
   return (
     <div className="space-y-4">
-      {/* Pills de etapa — mesmo visual da pipeline da solicitação */}
-      <div className="flex gap-1 flex-wrap">
+      {/* Etapas: um cartão por etapa, ocupando toda a linha */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
         {STAGE_PILLS.map(st => {
           const isActive = stageFilter === st.id
           const total = stageTotals[st.id] ?? 0
+          const Icon = STAGE_ICON[st.id]
           return (
             <button
               key={st.id}
               type="button"
               onClick={() => setStage(isActive ? null : st.id)}
-              className="min-w-[110px] text-left px-3 py-2 transition-all hover:opacity-90"
-              style={{ borderRadius: 12, ...pillStyle(isActive) }}
+              aria-pressed={isActive}
+              className={cn(
+                'relative text-left rounded-2xl bg-white px-3 py-2.5 transition-all border',
+                isActive ? 'shadow-sm' : 'border-surface-border hover:border-gray-300',
+              )}
+              style={isActive ? { borderColor: st.color, boxShadow: `0 0 0 1px ${st.color}`, background: `${st.color}14` } : undefined}
             >
-              <div className="flex items-center gap-1">
-                <span className="text-[11.5px] font-semibold truncate">{st.label}</span>
-                {isActive && <Check className="ml-auto shrink-0 w-3 h-3" />}
-              </div>
-              <div className="text-[10.5px] font-medium opacity-85 mt-0.5">
-                {total} {total === 1 ? 'solic.' : 'solic.'}
-              </div>
+              {isActive && <Check className="absolute top-2 right-2 w-3.5 h-3.5" style={{ color: st.color }} />}
+              <span
+                className="w-8 h-8 rounded-xl flex items-center justify-center mb-2"
+                style={{ background: `${st.color}1f`, color: st.color }}
+              >
+                <Icon className="w-4 h-4" />
+              </span>
+              <p className="text-[13px] font-semibold text-navy leading-tight truncate" title={st.label}>{st.label}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                <span className="font-semibold text-gray-700">{total}</span> {total === 1 ? 'solicitação' : 'solicitações'}
+              </p>
             </button>
           )
         })}
@@ -598,6 +594,7 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
   const name = r.title || r.clientName || '—'
+  const due = dueState(r, localYmd())
   return (
     <article
       onClick={onClick}
@@ -622,6 +619,16 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
 
       {/* Linha de badges + valor sempre visível */}
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+        {due === 'overdue' && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-red-50 text-red-700" title="Há algo em aberto com data vencida">
+            <AlertTriangle className="w-3 h-3" /> Atrasada
+          </span>
+        )}
+        {due === 'today' && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-px rounded bg-amber-50 text-amber-800" title="Há algo marcado para hoje">
+            <CalendarClock className="w-3 h-3" /> Hoje
+          </span>
+        )}
         {kindKey && PROJECT_KIND[kindKey] && (
           <span className={cn('text-[10px] font-medium px-1.5 py-px rounded', PROJECT_KIND[kindKey].bg, PROJECT_KIND[kindKey].text)}>
             {PROJECT_KIND[kindKey].label}
