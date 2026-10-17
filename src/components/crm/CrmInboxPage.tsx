@@ -54,6 +54,7 @@ import { uploadCrmFile } from '@/lib/crm-upload'
 import { fetchCrmMessages, fetchCrmSnapshot, postCrmSend, postCrmForward, postCrmReact } from '@/lib/crm-fetch'
 import { ConversationListSkeleton, ThreadSkeleton, LuknosSpinner, LoadError } from '@/components/ui/LuknosLoader'
 import { useToast } from '@/components/ui/Toast'
+import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
@@ -69,7 +70,7 @@ import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, m
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
-  Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
@@ -186,7 +187,7 @@ function writeDraft(convId: string, text: string) {
   } catch { /* sem armazenamento: segue sem rascunho */ }
 }
 
-interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
+interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean; avatar_url?: string | null; avatar_color?: string | null }
 
 export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null, isAdmin = false }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null; isAdmin?: boolean }) {
   const toast = useToast()
@@ -527,6 +528,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     for (const k of MSG_FIELDS) if (k in r) m[k] = r[k]
     if (!prev) {
       m.sender_name = r.sender_user_id ? usersById.get(r.sender_user_id)?.name ?? null : null
+      m.sender_avatar_url = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_url ?? null : null
+      m.sender_avatar_color = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_color ?? null : null
       m.acted_by_name = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.name ?? null : null
     }
     if (r.deleted_by_user_id && !m.deleted_by_name) m.deleted_by_name = usersById.get(r.deleted_by_user_id)?.name ?? null
@@ -934,7 +937,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const makeTemp = (fields: Partial<Msg>, reply: Msg | null): Msg => ({
     id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
-    sender_avatar_url: null, sender_avatar_color: null,
+    sender_avatar_url: users.find((u) => u.id === currentUserId)?.avatar_url ?? null, sender_avatar_color: users.find((u) => u.id === currentUserId)?.avatar_color ?? null,
     message_type: 'text', body: null, storage_path: null, file_name: null, mime_type: null,
     is_system: false, created_at: new Date().toISOString(),
     reply_to_provider_id: reply?.provider_message_id ?? null,
@@ -1507,6 +1510,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   msg={m}
                   first={layout[i]?.first ?? true}
                   currentUserId={currentUserId}
+                  hideSignature={!!selected.hide_signature}
                   url={mediaUrlOf(m)}
                   onDownload={async () => {
                     const r = await downloadCrmMedia(m.id)
@@ -1852,7 +1856,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <ForwardModal
           previewText={messagePreview({ message_type: forwarding.message_type, body: forwarding.body, file_name: forwarding.file_name }) || 'Mensagem'}
           sourceInstanceId={selected?.instance_id ?? null}
-          conversations={(forwardTargets ?? conversations).filter((c) => !c.is_group).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
+          conversations={(forwardTargets ?? conversations).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
           onForward={doForward}
           onClose={() => setForwarding(null)}
         />
@@ -1874,11 +1878,12 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
+  msg, first, currentUserId, hideSignature, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
 }: {
   msg: Msg
   first: boolean
   currentUserId: string
+  hideSignature: boolean
   url?: string
   onDownload: () => Promise<void>
   onOpenMedia: () => void
@@ -1933,10 +1938,21 @@ function MessageBubble({
       </span>
     ) : <span className="w-7 shrink-0" aria-hidden />
   ) : null
-  // Nas enviadas, o nome de quem respondeu aparece só quando não foi você (ou veio do celular)
-  const outLabel = isOutbound && first && !acted && msg.sender_user_id !== currentUserId
-    ? (msg.sender_name ?? 'Pelo celular')
-    : null
+  // Nas enviadas, mostramos como chega ao cliente: "Nome:" no começo (texto e arquivo com legenda;
+  // áudio, figurinha e cartão de contato não levam assinatura). Conversa "sem assinatura": sem o nome
+  // no balão, mas o avatar de quem enviou continua ao lado.
+  const isStickerMsg = msg.message_type === 'image' && (msg.mime_type ?? '').includes('webp')
+  const carriesSignature = msg.message_type === 'text' || (['image', 'video', 'document'].includes(msg.message_type) && !isStickerMsg)
+  const outLabel = !isOutbound ? null
+    : msg.sender_name ? (carriesSignature && !hideSignature ? `${msg.sender_name}:` : null)
+    : (first ? 'Pelo celular' : null)
+  const outAvatar = isOutbound ? (
+    msg.sender_name ? (
+      <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.sender_name}${msg.acted_by_name ? ` (respondeu ${msg.acted_by_name})` : ''}`} />
+    ) : (
+      <span title="Enviada pelo celular" className="w-7 h-7 mt-0.5 rounded-full bg-gray-300 text-white flex items-center justify-center shrink-0"><Smartphone className="w-4 h-4" /></span>
+    )
+  ) : null
   const meta = (
     <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
       {msg.edited_at && <span className="mr-0.5 italic" title={`Editada em ${new Date(msg.edited_at).toLocaleString('pt-BR')}`}>Editada</span>}
@@ -1973,6 +1989,7 @@ function MessageBubble({
           🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
           <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
         </div>
+        {outAvatar}
       </div>
     )
   }
@@ -2088,7 +2105,7 @@ function MessageBubble({
         )}
       >
         {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
-        {outLabel && <p className="text-[12.5px] font-semibold leading-4 mb-0.5 text-emerald-700">{outLabel}</p>}
+        {outLabel && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', msg.sender_name ? 'text-emerald-800' : 'text-gray-500 italic font-medium')}>{outLabel}</p>}
         {msg.is_forwarded && <p className="flex items-center gap-1 text-[11px] italic text-gray-400 mb-0.5"><Forward className="w-3 h-3" /> Encaminhada</p>}
 
         {msg.reply_to_provider_id && (
@@ -2221,6 +2238,7 @@ function MessageBubble({
           </div>
         )}
       </div>
+      {outAvatar}
       {!isOutbound && actions}
       {msg.failed && (
         <div className="order-first flex items-center gap-1 self-end mb-0.5" role="group" aria-label="Mensagem não enviada">
