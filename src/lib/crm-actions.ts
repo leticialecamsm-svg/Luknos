@@ -1174,11 +1174,30 @@ export async function sendCrmMessage(input: {
       }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok || !body?.sent) return { error: body?.error ?? 'Falha ao enviar' }
+    if (!res.ok || !body?.sent) return await sendFailed(adminDb, input.conversationId, auth.userId, body?.error ?? 'Falha ao enviar')
     return { ok: true, messageId: (body.message_id as string | null) ?? null }
   } catch (e: any) {
-    return { error: e?.message ?? 'Falha ao enviar' }
+    return await sendFailed(adminDb, input.conversationId, auth.userId, e?.message ?? 'Falha ao enviar')
   }
+}
+
+// Envio que não saiu: traduz o motivo para a pessoa e deixa registrado no histórico de eventos
+// (a tela mostra "não enviada"; aqui fica o porquê, para depois saber o que foi e o que não foi).
+async function sendFailed(admin: ReturnType<typeof createAdminClient>, conversationId: string, userId: string, raw: string) {
+  const down = /timed out|timeout|ETIMEDOUT|ECONN|EHOSTUNREACH|error sending request|fetch failed|evolution_5\d\d|evolution_(502|503|504)/i.test(raw)
+  const friendly = down
+    ? 'O servidor do WhatsApp não respondeu: a mensagem NÃO foi enviada. Tente de novo quando a faixa vermelha sumir.'
+    : raw
+  try {
+    const { data: c } = await admin.from('crm_conversations').select('contact_name_cache, remote_jid, contacts(name)').eq('id', conversationId).maybeSingle()
+    const who = (c as any)?.contacts?.name ?? c?.contact_name_cache ?? c?.remote_jid?.split('@')[0] ?? 'conversa'
+    await admin.from('crm_health_events').insert({
+      component: 'envio', kind: 'send_failed',
+      message: `Mensagem para ${who} NÃO foi enviada: ${down ? 'servidor do WhatsApp sem resposta' : raw.slice(0, 160)}.`,
+      meta: { conversation_id: conversationId, user_id: userId, raw: raw.slice(0, 300) },
+    })
+  } catch { /* o registro não pode atrapalhar a resposta */ }
+  return { error: friendly }
 }
 
 // ─── Arquivos no Google Drive (baixados só quando alguém pede) ─────────────
