@@ -70,7 +70,7 @@ import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, m
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
-  Send, Paperclip, Loader2, UserCog, Smartphone, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
@@ -265,6 +265,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0, groups: 0 })
+  // "meu WhatsApp" de quem está logado (vem com a lista de canais): os grupos dele aparecem direto e os
+  // que só existem em outros números ficam numa seção à parte
+  const [myInstanceIds, setMyInstanceIds] = useState<string[]>([])
+  const [otherChannelsOpen, setOtherChannelsOpen] = useState(false)
+  // fotos de perfil de quem fala no grupo aberto (jid -> link)
+  const [partPhotos, setPartPhotos] = useState<Record<string, string>>({})
   const filter = useInstanceFilter()
   // com um WhatsApp só na tela, a etiqueta dele em cada linha é repetição (a borda colorida já diz)
   const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
@@ -320,6 +326,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       .then((r) => {
         if (r.error && !r.items?.length) throw new Error(r.error)
         listCache.current.set(key, { items: r.items ?? [], counts: r.counts })
+        if (r.myInstanceIds) setMyInstanceIds((prev) => (prev.join() === r.myInstanceIds!.join() ? prev : r.myInstanceIds!))
         if (listKeyRef.current !== key) return // trocou de aba no meio do caminho
         setListError(null)
         setCounts((prev) => (JSON.stringify(prev) === JSON.stringify(r.counts) ? prev : r.counts))
@@ -933,6 +940,80 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
   )
 
+  // Canais da Empresa: o mesmo grupo existe em vários números (mesmo id no WhatsApp). Cada grupo aparece
+  // uma vez só: na versão do meu WhatsApp; os que não existem no meu ficam em "Outros WhatsApps".
+  const channels = useMemo(() => {
+    if (scope !== 'groups') return null
+    const mine = new Set(myInstanceIds)
+    const byJid = new Map<string, ConversationRow[]>()
+    for (const c of visibleConversations) {
+      if (!c.is_group) continue
+      byJid.set(c.remote_jid, [...(byJid.get(c.remote_jid) ?? []), c])
+    }
+    const at = (c: ConversationRow) => c.last_at ?? c.last_message_at
+    const own: ConversationRow[] = []
+    const other: ConversationRow[] = []
+    for (const rows of Array.from(byJid.values())) {
+      const mineRow = rows.find((r) => mine.has(r.instance_id))
+      if (mineRow || mine.size === 0) own.push(mineRow ?? [...rows].sort((a, b) => at(b).localeCompare(at(a)))[0])
+      else other.push([...rows].sort((a, b) => at(b).localeCompare(at(a)))[0])
+    }
+    const byRecent = (a: ConversationRow, b: ConversationRow) => at(b).localeCompare(at(a))
+    return { own: own.sort(byRecent), other: other.sort(byRecent) }
+  }, [scope, visibleConversations, myInstanceIds])
+
+  // linha de um canal: # (ou a foto do grupo), nome, prévia, hora e contador de não lidas
+  const renderChannel = (c: ConversationRow, withChip: boolean) => {
+    const unread = isUnread(c)
+    const name = c.contact_name ?? c.remote_jid.split('@')[0]
+    return (
+      <button
+        key={c.id}
+        onClick={() => setSelectedId(c.id)}
+        className={cn('w-full text-left pl-3 pr-3 flex items-center gap-2.5 transition-colors', selectedId === c.id ? 'bg-gray-100' : 'hover:bg-gray-50')}
+      >
+        {c.contact_photo_url ? (
+          <img src={c.contact_photo_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+        ) : (
+          <span className="w-9 h-9 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center shrink-0"><Hash className="w-5 h-5" /></span>
+        )}
+        <div className="min-w-0 flex-1 py-2 border-b border-gray-100">
+          <div className="flex items-center gap-1.5">
+            <p className={cn('flex-1 min-w-0 truncate text-[14.5px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-800')}>
+              {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+              {name}
+            </p>
+            {withChip && (
+              <span title={`WhatsApp: ${c.instance_label}`} className={cn('shrink min-w-0 max-w-[5.5rem] truncate text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>{c.instance_label}</span>
+            )}
+            <span className={cn('shrink-0 text-xs whitespace-nowrap', unread ? 'font-semibold text-emerald-600' : 'text-gray-400')}>{formatListTime(c.last_at ?? c.last_message_at)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 min-h-[18px]">
+            <p className={cn('flex-1 min-w-0 truncate text-[12.5px] leading-[18px]', unread ? 'text-gray-900 font-medium' : 'text-gray-500')}>
+              {(() => { const tl = typingLabel(c.id); return tl ? <span className={cn('font-medium', tl.contact ? 'text-emerald-600' : 'italic')}>{tl.text}</span> : (c.last_body || 'Sem mensagens') })()}
+            </p>
+            {unread && (
+              <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center" aria-label={c.unread_count > 0 ? `${c.unread_count} mensagens não lidas` : 'Marcada como não lida'}>
+                {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+    )
+  }
+
+  useEffect(() => {
+    setPartPhotos({})
+    if (!selectedId || !selected?.is_group) return
+    let alive = true
+    fetch(`/api/crm/participant-photos?c=${selectedId}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (alive && d?.photos) setPartPhotos(d.photos) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [selectedId, selected?.is_group])
+
   // ── Envio otimista (texto, arquivo, áudio) ───────────────────────────────────
   // A mensagem entra na tela na hora com o relógio; o campo continua livre para a próxima.
   // Confirmou: o relógio vira ✓✓ e a mensagem real assume o lugar (sem duplicar). Falhou:
@@ -1206,6 +1287,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 key={key}
                 role="tab"
                 aria-selected={scope === key}
+                title={key === 'groups' ? 'Canais da Empresa (grupos de WhatsApp)' : undefined}
                 onClick={() => setScope(key)}
                 className={cn(
                   'flex-1 min-w-0 whitespace-nowrap px-1 py-1 text-[12.5px] font-medium rounded-full transition-colors',
@@ -1214,7 +1296,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
               >
-                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Grupos'}
+                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Canais'}
                 {counts[key] > 0 && (
                   <span className={cn('ml-0.5 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
                 )}
@@ -1257,6 +1339,32 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               {!showArchived && <span className="text-xs text-emerald-700 font-medium">{archivedCount}</span>}
             </button>
           )}
+          {scope === 'groups' && channels ? (
+            <div className="pb-3">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-gray-400">CANAIS DA EMPRESA</p>
+              {channels.own.map((c) => renderChannel(c, false))}
+              {channels.other.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOtherChannelsOpen((v) => !v)}
+                    aria-expanded={otherChannelsOpen}
+                    className="mt-2 w-full flex items-center gap-2 px-4 py-2 text-[11px] font-semibold tracking-wider text-gray-400 hover:bg-gray-50"
+                  >
+                    <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', !otherChannelsOpen && '-rotate-90')} />
+                    <span className="flex-1 text-left">OUTROS WHATSAPPS ({channels.other.length})</span>
+                    {!otherChannelsOpen && channels.other.some(isUnread) && <span className="w-2 h-2 rounded-full bg-emerald-500" aria-label="Há mensagens não lidas" />}
+                  </button>
+                  {otherChannelsOpen && (
+                    <>
+                      <p className="px-4 pb-1 text-[11.5px] leading-4 text-gray-400">Grupos que não existem no seu WhatsApp, só em outros números.</p>
+                      {channels.other.map((c) => renderChannel(c, true))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
           <div>
             {visibleConversations.map((c) => {
               const unread = isUnread(c)
@@ -1330,6 +1438,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )
             })}
           </div>
+          )}
         </div>
       </div>
 
@@ -1515,6 +1624,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   first={layout[i]?.first ?? true}
                   currentUserId={currentUserId}
                   hideSignature={!!selected.hide_signature}
+                  participantPhoto={m.participant_jid ? partPhotos[m.participant_jid] : null}
                   url={mediaUrlOf(m)}
                   onDownload={async () => {
                     const r = await downloadCrmMedia(m.id)
@@ -1882,12 +1992,13 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, hideSignature, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
+  msg, first, currentUserId, hideSignature, participantPhoto, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
 }: {
   msg: Msg
   first: boolean
   currentUserId: string
   hideSignature: boolean
+  participantPhoto?: string | null
   url?: string
   onDownload: () => Promise<void>
   onOpenMedia: () => void
@@ -1937,9 +2048,13 @@ function MessageBubble({
   // Sem avatar a cada mensagem: só nos grupos, ao lado da primeira de cada sequência de quem falou.
   const groupAvatar = !isOutbound && isGroup ? (
     first ? (
-      <span title={speaker ?? ''} className={`w-7 h-7 mt-0.5 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_jid ?? msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-        {(speaker ?? '?').charAt(0).toUpperCase()}
-      </span>
+      participantPhoto ? (
+        <img src={participantPhoto} alt={speaker ?? ''} title={speaker ?? ''} className="w-7 h-7 mt-0.5 rounded-full object-cover shrink-0" />
+      ) : (
+        <span title={speaker ?? ''} className={`w-7 h-7 mt-0.5 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_jid ?? msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
+          {(speaker ?? '?').charAt(0).toUpperCase()}
+        </span>
+      )
     ) : <span className="w-7 shrink-0" aria-hidden />
   ) : null
   // Nas enviadas, mostramos como chega ao cliente: "Nome:" no começo (texto e arquivo com legenda;
