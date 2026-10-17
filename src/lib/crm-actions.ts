@@ -260,6 +260,8 @@ export async function getCrmInstanceConnectionState(instanceName: string) {
 export interface CrmUser {
   id: string
   name: string
+  avatar_url?: string | null
+  avatar_color?: string | null
   role: string
   role_label: string
   has_crm: boolean // já tem a página /crm (admin, papel ou liberação individual)
@@ -272,7 +274,7 @@ export interface CrmUser {
 async function allActiveUsers(): Promise<CrmUser[]> {
   const admin = createAdminClient()
   const [{ data: users }, { data: roles }] = await Promise.all([
-    admin.from('users').select('id, name, role, extra_pages').eq('active', true).order('name'),
+    admin.from('users').select('id, name, role, extra_pages, avatar_url, avatar_color').eq('active', true).order('name'),
     admin.from('roles').select('name, label, allowed_pages'),
   ])
   const roleMap = new Map((roles ?? []).map((r) => [r.name as string, r]))
@@ -281,6 +283,8 @@ async function allActiveUsers(): Promise<CrmUser[]> {
     return {
       id: u.id as string,
       name: u.name as string,
+      avatar_url: (u.avatar_url as string | null) ?? null,
+      avatar_color: (u.avatar_color as string | null) ?? null,
       role: u.role as string,
       role_label: (r?.label as string) ?? (u.role as string),
       has_crm: u.role === 'admin' || hasCrmPage(r?.allowed_pages as string[] | null) || hasCrmPage(u.extra_pages as string[] | null),
