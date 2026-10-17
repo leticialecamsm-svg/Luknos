@@ -213,7 +213,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => {
     if (!forwarding) { setForwardTargets(null); return }
     let alive = true
-    fetchCrmSnapshot('all', 500).then((r) => { if (alive && r.items?.length) setForwardTargets(r.items) }).catch(() => {})
+    // o escopo 'all' não traz grupos: busca os dois e junta
+    Promise.all([fetchCrmSnapshot('all', 500), fetchCrmSnapshot('groups', 200)]).then(([a, g]) => {
+      const items = [...(a.items ?? []), ...(g.items ?? [])]
+      if (alive && items.length) setForwardTargets(items)
+    }).catch(() => {})
     return () => { alive = false }
   }, [forwarding])
   const [showNewConv, setShowNewConv] = useState(false)
