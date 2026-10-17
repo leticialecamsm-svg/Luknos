@@ -138,7 +138,7 @@ export function CrmHealthBanner() {
       {recovered && !dismissed.includes(`up-${recovered.id}`) && (
         <div className="flex items-start gap-2.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-          <p className="min-w-0 flex-1"><span className="font-semibold">WhatsApp voltou às {hhmm(recovered.at)}.</span> {recovered.message.replace(/^[^:]+: /, '')} Mensagens do período podem chegar com atraso.</p>
+          <p className="min-w-0 flex-1"><span className="font-semibold">WhatsApp voltou às {hhmm(recovered.at)}{recovered.message.match(/\(ficou[^)]*\)/)?.[0] ? ` ${recovered.message.match(/\(ficou[^)]*\)/)![0]}` : ''}.</span> Mensagens do período podem chegar com atraso; confira as conversas e reenvie o que não saiu.</p>
           <button type="button" onClick={() => dismiss(`up-${recovered.id}`)} aria-label="Dispensar aviso" className="shrink-0 rounded p-0.5 hover:bg-emerald-100"><X className="h-4 w-4" /></button>
         </div>
       )}

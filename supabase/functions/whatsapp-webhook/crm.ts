@@ -120,6 +120,19 @@ function findContext(data: NonNullable<EvolutionWebhook['data']>): ContextInfo |
   return undefined
 }
 
+// Hora original da mensagem (messageTimestamp, em segundos). Só vale se for coerente: não no futuro
+// e não mais antiga que 30 dias; senão usa o horário de chegada.
+function messageTime(data: NonNullable<EvolutionWebhook['data']>): string | null {
+  // deno-lint-ignore no-explicit-any
+  const raw = (data as any).messageTimestamp
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : (raw && typeof raw.low === 'number' ? raw.low : NaN)
+  if (!Number.isFinite(n)) return null
+  const ms = n * 1000
+  const now = Date.now()
+  if (ms > now + 60_000 || ms < now - 30 * 86_400_000) return null
+  return new Date(ms).toISOString()
+}
+
 // Mensagem encaminhada: o WhatsApp marca isForwarded/forwardingScore no contextInfo
 // (no topo do payload ou dentro do nó da mensagem).
 function isForwardedMessage(data: NonNullable<EvolutionWebhook['data']>): boolean {
@@ -378,10 +391,13 @@ export async function handleCrmMessage(
   if (messageType === 'other' && !body) body = describeOther(data.message, rawType)
 
   const ctx = findContext(data)
+  const sentAt = messageTime(data)
 
   const { data: msg, error: msgErr } = await db
     .from('crm_messages')
     .insert({
+      // hora em que a mensagem foi mesmo enviada (quando o servidor ficou fora e ela chegou depois)
+      ...(sentAt ? { created_at: sentAt } : {}),
       conversation_id: conversation.id,
       direction: fromMe ? 'outbound' : 'inbound',
       sender_user_id: fromMe ? crmInstance.default_user_id : null,
