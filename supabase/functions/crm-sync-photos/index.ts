@@ -73,6 +73,10 @@ Deno.serve(async (req) => {
   if (!isInternalCall(req) && !(await hasCronSecret(req))) return json({ error: 'unauthorized' }, 401)
   const body = (await req.json().catch(() => ({}))) ?? {}
   try {
+    // fotos de quem fala num grupo (chamado ao abrir o grupo no CRM)
+    if (body.participants?.conversation_id && Array.isArray(body.participants.jids)) {
+      return json(await syncParticipants(String(body.participants.conversation_id), body.participants.jids.map(String)))
+    }
     return json(await run(typeof body.conversation_id === 'string' ? body.conversation_id : null, Number(body.limit) || DEFAULT_LIMIT))
   } catch (err) {
     console.error('crm-sync-photos erro:', err)
@@ -139,4 +143,36 @@ async function run(conversationId: string | null, limit: number) {
   }
 
   return { checked: (convs ?? []).length, saved, cleared, failed }
+}
+
+// Foto de cada participante (jid do remetente: @lid ou número) numa conversa de grupo.
+// Guarda a cópia em crm-avatars/p/<instância>/<jid>.jpg e o link em crm_participant_photos.
+async function syncParticipants(conversationId: string, jids: string[]) {
+  const { data: conv } = await db.from('crm_conversations').select('instance_id, crm_instances(instance_name, is_active)').eq('id', conversationId).maybeSingle()
+  const inst = (conv as any)?.crm_instances
+  if (!conv || !inst?.is_active) return { checked: 0, saved: 0 }
+  let saved = 0, empty = 0, failed = 0
+  const list = jids.slice(0, 15)
+  for (let i = 0; i < list.length; i += 5) {
+    await Promise.all(list.slice(i, i + 5).map(async (jid) => {
+      const url = await pictureUrl(inst.instance_name, jid)
+      if (url === undefined) { failed++; return }
+      let photo: string | null = null
+      if (url) {
+        try {
+          const img = await fetch(url, { signal: AbortSignal.timeout(10000) })
+          if (!img.ok) throw new Error(`download ${img.status}`)
+          const path = `p/${conv.instance_id}/${jid.replace(/[^\w]/g, '_')}.jpg`
+          const { error: upErr } = await db.storage.from(BUCKET).upload(path, new Uint8Array(await img.arrayBuffer()), {
+            contentType: img.headers.get('content-type') ?? 'image/jpeg', upsert: true, cacheControl: '604800',
+          })
+          if (upErr) throw upErr
+          photo = `${db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl}?v=${Date.now()}`
+          saved++
+        } catch (e) { console.warn('foto de participante', jid, String(e)); failed++; return }
+      } else empty++
+      await db.from('crm_participant_photos').upsert({ instance_id: conv.instance_id, participant_jid: jid, photo_url: photo, checked_at: new Date().toISOString() }, { onConflict: 'instance_id,participant_jid' })
+    }))
+  }
+  return { checked: list.length, saved, empty, failed }
 }
