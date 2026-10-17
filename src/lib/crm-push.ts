@@ -103,3 +103,20 @@ export async function sendTestPush(userId: string) {
   }))
   return { sent }
 }
+
+// Aviso do monitor (CRM fora do ar, número desconectado, voltou…) para TODA a equipe que ativou os avisos.
+// Tag único por aviso: o macOS só mostra banner do 1º aviso de um mesmo tag.
+export async function sendHealthPush(title: string, body: string) {
+  const admin = createAdminClient()
+  const { data: subs } = await admin.from('crm_push_subscriptions').select('endpoint, p256dh, auth')
+  if (!subs?.length) return { sent: 0, skipped: 'no_subscription' }
+  const keys = await vapidKeys()
+  webpush.setVapidDetails('mailto:comercial@luknoseletrica.com.br', keys.publicKey, keys.privateKey)
+  const payload = { title, body, icon: null, tag: `saude-${Date.now()}`, url: '/crm/conversas', at: new Date().toISOString() }
+  let sent = 0
+  await Promise.all(subs.map(async (s) => {
+    try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 3600, urgency: 'high' }); sent++ }
+    catch (e: any) { if (e?.statusCode === 404 || e?.statusCode === 410) await admin.from('crm_push_subscriptions').delete().eq('endpoint', s.endpoint) }
+  }))
+  return { sent }
+}
