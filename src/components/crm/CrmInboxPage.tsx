@@ -54,6 +54,7 @@ import { uploadCrmFile } from '@/lib/crm-upload'
 import { fetchCrmMessages, fetchCrmSnapshot, postCrmSend, postCrmForward, postCrmReact } from '@/lib/crm-fetch'
 import { ConversationListSkeleton, ThreadSkeleton, LuknosSpinner, LoadError } from '@/components/ui/LuknosLoader'
 import { useToast } from '@/components/ui/Toast'
+import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import { stripFormatting } from '@/lib/wa-format'
 import { CRM_AWAITING_REFRESH } from '@/lib/use-crm-awaiting'
@@ -69,7 +70,7 @@ import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, m
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
-  Send, Paperclip, Loader2, UserCog, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
@@ -186,7 +187,7 @@ function writeDraft(convId: string, text: string) {
   } catch { /* sem armazenamento: segue sem rascunho */ }
 }
 
-interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean }
+interface SystemUser { id: string; name: string; role: string; role_label?: string; has_crm?: boolean; avatar_url?: string | null; avatar_color?: string | null }
 
 export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null, isAdmin = false }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null; isAdmin?: boolean }) {
   const toast = useToast()
@@ -212,7 +213,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => {
     if (!forwarding) { setForwardTargets(null); return }
     let alive = true
-    fetchCrmSnapshot('all', 500).then((r) => { if (alive && r.items?.length) setForwardTargets(r.items) }).catch(() => {})
+    // o escopo 'all' não traz grupos: busca os dois e junta
+    Promise.all([fetchCrmSnapshot('all', 500), fetchCrmSnapshot('groups', 200)]).then(([a, g]) => {
+      const items = [...(a.items ?? []), ...(g.items ?? [])]
+      if (alive && items.length) setForwardTargets(items)
+    }).catch(() => {})
     return () => { alive = false }
   }, [forwarding])
   const [showNewConv, setShowNewConv] = useState(false)
@@ -260,6 +265,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [counts, setCounts] = useState({ mine: 0, unassigned: 0, all: 0, groups: 0 })
+  // "meu WhatsApp" de quem está logado (vem com a lista de canais): os grupos dele aparecem direto e os
+  // que só existem em outros números ficam numa seção à parte
+  const [myInstanceIds, setMyInstanceIds] = useState<string[]>([])
+  const [otherChannelsOpen, setOtherChannelsOpen] = useState(false)
+  // fotos de perfil de quem fala no grupo aberto (jid -> link)
+  const [partPhotos, setPartPhotos] = useState<Record<string, string>>({})
   const filter = useInstanceFilter()
   // com um WhatsApp só na tela, a etiqueta dele em cada linha é repetição (a borda colorida já diz)
   const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
@@ -315,6 +326,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       .then((r) => {
         if (r.error && !r.items?.length) throw new Error(r.error)
         listCache.current.set(key, { items: r.items ?? [], counts: r.counts })
+        if (r.myInstanceIds) setMyInstanceIds((prev) => (prev.join() === r.myInstanceIds!.join() ? prev : r.myInstanceIds!))
         if (listKeyRef.current !== key) return // trocou de aba no meio do caminho
         setListError(null)
         setCounts((prev) => (JSON.stringify(prev) === JSON.stringify(r.counts) ? prev : r.counts))
@@ -527,6 +539,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     for (const k of MSG_FIELDS) if (k in r) m[k] = r[k]
     if (!prev) {
       m.sender_name = r.sender_user_id ? usersById.get(r.sender_user_id)?.name ?? null : null
+      m.sender_avatar_url = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_url ?? null : null
+      m.sender_avatar_color = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_color ?? null : null
       m.acted_by_name = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.name ?? null : null
     }
     if (r.deleted_by_user_id && !m.deleted_by_name) m.deleted_by_name = usersById.get(r.deleted_by_user_id)?.name ?? null
@@ -926,6 +940,80 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     (qDigits.length >= 3 && c.remote_jid.includes(qDigits)),
   )
 
+  // Canais da Empresa: o mesmo grupo existe em vários números (mesmo id no WhatsApp). Cada grupo aparece
+  // uma vez só: na versão do meu WhatsApp; os que não existem no meu ficam em "Outros WhatsApps".
+  const channels = useMemo(() => {
+    if (scope !== 'groups') return null
+    const mine = new Set(myInstanceIds)
+    const byJid = new Map<string, ConversationRow[]>()
+    for (const c of visibleConversations) {
+      if (!c.is_group) continue
+      byJid.set(c.remote_jid, [...(byJid.get(c.remote_jid) ?? []), c])
+    }
+    const at = (c: ConversationRow) => c.last_at ?? c.last_message_at
+    const own: ConversationRow[] = []
+    const other: ConversationRow[] = []
+    for (const rows of Array.from(byJid.values())) {
+      const mineRow = rows.find((r) => mine.has(r.instance_id))
+      if (mineRow || mine.size === 0) own.push(mineRow ?? [...rows].sort((a, b) => at(b).localeCompare(at(a)))[0])
+      else other.push([...rows].sort((a, b) => at(b).localeCompare(at(a)))[0])
+    }
+    const byRecent = (a: ConversationRow, b: ConversationRow) => at(b).localeCompare(at(a))
+    return { own: own.sort(byRecent), other: other.sort(byRecent) }
+  }, [scope, visibleConversations, myInstanceIds])
+
+  // linha de um canal: # (ou a foto do grupo), nome, prévia, hora e contador de não lidas
+  const renderChannel = (c: ConversationRow, withChip: boolean) => {
+    const unread = isUnread(c)
+    const name = c.contact_name ?? c.remote_jid.split('@')[0]
+    return (
+      <button
+        key={c.id}
+        onClick={() => setSelectedId(c.id)}
+        className={cn('w-full text-left pl-3 pr-3 flex items-center gap-2.5 transition-colors', selectedId === c.id ? 'bg-gray-100' : 'hover:bg-gray-50')}
+      >
+        {c.contact_photo_url ? (
+          <img src={c.contact_photo_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+        ) : (
+          <span className="w-9 h-9 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center shrink-0"><Hash className="w-5 h-5" /></span>
+        )}
+        <div className="min-w-0 flex-1 py-2 border-b border-gray-100">
+          <div className="flex items-center gap-1.5">
+            <p className={cn('flex-1 min-w-0 truncate text-[14.5px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-800')}>
+              {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+              {name}
+            </p>
+            {withChip && (
+              <span title={`WhatsApp: ${c.instance_label}`} className={cn('shrink min-w-0 max-w-[5.5rem] truncate text-[10px] font-medium px-1.5 rounded-full border', filter.colorOf(c.instance_id).chip)}>{c.instance_label}</span>
+            )}
+            <span className={cn('shrink-0 text-xs whitespace-nowrap', unread ? 'font-semibold text-emerald-600' : 'text-gray-400')}>{formatListTime(c.last_at ?? c.last_message_at)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 min-h-[18px]">
+            <p className={cn('flex-1 min-w-0 truncate text-[12.5px] leading-[18px]', unread ? 'text-gray-900 font-medium' : 'text-gray-500')}>
+              {(() => { const tl = typingLabel(c.id); return tl ? <span className={cn('font-medium', tl.contact ? 'text-emerald-600' : 'italic')}>{tl.text}</span> : (c.last_body || 'Sem mensagens') })()}
+            </p>
+            {unread && (
+              <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center" aria-label={c.unread_count > 0 ? `${c.unread_count} mensagens não lidas` : 'Marcada como não lida'}>
+                {c.unread_count > 0 ? (c.unread_count > 99 ? '99+' : c.unread_count) : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+    )
+  }
+
+  useEffect(() => {
+    setPartPhotos({})
+    if (!selectedId || !selected?.is_group) return
+    let alive = true
+    fetch(`/api/crm/participant-photos?c=${selectedId}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (alive && d?.photos) setPartPhotos(d.photos) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [selectedId, selected?.is_group])
+
   // ── Envio otimista (texto, arquivo, áudio) ───────────────────────────────────
   // A mensagem entra na tela na hora com o relógio; o campo continua livre para a próxima.
   // Confirmou: o relógio vira ✓✓ e a mensagem real assume o lugar (sem duplicar). Falhou:
@@ -934,7 +1022,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const makeTemp = (fields: Partial<Msg>, reply: Msg | null): Msg => ({
     id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
-    sender_avatar_url: null, sender_avatar_color: null,
+    sender_avatar_url: users.find((u) => u.id === currentUserId)?.avatar_url ?? null, sender_avatar_color: users.find((u) => u.id === currentUserId)?.avatar_color ?? null,
     message_type: 'text', body: null, storage_path: null, file_name: null, mime_type: null,
     is_system: false, created_at: new Date().toISOString(),
     reply_to_provider_id: reply?.provider_message_id ?? null,
@@ -1199,6 +1287,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 key={key}
                 role="tab"
                 aria-selected={scope === key}
+                title={key === 'groups' ? 'Canais da Empresa (grupos de WhatsApp)' : undefined}
                 onClick={() => setScope(key)}
                 className={cn(
                   'flex-1 min-w-0 whitespace-nowrap px-1 py-1 text-[12.5px] font-medium rounded-full transition-colors',
@@ -1207,7 +1296,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
               >
-                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Grupos'}
+                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Canais'}
                 {counts[key] > 0 && (
                   <span className={cn('ml-0.5 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
                 )}
@@ -1250,6 +1339,32 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               {!showArchived && <span className="text-xs text-emerald-700 font-medium">{archivedCount}</span>}
             </button>
           )}
+          {scope === 'groups' && channels ? (
+            <div className="pb-3">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-gray-400">CANAIS DA EMPRESA</p>
+              {channels.own.map((c) => renderChannel(c, false))}
+              {channels.other.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOtherChannelsOpen((v) => !v)}
+                    aria-expanded={otherChannelsOpen}
+                    className="mt-2 w-full flex items-center gap-2 px-4 py-2 text-[11px] font-semibold tracking-wider text-gray-400 hover:bg-gray-50"
+                  >
+                    <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', !otherChannelsOpen && '-rotate-90')} />
+                    <span className="flex-1 text-left">OUTROS WHATSAPPS ({channels.other.length})</span>
+                    {!otherChannelsOpen && channels.other.some(isUnread) && <span className="w-2 h-2 rounded-full bg-emerald-500" aria-label="Há mensagens não lidas" />}
+                  </button>
+                  {otherChannelsOpen && (
+                    <>
+                      <p className="px-4 pb-1 text-[11.5px] leading-4 text-gray-400">Grupos que não existem no seu WhatsApp, só em outros números.</p>
+                      {channels.other.map((c) => renderChannel(c, true))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
           <div>
             {visibleConversations.map((c) => {
               const unread = isUnread(c)
@@ -1323,6 +1438,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )
             })}
           </div>
+          )}
         </div>
       </div>
 
@@ -1507,6 +1623,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   msg={m}
                   first={layout[i]?.first ?? true}
                   currentUserId={currentUserId}
+                  hideSignature={!!selected.hide_signature}
+                  participantPhoto={m.participant_jid ? partPhotos[m.participant_jid] : null}
                   url={mediaUrlOf(m)}
                   onDownload={async () => {
                     const r = await downloadCrmMedia(m.id)
@@ -1852,7 +1970,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <ForwardModal
           previewText={messagePreview({ message_type: forwarding.message_type, body: forwarding.body, file_name: forwarding.file_name }) || 'Mensagem'}
           sourceInstanceId={selected?.instance_id ?? null}
-          conversations={(forwardTargets ?? conversations).filter((c) => !c.is_group).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
+          conversations={(forwardTargets ?? conversations).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
           onForward={doForward}
           onClose={() => setForwarding(null)}
         />
@@ -1874,11 +1992,13 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
+  msg, first, currentUserId, hideSignature, participantPhoto, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
 }: {
   msg: Msg
   first: boolean
   currentUserId: string
+  hideSignature: boolean
+  participantPhoto?: string | null
   url?: string
   onDownload: () => Promise<void>
   onOpenMedia: () => void
@@ -1928,15 +2048,30 @@ function MessageBubble({
   // Sem avatar a cada mensagem: só nos grupos, ao lado da primeira de cada sequência de quem falou.
   const groupAvatar = !isOutbound && isGroup ? (
     first ? (
-      <span title={speaker ?? ''} className={`w-7 h-7 mt-0.5 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_jid ?? msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-        {(speaker ?? '?').charAt(0).toUpperCase()}
-      </span>
+      participantPhoto ? (
+        <img src={participantPhoto} alt={speaker ?? ''} title={speaker ?? ''} className="w-7 h-7 mt-0.5 rounded-full object-cover shrink-0" />
+      ) : (
+        <span title={speaker ?? ''} className={`w-7 h-7 mt-0.5 rounded-full bg-gradient-to-br ${getAvatarColor(msg.participant_jid ?? msg.participant_name ?? msg.id)} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
+          {(speaker ?? '?').charAt(0).toUpperCase()}
+        </span>
+      )
     ) : <span className="w-7 shrink-0" aria-hidden />
   ) : null
-  // Nas enviadas, o nome de quem respondeu aparece só quando não foi você (ou veio do celular)
-  const outLabel = isOutbound && first && !acted && msg.sender_user_id !== currentUserId
-    ? (msg.sender_name ?? 'Pelo celular')
-    : null
+  // Nas enviadas, mostramos como chega ao cliente: "Nome:" no começo (texto e arquivo com legenda;
+  // áudio, figurinha e cartão de contato não levam assinatura). Conversa "sem assinatura": sem o nome
+  // no balão, mas o avatar de quem enviou continua ao lado.
+  const isStickerMsg = msg.message_type === 'image' && (msg.mime_type ?? '').includes('webp')
+  const carriesSignature = msg.message_type === 'text' || (['image', 'video', 'document'].includes(msg.message_type) && !isStickerMsg)
+  const outLabel = !isOutbound ? null
+    : msg.sender_name ? (carriesSignature && !hideSignature ? `${msg.sender_name}:` : null)
+    : (first ? 'Pelo celular' : null)
+  const outAvatar = isOutbound ? (
+    msg.sender_name ? (
+      <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.sender_name}${msg.acted_by_name ? ` (respondeu ${msg.acted_by_name})` : ''}`} />
+    ) : (
+      <span title="Enviada pelo celular" className="w-7 h-7 mt-0.5 rounded-full bg-gray-300 text-white flex items-center justify-center shrink-0"><Smartphone className="w-4 h-4" /></span>
+    )
+  ) : null
   const meta = (
     <span className={cn('inline-flex items-center gap-0.5 text-[11px] leading-none whitespace-nowrap', acted ? 'text-amber-800/70' : 'text-gray-500')}>
       {msg.edited_at && <span className="mr-0.5 italic" title={`Editada em ${new Date(msg.edited_at).toLocaleString('pt-BR')}`}>Editada</span>}
@@ -1973,6 +2108,7 @@ function MessageBubble({
           🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
           <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
         </div>
+        {outAvatar}
       </div>
     )
   }
@@ -2088,7 +2224,7 @@ function MessageBubble({
         )}
       >
         {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
-        {outLabel && <p className="text-[12.5px] font-semibold leading-4 mb-0.5 text-emerald-700">{outLabel}</p>}
+        {outLabel && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', msg.sender_name ? 'text-emerald-800' : 'text-gray-500 italic font-medium')}>{outLabel}</p>}
         {msg.is_forwarded && <p className="flex items-center gap-1 text-[11px] italic text-gray-400 mb-0.5"><Forward className="w-3 h-3" /> Encaminhada</p>}
 
         {msg.reply_to_provider_id && (
@@ -2221,6 +2357,7 @@ function MessageBubble({
           </div>
         )}
       </div>
+      {outAvatar}
       {!isOutbound && actions}
       {msg.failed && (
         <div className="order-first flex items-center gap-1 self-end mb-0.5" role="group" aria-label="Mensagem não enviada">

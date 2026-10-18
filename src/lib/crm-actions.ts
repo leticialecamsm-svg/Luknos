@@ -260,6 +260,8 @@ export async function getCrmInstanceConnectionState(instanceName: string) {
 export interface CrmUser {
   id: string
   name: string
+  avatar_url?: string | null
+  avatar_color?: string | null
   role: string
   role_label: string
   has_crm: boolean // já tem a página /crm (admin, papel ou liberação individual)
@@ -272,7 +274,7 @@ export interface CrmUser {
 async function allActiveUsers(): Promise<CrmUser[]> {
   const admin = createAdminClient()
   const [{ data: users }, { data: roles }] = await Promise.all([
-    admin.from('users').select('id, name, role, extra_pages').eq('active', true).order('name'),
+    admin.from('users').select('id, name, role, extra_pages, avatar_url, avatar_color').eq('active', true).order('name'),
     admin.from('roles').select('name, label, allowed_pages'),
   ])
   const roleMap = new Map((roles ?? []).map((r) => [r.name as string, r]))
@@ -281,6 +283,8 @@ async function allActiveUsers(): Promise<CrmUser[]> {
     return {
       id: u.id as string,
       name: u.name as string,
+      avatar_url: (u.avatar_url as string | null) ?? null,
+      avatar_color: (u.avatar_color as string | null) ?? null,
       role: u.role as string,
       role_label: (r?.label as string) ?? (u.role as string),
       has_crm: u.role === 'admin' || hasCrmPage(r?.allowed_pages as string[] | null) || hasCrmPage(u.extra_pages as string[] | null),
@@ -315,7 +319,7 @@ interface Scope {
   instanceIds: string[]
   // conversas avulsas liberadas para ele
   sharedConvIds: string[]
-  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string }[]
+  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string; is_main?: boolean }[]
   memberOf: Set<string>
   // conversas restritas (grupos) que ele NÃO pode ver: nem atendente, nem liberado
   hiddenConvIds: string[]
@@ -330,7 +334,7 @@ async function loadScope(admin: Admin, userId: string): Promise<Scope> {
   // tudo numa rodada só (antes: papel → números/membros/liberações → conversas restritas, em sequência)
   const [userIsAdmin, { data: instances }, { data: mem }, { data: shared }, { data: restricted }] = await Promise.all([
     isAdminUser(admin, userId),
-    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at'),
+    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at, is_main'),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
     admin.from('crm_conversation_access').select('conversation_id').eq('user_id', userId),
     admin.from('crm_conversations').select('id, assigned_user_id').eq('is_restricted', true),
@@ -352,6 +356,19 @@ async function loadScope(admin: Admin, userId: string): Promise<Scope> {
     // administrador enxerga todos os números (inclusive privados); os demais, só os abertos ou os seus
     instanceIds: list.filter((i) => userIsAdmin || !i.is_private || i.default_user_id === userId || memberOf.has(i.id)).map((i) => i.id),
   }
+}
+
+// "Meu WhatsApp" de cada pessoa, para não repetir os grupos da empresa por vários números: o número
+// em que ela é a atendente padrão (o aberto à equipe antes do privado: Jennifer fica com o da Jennifer,
+// não com o Setor de Projetos); quem não tem número próprio (ex.: administrador) fica com o principal da loja.
+function myInstanceIdsFrom(vis: Scope, userId: string): string[] {
+  const visible = vis.instances.filter((i) => i.is_active && vis.instanceIds.includes(i.id))
+  const own = visible.filter((i) => i.default_user_id === userId)
+  if (own.length) {
+    const open = own.filter((i) => !i.is_private)
+    return (open.length ? open : own).map((i) => i.id)
+  }
+  return visible.filter((i) => i.is_main).map((i) => i.id)
 }
 
 // Números privados em que o administrador NÃO tem acesso próprio (dono/membro).
@@ -771,9 +788,17 @@ export async function getCrmScopeCounts(instanceIds?: string[]) {
     people().or(mine),
     people().or(visible).is('assigned_user_id', null),
     people().or(visible),
-    base().or(visible).like('remote_jid', GROUP_LIKE),
+    // grupos: o mesmo grupo aparece em vários números; conta cada um uma vez só
+    (() => {
+      let q = admin.from('crm_conversations').select('remote_jid').eq('status', 'open').or(visible).like('remote_jid', GROUP_LIKE)
+      if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
+      if (blocked.length) q = q.not('instance_id', 'in', inList(blocked))
+      if (vis.hiddenConvIds.length) q = q.not('id', 'in', inList(vis.hiddenConvIds))
+      return q
+    })(),
   ])
-  return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0, groups: g.count ?? 0 }
+  const groupJids = new Set(((g as any).data ?? []).map((r: { remote_jid: string }) => r.remote_jid))
+  return { mine: m.count ?? 0, unassigned: u.count ?? 0, all: a.count ?? 0, groups: groupJids.size }
 }
 
 // Página de mensagens: as `limit` mais recentes (ou as anteriores a `before`), em ordem
@@ -1174,11 +1199,30 @@ export async function sendCrmMessage(input: {
       }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok || !body?.sent) return { error: body?.error ?? 'Falha ao enviar' }
+    if (!res.ok || !body?.sent) return await sendFailed(adminDb, input.conversationId, auth.userId, body?.error ?? 'Falha ao enviar')
     return { ok: true, messageId: (body.message_id as string | null) ?? null }
   } catch (e: any) {
-    return { error: e?.message ?? 'Falha ao enviar' }
+    return await sendFailed(adminDb, input.conversationId, auth.userId, e?.message ?? 'Falha ao enviar')
   }
+}
+
+// Envio que não saiu: traduz o motivo para a pessoa e deixa registrado no histórico de eventos
+// (a tela mostra "não enviada"; aqui fica o porquê, para depois saber o que foi e o que não foi).
+async function sendFailed(admin: ReturnType<typeof createAdminClient>, conversationId: string, userId: string, raw: string) {
+  const down = /timed out|timeout|ETIMEDOUT|ECONN|EHOSTUNREACH|error sending request|fetch failed|evolution_5\d\d|evolution_(502|503|504)/i.test(raw)
+  const friendly = down
+    ? 'O servidor do WhatsApp não respondeu: a mensagem NÃO foi enviada. Tente de novo quando a faixa vermelha sumir.'
+    : raw
+  try {
+    const { data: c } = await admin.from('crm_conversations').select('contact_name_cache, remote_jid, contacts(name)').eq('id', conversationId).maybeSingle()
+    const who = (c as any)?.contacts?.name ?? c?.contact_name_cache ?? c?.remote_jid?.split('@')[0] ?? 'conversa'
+    await admin.from('crm_health_events').insert({
+      component: 'envio', kind: 'send_failed',
+      message: `Mensagem para ${who} NÃO foi enviada: ${down ? 'servidor do WhatsApp sem resposta' : raw.slice(0, 160)}.`,
+      meta: { conversation_id: conversationId, user_id: userId, raw: raw.slice(0, 300) },
+    })
+  } catch { /* o registro não pode atrapalhar a resposta */ }
+  return { error: friendly }
 }
 
 // ─── Arquivos no Google Drive (baixados só quando alguém pede) ─────────────
@@ -2407,7 +2451,13 @@ export async function getCrmSnapshot(scope: ListScope = 'mine', limit = 200, ins
     getCrmScopeCounts(instanceIds),
     withStages ? getCrmStages() : Promise.resolve(null),
   ])
-  return { items: conv.items, error: 'error' in conv ? conv.error : undefined, counts, stages }
+  // só a aba de canais precisa saber qual é o "meu WhatsApp" (para não repetir grupos)
+  let myInstanceIds: string[] | undefined
+  if (scope === 'groups') {
+    const auth = await ensureStaff()
+    if (!('error' in auth)) myInstanceIds = myInstanceIdsFrom(await loadScope(createAdminClient(), auth.userId), auth.userId)
+  }
+  return { items: conv.items, error: 'error' in conv ? conv.error : undefined, counts, stages, myInstanceIds }
 }
 
 // ─── Aviso de mensagem nova (canto da tela) ─────────────────────────────────
@@ -2770,4 +2820,47 @@ export async function syncCrmEdits(conversationId: string) {
     body: JSON.stringify({ action: 'sync_edits', conversation_id: conversationId }),
   })
   return (await res.json().catch(() => ({ error: `Falha (${res.status})` }))) as Record<string, unknown>
+}
+
+
+// ─── Fotos dos participantes de um grupo ────────────────────────────────────
+
+const PARTICIPANT_PHOTO_STALE_MS = 7 * 24 * 60 * 60 * 1000
+
+// Foto de perfil de quem fala no grupo (jid -> link). Quem ainda não tem foto guardada é buscado
+// agora na Evolution (até 12 por vez) e fica no cache (tabela crm_participant_photos + bucket
+// crm-avatars, porque o link do WhatsApp expira). Quem não tem foto visível fica sem, e só é
+// conferido de novo depois de 7 dias.
+export async function getParticipantPhotos(conversationId: string): Promise<{ photos: Record<string, string>; error?: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { photos: {}, error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { photos: {}, error: acc.error }
+  const { data: conv } = await admin.from('crm_conversations').select('instance_id, remote_jid').eq('id', conversationId).maybeSingle()
+  if (!conv || !conv.remote_jid.endsWith('@g.us')) return { photos: {} }
+
+  const { data: recent } = await admin.from('crm_messages').select('participant_jid').eq('conversation_id', conversationId).not('participant_jid', 'is', null).order('created_at', { ascending: false }).limit(400)
+  const jids = Array.from(new Set((recent ?? []).map((r) => r.participant_jid as string))).slice(0, 80)
+  if (!jids.length) return { photos: {} }
+
+  const read = async () => (await admin.from('crm_participant_photos').select('participant_jid, photo_url, checked_at').eq('instance_id', conv.instance_id).in('participant_jid', jids)).data ?? []
+  let rows = await read()
+  const known = new Map(rows.map((r) => [r.participant_jid as string, r]))
+  const todo = jids.filter((j) => {
+    const r = known.get(j)
+    return !r || Date.now() - new Date(r.checked_at as string).getTime() > PARTICIPANT_PHOTO_STALE_MS
+  }).slice(0, 12)
+  if (todo.length) {
+    await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-sync-photos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+      body: JSON.stringify({ participants: { conversation_id: conversationId, jids: todo } }),
+      signal: AbortSignal.timeout(20000),
+    }).catch(() => null)
+    rows = await read()
+  }
+  const photos: Record<string, string> = {}
+  for (const r of rows) if (r.photo_url) photos[r.participant_jid as string] = r.photo_url as string
+  return { photos }
 }
