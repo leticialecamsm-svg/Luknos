@@ -57,23 +57,25 @@ const FIELD_COLOR: Record<string, string> = {
   contact: 'bg-purple-50 text-purple-700 border-purple-200',
 }
 
-function CrmMessagesSection({ msgs, solicitationId, stage }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
+function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
   if (!msgs?.length) return null
 
   const title = (m: CrmMsg) => {
     if (m.messageType === 'text' || m.messageType === 'extended_text') return m.body?.slice(0, 120) ?? '…'
-    if (m.messageType === 'image') return m.fileName ? `📷 ${m.fileName}` : '📷 Imagem (sem título)'
-    if (m.messageType === 'video') return m.fileName ? `🎥 ${m.fileName}` : '🎥 Vídeo'
-    if (m.messageType === 'audio' || m.messageType === 'ptt') return m.fileName ? `🎤 ${m.fileName}` : '🎤 Áudio'
-    if (m.messageType === 'document') return `📎 ${m.fileName ?? 'Documento'}`
-    if (m.messageType === 'location') return '📍 Localização compartilhada'
-    if (m.messageType === 'contact') return `👤 ${m.body ?? 'Cartão de contato'}`
+    if (m.messageType === 'image') return m.fileName ?? 'Imagem'
+    if (m.messageType === 'video') return m.fileName ?? 'Vídeo'
+    if (m.messageType === 'audio' || m.messageType === 'ptt') return m.fileName ?? 'Áudio'
+    if (m.messageType === 'document') return m.fileName ?? 'Documento'
+    if (m.messageType === 'location') return 'Localização compartilhada'
+    if (m.messageType === 'contact') return m.body ?? 'Cartão de contato'
     return m.fileName ?? m.messageType
   }
 
   const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
   })
+
+  const convIds = Array.from(new Set(msgs.map((m) => m.conversationId).filter((x): x is string => !!x)))
 
   return (
     <div className="mt-4 mb-1">
@@ -82,9 +84,15 @@ function CrmMessagesSection({ msgs, solicitationId, stage }: { msgs: CrmMsg[]; s
         <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
           Registros do WhatsApp ({msgs.length})
         </span>
-        <Link href={`/solicitacoes/${solicitationId}?tab=${stage}`} className="ml-auto text-[11px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5">
-          Ver etapa <ArrowRight className="w-3 h-3" />
-        </Link>
+        {convIds.length > 0 && (
+          <div className="ml-auto flex gap-2">
+            {convIds.map((cid) => (
+              <Link key={cid} href={`/crm/conversas?c=${cid}`} className="text-[11px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5">
+                Abrir no CRM <ArrowRight className="w-3 h-3" />
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
       <div className="space-y-1.5">
         {msgs.slice(0, 5).map((m) => (
@@ -100,7 +108,15 @@ function CrmMessagesSection({ msgs, solicitationId, stage }: { msgs: CrmMsg[]; s
                 {m.direction === 'outbound' ? 'Enviado' : 'Recebido'} · {fmt(m.createdAt)}
               </span>
             </div>
-            <p className="text-gray-700 line-clamp-2 break-words leading-snug">{title(m)}</p>
+            {m.signedUrl && (m.messageType === 'image' || m.messageType === 'video') ? (
+              <img
+                src={m.signedUrl}
+                alt={m.fileName ?? 'Mídia'}
+                className="mt-1 rounded max-h-[120px] w-auto object-contain"
+              />
+            ) : (
+              <p className="text-gray-700 line-clamp-2 break-words leading-snug">{title(m)}</p>
+            )}
             <p className="text-gray-400 text-[10px] mt-1">Vinculado em {fmt(m.linkedAt)}</p>
           </div>
         ))}

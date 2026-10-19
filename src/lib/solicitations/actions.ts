@@ -148,7 +148,7 @@ export type SolicitationView = {
   // Contatos e conversas do CRM ligados a cada etapa (chave = stage id).
   stageLinks: Record<string, StageLink[]>
   // Mensagens do WhatsApp vinculadas pelo CRM a cada etapa (chave = stage id).
-  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string }[]>
+  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; signedUrl: string | null }[]>
   // Responsáveis designados por etapa (chave = stage id).
   stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
@@ -248,11 +248,11 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
   } catch {}
 
   // Mensagens do CRM vinculadas a cada etapa. Best-effort: se a tabela não existir, vira {}.
-  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string }[]> = {}
+  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; signedUrl: string | null }[]> = {}
   try {
     const { data: crmRows } = await db
       .from('crm_solicitation_links')
-      .select('stage, crm_message_id, field, note, created_at, crm_messages(id, body, message_type, file_name, created_at, direction)')
+      .select('stage, crm_message_id, field, note, created_at, crm_messages(id, body, message_type, file_name, created_at, direction, storage_path, mime_type, conversation_id)')
       .eq('solicitation_id', id)
       .order('created_at', { ascending: true })
     for (const row of (crmRows ?? []) as any[]) {
@@ -261,7 +261,23 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       ;(crmMessages[row.stage] ??= []).push({
         id: m.id, body: m.body, messageType: m.message_type, fileName: m.file_name,
         createdAt: m.created_at, linkedAt: row.created_at, field: row.field ?? 'observation', direction: m.direction,
+        storagePath: m.storage_path ?? null, mimeType: m.mime_type ?? null,
+        conversationId: m.conversation_id ?? null, signedUrl: null,
       })
+    }
+    // Gera URLs assinadas (1h) para mídias ainda no Supabase Storage
+    const withPath = Object.values(crmMessages).flat().filter((m) => m.storagePath)
+    if (withPath.length > 0) {
+      const { data: signed } = await db.storage.from('crm-attachments').createSignedUrls(
+        withPath.map((m) => m.storagePath!), 3600,
+      )
+      const urlMap: Record<string, string> = {}
+      for (const s of signed ?? []) { if (s.path && s.signedUrl) urlMap[s.path] = s.signedUrl }
+      for (const msgs of Object.values(crmMessages)) {
+        for (const m of msgs) {
+          if (m.storagePath && urlMap[m.storagePath]) m.signedUrl = urlMap[m.storagePath]
+        }
+      }
     }
   } catch {}
 
