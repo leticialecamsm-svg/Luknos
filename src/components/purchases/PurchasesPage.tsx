@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -587,14 +588,15 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       </div>
     </div>
 
-    {showContasModal && savedInvoiceId && (
+    {showContasModal && savedInvoiceId && typeof document !== 'undefined' && createPortal(
       <GerarContasModal
         invoiceId={savedInvoiceId}
         fornecedorNome={fornecedorNome}
         numeroNota={meta?.numeroNota ?? ''}
         duplicatas={duplicatas}
         onDone={() => { setShowContasModal(false); onSaved(); onClose() }}
-      />
+      />,
+      document.body
     )}
   </>
   )
