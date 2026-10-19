@@ -5,33 +5,42 @@
 // cinza = futura/não iniciada), toggle Lista / Kanban, avatares da equipe
 // designada por solicitação e filtro por responsável.
 
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock, SlidersHorizontal, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock, SlidersHorizontal, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown, Plus, GitFork, Loader2, UserPlus } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR, CATEGORY_LABEL, SIZE_LABEL } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
 import { isDoneStatus, dueState, localYmd, resolveCardProps, type IndexRow, type TeamUser, type CardPropsConfig, type ResolvedCardProp } from '@/lib/solicitations/index-types'
-import { moveStageCardStatus, saveCardProps } from '@/lib/solicitations/actions'
+import { moveStageCardStatus, saveCardProps, createSolicitation } from '@/lib/solicitations/actions'
+import { searchContacts, createContact } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Select } from '@/components/ui/Select'
 
 export type { IndexRow, TeamUser }
 
-const STAGE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+const STAGE_ICON: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
   visita: MapPin, projeto: Ruler, orcamento: FileText, negociacao: HandCoins,
   compra: ShoppingCart, expedicao: Package, instalacao: Wrench, posVenda: HeartPulse,
 }
 
-const STAGE_PILLS: { id: string; label: string; color: string }[] = [
-  { id: 'visita',     label: 'Visita',               color: '#6366f1' }, // indigo
-  { id: 'projeto',    label: 'Projeto',              color: '#6366f1' },
-  { id: 'orcamento',  label: 'Orçamento',            color: '#cba455' }, // amber (brand)
-  { id: 'negociacao', label: 'Negociação',           color: '#cba455' },
-  { id: 'compra',     label: 'Compra',               color: '#eab308' }, // yellow
-  { id: 'expedicao',  label: 'Separação e entrega',  color: '#eab308' },
-  { id: 'instalacao', label: 'Instalação',           color: '#3b82f6' }, // blue
-  { id: 'posVenda',   label: 'Pós-venda',            color: '#3b82f6' },
+const STAGE_PILLS: { id: string; label: string; color: string; sectorId: string }[] = [
+  { id: 'visita',     label: 'Visita',               color: '#818cf8', sectorId: 'projetos'  }, // indigo-400
+  { id: 'projeto',    label: 'Projeto',              color: '#4f46e5', sectorId: 'projetos'  }, // indigo-600
+  { id: 'orcamento',  label: 'Orçamento',            color: '#cba455', sectorId: 'comercial' }, // brand amber
+  { id: 'negociacao', label: 'Negociação',           color: '#a07830', sectorId: 'comercial' }, // amber escuro
+  { id: 'compra',     label: 'Compra',               color: '#f97316', sectorId: 'logistica' }, // orange-500
+  { id: 'expedicao',  label: 'Separação e entrega',  color: '#c2410c', sectorId: 'logistica' }, // orange-700
+  { id: 'instalacao', label: 'Instalação',           color: '#38bdf8', sectorId: 'satisfacao'}, // sky-400
+  { id: 'posVenda',   label: 'Pós-venda',            color: '#0284c7', sectorId: 'satisfacao'}, // sky-600
+]
+
+type Sector = { id: string; label: string; color: string; stageIds: string[] }
+const SECTORS: Sector[] = [
+  { id: 'projetos',   label: 'Setor de Projetos',   color: '#818cf8', stageIds: ['visita', 'projeto'] },
+  { id: 'comercial',  label: 'Setor Comercial',      color: '#cba455', stageIds: ['orcamento', 'negociacao'] },
+  { id: 'logistica',  label: 'Setor de Logística',  color: '#f97316', stageIds: ['compra', 'expedicao'] },
+  { id: 'satisfacao', label: 'Setor de Satisfação', color: '#38bdf8', stageIds: ['instalacao', 'posVenda'] },
 ]
 
 
@@ -467,61 +476,299 @@ function ListTable({ rows, stageId, props }: { rows: IndexRow[]; stageId: string
 // ── Kanban por etapa atual (padrão do CrmBoardPage) ──────────────────────────
 // Colunas w-64 (256px) com fundo cinza-50, borda cinza, header com borda
 // superior de 3px na cor da etapa. Colunas sem cartões ficam RECOLHIDAS num
+// ── Modal de criação rápida por etapa ─────────────────────────────────────────
+
+function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
+  stageId: string; stageLabel: string
+  onClose: () => void; onCreated: (id: string) => void
+}) {
+  const [pending, startTransition] = useTransition()
+  useToast() // disponibiliza o contexto (erros mostrados inline)
+  const [title, setTitle] = useState('')
+  const [clientId, setClientId] = useState<string | null>(null)
+  const [clientLabel, setClientLabel] = useState('')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [listOpen, setListOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showNewContact, setShowNewContact] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [creatingContact, setCreatingContact] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); return }
+    let active = true
+    searchContacts(query).then(r => { if (active) setResults(r as any[]) })
+    return () => { active = false }
+  }, [query])
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setListOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  async function handleCreate() {
+    if (!clientId) { setError('Selecione um cliente'); return }
+    setError(null)
+    startTransition(async () => {
+      const res = await createSolicitation({ clientId, title: title.trim() || null })
+      if ('error' in res && res.error) { setError(res.error); return }
+      if (res.solicitationId) onCreated(res.solicitationId)
+    })
+  }
+
+  async function handleCreateContact() {
+    if (!newName.trim()) { setError('Informe o nome do cliente'); return }
+    setCreatingContact(true)
+    const res = await createContact({ name: newName.trim(), phone: newPhone.trim() || undefined, type: 'client' })
+    setCreatingContact(false)
+    if ('error' in res && res.error) { setError(res.error); return }
+    const c = (res as any).data
+    if (c?.id) { setClientId(c.id); setClientLabel(c.name); setShowNewContact(false); setListOpen(false); setQuery('') }
+  }
+
+  const Icon = STAGE_ICON[stageId]
+  const stageColor = STAGE_PILLS.find(s => s.id === stageId)?.color ?? '#9ca3af'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-5">
+          {Icon && <span className="p-1.5 rounded-lg" style={{ background: `${stageColor}22` }}>
+            <Icon className="w-4 h-4" style={{ color: stageColor }} />
+          </span>}
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Nova solicitação</h2>
+            <p className="text-xs text-gray-500">Iniciando na etapa: <span className="font-medium" style={{ color: stageColor }}>{stageLabel}</span></p>
+          </div>
+          <button type="button" onClick={onClose} className="ml-auto text-gray-400 hover:text-gray-600 p-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">Título (opcional)</label>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Ex.: Sala de estar — Iluminação cênica"
+              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+            />
+          </div>
+
+          <div ref={boxRef} className="relative">
+            <label className="text-xs font-medium text-gray-700 mb-1 block">Cliente *</label>
+            {clientId ? (
+              <div className="flex items-center gap-2 rounded-lg border border-surface-border px-3 py-2">
+                <span className="flex-1 text-sm text-gray-900">{clientLabel}</span>
+                <button type="button" onClick={() => { setClientId(null); setClientLabel(''); setQuery('') }} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => { setQuery(e.target.value); setListOpen(true) }}
+                  onFocus={() => setListOpen(true)}
+                  placeholder="Buscar cliente…"
+                  className="w-full rounded-lg border border-surface-border pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                />
+                {listOpen && (query.length >= 2 || results.length > 0) && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {results.map((c: any) => (
+                      <button key={c.id} type="button" onClick={() => { setClientId(c.id); setClientLabel(c.name); setListOpen(false); setQuery('') }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
+                        {c.name}
+                      </button>
+                    ))}
+                    {results.length === 0 && query.length >= 2 && (
+                      <button type="button" onClick={() => { setShowNewContact(true); setNewName(query); setListOpen(false) }}
+                        className="w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 flex items-center gap-2">
+                        <UserPlus className="w-3.5 h-3.5" /> Criar cliente "{query}"
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {showNewContact && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-700">Novo cliente</p>
+              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome *"
+                className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+              <input type="text" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Telefone (opcional)"
+                className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowNewContact(false)}
+                  className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                  Cancelar
+                </button>
+                <button type="button" onClick={handleCreateContact} disabled={creatingContact}
+                  className="flex-1 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-xs font-medium hover:bg-gray-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                  {creatingContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Criar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button type="button" onClick={handleCreate} disabled={pending || !clientId}
+            className="flex-1 rounded-xl bg-navy text-white px-4 py-2 text-sm font-semibold hover:bg-navy/90 disabled:opacity-50 flex items-center justify-center gap-2">
+            {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Criar solicitação
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // trilho w-10 com o nome em texto vertical. Cartões: fundo branco, border-l-4
 // na cor da etapa, shadow leve, hover com shadow maior.
 
 function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardProp[] }) {
   const router = useRouter()
+  const [createStage, setCreateStage] = useState<string | null>(null)
+
+  // Cada solicitação aparece em TODAS as etapas onde tem registro ativo (não concluído)
   const byStage = useMemo(() => {
     const map: Record<string, IndexRow[]> = {}
     for (const r of rows) {
-      const key = r.currentStage ?? '_none'
-      ;(map[key] ??= []).push(r)
+      let placed = false
+      for (const st of STAGE_PILLS) {
+        const status = r.stageStatus[st.id]
+        if (status && !isDoneStatus(st.id, status)) {
+          ;(map[st.id] ??= []).push(r)
+          placed = true
+        }
+      }
+      // fallback: solicitação sem nenhuma etapa ativa vai para a coluna do currentStage
+      if (!placed && r.currentStage) {
+        ;(map[r.currentStage] ??= []).push(r)
+      }
     }
     return map
   }, [rows])
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex gap-3 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
-        {STAGE_PILLS.map(st => {
-          const items = byStage[st.id] ?? []
-          if (items.length === 0) {
+    <>
+      {createStage && (
+        <QuickCreateModal
+          stageId={createStage}
+          stageLabel={STAGE_PILLS.find(s => s.id === createStage)?.label ?? ''}
+          onClose={() => setCreateStage(null)}
+          onCreated={(id) => { setCreateStage(null); router.push(`/solicitacoes/${id}?tab=${createStage}`) }}
+        />
+      )}
+      <div className="overflow-x-auto">
+        <div className="flex gap-0 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
+          {SECTORS.map((sector, si) => {
+            const sectorStages = STAGE_PILLS.filter(s => s.sectorId === sector.id)
             return (
-              <section
-                key={st.id}
-                aria-label={`Coluna ${st.label} (vazia)`}
-                className="w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl bg-gray-50 border border-gray-200"
-                style={{ borderTop: `3px solid ${st.color}` }}
-              >
-                <span className="text-[11px] text-gray-400">0</span>
-                <span className="text-xs font-medium text-gray-500 whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{st.label}</span>
-              </section>
-            )
-          }
-          return (
-            <section
-              key={st.id}
-              aria-label={`Coluna ${st.label}`}
-              className="w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border border-gray-200"
-            >
-              <header
-                className="px-3 py-2 border-b border-gray-200"
-                style={{ borderTop: `3px solid ${st.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-gray-900 truncate" title={st.label}>{st.label}</span>
-                  <span className="text-xs text-gray-500">{items.length}</span>
+              <div key={sector.id} className={cn('flex flex-col gap-0', si > 0 && 'ml-4')}>
+                {/* Cabeçalho de setor */}
+                <div
+                  className="flex items-center gap-1.5 px-2 pb-1 mb-1"
+                  style={{ borderBottom: `2px solid ${sector.color}22` }}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ background: sector.color }}
+                  />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: sector.color }}>
+                    {sector.label}
+                  </span>
                 </div>
-              </header>
-              <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-                {items.map(r => <KanbanCard key={r.id} r={r} props={props} stageColor={st.color} onClick={() => router.push(`/solicitacoes/${r.id}`)} />)}
+                {/* Colunas de etapa deste setor */}
+                <div className="flex gap-3 flex-1 items-stretch">
+                  {sectorStages.map(st => {
+                    const items = byStage[st.id] ?? []
+                    const Icon = STAGE_ICON[st.id]
+                    if (items.length === 0) {
+                      return (
+                        <section
+                          key={st.id}
+                          aria-label={`Coluna ${st.label} (vazia)`}
+                          className="w-10 shrink-0 flex flex-col items-center justify-start py-2 gap-2 rounded-xl bg-gray-50 border border-gray-200"
+                          style={{ borderTop: `3px solid ${st.color}` }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setCreateStage(st.id)}
+                            className="text-gray-300 hover:text-gray-500 transition-colors mt-1"
+                            title={`Nova ${st.label}`}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[10px] text-gray-400">0</span>
+                          <span className="text-xs font-medium text-gray-500 whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{st.label}</span>
+                        </section>
+                      )
+                    }
+                    return (
+                      <section
+                        key={st.id}
+                        aria-label={`Coluna ${st.label}`}
+                        className="w-64 shrink-0 flex flex-col rounded-xl bg-gray-50 border border-gray-200"
+                      >
+                        <header
+                          className="px-3 py-2 border-b border-gray-200"
+                          style={{ borderTop: `3px solid ${st.color}`, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+                        >
+                          <div className="flex items-center gap-2">
+                            {Icon && <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: st.color }} />}
+                            <span className="font-semibold text-sm text-gray-900 truncate flex-1" title={st.label}>{st.label}</span>
+                            <span className="text-xs text-gray-500">{items.length}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCreateStage(st.id)}
+                              className="ml-1 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition-colors"
+                              title={`Nova ${st.label}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </header>
+                        <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+                          {items.map(r => (
+                            <KanbanCard
+                              key={`${r.id}-${st.id}`}
+                              r={r}
+                              props={props}
+                              stageColor={st.color}
+                              multiStage={r.activeStages > 1}
+                              onClick={() => router.push(`/solicitacoes/${r.id}?tab=${st.id}`)}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  })}
+                </div>
               </div>
-            </section>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -626,10 +873,10 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
   )
 }
 
-function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd, props }: {
+function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd, props, multiStage }: {
   r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null
   dragging?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void
-  props: ResolvedCardProp[]
+  props: ResolvedCardProp[]; multiStage?: boolean
 }) {
   const priorityC = PRIORITY_COLOR[r.priority as keyof typeof PRIORITY_COLOR]
   const days = daysInPipeline(r.createdAt)
@@ -705,7 +952,14 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
       )}
       style={{ borderLeftColor: stageColor }}
     >
-      <span className="block truncate text-sm text-gray-900 font-medium" title={name}>{name}</span>
+      <div className="flex items-start gap-1.5">
+        <span className="block truncate text-sm text-gray-900 font-medium flex-1" title={name}>{name}</span>
+        {multiStage && (
+          <span title="Ativa em mais de uma etapa simultaneamente" className="shrink-0 mt-0.5">
+            <GitFork className="w-3 h-3 text-indigo-400" />
+          </span>
+        )}
+      </div>
       {parts.length > 0 && (
         <div className="mt-1.5 flex items-center gap-x-2 gap-y-1 flex-wrap">{parts}</div>
       )}
