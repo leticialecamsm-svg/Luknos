@@ -2864,3 +2864,94 @@ export async function getParticipantPhotos(conversationId: string): Promise<{ ph
   for (const r of rows) if (r.photo_url) photos[r.participant_jid as string] = r.photo_url as string
   return { photos }
 }
+
+// ── Solicitações integradas ao CRM ───────────────────────────────────────
+
+export type CrmSolicitation = {
+  id: string
+  number: number
+  title: string | null
+  work_stage: string | null
+  created_at: string
+}
+
+export async function listSolicitationsForCrmContact(contactId: string): Promise<CrmSolicitation[]> {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('solicitations')
+    .select('id, number, title, work_stage, created_at')
+    .eq('client_id', contactId)
+    .order('created_at', { ascending: false })
+    .limit(15)
+  return (data ?? []) as CrmSolicitation[]
+}
+
+export async function createSolicitationFromCrm(input: {
+  contactId: string
+  title: string
+  stage: string
+}): Promise<{ id: string; number: number } | { error: string }> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const admin = createAdminClient()
+  const { data, error } = await admin.from('solicitations').insert({
+    client_id: input.contactId,
+    title: input.title,
+    work_stage: input.stage,
+    created_by: user.id,
+  }).select('id, number').single()
+  if (error) return { error: error.message }
+  return data as { id: string; number: number }
+}
+
+export type SolicMessageLink = {
+  messageId: string
+  field: 'file' | 'observation' | 'location' | 'contact'
+  note?: string
+}
+
+export async function linkCrmMessagesToSolicitationStage(input: {
+  solicitationId: string
+  stage: string
+  links: SolicMessageLink[]
+}): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  if (!input.links.length) return { error: 'Nenhuma mensagem selecionada' }
+
+  const admin = createAdminClient()
+
+  const rows = input.links.map((l) => ({
+    solicitation_id: input.solicitationId,
+    stage: input.stage,
+    crm_message_id: l.messageId,
+    field: l.field,
+    note: l.note ?? null,
+    created_by: user.id,
+  }))
+  const { error: linkErr } = await admin.from('crm_solicitation_links').insert(rows)
+  if (linkErr) return { error: linkErr.message }
+
+  const STAGE_LABELS: Record<string, string> = {
+    visita: 'Visita', projeto: 'Projeto', orcamento: 'Orçamento',
+    negociacao: 'Negociação', compra: 'Compra', expedicao: 'Separação e entrega',
+    instalacao: 'Instalação', posVenda: 'Pós-venda',
+  }
+  const stageLabel = STAGE_LABELS[input.stage] ?? input.stage
+  const n = input.links.length
+  const desc = `${n} ${n === 1 ? 'mensagem vinculada' : 'mensagens vinculadas'} do WhatsApp (${stageLabel})`
+
+  try {
+    await admin.from('solicitation_events').insert({
+      solicitation_id: input.solicitationId,
+      stage: input.stage,
+      kind: 'note',
+      description: desc,
+      created_by: user.id,
+    })
+  } catch { /* best-effort */ }
+
+  return { ok: true }
+}

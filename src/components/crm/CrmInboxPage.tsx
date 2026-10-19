@@ -64,6 +64,7 @@ import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
+import { CrmSolicitationModal } from './CrmSolicitationModal'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
@@ -71,7 +72,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -260,6 +261,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [showOtherNumber, setShowOtherNumber] = useState(false)
+  const [showSolicitation, setShowSolicitation] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1571,6 +1573,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                           <ArrowRightLeft className="w-4 h-4 text-gray-500" /> Iniciar em outro WhatsApp
                         </button>
                       )}
+                      {!selected.is_group && selected.contact_id && (
+                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowSolicitation(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                          <Folder className="w-4 h-4 text-indigo-500" /> Registrar solicitação
+                        </button>
+                      )}
                       <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
                         <UserCog className="w-4 h-4 text-gray-500" /> Transferir ou liberar
                       </button>
@@ -2002,6 +2009,21 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           onClose={() => setForwarding(null)}
         />
       )}
+
+      {showSolicitation && selected && selected.contact_id && (() => {
+        const msgs = (threadCache.current.get(selected.id)?.items ?? []) as any[]
+        return (
+          <CrmSolicitationModal
+            contactId={selected.contact_id}
+            contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+            messages={msgs}
+            onClose={() => setShowSolicitation(false)}
+            onLinked={(solicitationId, solicitationNumber) => {
+              setShowSolicitation(false)
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }
