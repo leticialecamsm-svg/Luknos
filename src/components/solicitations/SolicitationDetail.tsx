@@ -121,8 +121,7 @@ export function SolicitationDetail({
   primaryQuote: any | null
   primaryQuoteActivities: any[]
 }) {
-  const clientColor = avatarColor(solicitation.clientId || solicitation.clientName || '')
-  const headBg = `linear-gradient(120deg,${clientColor.bg} 0%,#ffffff 50%,#fdf6e3 100%)`
+  const headBg = '#ffffff'
   const STAGE_IDS = ['visita', 'projeto', 'orcamento', 'negociacao', 'compra', 'expedicao', 'instalacao', 'posVenda']
   const doneMap = Object.fromEntries(STAGE_IDS.map(id => [id, isStageDone(id, solicitation)]))
   const doneCount = Object.values(doneMap).filter(Boolean).length
