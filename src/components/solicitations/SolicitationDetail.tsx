@@ -8,8 +8,8 @@
 // - Demais etapas: painel "Planejado / Concluído + Arquivos" (StagePanel),
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
-import { useState, useTransition } from 'react'
-import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock } from 'lucide-react'
+import { useState, useTransition, useRef, useEffect } from 'react'
+import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { NegotiationSection } from '@/components/quotes/NegotiationSection'
@@ -39,6 +39,7 @@ import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/
 import { StageResponsibles } from '@/components/solicitations/StageResponsibles'
 import { StageLinks } from '@/components/solicitations/StageLinks'
 import { Select } from '@/components/ui/Select'
+import { SupplierLogo } from '@/components/pricing/SupplierLogo'
 
 type Team = SolicitationView['team']
 
@@ -559,6 +560,43 @@ function ProjectRow({ project: p, solicitationId, team }: { project: any; solici
 
 // ── Compra de material ────────────────────────────────────────────────────
 
+function SupplierSelect({ value, onChange, suppliers }: {
+  value: string; onChange: (v: string) => void; suppliers: { id: string; name: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open])
+  return (
+    <div className="relative min-w-[160px]" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="input w-full flex items-center gap-2 text-left">
+        {value
+          ? <><SupplierLogo name={value} size={18} /><span className="truncate text-sm">{value}</span></>
+          : <span className="text-gray-400 text-sm">Fornecedor (opcional)</span>}
+        <ChevronDown className="w-3.5 h-3.5 text-gray-400 ml-auto shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg py-1 max-h-60 overflow-y-auto">
+          <button type="button" onClick={() => { onChange(''); setOpen(false) }}
+            className="w-full px-3 py-2 text-left text-sm text-gray-400 hover:bg-gray-50">Sem fornecedor</button>
+          {suppliers.map(s => (
+            <button key={s.id} type="button" onClick={() => { onChange(s.name); setOpen(false) }}
+              className="w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 flex items-center gap-2">
+              <SupplierLogo name={s.name} size={18} />
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationId: string; suppliers: { id: string; name: string }[]; onClose: () => void }) {
   const [description, setDescription] = useState('')
   const [supplier, setSupplier] = useState('')
@@ -576,12 +614,7 @@ function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationI
       <FormHeading icon={ShoppingCart}>Novo item de compra</FormHeading>
       <div className="flex flex-wrap gap-2">
         <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input flex-1 min-w-[180px]" />
-        <Select
-          value={supplier}
-          onChange={setSupplier}
-          className="min-w-[160px]"
-          options={[{ value: '', label: 'Fornecedor (opcional)' }, ...suppliers.map(s => ({ value: s.name, label: s.name }))]}
-        />
+        <SupplierSelect value={supplier} onChange={setSupplier} suppliers={suppliers} />
         <input type="date" value={expectedDeliveryDate} onChange={e => setExpectedDeliveryDate(e.target.value)} title="Previsão de entrega informada ao cliente" className="input w-auto" />
         <button type="button" onClick={add} disabled={pending} className="btn-primary px-4 py-1.5 text-sm"><Plus className="w-4 h-4" /> Adicionar</button>
       </div>
@@ -621,23 +654,20 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
         onEdit={() => setEditing(true)} onDelete={handleDelete} pending={pending}
       >
         {(item.supplier || item.expected_delivery_date) && (
-          <div className="text-xs text-gray-500 mt-1">
-            {item.supplier}{item.supplier && item.expected_delivery_date ? ' · ' : ''}
-            {item.expected_delivery_date ? `Previsão ao cliente: ${formatDate(item.expected_delivery_date)}` : ''}
+          <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
+            {item.supplier && <><SupplierLogo name={item.supplier} size={14} /><span>{item.supplier}</span></>}
+            {item.supplier && item.expected_delivery_date ? <span>·</span> : null}
+            {item.expected_delivery_date ? <span>Previsão ao cliente: {formatDate(item.expected_delivery_date)}</span> : null}
           </div>
         )}
         {editing && (
           <InlineEdit>
             <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input" />
             <div className="flex flex-wrap gap-2">
-              <Select
-                value={supplier}
-                onChange={setSupplier}
-                className="min-w-[160px]"
-                options={[
-                  { value: '', label: 'Fornecedor (opcional)' },
-                  ...(item.supplier && !suppliers.some(s => s.name === item.supplier) ? [{ value: item.supplier as string, label: item.supplier as string }] : []),
-                  ...suppliers.map(s => ({ value: s.name, label: s.name })),
+              <SupplierSelect value={supplier} onChange={setSupplier}
+                suppliers={[
+                  ...(item.supplier && !suppliers.some((s: { name: string }) => s.name === item.supplier) ? [{ id: item.supplier as string, name: item.supplier as string }] : []),
+                  ...suppliers,
                 ]}
               />
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input w-auto" />
