@@ -1476,7 +1476,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </button>
               <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
                 <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={40} />
-                <div className="min-w-0">
+                <div className="min-w-0 overflow-hidden">
                   <h3 className="font-semibold text-gray-900 truncate leading-5">
                     {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
