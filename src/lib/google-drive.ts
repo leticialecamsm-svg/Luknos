@@ -307,6 +307,15 @@ export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
   return syncQuoteFilesToDrive(data.id)
 }
 
+export async function copyFile(fileId: string, opts: { folderId: string; name: string }): Promise<{ id: string; webViewLink: string }> {
+  const res = await gfetch(`${DRIVE}/files/${encodeURIComponent(fileId)}/copy?supportsAllDrives=true&fields=id,webViewLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: opts.name, parents: [opts.folderId] }),
+  })
+  return res.json()
+}
+
 // Conteúdo de um arquivo (com Range opcional, para áudio/vídeo em partes). Não lança erro:
 // quem chama decide o que fazer com o status.
 export async function driveDownload(fileId: string, range?: string | null): Promise<Response> {

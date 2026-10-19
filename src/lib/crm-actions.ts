@@ -13,6 +13,7 @@ import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
 import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
 import { centsToDb, dbValueToCents, MAX_DEAL_CENTS } from '@/lib/crm-money'
+import { copyCrmLinksToStageFiles } from '@/lib/solicitations/actions'
 import { MAX_STAGES, isValidInstanceName, samePhoneDigits, sameStageName, validateStageInput, type CrmStage } from '@/lib/crm-stages'
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -2964,6 +2965,8 @@ export async function linkCrmMessagesToSolicitationStage(input: {
       created_by: user.id,
     })
   } catch { /* best-effort */ }
+
+  await copyCrmLinksToStageFiles(input.solicitationId, input.stage)
 
   return { ok: true }
 }

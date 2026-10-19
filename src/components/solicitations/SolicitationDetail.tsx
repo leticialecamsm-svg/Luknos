@@ -108,12 +108,19 @@ function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; 
                 {m.direction === 'outbound' ? 'Enviado' : 'Recebido'} · {fmt(m.createdAt)}
               </span>
             </div>
-            {m.signedUrl && (m.messageType === 'image' || m.messageType === 'video') ? (
-              <img
-                src={m.signedUrl}
-                alt={m.fileName ?? 'Mídia'}
-                className="mt-1 rounded max-h-[120px] w-auto object-contain"
-              />
+            {m.mediaUrl && m.messageType === 'image' && (
+              <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer">
+                <img
+                  src={m.mediaUrl}
+                  alt={m.fileName ?? 'Imagem'}
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  className="mt-1 mb-1 rounded max-h-[120px] w-auto object-contain"
+                />
+              </a>
+            )}
+            {m.mediaUrl && m.messageType !== 'image' ? (
+              <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline line-clamp-2 break-words leading-snug">{title(m)}</a>
             ) : (
               <p className="text-gray-700 line-clamp-2 break-words leading-snug">{title(m)}</p>
             )}

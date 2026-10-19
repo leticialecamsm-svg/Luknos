@@ -18,7 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { updateShipment, updateTemperature } from '@/lib/actions'
 import { updateDesignProjectStatus } from '@/lib/design-projects-actions'
 import {
-  findOrCreateFolder, uploadFile, createResumableUploadSession, trashFile,
+  findOrCreateFolder, uploadFile, copyFile, createResumableUploadSession, trashFile,
   isDriveConnected, driveRootFolderId, folderIdFromLink,
   listFolderFiles, type DriveFileItem,
 } from '@/lib/google-drive'
@@ -148,7 +148,7 @@ export type SolicitationView = {
   // Contatos e conversas do CRM ligados a cada etapa (chave = stage id).
   stageLinks: Record<string, StageLink[]>
   // Mensagens do WhatsApp vinculadas pelo CRM a cada etapa (chave = stage id).
-  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; signedUrl: string | null }[]>
+  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; mediaUrl: string | null }[]>
   // Responsáveis designados por etapa (chave = stage id).
   stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
@@ -248,11 +248,11 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
   } catch {}
 
   // Mensagens do CRM vinculadas a cada etapa. Best-effort: se a tabela não existir, vira {}.
-  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; signedUrl: string | null }[]> = {}
+  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string; storagePath: string | null; mimeType: string | null; conversationId: string | null; mediaUrl: string | null }[]> = {}
   try {
     const { data: crmRows } = await db
       .from('crm_solicitation_links')
-      .select('stage, crm_message_id, field, note, created_at, crm_messages(id, body, message_type, file_name, created_at, direction, storage_path, mime_type, conversation_id)')
+      .select('stage, crm_message_id, field, note, created_at, crm_messages(id, body, message_type, file_name, created_at, direction, storage_path, drive_file_id, mime_type, conversation_id)')
       .eq('solicitation_id', id)
       .order('created_at', { ascending: true })
     for (const row of (crmRows ?? []) as any[]) {
@@ -262,11 +262,11 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
         id: m.id, body: m.body, messageType: m.message_type, fileName: m.file_name,
         createdAt: m.created_at, linkedAt: row.created_at, field: row.field ?? 'observation', direction: m.direction,
         storagePath: m.storage_path ?? null, mimeType: m.mime_type ?? null,
-        conversationId: m.conversation_id ?? null, signedUrl: null,
+        conversationId: m.conversation_id ?? null, mediaUrl: m.drive_file_id ? `/api/crm/media/${m.id}` : null,
       })
     }
     // Gera URLs assinadas (1h) para mídias ainda no Supabase Storage
-    const withPath = Object.values(crmMessages).flat().filter((m) => m.storagePath)
+    const withPath = Object.values(crmMessages).flat().filter((m) => m.storagePath && !m.mediaUrl)
     if (withPath.length > 0) {
       const { data: signed } = await db.storage.from('crm-attachments').createSignedUrls(
         withPath.map((m) => m.storagePath!), 3600,
@@ -275,7 +275,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       for (const s of signed ?? []) { if (s.path && s.signedUrl) urlMap[s.path] = s.signedUrl }
       for (const msgs of Object.values(crmMessages)) {
         for (const m of msgs) {
-          if (m.storagePath && urlMap[m.storagePath]) m.signedUrl = urlMap[m.storagePath]
+          if (m.storagePath && urlMap[m.storagePath]) m.mediaUrl = urlMap[m.storagePath]
         }
       }
     }
@@ -787,6 +787,65 @@ async function resolveStageFolderId(
   return stageFolder.id
 }
 
+const STAGE_FILE_STAGES: StageFileStage[] = ['visita', 'projeto', 'orcamento', 'compra', 'expedicao', 'instalacao', 'posVenda']
+
+// Copia as mídias das mensagens do WhatsApp vinculadas à etapa para a subpasta dela no Drive.
+// O id da cópia fica no vínculo; o 'pending' é a reserva atômica que evita copiar duas vezes.
+async function copyCrmLinksToStageFolder(
+  db: ReturnType<typeof createAdminClient>,
+  solicitationId: string,
+  stage: StageFileStage,
+  folderId: string,
+) {
+  const { data: links } = await db
+    .from('crm_solicitation_links')
+    .select('id, crm_messages(id, message_type, file_name, mime_type, storage_path, drive_file_id, created_at, deleted_at)')
+    .eq('solicitation_id', solicitationId)
+    .eq('stage', stage)
+    .is('stage_drive_file_id', null)
+  for (const l of (links ?? []) as any[]) {
+    const m = l.crm_messages
+    if (!m || m.deleted_at || (!m.drive_file_id && !m.storage_path)) continue
+    const { data: claimed } = await db
+      .from('crm_solicitation_links').update({ stage_drive_file_id: 'pending' })
+      .eq('id', l.id).is('stage_drive_file_id', null).select('id')
+    if (!claimed?.length) continue
+    try {
+      const when = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(':', 'h')
+      const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type}`
+      let copied: { id: string }
+      if (m.drive_file_id) {
+        copied = await copyFile(m.drive_file_id, { folderId, name })
+      } else {
+        const { data: blob, error } = await db.storage.from('crm-attachments').download(m.storage_path)
+        if (error || !blob) throw error ?? new Error('arquivo não encontrado')
+        copied = await uploadFile({ folderId, name, mimeType: m.mime_type ?? 'application/octet-stream', data: new Uint8Array(await blob.arrayBuffer()) })
+      }
+      await db.from('crm_solicitation_links').update({ stage_drive_file_id: copied.id }).eq('id', l.id)
+    } catch (e) {
+      console.error('[copyCrmLinksToStageFolder] falha ao copiar mídia do WhatsApp:', e)
+      await db.from('crm_solicitation_links').update({ stage_drive_file_id: null }).eq('id', l.id)
+    }
+  }
+}
+
+// Chamado logo após vincular mensagens do CRM a uma etapa.
+export async function copyCrmLinksToStageFiles(solicitationId: string, stage: string): Promise<void> {
+  const user = await requireUser()
+  if (!user || !STAGE_FILE_STAGES.includes(stage as StageFileStage)) return
+  if (!(await isDriveConnected())) return
+  try {
+    const db = createAdminClient()
+    const folderId = await resolveStageFolderId(db, solicitationId, stage as StageFileStage)
+    await copyCrmLinksToStageFolder(db, solicitationId, stage as StageFileStage, folderId)
+    refresh(solicitationId)
+  } catch (e) {
+    console.error('[copyCrmLinksToStageFiles]', e)
+  }
+}
+
 // Wrapper client-callable pra isDriveConnected (google-drive.ts é server-only
 // e usa o admin client) — mesma checagem que QuoteAttachments faz pra
 // esconder/trocar o botão de upload quando o Drive não está conectado.
@@ -911,6 +970,7 @@ export async function listStageFilesForSolicitation(
   try {
     const db = createAdminClient()
     const stageFolderId = await resolveStageFolderId(db, solicitationId, stage)
+    await copyCrmLinksToStageFolder(db, solicitationId, stage, stageFolderId)
     const files = await listFolderFiles(stageFolderId)
     return { files }
   } catch (e: any) {
