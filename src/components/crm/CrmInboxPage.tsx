@@ -1470,7 +1470,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         {selected && (
           <>
             {/* Header da conversa */}
-            <div className="px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-2">
+            <div className="px-2 md:px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-1 md:gap-2">
               <button type="button" onClick={() => setSelectedId(null)} aria-label="Voltar para a lista de conversas" className="md:hidden -ml-2 p-2 rounded-full text-gray-600 hover:bg-gray-200/70 shrink-0">
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -1495,7 +1495,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     )
                   })()}
                 </div>
-                {!selected.is_group && <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
+                {!selected.is_group && <div className="max-md:hidden ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
                   <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
                   <DealValue
                     size="md"
@@ -1759,7 +1759,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={() => setShowFormat((v) => !v)}
-                  className={cn('p-2.5 rounded-lg transition-colors text-sm font-semibold leading-5 w-10', showFormat ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100')}
+                  className={cn('max-md:hidden p-2.5 rounded-lg transition-colors text-sm font-semibold leading-5 w-10', showFormat ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100')}
                   title={showFormat ? 'Esconder formatação' : 'Formatação (negrito, itálico, listas…)'}
                   aria-label="Formatação"
                   aria-pressed={showFormat}
@@ -1780,7 +1780,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   type="button"
                   onClick={() => setShowSendContact(true)}
                  
-                  className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                  className="max-md:hidden p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Enviar contato do sistema"
                   aria-label="Enviar contato"
                 >
@@ -1810,7 +1810,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   type="button"
                   onClick={handleToggleSignature}
                  
-                  className={cn('p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
+                  className={cn('max-md:hidden p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
                   title={selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para voltar a assinar)' : 'Mensagens vão com o seu nome no começo (clique para enviar sem assinatura)'}
                   aria-label="Assinatura"
                   aria-pressed={!!selected?.hide_signature}
