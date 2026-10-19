@@ -147,6 +147,8 @@ export type SolicitationView = {
   team: { id: string; name: string; avatar_color: string | null; avatar_url: string | null }[]
   // Contatos e conversas do CRM ligados a cada etapa (chave = stage id).
   stageLinks: Record<string, StageLink[]>
+  // Mensagens do WhatsApp vinculadas pelo CRM a cada etapa (chave = stage id).
+  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; direction: string }[]>
   // Responsáveis designados por etapa (chave = stage id).
   stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
@@ -245,6 +247,24 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     }
   } catch {}
 
+  // Mensagens do CRM vinculadas a cada etapa. Best-effort: se a tabela não existir, vira {}.
+  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; direction: string }[]> = {}
+  try {
+    const { data: crmRows } = await db
+      .from('crm_solicitation_links')
+      .select('stage, crm_message_id, field, note, crm_messages(id, body, message_type, file_name, created_at, direction)')
+      .eq('solicitation_id', id)
+      .order('created_at', { ascending: true })
+    for (const row of (crmRows ?? []) as any[]) {
+      const m = row.crm_messages
+      if (!m) continue
+      ;(crmMessages[row.stage] ??= []).push({
+        id: m.id, body: m.body, messageType: m.message_type, fileName: m.file_name,
+        createdAt: m.created_at, direction: m.direction,
+      })
+    }
+  } catch {}
+
   // Histórico: se a tabela ainda não existe (migration pendente), vira vazio.
   let eventRows: any[] = []
   try {
@@ -320,6 +340,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
     stageResponsibles: stageRespMap,
     stageLinks,
+    crmMessages,
     tabs: {
       visita: (visits ?? []).length > 0,
       projeto: (designProjects ?? []).length > 0,

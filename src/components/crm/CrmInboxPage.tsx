@@ -1657,7 +1657,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       })
                     }}
                     className={cn(
-                      'shrink-0 mb-1.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors',
+                      'shrink-0 mb-1 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors',
                       solicitacaoSelectMode.selected.has(m.id)
                         ? 'bg-indigo-600 border-indigo-600 text-white'
                         : 'bg-white border-gray-400 hover:border-indigo-400'
@@ -1766,14 +1766,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       Cancelar
                     </button>
                     <button
-                      disabled={n === 0 || pending}
+                      disabled={pending}
                       onClick={() => {
-                        if (!mode.selected.size) return
                         const links = Array.from(mode.selected.entries()).map(([messageId, field]) => ({ messageId, field }))
+                        const solicitationId = mode.solicitationId
+                        const num = mode.solicitationNumber
                         startTransition(async () => {
-                          const r = await linkCrmMessagesToSolicitationStage({ solicitationId: mode.solicitationId, stage: mode.stage, links })
+                          const r = await linkCrmMessagesToSolicitationStage({ solicitationId, stage: mode.stage, links })
                           if ('error' in r) { toast.error('ERRO', r.error); return }
-                          toast.success('REGISTRADO', `${n} mensagem(ns) vinculada(s) à solicitação #${mode.solicitationNumber}`)
+                          const msg = n === 0 ? `Etapa registrada na solicitação #${num}` : `${n} mensagem(ns) vinculada(s) à solicitação #${num}`
+                          toast.success('REGISTRADO', msg, { action: { label: 'Ver solicitação', href: `/solicitacoes/${solicitationId}` } })
                           setSolicitacaoSelectMode(null)
                         })
                       }}
@@ -1787,8 +1789,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )
             })()}
 
-            {/* Composer */}
-            {recording ? (
+            {/* Composer — oculto durante modo de seleção de solicitação */}
+            {!solicitacaoSelectMode && (recording ? (
               <div className="p-4 border-t border-gray-200 bg-white flex items-center gap-3">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
@@ -1990,7 +1992,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 )}
               </div>
               </div>
-            )}
+            ))}
           </>
         )}
       </div>

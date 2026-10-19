@@ -9,7 +9,7 @@
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
 import { useState, useTransition } from 'react'
-import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock } from 'lucide-react'
+import { ChevronLeft, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { NegotiationSection } from '@/components/quotes/NegotiationSection'
@@ -41,9 +41,52 @@ import { StageLinks } from '@/components/solicitations/StageLinks'
 import { Select } from '@/components/ui/Select'
 
 type Team = SolicitationView['team']
+type CrmMsg = SolicitationView['crmMessages'][string][number]
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-gray-400 italic py-6 text-center">{children}</div>
+}
+
+function CrmMessagesSection({ msgs, solicitationId, stage }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
+  if (!msgs?.length) return null
+  const preview = (m: CrmMsg) => {
+    if (m.messageType === 'text' || m.messageType === 'extended_text') return m.body?.slice(0, 120) ?? '…'
+    if (m.messageType === 'image') return '📷 Imagem'
+    if (m.messageType === 'video') return '🎥 Vídeo'
+    if (m.messageType === 'audio' || m.messageType === 'ptt') return '🎤 Áudio'
+    if (m.messageType === 'document') return `📎 ${m.fileName ?? 'Arquivo'}`
+    if (m.messageType === 'location') return '📍 Localização'
+    if (m.messageType === 'contact') return '👤 Cartão de contato'
+    return m.fileName ?? m.messageType
+  }
+  return (
+    <div className="mt-4 mb-1">
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
+          Mensagens do WhatsApp ({msgs.length})
+        </span>
+        <Link href={`/solicitacoes/${solicitationId}?tab=${stage}`} className="ml-auto text-[11px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5">
+          Ver todos <ArrowRight className="w-3 h-3" />
+        </Link>
+      </div>
+      <div className="space-y-1">
+        {msgs.slice(0, 5).map((m) => (
+          <div key={m.id} className={cn(
+            'flex items-start gap-2 rounded-lg px-2.5 py-2 text-xs',
+            m.direction === 'outbound' ? 'bg-green-50 border border-green-100' : 'bg-white border border-gray-200'
+          )}>
+            <span className="shrink-0 mt-0.5 text-gray-400">{m.direction === 'outbound' ? '→' : '←'}</span>
+            <span className="min-w-0 flex-1 text-gray-700 line-clamp-2 break-words">{preview(m)}</span>
+            <span className="shrink-0 text-gray-400 whitespace-nowrap">{new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+        ))}
+        {msgs.length > 5 && (
+          <p className="text-[11px] text-gray-400 text-center pt-1">+ {msgs.length - 5} mensagem(ns) a mais</p>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Card({ children, className, style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
@@ -151,7 +194,7 @@ export function SolicitationDetail({
   const overviewStages = STAGE_IDS.map(id => {
     const label = { visita: 'Visita', projeto: 'Projeto', orcamento: 'Orçamento', negociacao: 'Negociação', compra: 'Compra', expedicao: 'Separação e entrega', instalacao: 'Instalação', posVenda: 'Pós-venda' }[id] ?? id
     const icons: Record<string, any> = { visita: MapPin, projeto: Ruler, orcamento: FileText, negociacao: HandCoins, compra: ShoppingCart, expedicao: Package, instalacao: Wrench, posVenda: HeartPulse }
-    const hasRecords = !!solicitation.tabs[id as keyof typeof solicitation.tabs]
+    const hasRecords = !!solicitation.tabs[id as keyof typeof solicitation.tabs] || (solicitation.crmMessages?.[id]?.length ?? 0) > 0
     const isDone = doneMap[id]
     return { id, label, icon: icons[id], hasRecords, isDone }
   })
@@ -194,6 +237,7 @@ export function SolicitationDetail({
 
   // Wrapper que injeta o widget de Responsáveis no topo direito de cada aba de etapa.
   function withResponsibles(stage: string, stageLabel: string, content: React.ReactNode) {
+    const crmMsgs = solicitation.crmMessages?.[stage] ?? []
     return (
       <>
         <div className="flex items-start justify-between gap-x-4 gap-y-2 mb-3 -mt-1 flex-wrap">
@@ -215,6 +259,9 @@ export function SolicitationDetail({
           </div>
         </div>
         {content}
+        {crmMsgs.length > 0 && (
+          <CrmMessagesSection msgs={crmMsgs} solicitationId={sid} stage={stage} />
+        )}
       </>
     )
   }

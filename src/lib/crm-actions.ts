@@ -2928,7 +2928,6 @@ export async function linkCrmMessagesToSolicitationStage(input: {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
-  if (!input.links.length) return { error: 'Nenhuma mensagem selecionada' }
 
   const admin = createAdminClient()
 
@@ -2940,8 +2939,10 @@ export async function linkCrmMessagesToSolicitationStage(input: {
     note: l.note ?? null,
     created_by: user.id,
   }))
-  const { error: linkErr } = await admin.from('crm_solicitation_links').insert(rows)
-  if (linkErr) return { error: linkErr.message }
+  if (rows.length > 0) {
+    const { error: linkErr } = await admin.from('crm_solicitation_links').insert(rows)
+    if (linkErr) return { error: linkErr.message }
+  }
 
   const STAGE_LABELS: Record<string, string> = {
     visita: 'Visita', projeto: 'Projeto', orcamento: 'Orçamento',
@@ -2949,8 +2950,10 @@ export async function linkCrmMessagesToSolicitationStage(input: {
     instalacao: 'Instalação', posVenda: 'Pós-venda',
   }
   const stageLabel = STAGE_LABELS[input.stage] ?? input.stage
-  const n = input.links.length
-  const desc = `${n} ${n === 1 ? 'mensagem vinculada' : 'mensagens vinculadas'} do WhatsApp (${stageLabel})`
+  const n = rows.length
+  const desc = n === 0
+    ? `Etapa ${stageLabel} registrada via WhatsApp`
+    : `${n} ${n === 1 ? 'mensagem vinculada' : 'mensagens vinculadas'} do WhatsApp (${stageLabel})`
 
   try {
     await admin.from('solicitation_events').insert({
