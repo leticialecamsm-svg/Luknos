@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { HelpCircle, ChevronDown, LogOut } from 'lucide-react'
+import { HelpCircle, ChevronDown, LogOut, Menu } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScheduleNotifier } from '@/components/schedules/ScheduleNotifier'
@@ -35,7 +35,15 @@ export function AppHeader({ user, roleLabel }: { user: User | null; roleLabel?: 
   }
 
   return (
-    <header className="sticky top-0 z-20 h-14 shrink-0 flex items-center justify-end gap-1 px-6 bg-white/85 backdrop-blur-md border-b border-surface-border">
+    <header className="sticky top-0 z-20 h-14 shrink-0 flex items-center justify-end gap-1 px-3 md:px-6 bg-white/85 backdrop-blur-md border-b border-surface-border">
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event('luknos:toggle-menu'))}
+        aria-label="Abrir menu"
+        className="md:hidden mr-auto w-10 h-10 rounded-full flex items-center justify-center text-navy hover:bg-[rgba(10,31,59,0.06)]"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
       <button
         type="button"
         className="w-9 h-9 rounded-full flex items-center justify-center text-navy-muted hover:text-navy hover:bg-[rgba(10,31,59,0.04)] transition-colors"

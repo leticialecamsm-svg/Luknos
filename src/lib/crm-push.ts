@@ -61,8 +61,8 @@ export async function sendCrmMessagePush(messageId: string) {
   const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
   const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(m.created_at))
   const payload: CrmPushPayload = {
-    title: `${name} · ${(c as any).crm_instances?.label ?? 'WhatsApp'}`,
-    body: `${preview.length > 160 ? preview.slice(0, 157) + '…' : preview}\n${when}`,
+    title: `WhatsApp ${(c as any).crm_instances?.label ?? 'WhatsApp'}`,
+    body: `• ${name} disse:\n  ${preview.length > 120 ? preview.slice(0, 117) + '…' : preview}\n${when}`,
     icon: c.contact_photo_url ?? null,
     // tag único por mensagem: o macOS só mostra banner do 1º aviso de um mesmo tag
     // (os seguintes ele atualiza em silêncio). Com o id da mensagem, cada uma aparece.

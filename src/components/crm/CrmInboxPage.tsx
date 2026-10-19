@@ -42,6 +42,7 @@ import {
   downloadCrmMedia,
   startCrmConversation,
   completeFollowup,
+  linkCrmMessagesToSolicitationStage,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
@@ -63,15 +64,16 @@ import { setOpenConversationId } from '@/lib/crm-open-conversation'
 import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
-import { NewConversationModal, ForwardModal } from './CrmConversationModals'
+import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
+import { CrmSolicitationModal, type SolicSelection, SOLIC_STAGES } from './CrmSolicitationModal'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
-  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -259,6 +261,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => { setReplyTo(null); setFollowupOpen(false); setShowStickers(false) }, [selectedId])
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
+  const [showOtherNumber, setShowOtherNumber] = useState(false)
+  const [showSolicitation, setShowSolicitation] = useState(false)
+  const [solicitacaoSelectMode, setSolicitacaoSelectMode] = useState<{
+    solicitationId: string; solicitationNumber: number; stage: string; stageLabel: string
+    selected: Map<string, 'file' | 'observation' | 'location' | 'contact'>
+  } | null>(null)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1236,11 +1244,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }, [contactQuery])
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-0 bg-white">
+    <div className="flex h-[calc(100dvh-8rem)] gap-0 bg-white">
       {/* ──────────────────────────────────────────────────────────────────────
           SIDEBAR - Conversas
           ────────────────────────────────────────────────────────────────────── */}
-      <div className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
+      <div className={cn("w-full md:w-80 shrink-0 flex-col border-r border-gray-200 bg-white", selectedId ? "hidden md:flex" : "flex")}>
         {/* Header com tabs */}
         <div className="px-3 pt-3 pb-2 border-b border-gray-200">
           <div className="flex items-center justify-between mb-2">
@@ -1445,7 +1453,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       {/* ──────────────────────────────────────────────────────────────────────
           MAIN - Thread de mensagens
           ────────────────────────────────────────────────────────────────────── */}
-      <div className="relative flex-1 flex flex-col overflow-hidden bg-gray-50">
+      <div className={cn("relative flex-1 flex-col overflow-hidden bg-gray-50 min-w-0", selectedId ? "flex" : "hidden md:flex")}>
         {/* tela de envio de arquivos: cobre só a área da conversa, como no WhatsApp Web */}
         {composerFiles && selected && (
           <MediaComposer
@@ -1469,10 +1477,13 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         {selected && (
           <>
             {/* Header da conversa */}
-            <div className="px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-2">
+            <div className="px-2 md:px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-1 md:gap-2">
+              <button type="button" onClick={() => setSelectedId(null)} aria-label="Voltar para a lista de conversas" className="md:hidden -ml-2 p-2 rounded-full text-gray-600 hover:bg-gray-200/70 shrink-0">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
               <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
                 <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={40} />
-                <div className="min-w-0">
+                <div className="min-w-0 overflow-hidden">
                   <h3 className="font-semibold text-gray-900 truncate leading-5">
                     {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
@@ -1491,7 +1502,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     )
                   })()}
                 </div>
-                {!selected.is_group && <div className="ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
+                {!selected.is_group && <div className="max-md:hidden ml-2 pl-3 border-l border-gray-200 shrink-0 whitespace-nowrap">
                   <p className="text-[11px] text-gray-400 leading-none mb-0.5">Valor</p>
                   <DealValue
                     size="md"
@@ -1562,6 +1573,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                           <Link2 className="w-4 h-4 text-gray-500" /> Vincular contato / dar um nome
                         </button>
                       )}
+                      {!selected.is_group && filter.options.length > 1 && (
+                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowOtherNumber(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                          <ArrowRightLeft className="w-4 h-4 text-gray-500" /> Iniciar em outro WhatsApp
+                        </button>
+                      )}
+                      {!selected.is_group && selected.contact_id && (
+                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowSolicitation(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                          <Folder className="w-4 h-4 text-indigo-500" /> Registrar solicitação
+                        </button>
+                      )}
                       <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
                         <UserCog className="w-4 h-4 text-gray-500" /> Transferir ou liberar
                       </button>
@@ -1618,7 +1639,36 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     {openedUnread} mensage{openedUnread === 1 ? 'm' : 'ns'} não lida{openedUnread === 1 ? '' : 's'}
                   </div>
                 )}
-                <div className={layout[i]?.first ? 'mt-2.5' : 'mt-0.5'}>
+                <div className={cn(layout[i]?.first ? 'mt-2.5' : 'mt-0.5', solicitacaoSelectMode && !m.is_system && !m.deleted_at && 'flex items-end gap-2')}>
+                {solicitacaoSelectMode && !m.is_system && !m.deleted_at && (
+                  <button
+                    type="button"
+                    aria-label={solicitacaoSelectMode.selected.has(m.id) ? 'Desmarcar mensagem' : 'Selecionar mensagem'}
+                    onClick={() => {
+                      setSolicitacaoSelectMode((prev) => {
+                        if (!prev) return prev
+                        const next = new Map(prev.selected)
+                        if (next.has(m.id)) { next.delete(m.id) }
+                        else {
+                          const ft = m.message_type === 'location' ? 'location' : m.message_type === 'contact' ? 'contact' : ['image','video','audio','document'].includes(m.message_type) ? 'file' : 'observation'
+                          next.set(m.id, ft as 'file'|'observation'|'location'|'contact')
+                        }
+                        return { ...prev, selected: next }
+                      })
+                    }}
+                    className={cn(
+                      'shrink-0 mb-1 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors',
+                      solicitacaoSelectMode.selected.has(m.id)
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-gray-400 hover:border-indigo-400'
+                    )}
+                  >
+                    {solicitacaoSelectMode.selected.has(m.id) && (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    )}
+                  </button>
+                )}
+                <div className={cn(solicitacaoSelectMode && !m.is_system && !m.deleted_at ? 'flex-1 min-w-0' : '')}>
                 <MessageBubble
                   msg={m}
                   first={layout[i]?.first ?? true}
@@ -1637,20 +1687,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onOpenContact={(phone) => openContactConversation(phone)}
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
-                  onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  onReply={() => { if (!solicitacaoSelectMode) { setReplyTo(m); textareaRef.current?.focus() } }}
                   mentionNames={selectedIsGroup ? mentionNames : undefined}
                   onSaveSticker={async () => {
                     const r = await saveMessageAsSticker(m.id)
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL GUARDAR', r.error)
                     else toast.success('FIGURINHA GUARDADA', 'Já está na biblioteca da equipe')
                   }}
-                  onReact={(emoji) => reactNow(m, emoji)}
-                  canDelete={!isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
-                  canForward={!isTemp(m) && !m.deleted_at && (['image', 'video', 'audio', 'document'].includes(m.message_type) || !!(m.body && m.body.trim()))}
+                  onReact={(emoji) => { if (!solicitacaoSelectMode) reactNow(m, emoji) }}
+                  canDelete={!solicitacaoSelectMode && !isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  canForward={!solicitacaoSelectMode && !isTemp(m) && !m.deleted_at && (['image', 'video', 'audio', 'document'].includes(m.message_type) || !!(m.body && m.body.trim()))}
                   onRetry={() => retrySend(m)}
                   onDiscard={() => discardFailed(m)}
                   onForward={() => setForwarding(m)}
-                  canEdit={!isTemp(m) && canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
+                  canEdit={!solicitacaoSelectMode && !isTemp(m) && canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
                   onEdit={() => { setReplyTo(null); setEditing(m); setText(m.body ?? ''); requestAnimationFrame(() => textareaRef.current?.focus()) }}
                   onDelete={async () => {
                     if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
@@ -1659,6 +1709,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else { toast.success('MENSAGEM APAGADA'); refreshThread(selectedId!) }
                   }}
                 />
+                </div>
                 </div>
                 </Fragment>
               ))}
@@ -1690,8 +1741,56 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </div>
             )}
 
-            {/* Composer */}
-            {recording ? (
+            {/* Barra de seleção para solicitação */}
+            {solicitacaoSelectMode && (() => {
+              const mode = solicitacaoSelectMode
+              const stageObj = SOLIC_STAGES.find((s) => s.id === mode.stage)
+              const n = mode.selected.size
+              return (
+                <div className="border-t border-indigo-200 bg-indigo-50 px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Folder className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-sm font-medium text-indigo-900 truncate">Solicitação #{mode.solicitationNumber}</span>
+                    {stageObj && (
+                      <span className={cn('inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border', stageObj.color)}>
+                        {stageObj.label}
+                      </span>
+                    )}
+                    <span className="text-xs text-indigo-700">{n} selecionada{n !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => setSolicitacaoSelectMode(null)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      disabled={pending}
+                      onClick={() => {
+                        const links = Array.from(mode.selected.entries()).map(([messageId, field]) => ({ messageId, field }))
+                        const solicitationId = mode.solicitationId
+                        const num = mode.solicitationNumber
+                        startTransition(async () => {
+                          const r = await linkCrmMessagesToSolicitationStage({ solicitationId, stage: mode.stage, links })
+                          if ('error' in r) { toast.error('ERRO', r.error); return }
+                          const msg = n === 0 ? `Etapa registrada na solicitação #${num}` : `${n} mensagem(ns) vinculada(s) à solicitação #${num}`
+                          toast.success('REGISTRADO', msg, { action: { label: 'Ver solicitação', href: `/solicitacoes/${solicitationId}` } })
+                          setSolicitacaoSelectMode(null)
+                        })
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 inline-flex items-center gap-1.5"
+                    >
+                      {pending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Folder className="w-3 h-3" />}
+                      Registrar
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Composer — oculto durante modo de seleção de solicitação */}
+            {!solicitacaoSelectMode && (recording ? (
               <div className="p-4 border-t border-gray-200 bg-white flex items-center gap-3">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
@@ -1750,7 +1849,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={() => setShowFormat((v) => !v)}
-                  className={cn('p-2.5 rounded-lg transition-colors text-sm font-semibold leading-5 w-10', showFormat ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100')}
+                  className={cn('max-md:hidden p-2.5 rounded-lg transition-colors text-sm font-semibold leading-5 w-10', showFormat ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100')}
                   title={showFormat ? 'Esconder formatação' : 'Formatação (negrito, itálico, listas…)'}
                   aria-label="Formatação"
                   aria-pressed={showFormat}
@@ -1771,7 +1870,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   type="button"
                   onClick={() => setShowSendContact(true)}
                  
-                  className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                  className="max-md:hidden p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Enviar contato do sistema"
                   aria-label="Enviar contato"
                 >
@@ -1801,7 +1900,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   type="button"
                   onClick={handleToggleSignature}
                  
-                  className={cn('p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
+                  className={cn('max-md:hidden p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
                   title={selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para voltar a assinar)' : 'Mensagens vão com o seu nome no começo (clique para enviar sem assinatura)'}
                   aria-label="Assinatura"
                   aria-pressed={!!selected?.hide_signature}
@@ -1893,7 +1992,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 )}
               </div>
               </div>
-            )}
+            ))}
           </>
         )}
       </div>
@@ -1957,6 +2056,24 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
+      {showOtherNumber && selected && !selected.is_group && (
+        <OtherNumberModal
+          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+          phone={selected.remote_jid.split('@')[0]}
+          contactId={selected.contact_id}
+          currentInstanceId={selected.instance_id}
+          instances={filter.options.map((o) => ({ id: o.id, label: o.label, chip: filter.colorOf(o.id).chip, isPrivate: o.is_private }))}
+          onClose={() => setShowOtherNumber(false)}
+          onStarted={(id, instanceId) => {
+            setShowOtherNumber(false)
+            // se o filtro de WhatsApps esconde o número escolhido, inclui para a conversa aparecer na lista
+            if (filter.selected.length && !filter.selected.includes(instanceId)) filter.setSelected([...filter.selected, instanceId])
+            refreshList(true)
+            setSelectedId(id)
+          }}
+        />
+      )}
+
       {showNewConv && (
         <NewConversationModal
           instances={filter.options.map((o) => ({ id: o.id, label: o.label }))}
@@ -1973,6 +2090,18 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           conversations={(forwardTargets ?? conversations).map((c) => ({ id: c.id, name: c.contact_name ?? c.remote_jid.split('@')[0], photo: c.contact_photo_url, isGroup: c.is_group, instanceLabel: c.instance_label }))}
           onForward={doForward}
           onClose={() => setForwarding(null)}
+        />
+      )}
+
+      {showSolicitation && selected && selected.contact_id && (
+        <CrmSolicitationModal
+          contactId={selected.contact_id}
+          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+          onClose={() => setShowSolicitation(false)}
+          onStartSelecting={(sel: SolicSelection) => {
+            setShowSolicitation(false)
+            setSolicitacaoSelectMode({ ...sel, selected: new Map() })
+          }}
         />
       )}
     </div>
@@ -2023,7 +2152,7 @@ function MessageBubble({
   const [thumbFailed, setThumbFailed] = useState(false)
   // 'react' = só a fileira de reações (botão 🙂); 'full' = todas as opções (botão ⌄ ou clique direito)
   const [menu, setMenu] = useState<false | 'react' | 'full'>(false)
-  const [menuUp, setMenuUp] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ left?: number; right?: number; top?: number; bottom?: number } | null>(null)
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(false)
@@ -2104,7 +2233,7 @@ function MessageBubble({
     return (
       <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
         {groupAvatar}
-        <div className={cn('relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
+        <div className={cn('relative max-w-[85%] md:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
           🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
           <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
         </div>
@@ -2124,7 +2253,11 @@ function MessageBubble({
   const openMenu = (kind: 'react' | 'full', anchor: Element) => {
     const box = anchor.closest('[data-thread]')?.getBoundingClientRect()
     const at = anchor.getBoundingClientRect()
-    setMenuUp(!!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80))
+    const up = !!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80)
+    setMenuPos({
+      ...(isOutbound ? { right: window.innerWidth - at.right } : { left: at.left }),
+      ...(up ? { bottom: window.innerHeight - at.top + 4 } : { top: at.bottom + 4 }),
+    })
     setMenu((cur) => (cur === kind ? false : kind))
   }
   const reactionRow = (
@@ -2181,13 +2314,12 @@ function MessageBubble({
       >
         <ChevronDown className="w-5 h-5" />
       </button>
-      {menu && (
+      {menu && menuPos && (
         <div
           role="menu"
+          style={{ position: 'fixed', zIndex: 100, ...menuPos }}
           className={cn(
-            'absolute z-30 bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
-            isOutbound ? 'right-0' : 'left-0',
-            menuUp ? 'bottom-10' : 'top-10',
+            'bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
             menu === 'react' ? 'p-1' : 'w-56 py-1',
           )}
         >
@@ -2218,7 +2350,7 @@ function MessageBubble({
           if (btn) openMenu('full', btn)
         }}
         className={cn(
-          'relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
+          'relative max-w-[85%] md:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           msg.reactions?.length ? 'mb-4' : '',
           bubbleTone, tailCorner
         )}
@@ -2267,17 +2399,33 @@ function MessageBubble({
         )}
 
         {msg.message_type === 'image' && hasFile && (
-          url && !thumbFailed ? (
-            <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
-            </button>
-          ) : hasFile ? (
-            <button type="button" onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }} className="flex items-center gap-2 text-left hover:opacity-80">
-              <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
-              <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
-            </button>
-          ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
+          isStickerMsg ? (
+            // Figurinha: sem frame, fundo transparente, não abre lightbox
+            url && !thumbFailed ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="Figurinha" loading="lazy" onError={() => setThumbFailed(true)}
+                className="block w-[160px] h-[160px] object-contain" />
+            ) : thumbFailed ? (
+              <p className="text-xs italic text-gray-400">Figurinha indisponível</p>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-gray-400 w-[160px] h-[80px]">
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" /> Carregando figurinha…
+              </div>
+            )
+          ) : (
+            // Imagem normal
+            url && !thumbFailed ? (
+              <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
+              </button>
+            ) : hasFile ? (
+              <button type="button" onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }} className="flex items-center gap-2 text-left hover:opacity-80">
+                <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
+                <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
+              </button>
+            ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
+          )
         )}
 
         {msg.message_type === 'video' && hasFile && (

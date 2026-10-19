@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import localFont from 'next/font/local'
@@ -13,7 +13,19 @@ export const metadata: Metadata = {
   description: 'Sistema de gestão de orçamentos e vendas',
   icons: {
     icon: '/logo.svg',
+    apple: '/icons/apple-touch-icon.png',
   },
+  // app instalável no celular (tela inicial) com avisos de mensagem; ver public/manifest.webmanifest
+  manifest: '/manifest.webmanifest',
+  appleWebApp: { capable: true, title: 'Luknos', statusBarStyle: 'default' },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0A1F3B',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
 }
 
 // Poppins hospedada no próprio repositório (subconjunto latin). Antes vinha do

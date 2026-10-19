@@ -105,8 +105,8 @@ export function useCrmDesktopNotify(active: boolean) {
     const away = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || !document.hasFocus())
     if (permissionRef.current === 'granted' && !(pushRef.current && info.conversation_id !== 'teste')) {
       const when = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(info.at))
-      const title = `${info.title} · ${info.instance_label}`
-      const options: NotificationOptions = { body: `${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id, data: { url: `/crm/conversas?c=${info.conversation_id}` } }
+      const title = `WhatsApp ${info.instance_label}`
+      const options: NotificationOptions = { body: `• ${info.title} disse:\n  ${info.body}\n${when}`, icon: info.photo ?? undefined, tag: info.conversation_id, data: { url: `/crm/conversas?c=${info.conversation_id}` } }
       void showBanner(title, options, () => { window.focus(); if (info.conversation_id !== 'teste') routerRef.current.push(`/crm/conversas?c=${info.conversation_id}`) })
       if (away) return // com o sistema escondido só o banner faz sentido
     }

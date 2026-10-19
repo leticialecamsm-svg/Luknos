@@ -98,13 +98,15 @@ export function computeStages(s: SolicitationView, now: Date = new Date()): Stag
   const started: Record<string, boolean> = {}
   const done: Record<string, boolean> = {}
   for (const st of STAGES) {
-    started[st.id] = records(st.id, s).length > 0
+    // etapa iniciada = tem registros próprios OU mensagens do WhatsApp vinculadas via CRM
+    started[st.id] = records(st.id, s).length > 0 || (s.crmMessages?.[st.id]?.length ?? 0) > 0
     done[st.id] = isStageDone(st.id, s)
   }
   const current = pickCurrentStage(STAGES.map(x => x.id), started, done)
   return STAGES.map(st => {
     if (!started[st.id]) return { id: st.id, label: st.label, state: 'not_started' as const, days: null }
-    const start = minDate(records(st.id, s).map(r => r.created_at))
+    const crmDates = (s.crmMessages?.[st.id] ?? []).map(m => m.linkedAt)
+    const start = minDate([...records(st.id, s).map(r => r.created_at), ...crmDates])
     let state: StageState
     let days: number | null
     if (done[st.id] && st.id !== current) {

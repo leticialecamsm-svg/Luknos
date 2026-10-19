@@ -820,6 +820,12 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
             </p>
           )}
 
+          {stageId === 'expedicao' && mode === 'existing' && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              A separação precisa de um orçamento. Verifique se a solicitação selecionada já possui orçamento antes de criar.
+            </p>
+          )}
+
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
 

@@ -5,15 +5,18 @@ import { Check, X, AlertCircle } from 'lucide-react'
 
 type ToastType = 'success' | 'error' | 'info'
 
+interface ToastAction { label: string; href: string }
+
 interface Toast {
   id: string
   type: ToastType
   title: string
   message?: string
+  action?: ToastAction
 }
 
 interface ToastContextValue {
-  success: (title: string, message?: string) => void
+  success: (title: string, message?: string, opts?: { action?: ToastAction }) => void
   error: (title: string, message?: string) => void
   info: (title: string, message?: string) => void
 }
@@ -29,14 +32,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
-  const add = useCallback((type: ToastType, title: string, message?: string) => {
+  const add = useCallback((type: ToastType, title: string, message?: string, opts?: { action?: ToastAction }) => {
     const id = Math.random().toString(36).slice(2)
-    setToasts(prev => [...prev, { id, type, title, message }])
-    timers.current[id] = setTimeout(() => remove(id), 4000)
+    setToasts(prev => [...prev, { id, type, title, message, action: opts?.action }])
+    timers.current[id] = setTimeout(() => remove(id), 5000)
   }, [remove])
 
   const ctx: ToastContextValue = {
-    success: (title, message) => add('success', title, message),
+    success: (title, message, opts) => add('success', title, message, opts),
     error: (title, message) => add('error', title, message),
     info: (title, message) => add('info', title, message),
   }
@@ -77,6 +80,15 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
           {toast.message && (
             <p className="text-sm text-white/55 leading-snug mt-0.5">{toast.message}</p>
           )}
+          {toast.action && (
+            <a
+              href={toast.action.href}
+              onClick={onClose}
+              className="inline-block mt-1.5 text-xs font-semibold text-brand-300 hover:text-brand-200 underline underline-offset-2"
+            >
+              {toast.action.label} →
+            </a>
+          )}
         </div>
 
         {/* Fechar */}
@@ -90,7 +102,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
 
       {/* Barra de progresso (tempo até fechar sozinho) */}
       <div className="h-[3px] bg-white/10">
-        <div className="h-full bg-brand-500 animate-[toast-progress_4s_linear_forwards]" />
+        <div className="h-full bg-brand-500 animate-[toast-progress_5s_linear_forwards]" />
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { X, Search, Loader2, Phone, Forward, MessageSquarePlus } from 'lucide-react'
+import { X, Search, Loader2, Phone, Forward, MessageSquarePlus, ArrowRightLeft, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { ConvAvatar } from './ConvAvatar'
@@ -86,6 +86,49 @@ export function NewConversationModal({ instances, defaultInstanceId, onClose, on
           <p className="text-sm text-gray-400 text-center py-6">Nenhum contato encontrado. Digite o número com DDD para iniciar.</p>
         )}
         {!q.trim() && <p className="text-sm text-gray-400 text-center py-6">Busque pelo nome ou digite o número do contato.</p>}
+      </div>
+    </Overlay>
+  )
+}
+
+// ── Abrir o mesmo contato em outro WhatsApp da empresa (ex.: da Loja para o Setor de Projetos) ──
+export function OtherNumberModal({ contactName, phone, contactId, currentInstanceId, instances, onClose, onStarted }: {
+  contactName: string
+  phone: string
+  contactId: string | null
+  currentInstanceId: string
+  instances: { id: string; label: string; chip: string; isPrivate: boolean }[]
+  onClose: () => void
+  onStarted: (conversationId: string, instanceId: string) => void
+}) {
+  const toast = useToast()
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const others = instances.filter((i) => i.id !== currentInstanceId)
+
+  async function start(instanceId: string) {
+    setBusyId(instanceId)
+    const r = await startCrmConversation({ phone, instanceId, contactId })
+    setBusyId(null)
+    if ('error' in r && r.error) { toast.error('NÃO FOI POSSÍVEL', r.error); return }
+    if ('conversationId' in r && r.conversationId) {
+      if ('existed' in r && r.existed) toast.success('JÁ EXISTIA', 'Abri a conversa que já havia nesse WhatsApp.')
+      onStarted(r.conversationId, instanceId)
+    }
+  }
+
+  return (
+    <Overlay onClose={onClose} title="Iniciar em outro WhatsApp" icon={<ArrowRightLeft className="w-5 h-5 text-emerald-600" />}>
+      <p className="mb-3 text-sm text-gray-600">Abre uma conversa com <span className="font-medium text-gray-900">{contactName}</span> pelo WhatsApp que você escolher. A conversa atual continua onde está.</p>
+      <div className="space-y-1">
+        {others.map((i) => (
+          <button key={i.id} disabled={!!busyId} onClick={() => start(i.id)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left disabled:opacity-60">
+            <span className={cn('shrink-0 inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border', i.chip)}>{i.label}</span>
+            {i.isPrivate && <Lock className="w-3.5 h-3.5 text-amber-600" aria-label="Número privado" />}
+            <span className="flex-1" />
+            {busyId === i.id ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" /> : <span className="text-xs text-emerald-700 font-medium">Iniciar</span>}
+          </button>
+        ))}
+        {others.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Você não tem outro WhatsApp disponível.</p>}
       </div>
     </Overlay>
   )
