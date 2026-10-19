@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForContact, isContactType, onlyDigits, phoneVariants, samePhone } from '@/lib/crm-panel'
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
-import { streamEvolutionMediaToDrive } from '@/lib/crm-media'
+import { fetchCrmMediaToDrive } from '@/lib/crm-media'
 import { driveDownload } from '@/lib/google-drive'
 import { vapidKeys, sendTestPush } from '@/lib/crm-push'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
@@ -1245,17 +1245,7 @@ export async function downloadCrmMedia(messageId: string) {
   if (!acc.ok) return { error: acc.error }
   if (m.drive_file_id || m.storage_path) return { ok: true }
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
-      body: JSON.stringify({ action: 'fetch_media', message_id: messageId }),
-    })
-    if (!res.ok || !res.body) return { error: `Não foi possível baixar o arquivo (${res.status})` }
-    // lido e enviado ao Drive em pedaços: arquivo grande não cabe inteiro na memória
-    const stored = await streamEvolutionMediaToDrive(res.body, { fallbackName: m.file_name ?? 'arquivo', at: m.created_at })
-    await admin.from('crm_messages')
-      .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: m.mime_type ?? stored.mimeType, file_name: m.file_name ?? stored.fileName })
-      .eq('id', messageId)
+    await fetchCrmMediaToDrive(m)
     return { ok: true }
   } catch (e: any) {
     return { error: e?.message ?? 'Não foi possível baixar o arquivo' }

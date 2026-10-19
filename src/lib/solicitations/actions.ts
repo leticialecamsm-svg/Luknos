@@ -13,6 +13,7 @@
 // migration 20260929_solicitations_core.sql, não um card único.
 
 import { revalidatePath } from 'next/cache'
+import { fetchCrmMediaToDrive } from '@/lib/crm-media'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { updateShipment, updateTemperature } from '@/lib/actions'
@@ -805,7 +806,7 @@ async function copyCrmLinksToStageFolder(
     .is('stage_drive_file_id', null)
   for (const l of (links ?? []) as any[]) {
     const m = l.crm_messages
-    if (!m || m.deleted_at || (!m.drive_file_id && !m.storage_path)) continue
+    if (!m || m.deleted_at || !['image', 'video', 'audio', 'ptt', 'document'].includes(m.message_type)) continue
     const { data: claimed } = await db
       .from('crm_solicitation_links').update({ stage_drive_file_id: 'pending' })
       .eq('id', l.id).is('stage_drive_file_id', null).select('id')
@@ -816,6 +817,8 @@ async function copyCrmLinksToStageFolder(
       }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(':', 'h')
       const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type}`
       let copied: { id: string }
+      // mídia que ninguém baixou ainda na conversa: busca no WhatsApp primeiro
+      if (!m.drive_file_id && !m.storage_path) m.drive_file_id = await fetchCrmMediaToDrive(m)
       if (m.drive_file_id) {
         copied = await copyFile(m.drive_file_id, { folderId, name })
       } else {

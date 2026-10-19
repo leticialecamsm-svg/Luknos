@@ -148,3 +148,20 @@ export async function streamEvolutionMediaToDrive(body: ReadableStream<Uint8Arra
   )
   return { driveFileId: uploaded.id, webViewLink: uploaded.webViewLink ?? null, size: sent, mimeType, fileName }
 }
+
+// Busca no WhatsApp (via Evolution) a mídia que ainda não foi baixada, guarda no Drive e
+// grava na mensagem. Devolve o id do arquivo no Drive.
+export async function fetchCrmMediaToDrive(m: { id: string; file_name: string | null; mime_type: string | null; created_at: string }): Promise<string> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
+    body: JSON.stringify({ action: 'fetch_media', message_id: m.id }),
+  })
+  if (!res.ok || !res.body) throw new Error(`Não foi possível baixar o arquivo (${res.status})`)
+  // lido e enviado ao Drive em pedaços: arquivo grande não cabe inteiro na memória
+  const stored = await streamEvolutionMediaToDrive(res.body, { fallbackName: m.file_name ?? 'arquivo', at: m.created_at })
+  await createAdminClient().from('crm_messages')
+    .update({ drive_file_id: stored.driveFileId, media_size: stored.size, mime_type: m.mime_type ?? stored.mimeType, file_name: m.file_name ?? stored.fileName })
+    .eq('id', m.id)
+  return stored.driveFileId
+}
