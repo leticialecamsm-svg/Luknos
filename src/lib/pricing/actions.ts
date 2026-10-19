@@ -588,3 +588,52 @@ export async function linkNfeInvoices(input: { invoiceIds: string[]; supplierId?
   }
   return { linked, held, supplierId }
 }
+
+export type SupplierPurchaseItem = {
+  id: string
+  description: string
+  status: string
+  expected_delivery_date: string | null
+  created_at: string
+  created_by: string | null
+  creator_name: string | null
+  solicitation_id: string
+  solicitation_number: number | null
+  solicitation_title: string | null
+  client_name: string | null
+}
+
+export async function getSupplierPurchaseItems(supplierName: string): Promise<{ items: SupplierPurchaseItem[]; error?: string }> {
+  const auth = await guard(false)
+  if ('error' in auth) return { items: [], error: auth.error }
+  const db = createAdminClient()
+  const { data, error } = await db
+    .from('purchase_checklist_items')
+    .select('id, description, status, expected_delivery_date, created_at, created_by, solicitation:solicitation_id(id, number, title, client:client_id(name))')
+    .eq('supplier', supplierName)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (error) return { items: [], error: error.message }
+
+  const creatorIds = Array.from(new Set((data ?? []).map((r: any) => r.created_by).filter(Boolean)))
+  let creatorMap: Record<string, string> = {}
+  if (creatorIds.length) {
+    const { data: users } = await db.from('users').select('id, name').in('id', creatorIds)
+    for (const u of (users ?? []) as any[]) creatorMap[u.id] = u.name
+  }
+
+  const items: SupplierPurchaseItem[] = (data ?? []).map((r: any) => ({
+    id: r.id,
+    description: r.description,
+    status: r.status,
+    expected_delivery_date: r.expected_delivery_date ?? null,
+    created_at: r.created_at,
+    created_by: r.created_by ?? null,
+    creator_name: r.created_by ? (creatorMap[r.created_by] ?? null) : null,
+    solicitation_id: r.solicitation?.id ?? '',
+    solicitation_number: r.solicitation?.number ?? null,
+    solicitation_title: r.solicitation?.title ?? null,
+    client_name: r.solicitation?.client?.name ?? null,
+  }))
+  return { items }
+}

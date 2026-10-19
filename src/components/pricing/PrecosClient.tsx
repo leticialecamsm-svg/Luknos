@@ -10,9 +10,10 @@ import { ItemSimulatorModal } from './ItemSimulatorModal'
 import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
 import { catalogSourceFor, AUTO_SYNC_SOURCES, type CatalogEntry } from '@/lib/catalog/match'
 import {
-  getSupplierSheet, getSupplierQuotes, getSupplierCatalog,
-  type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote,
+  getSupplierSheet, getSupplierQuotes, getSupplierCatalog, getSupplierPurchaseItems,
+  type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote, type SupplierPurchaseItem,
 } from '@/lib/pricing/actions'
+import Link from 'next/link'
 
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 'sem data')
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -23,7 +24,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   // abre no fornecedor com compra mais recente
   const initial = useMemo(() => [...suppliers].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? ''))[0]?.id ?? '', [suppliers])
   const [supplierId, setSupplierId] = useState(initial)
-  const [view, setView] = useState<'produtos' | 'cotacoes'>('produtos')
+  const [view, setView] = useState<'produtos' | 'cotacoes' | 'compras'>('produtos')
   const [invoices, setInvoices] = useState<SheetInvoice[] | null>(null)
   const [quotes, setQuotes] = useState<SavedQuote[] | null>(null)
   const [search, setSearch] = useState('')
@@ -31,6 +32,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   const [editing, setEditing] = useState<SheetItem | null>(null)
   const [picking, setPicking] = useState<SheetItem | null>(null)
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
+  const [purchaseItems, setPurchaseItems] = useState<SupplierPurchaseItem[] | null>(null)
 
   const supplier = suppliers.find(s => s.id === supplierId)
   // Fornecedores com catálogo de fotos (site do fabricante ou catálogo PDF).
@@ -49,7 +51,7 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
   useEffect(() => {
     if (!supplierId) return
     let cancelled = false
-    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set()); setCatalog(null)
+    setInvoices(null); setQuotes(null); setSearch(''); setClosed(new Set()); setCatalog(null); setPurchaseItems(null)
     getSupplierSheet(supplierId).then(r => { if (!cancelled && !('error' in r)) setInvoices(r.invoices) })
     getSupplierQuotes(supplierId, 100).then(r => { if (!cancelled && !('error' in r)) setQuotes(r.quotes) })
     return () => { cancelled = true }
@@ -103,12 +105,24 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
       {supplier && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex bg-surface-secondary rounded-lg p-1">
-            {(['produtos', 'cotacoes'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)}
-                className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-all', view === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                {v === 'produtos' ? `Notas e produtos (${supplier.itens})` : `Cotações${quotes ? ` (${quotes.length})` : ''}`}
-              </button>
-            ))}
+            {(['produtos', 'cotacoes', 'compras'] as const).map(v => {
+              function label() {
+                if (v === 'produtos') return `Notas e produtos (${supplier!.itens})`
+                if (v === 'cotacoes') return `Cotações${quotes ? ` (${quotes.length})` : ''}`
+                return `Compras${purchaseItems ? ` (${purchaseItems.length})` : ''}`
+              }
+              return (
+                <button key={v} onClick={() => {
+                  setView(v)
+                  if (v === 'compras' && purchaseItems === null && supplier) {
+                    getSupplierPurchaseItems(supplier.name).then(r => { if (!('error' in r)) setPurchaseItems(r.items) })
+                  }
+                }}
+                  className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-all', view === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                  {label()}
+                </button>
+              )
+            })}
           </div>
           <span className="text-xs text-gray-400">
             {supplier.notas} nota(s){supplier.default_uf ? ` · origem ${supplier.default_uf}` : ''}{supplier.last_date ? ` · última compra ${fmtDate(supplier.last_date)}` : ''}
@@ -220,6 +234,58 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
                       <td className="px-4 py-2.5 text-right tabular-nums">{brl(q.cost_unit)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{brl(q.price_credit)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">{brl(q.price_cash)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'compras' && (
+        <div className="card overflow-hidden">
+          {purchaseItems === null ? (
+            <p className="px-5 py-10 text-sm text-gray-400 text-center flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>
+          ) : purchaseItems.length === 0 ? (
+            <p className="px-5 py-10 text-sm text-gray-400 text-center">Nenhuma necessidade de compra registrada para {supplier?.name}.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="px-4 py-2.5">Item</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Solicitação</th>
+                  <th className="px-4 py-2.5">Cliente</th>
+                  <th className="px-4 py-2.5">Previsão</th>
+                  <th className="px-4 py-2.5">Registrado por</th>
+                  <th className="px-4 py-2.5">Data</th>
+                </tr></thead>
+                <tbody>
+                  {purchaseItems.map(item => (
+                    <tr key={item.id} className="border-t border-surface-border hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-medium text-gray-800">{item.description}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold',
+                          item.status === 'recebido' ? 'bg-green-100 text-green-700' :
+                          item.status === 'pedido' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700')}>
+                          {item.status === 'recebido' ? 'Recebido' : item.status === 'pedido' ? 'Pedido' : 'A pedir'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {item.solicitation_id ? (
+                          <Link href={`/solicitacoes/${item.solicitation_id}`} className="text-brand-600 hover:underline font-medium">
+                            {item.solicitation_title ? item.solicitation_title : item.solicitation_number ? `#${item.solicitation_number}` : '—'}
+                            {item.solicitation_number && item.solicitation_title ? <span className="text-gray-400 ml-1 font-normal">#{item.solicitation_number}</span> : null}
+                          </Link>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">{item.client_name ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
+                        {item.expected_delivery_date ? new Date(item.expected_delivery_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500">{item.creator_name ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-gray-400 whitespace-nowrap text-xs">{new Date(item.created_at).toLocaleDateString('pt-BR')}</td>
                     </tr>
                   ))}
                 </tbody>

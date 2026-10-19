@@ -299,7 +299,7 @@ export function QuoteTab({
 
   if (!localQuote) {
     return (
-      <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="flex flex-col items-center justify-center py-10 gap-4">
           <FileText className="w-8 h-8 text-gray-300" />
           <p className="text-sm text-gray-400">Nenhum orçamento vinculado a esta solicitação.</p>
@@ -314,7 +314,9 @@ export function QuoteTab({
           </button>
           {createError && <p className="text-xs text-red-600">{createError}</p>}
         </div>
-        <StageFilesColumn solicitationId={solicitation.id} stage="orcamento" />
+        <div className="min-w-0">
+          <StageFilesColumn solicitationId={solicitation.id} stage="orcamento" />
+        </div>
       </div>
     )
   }
