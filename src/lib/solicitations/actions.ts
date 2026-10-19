@@ -1509,6 +1509,7 @@ export async function createStageRecordForSolicitation(input: {
   deliveryType?: 'delivery' | 'pickup' | null
   deliveryDate?: string | null
   kind?: 'elaboracao' | 'alocacao_pontos' | null
+  finalValue?: number | null
 }): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
@@ -1528,6 +1529,37 @@ export async function createStageRecordForSolicitation(input: {
       })
     case 'orcamento':
       return createQuoteForSolicitation(solicitationId, { clientId })
+    case 'negociacao': {
+      const db = createAdminClient()
+      // Garante que existe um orçamento; cria um se ainda não houver.
+      let { data: existingQuote } = await db
+        .from('quotes')
+        .select('id')
+        .eq('solicitation_id', solicitationId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!existingQuote) {
+        const res = await createQuoteForSolicitation(solicitationId, { clientId, status: 'done' })
+        if (res.error) return { error: res.error }
+        existingQuote = { id: res.quoteId! }
+      }
+      const finalValue = input.finalValue != null && input.finalValue > 0 ? input.finalValue : null
+      const { error } = await db.from('negotiations').upsert({
+        quote_id: existingQuote.id,
+        solicitation_id: solicitationId,
+        temperature: 'closed',
+        ...(finalValue != null ? { final_value: finalValue } : {}),
+        closed_at: new Date().toISOString(),
+      }, { onConflict: 'quote_id' })
+      if (error) return { error: error.message }
+      if (finalValue != null) {
+        await db.from('quotes').update({ status: 'done', final_value: finalValue }).eq('id', existingQuote.id)
+      }
+      await logSolicitationEvent(solicitationId, 'negociacao', 'Venda fechada' + (finalValue != null ? ` — R$ ${finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''), user.id)
+      refresh(solicitationId)
+      return { ok: true }
+    }
     case 'compra': {
       // checklist item placeholder — o usuário adiciona itens depois
       const db = createAdminClient()
