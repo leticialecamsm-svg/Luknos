@@ -1475,6 +1475,98 @@ export async function createSolicitation(data: {
   return { ok: true, solicitationId: inserted?.id, id: inserted?.id }
 }
 
+// ── Busca rápida de solicitações (modal de criação por etapa) ────────────────
+
+export async function searchSolicitationsForStage(query: string): Promise<{ id: string; label: string; clientName: string | null; clientId: string | null }[]> {
+  const user = await requireUser()
+  if (!user) return []
+  const db = createAdminClient()
+  const q = db.from('solicitations')
+    .select('id, number, title, client_id, client:client_id(name)')
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const { data } = query ? await (q.or(`title.ilike.%${query}%`) as any) : await q
+  return ((data ?? []) as any[]).map((s: any) => ({
+    id: s.id,
+    label: s.title ? `#${s.number} — ${s.title}` : `#${s.number}`,
+    clientName: s.client?.name ?? null,
+    clientId: s.client_id ?? null,
+  }))
+}
+
+// ── Criar registro de etapa direto (modal rápido do kanban) ──────────────────
+
+export async function createStageRecordForSolicitation(input: {
+  solicitationId: string
+  clientId: string
+  stage: string
+  title?: string | null
+  scheduledAt?: string | null
+  deliveryType?: 'delivery' | 'pickup' | null
+  deliveryDate?: string | null
+  kind?: 'elaboracao' | 'alocacao_pontos' | null
+}): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { solicitationId, clientId, stage } = input
+  switch (stage) {
+    case 'visita':
+      return createVisitForSolicitation({
+        solicitationId, clientId,
+        title: input.title?.trim() || 'Visita',
+        scheduledAt: input.scheduledAt || null,
+      })
+    case 'projeto':
+      return createDesignProjectForSolicitation({
+        solicitationId, clientId,
+        title: input.title?.trim() || 'Projeto',
+        kind: input.kind ?? 'elaboracao',
+      })
+    case 'orcamento':
+      return createQuoteForSolicitation(solicitationId, { clientId })
+    case 'compra': {
+      // checklist item placeholder — o usuário adiciona itens depois
+      const db = createAdminClient()
+      const { error } = await db.from('purchase_checklist_items').insert({
+        solicitation_id: solicitationId,
+        description: input.title?.trim() || 'Item a pedir',
+        status: 'a_pedir',
+        created_by: user.id,
+      })
+      if (error) return { error: error.message }
+      await logSolicitationEvent(solicitationId, 'compra', 'Etapa de Compra iniciada', user.id)
+      refresh(solicitationId)
+      return { ok: true }
+    }
+    case 'expedicao':
+      return createShipmentForSolicitation({
+        solicitationId,
+        deliveryType: input.deliveryType ?? 'delivery',
+        deliveryDate: input.deliveryDate || null,
+      })
+    case 'instalacao':
+      return saveInstallationTracking({
+        solicitationId,
+        scheduledDate: input.scheduledAt || null,
+        team: null, status: 'agendada', notes: null,
+      })
+    case 'posVenda': {
+      const db = createAdminClient()
+      const { error } = await db.from('post_sale_followups').insert({
+        solicitation_id: solicitationId,
+        contacted_at: new Date().toISOString(),
+        created_by: user.id,
+      })
+      if (error) return { error: error.message }
+      await logSolicitationEvent(solicitationId, 'posVenda', 'Pós-venda iniciado', user.id)
+      refresh(solicitationId)
+      return { ok: true }
+    }
+    default:
+      return { error: `Etapa '${stage}' não suportada` }
+  }
+}
+
 // ── Atualizar visita com responsável ─────────────────────────────────────────
 
 export async function updateVisitResponsible(

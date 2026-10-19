@@ -12,7 +12,7 @@ import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR, CATEGORY_LABEL, SIZE_LABEL } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
 import { isDoneStatus, dueState, localYmd, resolveCardProps, type IndexRow, type TeamUser, type CardPropsConfig, type ResolvedCardProp } from '@/lib/solicitations/index-types'
-import { moveStageCardStatus, saveCardProps, createSolicitation } from '@/lib/solicitations/actions'
+import { moveStageCardStatus, saveCardProps, createSolicitation, createStageRecordForSolicitation, searchSolicitationsForStage } from '@/lib/solicitations/actions'
 import { searchContacts, createContact } from '@/lib/actions'
 import { useToast } from '@/components/ui/Toast'
 import { Select } from '@/components/ui/Select'
@@ -477,164 +477,342 @@ function ListTable({ rows, stageId, props }: { rows: IndexRow[]; stageId: string
 // Colunas w-64 (256px) com fundo cinza-50, borda cinza, header com borda
 // superior de 3px na cor da etapa. Colunas sem cartões ficam RECOLHIDAS num
 // ── Modal de criação rápida por etapa ─────────────────────────────────────────
+// Dois modos: "Nova solicitação" (cria sol. + registro da etapa) ou
+// "Solicitação existente" (busca sol. existente + adiciona etapa).
+
+// Campos extras por etapa (apenas o essencial)
+const STAGE_EXTRA_FIELDS: Record<string, Array<'title' | 'scheduledAt' | 'deliveryType' | 'deliveryDate' | 'kind'>> = {
+  visita:     ['title', 'scheduledAt'],
+  projeto:    ['title', 'kind'],
+  orcamento:  [],
+  negociacao: [],
+  compra:     [],
+  expedicao:  ['deliveryType', 'deliveryDate'],
+  instalacao: ['scheduledAt'],
+  posVenda:   [],
+}
+
+// Typeahead genérico reutilizável
+function Typeahead<T extends { id: string; label: string; sub?: string | null }>({
+  value, label, onSelect, onClear, search, placeholder, createLabel, onCreate,
+}: {
+  value: string | null; label: string; onSelect: (item: T) => void; onClear: () => void
+  search: (q: string) => Promise<T[]>; placeholder: string
+  createLabel?: (q: string) => string; onCreate?: (q: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<T[]>([])
+  const [open, setOpen] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let active = true
+    search(q).then(r => { if (active) setResults(r) })
+    return () => { active = false }
+  }, [q, search])
+
+  useEffect(() => {
+    const fn = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
+  }, [])
+
+  if (value) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-surface-border px-3 py-2">
+        <span className="flex-1 text-sm text-gray-900">{label}</span>
+        <button type="button" onClick={onClear} className="text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={boxRef} className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+      <input type="text" value={q} onChange={e => { setQ(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-surface-border pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+      {open && (results.length > 0 || (q.length >= 2 && onCreate)) && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-52 overflow-y-auto">
+          {results.map(r => (
+            <button key={r.id} type="button" onClick={() => { onSelect(r); setOpen(false); setQ('') }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors">
+              <span className="block text-sm text-gray-900">{r.label}</span>
+              {r.sub && <span className="block text-xs text-gray-400">{r.sub}</span>}
+            </button>
+          ))}
+          {results.length === 0 && q.length >= 2 && onCreate && createLabel && (
+            <button type="button" onClick={() => { onCreate(q); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 flex items-center gap-2">
+              <UserPlus className="w-3.5 h-3.5" />{createLabel(q)}
+            </button>
+          )}
+          {results.length === 0 && q.length < 2 && <p className="px-3 py-2 text-xs text-gray-400">Digite para buscar…</p>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
   stageId: string; stageLabel: string
   onClose: () => void; onCreated: (id: string) => void
 }) {
   const [pending, startTransition] = useTransition()
-  useToast() // disponibiliza o contexto (erros mostrados inline)
-  const [title, setTitle] = useState('')
+  const [mode, setMode] = useState<'new' | 'existing'>('new')
+
+  // Dados de solicitação (modo "nova")
   const [clientId, setClientId] = useState<string | null>(null)
   const [clientLabel, setClientLabel] = useState('')
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<any[]>([])
-  const [listOpen, setListOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [solTitle, setSolTitle] = useState('')
+
+  // Dados de solicitação (modo "existente")
+  const [solId, setSolId] = useState<string | null>(null)
+  const [solLabel, setSolLabel] = useState('')
+  const [solClientId, setSolClientId] = useState<string | null>(null)
+
+  // Campos da etapa
+  const [stageTitle, setStageTitle] = useState('')
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery')
+  const [deliveryDate, setDeliveryDate] = useState('')
+  const [kind, setKind] = useState<'elaboracao' | 'alocacao_pontos'>('elaboracao')
+
+  // Sub-formulário de novo contato
   const [showNewContact, setShowNewContact] = useState(false)
   const [newName, setNewName] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [creatingContact, setCreatingContact] = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (query.length < 2) { setResults([]); return }
-    let active = true
-    searchContacts(query).then(r => { if (active) setResults(r as any[]) })
-    return () => { active = false }
-  }, [query])
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    function handle(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setListOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [])
+  const stageColor = STAGE_PILLS.find(s => s.id === stageId)?.color ?? '#9ca3af'
+  const Icon = STAGE_ICON[stageId]
+  const extraFields = STAGE_EXTRA_FIELDS[stageId] ?? []
+  const needsTitle = extraFields.includes('title')
 
-  async function handleCreate() {
-    if (!clientId) { setError('Selecione um cliente'); return }
-    setError(null)
-    startTransition(async () => {
-      const res = await createSolicitation({ clientId, title: title.trim() || null })
-      if ('error' in res && res.error) { setError(res.error); return }
-      if (res.solicitationId) onCreated(res.solicitationId)
-    })
+  const searchContactsFn = useRef(async (q: string) => {
+    const r = await searchContacts(q)
+    return (r as any[]).map((c: any) => ({ id: c.id, label: c.name, sub: c.phone ?? null }))
+  }).current
+
+  const searchSolFn = useRef(async (q: string) => {
+    const r = await searchSolicitationsForStage(q)
+    return r.map(s => ({ id: s.id, label: s.label, sub: s.clientName, clientId: s.clientId }))
+  }).current
+
+  async function handleCreateContact(q: string) {
+    setNewName(q); setNewPhone(''); setShowNewContact(true)
   }
 
-  async function handleCreateContact() {
-    if (!newName.trim()) { setError('Informe o nome do cliente'); return }
+  async function doCreateContact() {
+    if (!newName.trim()) { setError('Informe o nome'); return }
     setCreatingContact(true)
     const res = await createContact({ name: newName.trim(), phone: newPhone.trim() || undefined, type: 'client' })
     setCreatingContact(false)
     if ('error' in res && res.error) { setError(res.error); return }
     const c = (res as any).data
-    if (c?.id) { setClientId(c.id); setClientLabel(c.name); setShowNewContact(false); setListOpen(false); setQuery('') }
+    if (c?.id) { setClientId(c.id); setClientLabel(c.name); setShowNewContact(false) }
   }
 
-  const Icon = STAGE_ICON[stageId]
-  const stageColor = STAGE_PILLS.find(s => s.id === stageId)?.color ?? '#9ca3af'
+  async function handleSubmit() {
+    setError(null)
+    if (mode === 'new') {
+      if (!clientId) { setError('Selecione um cliente'); return }
+      startTransition(async () => {
+        const res = await createSolicitation({ clientId, title: solTitle.trim() || null })
+        if ('error' in res && res.error) { setError(res.error); return }
+        const sid = res.solicitationId
+        if (!sid) { setError('Erro ao criar solicitação'); return }
+        const res2 = await createStageRecordForSolicitation({
+          solicitationId: sid, clientId,
+          stage: stageId,
+          title: stageTitle.trim() || null,
+          scheduledAt: scheduledAt || null,
+          deliveryType, deliveryDate: deliveryDate || null,
+          kind,
+        })
+        if ('error' in res2 && res2.error) { setError(res2.error); return }
+        onCreated(sid)
+      })
+    } else {
+      if (!solId || !solClientId) { setError('Selecione uma solicitação'); return }
+      startTransition(async () => {
+        const res = await createStageRecordForSolicitation({
+          solicitationId: solId, clientId: solClientId,
+          stage: stageId,
+          title: stageTitle.trim() || null,
+          scheduledAt: scheduledAt || null,
+          deliveryType, deliveryDate: deliveryDate || null,
+          kind,
+        })
+        if ('error' in res && res.error) { setError(res.error); return }
+        onCreated(solId)
+      })
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 mb-5">
-          {Icon && <span className="p-1.5 rounded-lg" style={{ background: `${stageColor}22` }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+        {/* Cabeçalho */}
+        <div className="flex items-center gap-2.5 px-6 pt-5 pb-4 border-b border-gray-100">
+          {Icon && <span className="p-1.5 rounded-lg shrink-0" style={{ background: `${stageColor}20` }}>
             <Icon className="w-4 h-4" style={{ color: stageColor }} />
           </span>}
-          <div>
-            <h2 className="text-base font-bold text-gray-900">Nova solicitação</h2>
-            <p className="text-xs text-gray-500">Iniciando na etapa: <span className="font-medium" style={{ color: stageColor }}>{stageLabel}</span></p>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-bold text-gray-900">Nova {stageLabel}</h2>
           </div>
-          <button type="button" onClick={onClose} className="ml-auto text-gray-400 hover:text-gray-600 p-1">
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 shrink-0">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-gray-700 mb-1 block">Título (opcional)</label>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="Ex.: Sala de estar — Iluminação cênica"
-              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
-            />
+        <div className="px-6 py-4 space-y-4">
+          {/* Seletor de modo */}
+          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 w-full">
+            {([['new', 'Nova solicitação'], ['existing', 'Solicitação existente']] as const).map(([m, l]) => (
+              <button key={m} type="button" onClick={() => setMode(m)}
+                className={cn('flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors',
+                  mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                {l}
+              </button>
+            ))}
           </div>
 
-          <div ref={boxRef} className="relative">
-            <label className="text-xs font-medium text-gray-700 mb-1 block">Cliente *</label>
-            {clientId ? (
-              <div className="flex items-center gap-2 rounded-lg border border-surface-border px-3 py-2">
-                <span className="flex-1 text-sm text-gray-900">{clientLabel}</span>
-                <button type="button" onClick={() => { setClientId(null); setClientLabel(''); setQuery('') }} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-3.5 h-3.5" />
-                </button>
+          {/* Modo: nova solicitação */}
+          {mode === 'new' && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">Título da solicitação <span className="text-gray-400">(opcional)</span></label>
+                <input type="text" value={solTitle} onChange={e => setSolTitle(e.target.value)}
+                  placeholder="Ex.: Sala de estar — Iluminação cênica"
+                  className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
               </div>
-            ) : (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={e => { setQuery(e.target.value); setListOpen(true) }}
-                  onFocus={() => setListOpen(true)}
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">Cliente *</label>
+                <Typeahead
+                  value={clientId} label={clientLabel}
+                  onSelect={c => { setClientId(c.id); setClientLabel(c.label) }}
+                  onClear={() => { setClientId(null); setClientLabel('') }}
+                  search={searchContactsFn}
                   placeholder="Buscar cliente…"
-                  className="w-full rounded-lg border border-surface-border pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  createLabel={q => `Criar cliente "${q}"`}
+                  onCreate={handleCreateContact}
                 />
-                {listOpen && (query.length >= 2 || results.length > 0) && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                    {results.map((c: any) => (
-                      <button key={c.id} type="button" onClick={() => { setClientId(c.id); setClientLabel(c.name); setListOpen(false); setQuery('') }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
-                        {c.name}
+              </div>
+              {showNewContact && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">Novo cliente</p>
+                  <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome *"
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                  <input type="text" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Telefone"
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setShowNewContact(false)} className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
+                    <button type="button" onClick={doCreateContact} disabled={creatingContact}
+                      className="flex-1 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-xs font-medium hover:bg-gray-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                      {creatingContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Criar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Modo: solicitação existente */}
+          {mode === 'existing' && (
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">Solicitação *</label>
+              <Typeahead
+                value={solId} label={solLabel}
+                onSelect={(s: any) => { setSolId(s.id); setSolLabel(s.label); setSolClientId(s.clientId ?? null) }}
+                onClear={() => { setSolId(null); setSolLabel(''); setSolClientId(null) }}
+                search={searchSolFn}
+                placeholder="Buscar por número ou título…"
+              />
+            </div>
+          )}
+
+          {/* Campos da etapa (comuns a ambos os modos) */}
+          {(extraFields.length > 0 || needsTitle) && (
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: stageColor }}>{stageLabel}</p>
+              {extraFields.includes('title') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Descrição <span className="text-gray-400">(opcional)</span></label>
+                  <input type="text" value={stageTitle} onChange={e => setStageTitle(e.target.value)}
+                    placeholder={stageId === 'visita' ? 'Ex.: Medição do apartamento' : 'Ex.: Projeto luminotécnico sala'}
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                </div>
+              )}
+              {extraFields.includes('scheduledAt') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">
+                    {stageId === 'visita' ? 'Data e horário' : 'Data agendada'} <span className="text-gray-400">(opcional)</span>
+                  </label>
+                  <input type={stageId === 'visita' ? 'datetime-local' : 'date'} value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                </div>
+              )}
+              {extraFields.includes('kind') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Tipo de projeto</label>
+                  <div className="flex gap-2">
+                    {([['elaboracao', 'Elaboração'], ['alocacao_pontos', 'Alocação de pontos']] as const).map(([v, l]) => (
+                      <button key={v} type="button" onClick={() => setKind(v)}
+                        className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                          kind === v ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50')}>
+                        {l}
                       </button>
                     ))}
-                    {results.length === 0 && query.length >= 2 && (
-                      <button type="button" onClick={() => { setShowNewContact(true); setNewName(query); setListOpen(false) }}
-                        className="w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 flex items-center gap-2">
-                        <UserPlus className="w-3.5 h-3.5" /> Criar cliente "{query}"
-                      </button>
-                    )}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {showNewContact && (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-700">Novo cliente</p>
-              <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome *"
-                className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
-              <input type="text" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Telefone (opcional)"
-                className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowNewContact(false)}
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">
-                  Cancelar
-                </button>
-                <button type="button" onClick={handleCreateContact} disabled={creatingContact}
-                  className="flex-1 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-xs font-medium hover:bg-gray-700 disabled:opacity-50 flex items-center justify-center gap-1">
-                  {creatingContact ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Criar
-                </button>
-              </div>
+                </div>
+              )}
+              {extraFields.includes('deliveryType') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Tipo de entrega</label>
+                  <div className="flex gap-2">
+                    {([['delivery', 'Entrega'], ['pickup', 'Retirada']] as const).map(([v, l]) => (
+                      <button key={v} type="button" onClick={() => setDeliveryType(v)}
+                        className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                          deliveryType === v ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50')}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {extraFields.includes('deliveryDate') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Data prevista <span className="text-gray-400">(opcional)</span></label>
+                  <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                </div>
+              )}
             </div>
+          )}
+
+          {stageId === 'negociacao' && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              A negociação é criada automaticamente junto com o orçamento. Abra a solicitação e acesse a aba Orçamento para gerenciar a negociação.
+            </p>
           )}
 
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
 
-        <div className="flex gap-3 mt-5">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+        <div className="flex gap-3 px-6 pb-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50">
             Cancelar
           </button>
-          <button type="button" onClick={handleCreate} disabled={pending || !clientId}
-            className="flex-1 rounded-xl bg-navy text-white px-4 py-2 text-sm font-semibold hover:bg-navy/90 disabled:opacity-50 flex items-center justify-center gap-2">
-            {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Criar solicitação
-          </button>
+          {stageId !== 'negociacao' && (
+            <button type="button" onClick={handleSubmit} disabled={pending || (mode === 'new' ? !clientId : !solId)}
+              className="flex-1 rounded-xl bg-navy text-white px-4 py-2.5 text-sm font-semibold hover:bg-navy/90 disabled:opacity-50 flex items-center justify-center gap-2">
+              {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Criar {stageLabel.toLowerCase()}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -779,6 +957,9 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
   const router = useRouter()
   const [dragId, setDragId] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const stageColorVal = STAGE_PILLS.find(s => s.id === stageId)?.color ?? '#9ca3af'
+  const stageLabelVal = STAGE_PILLS.find(s => s.id === stageId)?.label ?? ''
   const dropProps = (colKey: string) => ({
     onDragOver: (e: React.DragEvent) => { if (dragId) { e.preventDefault(); setOverCol(colKey) } },
     onDragLeave: () => setOverCol(o => (o === colKey ? null : o)),
@@ -806,7 +987,31 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
   }, [rows, cols, stageId])
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      {showCreate && (
+        <QuickCreateModal
+          stageId={stageId}
+          stageLabel={stageLabelVal}
+          onClose={() => setShowCreate(false)}
+          onCreated={(id) => { setShowCreate(false); router.push(`/solicitacoes/${id}?tab=${stageId}`) }}
+        />
+      )}
+      <div className="overflow-x-auto">
+        {/* Botão de adicionar acima do kanban de status */}
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] text-gray-400">
+            Colunas = status da etapa {stageLabelVal}. Clique no cartão para abrir direto nessa aba.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border transition-colors hover:opacity-90"
+            style={{ borderColor: `${stageColorVal}60`, background: `${stageColorVal}12`, color: stageColorVal }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Nova {stageLabelVal.toLowerCase()}
+          </button>
+        </div>
       <div className="flex gap-3 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
         {cols.map(col => {
           const items = byStatus[col.key] ?? []
@@ -868,8 +1073,8 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
           )
         })}
       </div>
-      <p className="text-[11px] text-gray-400 mt-1">Colunas = status da etapa {stageLabel}. Clique no cartão para abrir direto nessa aba.</p>
-    </div>
+      </div>
+    </>
   )
 }
 
