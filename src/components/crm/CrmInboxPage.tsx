@@ -1578,11 +1578,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                           <ArrowRightLeft className="w-4 h-4 text-gray-500" /> Iniciar em outro WhatsApp
                         </button>
                       )}
-                      {!selected.is_group && selected.contact_id && (
-                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowSolicitation(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
-                          <Folder className="w-4 h-4 text-indigo-500" /> Registrar solicitação
-                        </button>
-                      )}
+                      <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowSolicitation(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        <Folder className="w-4 h-4 text-indigo-500" /> Registrar solicitação
+                      </button>
                       <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
                         <UserCog className="w-4 h-4 text-gray-500" /> Transferir ou liberar
                       </button>
@@ -2093,9 +2091,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
-      {showSolicitation && selected && selected.contact_id && (
+      {showSolicitation && selected && (
         <CrmSolicitationModal
-          contactId={selected.contact_id}
+          contactId={selected.is_group ? null : selected.contact_id}
           contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
           onClose={() => setShowSolicitation(false)}
           onStartSelecting={(sel: SolicSelection) => {

@@ -2873,17 +2873,61 @@ export type CrmSolicitation = {
   title: string | null
   work_stage: string | null
   created_at: string
+  client_id: string | null
+  architect_id: string | null
+  client_name: string | null
+  architect_name: string | null
 }
 
+const CRM_SOLIC_COLS = 'id, number, title, work_stage, created_at, client_id, architect_id, client:client_id(name), architect:architect_id(name)'
+
+function toCrmSolicitation(r: any): CrmSolicitation {
+  return {
+    id: r.id, number: r.number, title: r.title, work_stage: r.work_stage, created_at: r.created_at,
+    client_id: r.client_id, architect_id: r.architect_id,
+    client_name: r.client?.name ?? null, architect_name: r.architect?.name ?? null,
+  }
+}
+
+// Solicitações em que o contato da conversa é o cliente ou o arquiteto.
 export async function listSolicitationsForCrmContact(contactId: string): Promise<CrmSolicitation[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const { data } = await createAdminClient()
+    .from('solicitations')
+    .select(CRM_SOLIC_COLS)
+    .or(`client_id.eq.${contactId},architect_id.eq.${contactId}`)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  return (data ?? []).map(toCrmSolicitation)
+}
+
+// Busca em todas as solicitações: número (#12), título, nome do cliente ou do arquiteto.
+export async function searchSolicitationsForCrm(query: string): Promise<CrmSolicitation[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
   const admin = createAdminClient()
+  const raw = query.trim()
+  if (!raw) return []
+  const num = /^#?\s*(\d+)$/.exec(raw)
+  if (num) {
+    const { data } = await admin.from('solicitations').select(CRM_SOLIC_COLS).eq('number', Number(num[1])).limit(5)
+    return (data ?? []).map(toCrmSolicitation)
+  }
+  // vírgula, parênteses e curingas quebram o filtro .or() do PostgREST
+  const q = raw.replace(/[,()%*\\]/g, ' ').trim()
+  if (q.length < 2) return []
+  const { data: people } = await admin.from('contacts').select('id').ilike('name', `%${q}%`).limit(50)
+  const ids = (people ?? []).map((p) => p.id)
+  const ors = [`title.ilike.%${q}%`]
+  if (ids.length) ors.push(`client_id.in.(${ids.join(',')})`, `architect_id.in.(${ids.join(',')})`)
   const { data } = await admin
     .from('solicitations')
-    .select('id, number, title, work_stage, created_at')
-    .eq('client_id', contactId)
+    .select(CRM_SOLIC_COLS)
+    .or(ors.join(','))
     .order('created_at', { ascending: false })
-    .limit(15)
-  return (data ?? []) as CrmSolicitation[]
+    .limit(20)
+  return (data ?? []).map(toCrmSolicitation)
 }
 
 export async function createSolicitationFromCrm(input: {
