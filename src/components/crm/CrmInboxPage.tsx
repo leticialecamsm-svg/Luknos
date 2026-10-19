@@ -63,14 +63,14 @@ import { setOpenConversationId } from '@/lib/crm-open-conversation'
 import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
-import { NewConversationModal, ForwardModal } from './CrmConversationModals'
+import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
-  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft,
 } from 'lucide-react'
 
@@ -259,6 +259,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => { setReplyTo(null); setFollowupOpen(false); setShowStickers(false) }, [selectedId])
   const [lightboxId, setLightboxId] = useState<string | null>(null)
   const [showLinkContact, setShowLinkContact] = useState(false)
+  const [showOtherNumber, setShowOtherNumber] = useState(false)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1236,11 +1237,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   }, [contactQuery])
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-0 bg-white">
+    <div className="flex h-[calc(100dvh-8rem)] gap-0 bg-white">
       {/* ──────────────────────────────────────────────────────────────────────
           SIDEBAR - Conversas
           ────────────────────────────────────────────────────────────────────── */}
-      <div className="w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white">
+      <div className={cn("w-full md:w-80 shrink-0 flex-col border-r border-gray-200 bg-white", selectedId ? "hidden md:flex" : "flex")}>
         {/* Header com tabs */}
         <div className="px-3 pt-3 pb-2 border-b border-gray-200">
           <div className="flex items-center justify-between mb-2">
@@ -1445,7 +1446,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       {/* ──────────────────────────────────────────────────────────────────────
           MAIN - Thread de mensagens
           ────────────────────────────────────────────────────────────────────── */}
-      <div className="relative flex-1 flex flex-col overflow-hidden bg-gray-50">
+      <div className={cn("relative flex-1 flex-col overflow-hidden bg-gray-50 min-w-0", selectedId ? "flex" : "hidden md:flex")}>
         {/* tela de envio de arquivos: cobre só a área da conversa, como no WhatsApp Web */}
         {composerFiles && selected && (
           <MediaComposer
@@ -1470,6 +1471,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           <>
             {/* Header da conversa */}
             <div className="px-4 py-2 border-b border-gray-200 bg-[#F7F8FA] flex items-center justify-between gap-2">
+              <button type="button" onClick={() => setSelectedId(null)} aria-label="Voltar para a lista de conversas" className="md:hidden -ml-2 p-2 rounded-full text-gray-600 hover:bg-gray-200/70 shrink-0">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
               <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setShowInfo(true)}>
                 <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={40} />
                 <div className="min-w-0">
@@ -1560,6 +1564,11 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       {!selected.is_group && (
                         <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowLinkContact(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
                           <Link2 className="w-4 h-4 text-gray-500" /> Vincular contato / dar um nome
+                        </button>
+                      )}
+                      {!selected.is_group && filter.options.length > 1 && (
+                        <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowOtherNumber(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                          <ArrowRightLeft className="w-4 h-4 text-gray-500" /> Iniciar em outro WhatsApp
                         </button>
                       )}
                       <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
@@ -1957,6 +1966,24 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
+      {showOtherNumber && selected && !selected.is_group && (
+        <OtherNumberModal
+          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+          phone={selected.remote_jid.split('@')[0]}
+          contactId={selected.contact_id}
+          currentInstanceId={selected.instance_id}
+          instances={filter.options.map((o) => ({ id: o.id, label: o.label, chip: filter.colorOf(o.id).chip, isPrivate: o.is_private }))}
+          onClose={() => setShowOtherNumber(false)}
+          onStarted={(id, instanceId) => {
+            setShowOtherNumber(false)
+            // se o filtro de WhatsApps esconde o número escolhido, inclui para a conversa aparecer na lista
+            if (filter.selected.length && !filter.selected.includes(instanceId)) filter.setSelected([...filter.selected, instanceId])
+            refreshList(true)
+            setSelectedId(id)
+          }}
+        />
+      )}
+
       {showNewConv && (
         <NewConversationModal
           instances={filter.options.map((o) => ({ id: o.id, label: o.label }))}
@@ -2104,7 +2131,7 @@ function MessageBubble({
     return (
       <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
         {groupAvatar}
-        <div className={cn('relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
+        <div className={cn('relative max-w-[85%] md:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
           🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
           <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
         </div>
@@ -2218,7 +2245,7 @@ function MessageBubble({
           if (btn) openMenu('full', btn)
         }}
         className={cn(
-          'relative max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
+          'relative max-w-[85%] md:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           msg.reactions?.length ? 'mb-4' : '',
           bubbleTone, tailCorner
         )}
