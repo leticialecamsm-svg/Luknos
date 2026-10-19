@@ -65,8 +65,12 @@ function visibleNavHasCrm(isAdmin: boolean, canAccessNav: (href: string) => bool
 export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user: User | null; allowedPages?: string[] | null; roleLabel?: string; focus?: boolean }) {
   const collapseKey = focus ? 'sidebar-collapsed-focus' : 'sidebar-collapsed'
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsedState, setCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
+  // celular: o menu vira uma gaveta (aberta pelo botão ☰ do cabeçalho) e nunca fica "recolhido"
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  const collapsed = collapsedState && !isMobile
 
   // Ao clicar num item que abre submenu (Financeiro/Robô WhatsApp/Admin), os
   // links novos entram DEPOIS do item clicado — se ele já estava perto do
@@ -119,8 +123,22 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
     setMounted(true)
   }, [])
 
+  useLayoutEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const apply = () => setIsMobile(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  useEffect(() => { setMobileOpen(false) }, [pathname])
+  useEffect(() => {
+    const toggle = () => setMobileOpen((v) => !v)
+    window.addEventListener('luknos:toggle-menu', toggle)
+    return () => window.removeEventListener('luknos:toggle-menu', toggle)
+  }, [])
+
   function toggleCollapse() {
-    const newState = !collapsed
+    const newState = !collapsedState
     setCollapsed(newState)
     localStorage.setItem(collapseKey, String(newState))
   }
@@ -158,9 +176,15 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
 
 
   return (
-    <div className="relative z-30 shrink-0 flex">
+    <>
+    {mobileOpen && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden />}
+    <div className={cn(
+      'relative z-30 shrink-0 flex',
+      'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:transition-transform max-md:duration-300 max-md:bg-white',
+      mobileOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full',
+    )}>
       <aside
-        className={`flex flex-col h-full min-h-0 border-r border-surface-border ${mounted ? 'transition-all duration-300' : ''} ${collapsed ? 'w-16' : 'w-56'}`}
+        className={`flex flex-col h-full min-h-0 border-r border-surface-border max-md:!w-64 ${mounted ? 'transition-all duration-300' : ''} ${collapsed ? 'w-16' : 'w-56'}`}
         style={{
           backgroundImage: 'linear-gradient(rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.84) 10%, rgba(247,248,250,0.58) 100%)',
           backdropFilter: 'blur(20px) saturate(1.4)',
@@ -352,7 +376,7 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
       <button
         onClick={toggleCollapse}
         title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-        className="absolute top-[13px] -right-3.5 z-40 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
+        className="max-md:hidden absolute top-[13px] -right-3.5 z-40 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
         style={{ backgroundColor: 'var(--color-accent-gold)' }}
       >
         <ChevronLeft
@@ -361,5 +385,6 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
         />
       </button>
     </div>
+    </>
   )
 }
