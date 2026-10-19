@@ -1485,7 +1485,11 @@ export async function searchSolicitationsForStage(query: string): Promise<{ id: 
     .select('id, number, title, client_id, client:client_id(name)')
     .order('created_at', { ascending: false })
     .limit(20)
-  const { data } = query ? await (q.or(`title.ilike.%${query}%`) as any) : await q
+  const num = query ? Number(query.replace(/^#/, '')) : NaN
+  const filter = query
+    ? `title.ilike.%${query}%${!Number.isNaN(num) ? `,number.eq.${num}` : ''}`
+    : ''
+  const { data } = filter ? await (q.or(filter) as any) : await q
   return ((data ?? []) as any[]).map((s: any) => ({
     id: s.id,
     label: s.title ? `#${s.number} — ${s.title}` : `#${s.number}`,

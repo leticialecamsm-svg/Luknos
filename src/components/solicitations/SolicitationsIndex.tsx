@@ -203,12 +203,12 @@ export function SolicitationsIndex({ rows: rowsProp, month, onMonthChange, cardP
   const stageTotals = useMemo(() => {
     const t: Record<string, number> = {}
     for (const r of rows) {
-      for (const stId of Object.keys(r.stageStatus)) {
-        if (visibleIn(r, stId, month)) t[stId] = (t[stId] ?? 0) + 1
+      for (const [stId, status] of Object.entries(r.stageStatus)) {
+        if (!isDoneStatus(stId, status)) t[stId] = (t[stId] ?? 0) + 1
       }
     }
     return t
-  }, [rows, month])
+  }, [rows])
 
   // Lista de responsáveis para o dropdown
   const allResponsibles = useMemo(() => {
@@ -796,6 +796,12 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
           {stageId === 'negociacao' && (
             <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
               A negociação é criada automaticamente junto com o orçamento. Abra a solicitação e acesse a aba Orçamento para gerenciar a negociação.
+            </p>
+          )}
+
+          {stageId === 'expedicao' && mode === 'existing' && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              A separação precisa de um orçamento. Verifique se a solicitação selecionada já possui orçamento antes de criar.
             </p>
           )}
 
