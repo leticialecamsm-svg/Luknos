@@ -47,42 +47,65 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-gray-400 italic py-6 text-center">{children}</div>
 }
 
+const FIELD_LABEL: Record<string, string> = {
+  file: 'Arquivo', observation: 'Observação', location: 'Localização', contact: 'Contato',
+}
+const FIELD_COLOR: Record<string, string> = {
+  file: 'bg-blue-50 text-blue-700 border-blue-200',
+  observation: 'bg-gray-50 text-gray-600 border-gray-200',
+  location: 'bg-green-50 text-green-700 border-green-200',
+  contact: 'bg-purple-50 text-purple-700 border-purple-200',
+}
+
 function CrmMessagesSection({ msgs, solicitationId, stage }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
   if (!msgs?.length) return null
-  const preview = (m: CrmMsg) => {
+
+  const title = (m: CrmMsg) => {
     if (m.messageType === 'text' || m.messageType === 'extended_text') return m.body?.slice(0, 120) ?? '…'
-    if (m.messageType === 'image') return '📷 Imagem'
-    if (m.messageType === 'video') return '🎥 Vídeo'
-    if (m.messageType === 'audio' || m.messageType === 'ptt') return '🎤 Áudio'
-    if (m.messageType === 'document') return `📎 ${m.fileName ?? 'Arquivo'}`
-    if (m.messageType === 'location') return '📍 Localização'
-    if (m.messageType === 'contact') return '👤 Cartão de contato'
+    if (m.messageType === 'image') return m.fileName ? `📷 ${m.fileName}` : '📷 Imagem (sem título)'
+    if (m.messageType === 'video') return m.fileName ? `🎥 ${m.fileName}` : '🎥 Vídeo'
+    if (m.messageType === 'audio' || m.messageType === 'ptt') return m.fileName ? `🎤 ${m.fileName}` : '🎤 Áudio'
+    if (m.messageType === 'document') return `📎 ${m.fileName ?? 'Documento'}`
+    if (m.messageType === 'location') return '📍 Localização compartilhada'
+    if (m.messageType === 'contact') return `👤 ${m.body ?? 'Cartão de contato'}`
     return m.fileName ?? m.messageType
   }
+
+  const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
+  })
+
   return (
     <div className="mt-4 mb-1">
       <div className="flex items-center gap-2 mb-2">
         <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
-          Mensagens do WhatsApp ({msgs.length})
+          Registros do WhatsApp ({msgs.length})
         </span>
         <Link href={`/solicitacoes/${solicitationId}?tab=${stage}`} className="ml-auto text-[11px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5">
-          Ver todos <ArrowRight className="w-3 h-3" />
+          Ver etapa <ArrowRight className="w-3 h-3" />
         </Link>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {msgs.slice(0, 5).map((m) => (
           <div key={m.id} className={cn(
-            'flex items-start gap-2 rounded-lg px-2.5 py-2 text-xs',
-            m.direction === 'outbound' ? 'bg-green-50 border border-green-100' : 'bg-white border border-gray-200'
+            'rounded-lg border px-2.5 py-2 text-xs',
+            m.direction === 'outbound' ? 'bg-green-50 border-green-100' : 'bg-white border-gray-200'
           )}>
-            <span className="shrink-0 mt-0.5 text-gray-400">{m.direction === 'outbound' ? '→' : '←'}</span>
-            <span className="min-w-0 flex-1 text-gray-700 line-clamp-2 break-words">{preview(m)}</span>
-            <span className="shrink-0 text-gray-400 whitespace-nowrap">{new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className={cn('inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border', FIELD_COLOR[m.field] ?? FIELD_COLOR.observation)}>
+                {FIELD_LABEL[m.field] ?? m.field}
+              </span>
+              <span className="text-gray-400 text-[10px] ml-auto whitespace-nowrap">
+                {m.direction === 'outbound' ? 'Enviado' : 'Recebido'} · {fmt(m.createdAt)}
+              </span>
+            </div>
+            <p className="text-gray-700 line-clamp-2 break-words leading-snug">{title(m)}</p>
+            <p className="text-gray-400 text-[10px] mt-1">Vinculado em {fmt(m.linkedAt)}</p>
           </div>
         ))}
         {msgs.length > 5 && (
-          <p className="text-[11px] text-gray-400 text-center pt-1">+ {msgs.length - 5} mensagem(ns) a mais</p>
+          <p className="text-[11px] text-gray-400 text-center pt-1">+ {msgs.length - 5} registro(s) a mais</p>
         )}
       </div>
     </div>

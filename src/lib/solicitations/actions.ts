@@ -148,7 +148,7 @@ export type SolicitationView = {
   // Contatos e conversas do CRM ligados a cada etapa (chave = stage id).
   stageLinks: Record<string, StageLink[]>
   // Mensagens do WhatsApp vinculadas pelo CRM a cada etapa (chave = stage id).
-  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; direction: string }[]>
+  crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string }[]>
   // Responsáveis designados por etapa (chave = stage id).
   stageResponsibles: Record<string, { id: string; name: string; avatar_url: string | null; avatar_color: string | null }[]>
   tabs: {
@@ -248,11 +248,11 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
   } catch {}
 
   // Mensagens do CRM vinculadas a cada etapa. Best-effort: se a tabela não existir, vira {}.
-  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; direction: string }[]> = {}
+  let crmMessages: Record<string, { id: string; body: string | null; messageType: string; fileName: string | null; createdAt: string; linkedAt: string; field: string; direction: string }[]> = {}
   try {
     const { data: crmRows } = await db
       .from('crm_solicitation_links')
-      .select('stage, crm_message_id, field, note, crm_messages(id, body, message_type, file_name, created_at, direction)')
+      .select('stage, crm_message_id, field, note, created_at, crm_messages(id, body, message_type, file_name, created_at, direction)')
       .eq('solicitation_id', id)
       .order('created_at', { ascending: true })
     for (const row of (crmRows ?? []) as any[]) {
@@ -260,7 +260,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       if (!m) continue
       ;(crmMessages[row.stage] ??= []).push({
         id: m.id, body: m.body, messageType: m.message_type, fileName: m.file_name,
-        createdAt: m.created_at, direction: m.direction,
+        createdAt: m.created_at, linkedAt: row.created_at, field: row.field ?? 'observation', direction: m.direction,
       })
     }
   } catch {}
