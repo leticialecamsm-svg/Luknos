@@ -481,11 +481,11 @@ function ListTable({ rows, stageId, props }: { rows: IndexRow[]; stageId: string
 // "Solicitação existente" (busca sol. existente + adiciona etapa).
 
 // Campos extras por etapa (apenas o essencial)
-const STAGE_EXTRA_FIELDS: Record<string, Array<'title' | 'scheduledAt' | 'deliveryType' | 'deliveryDate' | 'kind'>> = {
+const STAGE_EXTRA_FIELDS: Record<string, Array<'title' | 'scheduledAt' | 'deliveryType' | 'deliveryDate' | 'kind' | 'finalValue'>> = {
   visita:     ['title', 'scheduledAt'],
   projeto:    ['title', 'kind'],
   orcamento:  [],
-  negociacao: [],
+  negociacao: ['finalValue'],
   compra:     [],
   expedicao:  ['deliveryType', 'deliveryDate'],
   instalacao: ['scheduledAt'],
@@ -577,6 +577,7 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [kind, setKind] = useState<'elaboracao' | 'alocacao_pontos'>('elaboracao')
+  const [finalValue, setFinalValue] = useState('')
 
   // Sub-formulário de novo contato
   const [showNewContact, setShowNewContact] = useState(false)
@@ -631,6 +632,7 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
           scheduledAt: scheduledAt || null,
           deliveryType, deliveryDate: deliveryDate || null,
           kind,
+          finalValue: finalValue ? Number(finalValue.replace(/\./g, '').replace(',', '.')) : null,
         })
         if ('error' in res2 && res2.error) { setError(res2.error); return }
         onCreated(sid)
@@ -645,6 +647,7 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
           scheduledAt: scheduledAt || null,
           deliveryType, deliveryDate: deliveryDate || null,
           kind,
+          finalValue: finalValue ? Number(finalValue.replace(/\./g, '').replace(',', '.')) : null,
         })
         if ('error' in res && res.error) { setError(res.error); return }
         onCreated(solId)
@@ -790,12 +793,30 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
                     className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
                 </div>
               )}
+              {extraFields.includes('finalValue') && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Valor fechado <span className="text-gray-400">(opcional)</span></label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">R$</span>
+                    <input type="text" inputMode="decimal" value={finalValue} onChange={e => setFinalValue(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full rounded-lg border border-surface-border pl-9 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" />
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Se não informado, a venda é registrada sem valor por enquanto.</p>
+                </div>
+              )}
             </div>
           )}
 
           {stageId === 'negociacao' && (
             <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-              A negociação é criada automaticamente junto com o orçamento. Abra a solicitação e acesse a aba Orçamento para gerenciar a negociação.
+              Se a solicitação ainda não tiver orçamento, um será criado automaticamente.
+            </p>
+          )}
+
+          {stageId === 'expedicao' && mode === 'existing' && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              A separação precisa de um orçamento. Verifique se a solicitação selecionada já possui orçamento antes de criar.
             </p>
           )}
 
@@ -812,13 +833,11 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50">
             Cancelar
           </button>
-          {stageId !== 'negociacao' && (
-            <button type="button" onClick={handleSubmit} disabled={pending || (mode === 'new' ? !clientId : !solId)}
-              className="flex-1 rounded-xl bg-navy text-white px-4 py-2.5 text-sm font-semibold hover:bg-navy/90 disabled:opacity-50 flex items-center justify-center gap-2">
-              {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Criar {stageLabel.toLowerCase()}
-            </button>
-          )}
+          <button type="button" onClick={handleSubmit} disabled={pending || (mode === 'new' ? !clientId : !solId)}
+            className="flex-1 rounded-xl bg-navy text-white px-4 py-2.5 text-sm font-semibold hover:bg-navy/90 disabled:opacity-50 flex items-center justify-center gap-2">
+            {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Criar {stageLabel.toLowerCase()}
+          </button>
         </div>
       </div>
     </div>

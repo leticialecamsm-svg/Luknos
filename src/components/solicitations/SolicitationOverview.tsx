@@ -358,32 +358,30 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
     <div className="mb-0">
       {/* Linha de segmentos + prazo no canto direito */}
       <div className="flex items-stretch gap-3">
-        <div className="flex-1 min-w-0 flex gap-1 overflow-x-auto pb-1">
-          {stages.map(st => {
+        <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto pb-1">
+          {stages.map((st, i) => {
             const isDone = st.state === 'done'
             const isCur = st.state === 'current'
+            const borderColor = isDone ? '#22c55e' : isCur ? '#f59e0b' : '#d1d5db'
+            const labelColor = isDone ? '#16a34a' : isCur ? '#b45309' : '#6b7280'
             return (
               <button
                 key={st.id}
                 type="button"
                 onClick={() => onSelect(st.id)}
-                className="flex-1 min-w-[96px] text-left px-3 py-2.5 transition-shadow hover:opacity-90"
-                style={{
-                  borderRadius: 12,
-                  ...(isDone
-                    ? { background: 'linear-gradient(180deg,#d9f7e6,#bdeed3)', color: '#065f46', border: '1px solid #9fe0bc' }
-                    : isCur
-                    ? { background: 'linear-gradient(180deg,#fdecc0,#f5d78a)', color: '#5c4410', border: '1px solid #e0bd69' }
-                    : { backgroundImage: 'repeating-linear-gradient(45deg,#eef0f4,#eef0f4 9px,#f7f8fa 9px,#f7f8fa 18px)', color: '#8b94a5', border: '1px dashed #cdd3de' }),
-                }}
+                className="flex-1 min-w-[96px] text-left px-3 py-2.5 bg-white border border-gray-200 rounded-xl transition-shadow hover:shadow-sm"
+                style={{ borderLeft: `4px solid ${borderColor}` }}
               >
-                <div className="flex items-start gap-1.5 w-full">
-                  {(() => { const Icon = STAGE_ICON[st.id]; return Icon ? <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" /> : null })()}
-                  <span className="text-[11.5px] font-semibold leading-tight">{st.label}</span>
-                  {isDone && <Check className="ml-auto shrink-0 w-3 h-3" />}
-                  {isCur && <Clock className="ml-auto shrink-0 w-3 h-3" />}
+                <div className="text-[9px] uppercase tracking-widest font-semibold mb-0.5" style={{ color: '#9ca3af' }}>
+                  Etapa {i + 1}
                 </div>
-                <div className="text-[10.5px] font-medium opacity-85 mt-0.5">
+                <div className="flex items-center gap-1.5 w-full">
+                  {(() => { const Icon = STAGE_ICON[st.id]; return Icon ? <span style={{ color: labelColor, display: 'contents' }}><Icon className="w-3.5 h-3.5 shrink-0" /></span> : null })()}
+                  <span className="text-[11.5px] font-semibold leading-tight" style={{ color: labelColor }}>{st.label}</span>
+                  {isDone && <Check className="ml-auto shrink-0 w-3 h-3 text-green-500" />}
+                  {isCur && <Clock className="ml-auto shrink-0 w-3 h-3 text-amber-500" />}
+                </div>
+                <div className="text-[10px] font-medium mt-0.5" style={{ color: '#9ca3af' }}>
                   {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ' '}
                 </div>
               </button>
@@ -433,25 +431,18 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
   )
 }
 
-// Cartão pastel com título em "aba de pasta". `actions` renderiza botões à direita do título.
-function NotchCard({ title, icon: Icon, tint, borderColor, bodyBg, textColor, actions, children }: {
+function NotchCard({ title, icon: Icon, tint: _tint, borderColor: _borderColor, bodyBg: _bodyBg, textColor: _textColor, actions, children }: {
   title: string; icon: any; tint: string; borderColor: string; bodyBg: string; textColor: string;
   actions?: React.ReactNode; children: React.ReactNode
 }) {
   return (
-    <div>
-      <div
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold"
-        style={{ background: tint, color: textColor, borderRadius: '14px 14px 0 0', border: `1px solid ${borderColor}`, borderBottom: 'none', position: 'relative', zIndex: 2, marginBottom: -1 }}
-      >
-        <Icon className="w-3.5 h-3.5 shrink-0" />
-        <span className="truncate">{title}</span>
+    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
+        <Icon className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+        <span className="text-[12px] font-semibold text-gray-700 truncate">{title}</span>
         {actions && <span className="ml-auto flex items-center gap-1 pl-2">{actions}</span>}
       </div>
-      <div
-        className="p-3"
-        style={{ background: bodyBg, borderRadius: '0 16px 16px 16px', border: `1px solid ${borderColor}`, boxShadow: 'rgba(255,255,255,.9) 0 1.5px 0 0 inset, rgba(10,31,59,.05) 0 2px 8px 0, rgba(10,31,59,.10) 0 18px 36px -22px' }}
-      >
+      <div className="p-3">
         {children}
       </div>
     </div>
@@ -463,7 +454,7 @@ function Field({ icon: Icon, label, value }: { icon: any; label: string; value: 
     <div className="flex items-center gap-2">
       <div
         className="flex items-center justify-center shrink-0"
-        style={{ width: 24, height: 24, borderRadius: 8, background: 'rgba(255,255,255,.85)', color: '#8a6a1f', boxShadow: 'inset 0 0 0 1px rgba(203,164,85,.25)', flexShrink: 0 }}
+        style={{ width: 24, height: 24, borderRadius: 8, background: '#f3f4f6', color: '#6b7280', flexShrink: 0 }}
       >
         <Icon style={{ width: 12, height: 12 }} />
       </div>
