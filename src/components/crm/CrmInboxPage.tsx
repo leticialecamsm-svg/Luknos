@@ -2152,7 +2152,7 @@ function MessageBubble({
   const [thumbFailed, setThumbFailed] = useState(false)
   // 'react' = só a fileira de reações (botão 🙂); 'full' = todas as opções (botão ⌄ ou clique direito)
   const [menu, setMenu] = useState<false | 'react' | 'full'>(false)
-  const [menuUp, setMenuUp] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ left?: number; right?: number; top?: number; bottom?: number } | null>(null)
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(false)
@@ -2253,7 +2253,11 @@ function MessageBubble({
   const openMenu = (kind: 'react' | 'full', anchor: Element) => {
     const box = anchor.closest('[data-thread]')?.getBoundingClientRect()
     const at = anchor.getBoundingClientRect()
-    setMenuUp(!!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80))
+    const up = !!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80)
+    setMenuPos({
+      ...(isOutbound ? { right: window.innerWidth - at.right } : { left: at.left }),
+      ...(up ? { bottom: window.innerHeight - at.top + 4 } : { top: at.bottom + 4 }),
+    })
     setMenu((cur) => (cur === kind ? false : kind))
   }
   const reactionRow = (
@@ -2310,13 +2314,12 @@ function MessageBubble({
       >
         <ChevronDown className="w-5 h-5" />
       </button>
-      {menu && (
+      {menu && menuPos && (
         <div
           role="menu"
+          style={{ position: 'fixed', zIndex: 100, ...menuPos }}
           className={cn(
-            'absolute z-30 bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
-            isOutbound ? 'right-0' : 'left-0',
-            menuUp ? 'bottom-10' : 'top-10',
+            'bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
             menu === 'react' ? 'p-1' : 'w-56 py-1',
           )}
         >
@@ -2396,17 +2399,33 @@ function MessageBubble({
         )}
 
         {msg.message_type === 'image' && hasFile && (
-          url && !thumbFailed ? (
-            <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
-            </button>
-          ) : hasFile ? (
-            <button type="button" onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }} className="flex items-center gap-2 text-left hover:opacity-80">
-              <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
-              <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
-            </button>
-          ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
+          isStickerMsg ? (
+            // Figurinha: sem frame, fundo transparente, não abre lightbox
+            url && !thumbFailed ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="Figurinha" loading="lazy" onError={() => setThumbFailed(true)}
+                className="block w-[160px] h-[160px] object-contain" />
+            ) : thumbFailed ? (
+              <p className="text-xs italic text-gray-400">Figurinha indisponível</p>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-gray-400 w-[160px] h-[80px]">
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" /> Carregando figurinha…
+              </div>
+            )
+          ) : (
+            // Imagem normal
+            url && !thumbFailed ? (
+              <button type="button" onClick={onOpenMedia} className="block w-[260px] max-w-full min-h-[140px] rounded-md overflow-hidden bg-black/5" aria-label="Ampliar imagem">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={msg.file_name ?? 'Imagem'} loading="lazy" onError={() => setThumbFailed(true)} className="block w-full max-h-72 object-cover hover:opacity-90" />
+              </button>
+            ) : hasFile ? (
+              <button type="button" onClick={() => { if (url) window.open(url, '_blank', 'noopener'); else if (msg.storage_path) onOpenAttachment(msg.storage_path) }} className="flex items-center gap-2 text-left hover:opacity-80">
+                <FileBadge name={msg.file_name ?? 'imagem.jpg'} size={32} />
+                <span className="underline text-sm break-all">{msg.file_name || 'Imagem'}</span>
+              </button>
+            ) : <p className="text-xs italic text-gray-400">Imagem indisponível</p>
+          )
         )}
 
         {msg.message_type === 'video' && hasFile && (
