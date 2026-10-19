@@ -42,6 +42,7 @@ import {
   downloadCrmMedia,
   startCrmConversation,
   completeFollowup,
+  linkCrmMessagesToSolicitationStage,
   linkConversationContact,
   setConversationDisplayName,
   searchContactsForCrm,
@@ -64,7 +65,7 @@ import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
-import { CrmSolicitationModal } from './CrmSolicitationModal'
+import { CrmSolicitationModal, type SolicSelection, SOLIC_STAGES } from './CrmSolicitationModal'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
@@ -262,6 +263,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [showOtherNumber, setShowOtherNumber] = useState(false)
   const [showSolicitation, setShowSolicitation] = useState(false)
+  const [solicitacaoSelectMode, setSolicitacaoSelectMode] = useState<{
+    solicitationId: string; solicitationNumber: number; stage: string; stageLabel: string
+    selected: Map<string, 'file' | 'observation' | 'location' | 'contact'>
+  } | null>(null)
   const [contactQuery, setContactQuery] = useState('')
   const [contactResults, setContactResults] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1634,7 +1639,36 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     {openedUnread} mensage{openedUnread === 1 ? 'm' : 'ns'} não lida{openedUnread === 1 ? '' : 's'}
                   </div>
                 )}
-                <div className={layout[i]?.first ? 'mt-2.5' : 'mt-0.5'}>
+                <div className={cn(layout[i]?.first ? 'mt-2.5' : 'mt-0.5', solicitacaoSelectMode && !m.is_system && !m.deleted_at && 'flex items-end gap-2')}>
+                {solicitacaoSelectMode && !m.is_system && !m.deleted_at && (
+                  <button
+                    type="button"
+                    aria-label={solicitacaoSelectMode.selected.has(m.id) ? 'Desmarcar mensagem' : 'Selecionar mensagem'}
+                    onClick={() => {
+                      setSolicitacaoSelectMode((prev) => {
+                        if (!prev) return prev
+                        const next = new Map(prev.selected)
+                        if (next.has(m.id)) { next.delete(m.id) }
+                        else {
+                          const ft = m.message_type === 'location' ? 'location' : m.message_type === 'contact' ? 'contact' : ['image','video','audio','document'].includes(m.message_type) ? 'file' : 'observation'
+                          next.set(m.id, ft as 'file'|'observation'|'location'|'contact')
+                        }
+                        return { ...prev, selected: next }
+                      })
+                    }}
+                    className={cn(
+                      'shrink-0 mb-1.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors',
+                      solicitacaoSelectMode.selected.has(m.id)
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-gray-400 hover:border-indigo-400'
+                    )}
+                  >
+                    {solicitacaoSelectMode.selected.has(m.id) && (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    )}
+                  </button>
+                )}
+                <div className={cn(solicitacaoSelectMode && !m.is_system && !m.deleted_at ? 'flex-1 min-w-0' : '')}>
                 <MessageBubble
                   msg={m}
                   first={layout[i]?.first ?? true}
@@ -1653,20 +1687,20 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onOpenContact={(phone) => openContactConversation(phone)}
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
-                  onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
+                  onReply={() => { if (!solicitacaoSelectMode) { setReplyTo(m); textareaRef.current?.focus() } }}
                   mentionNames={selectedIsGroup ? mentionNames : undefined}
                   onSaveSticker={async () => {
                     const r = await saveMessageAsSticker(m.id)
                     if ('error' in r && r.error) toast.error('NÃO FOI POSSÍVEL GUARDAR', r.error)
                     else toast.success('FIGURINHA GUARDADA', 'Já está na biblioteca da equipe')
                   }}
-                  onReact={(emoji) => reactNow(m, emoji)}
-                  canDelete={!isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
-                  canForward={!isTemp(m) && !m.deleted_at && (['image', 'video', 'audio', 'document'].includes(m.message_type) || !!(m.body && m.body.trim()))}
+                  onReact={(emoji) => { if (!solicitacaoSelectMode) reactNow(m, emoji) }}
+                  canDelete={!solicitacaoSelectMode && !isTemp(m) && canDeleteForEveryone(m as any) && (m.sender_user_id === currentUserId || isAdmin || !m.sender_user_id)}
+                  canForward={!solicitacaoSelectMode && !isTemp(m) && !m.deleted_at && (['image', 'video', 'audio', 'document'].includes(m.message_type) || !!(m.body && m.body.trim()))}
                   onRetry={() => retrySend(m)}
                   onDiscard={() => discardFailed(m)}
                   onForward={() => setForwarding(m)}
-                  canEdit={!isTemp(m) && canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
+                  canEdit={!solicitacaoSelectMode && !isTemp(m) && canEditMessage(m as any) && (m.sender_user_id === currentUserId || isAdmin)}
                   onEdit={() => { setReplyTo(null); setEditing(m); setText(m.body ?? ''); requestAnimationFrame(() => textareaRef.current?.focus()) }}
                   onDelete={async () => {
                     if (!window.confirm('Apagar esta mensagem para todos? Ela some da conversa do cliente também.')) return
@@ -1675,6 +1709,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     else { toast.success('MENSAGEM APAGADA'); refreshThread(selectedId!) }
                   }}
                 />
+                </div>
                 </div>
                 </Fragment>
               ))}
@@ -1705,6 +1740,52 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 </button>
               </div>
             )}
+
+            {/* Barra de seleção para solicitação */}
+            {solicitacaoSelectMode && (() => {
+              const mode = solicitacaoSelectMode
+              const stageObj = SOLIC_STAGES.find((s) => s.id === mode.stage)
+              const n = mode.selected.size
+              return (
+                <div className="border-t border-indigo-200 bg-indigo-50 px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Folder className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-sm font-medium text-indigo-900 truncate">Solicitação #{mode.solicitationNumber}</span>
+                    {stageObj && (
+                      <span className={cn('inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border', stageObj.color)}>
+                        {stageObj.label}
+                      </span>
+                    )}
+                    <span className="text-xs text-indigo-700">{n} selecionada{n !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => setSolicitacaoSelectMode(null)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      disabled={n === 0 || pending}
+                      onClick={() => {
+                        if (!mode.selected.size) return
+                        const links = Array.from(mode.selected.entries()).map(([messageId, field]) => ({ messageId, field }))
+                        startTransition(async () => {
+                          const r = await linkCrmMessagesToSolicitationStage({ solicitationId: mode.solicitationId, stage: mode.stage, links })
+                          if ('error' in r) { toast.error('ERRO', r.error); return }
+                          toast.success('REGISTRADO', `${n} mensagem(ns) vinculada(s) à solicitação #${mode.solicitationNumber}`)
+                          setSolicitacaoSelectMode(null)
+                        })
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 inline-flex items-center gap-1.5"
+                    >
+                      {pending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Folder className="w-3 h-3" />}
+                      Registrar
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Composer */}
             {recording ? (
@@ -2010,20 +2091,17 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
-      {showSolicitation && selected && selected.contact_id && (() => {
-        const msgs = (threadCache.current.get(selected.id)?.items ?? []) as any[]
-        return (
-          <CrmSolicitationModal
-            contactId={selected.contact_id}
-            contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
-            messages={msgs}
-            onClose={() => setShowSolicitation(false)}
-            onLinked={(solicitationId, solicitationNumber) => {
-              setShowSolicitation(false)
-            }}
-          />
-        )
-      })()}
+      {showSolicitation && selected && selected.contact_id && (
+        <CrmSolicitationModal
+          contactId={selected.contact_id}
+          contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
+          onClose={() => setShowSolicitation(false)}
+          onStartSelecting={(sel: SolicSelection) => {
+            setShowSolicitation(false)
+            setSolicitacaoSelectMode({ ...sel, selected: new Map() })
+          }}
+        />
+      )}
     </div>
   )
 }

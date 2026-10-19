@@ -1508,6 +1508,7 @@ export interface ContactPanelData {
     negotiation: { temperature: string; final_value: number | null; loss_reason: string | null } | null
   }[]
   quotes_restricted: boolean // vendedor só vê os orçamentos em que atua
+  solicitations: { id: string; number: number; title: string | null; work_stage: string | null; created_at: string }[]
   other_conversations: { id: string; instance_label: string; created_at: string; last_message_at: string; stage_name: string | null }[]
   media: { images: PanelMedia[]; documents: PanelMedia[]; audios: PanelMedia[]; videos: PanelMedia[]; total: number }
   links: { url: string; at: string }[]
@@ -1650,6 +1651,13 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
     if (links.length >= PANEL_LIST_LIMIT) break
   }
 
+  // Solicitações do contato
+  let solicitations: ContactPanelData['solicitations'] = []
+  if (contact?.id) {
+    const { data: sRows } = await admin.from('solicitations').select('id, number, title, work_stage, created_at').eq('client_id', contact.id).order('created_at', { ascending: false }).limit(10)
+    solicitations = (sRows ?? []) as typeof solicitations
+  }
+
   const st = conv.stage_id ? stageRows.find((x) => x.id === conv.stage_id) : stageRows[0]
   return {
     is_group: isGroup,
@@ -1666,6 +1674,7 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
     contact,
     quotes,
     quotes_restricted: !auth.viewAsAdmin,
+    solicitations,
     other_conversations: otherConversations,
     media,
     links,

@@ -26,7 +26,7 @@ import { LabelPicker } from './LabelPicker'
 import { LabelChip } from './ConvTags'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
-import { Search, Tag, X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film, Pencil } from 'lucide-react'
+import { Search, Tag, X, Loader2, FileText, Link2, Mic, Image as ImageIcon, ExternalLink, UserPlus, Film, Pencil, Folder, ChevronRight } from 'lucide-react'
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
@@ -181,6 +181,8 @@ export function ContactInfoPanel({
 
             {/* orçamentos */}
             <QuotesSection data={data} />
+            {/* solicitações */}
+            <SolicitacoesSection data={data} />
             </>}
 
             {/* histórico */}
@@ -508,6 +510,54 @@ function QuoteCard({ q }: { q: PanelQuote }) {
         {q.negotiation?.loss_reason && <p className="mt-1 text-xs text-red-700">Motivo da perda: {q.negotiation.loss_reason}</p>}
       </Link>
     </li>
+  )
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  visita: 'Visita', projeto: 'Projeto', orcamento: 'Orçamento',
+  negociacao: 'Negociação', compra: 'Compra', expedicao: 'Separação',
+  instalacao: 'Instalação', posVenda: 'Pós-venda',
+}
+const STAGE_COLORS: Record<string, string> = {
+  visita: 'bg-indigo-100 text-indigo-800', projeto: 'bg-indigo-100 text-indigo-900',
+  orcamento: 'bg-amber-100 text-amber-800', negociacao: 'bg-amber-100 text-amber-900',
+  compra: 'bg-orange-100 text-orange-800', expedicao: 'bg-orange-100 text-orange-900',
+  instalacao: 'bg-sky-100 text-sky-800', posVenda: 'bg-sky-100 text-sky-900',
+}
+
+function SolicitacoesSection({ data }: { data: ContactPanelData }) {
+  if (!data.contact) return null
+  return (
+    <section className="p-4 space-y-2 border-t border-gray-100">
+      <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
+        <Folder className="w-3.5 h-3.5" /> Solicitações
+      </h5>
+      {data.solicitations.length === 0 && (
+        <p className="text-sm text-gray-500">Nenhuma solicitação para este contato.</p>
+      )}
+      {data.solicitations.length > 0 && (
+        <ul className="space-y-1.5">
+          {data.solicitations.map((s) => (
+            <li key={s.id}>
+              <Link href={`/solicitacoes/${s.id}`} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-gray-50 group">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold flex items-center justify-center">
+                  #{s.number}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-gray-900 truncate">{s.title || `Solicitação #${s.number}`}</span>
+                  {s.work_stage && (
+                    <span className={cn('inline-flex text-[11px] font-medium px-1.5 py-0.5 rounded mt-0.5', STAGE_COLORS[s.work_stage] ?? 'bg-gray-100 text-gray-700')}>
+                      {STAGE_LABELS[s.work_stage] ?? s.work_stage}
+                    </span>
+                  )}
+                </span>
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
