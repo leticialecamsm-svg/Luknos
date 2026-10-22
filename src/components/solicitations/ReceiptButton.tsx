@@ -9,7 +9,7 @@ import { Receipt, X, Printer } from 'lucide-react'
 import { Portal } from '@/components/ui/Portal'
 
 const CNPJ = '45.118.870/0001-06'
-const NAVY = '#001A3C'
+const NAVY = '#0A1F3B'
 const GOLD = '#CBA455'
 
 // ── Valor por extenso ──────────────────────────────────────────────────────
@@ -117,102 +117,113 @@ type ReceiptData = {
   number: number | null
 }
 
+// Mesmo padrão visual do PDF de orçamento (components/proposals/ProposalPrint.tsx):
+// Poppins, cabeçalho com logo + nº/data e filete azul, dados em colunas, títulos
+// dourados, caixa azul com o valor e rodapé discreto com o CNPJ.
 function receiptHtml(d: ReceiptData, origin: string) {
   const valor = fmtMoney(d.value)
   const extenso = valorPorExtenso(d.value)
   const numero = d.number ? `Nº ${String(d.number).padStart(4, '0')}` : ''
+  const [y, m, day] = d.date.split('-')
+  const dataCurta = `${day}/${m}/${y}`
+  const font = (w: number) => `@font-face { font-family: 'Poppins'; font-weight: ${w}; font-style: normal; font-display: block; src: url('${origin}/fonts/Poppins-${w}.woff2') format('woff2'); }`
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
-<title>Recibo ${esc(numero)} - ${esc(d.name)}</title>
+<title>Recibo ${esc(numero)} - ${esc(d.name)} - Luknos</title>
 <style>
+  ${font(400)} ${font(500)} ${font(600)}
   @page { size: A4; margin: 0; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: #eef0f3; }
-  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937;
-         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { width: 210mm; height: 297mm; margin: 12mm auto; background: #fff; position: relative;
-          overflow: hidden; box-shadow: 0 6px 30px rgba(0,26,60,.12); display: flex; flex-direction: column; }
-  .topbar { height: 6mm; background: ${NAVY}; position: relative; }
-  .topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1.2mm; height: 1.2mm; background: ${GOLD}; }
-  .watermark { position: absolute; right: -38mm; bottom: 38mm; width: 150mm; opacity: .05; pointer-events: none; }
-  .content { flex: 1; padding: 18mm 22mm 0; position: relative; display: flex; flex-direction: column; }
-  header { display: flex; justify-content: space-between; align-items: center; }
-  header img { height: 17mm; }
-  .doc { text-align: right; }
-  .doc .eyebrow { font-size: 8.5pt; letter-spacing: .28em; text-transform: uppercase; color: ${GOLD}; font-weight: 600; }
-  .doc .num { font-size: 10pt; color: #6b7280; margin-top: 1.5mm; }
-  .title-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20mm;
-               padding-bottom: 6mm; border-bottom: .4mm solid #e5e7eb; }
-  h1 { font-size: 34pt; font-weight: 700; letter-spacing: .06em; color: ${NAVY}; line-height: 1; }
-  .amount { background: ${NAVY}; color: #fff; padding: 4mm 7mm; border-radius: 2mm; border-left: 1.6mm solid ${GOLD}; text-align: right; }
-  .amount small { display: block; font-size: 7.5pt; letter-spacing: .22em; text-transform: uppercase; color: ${GOLD}; margin-bottom: 1mm; }
-  .amount strong { font-size: 20pt; font-weight: 700; white-space: nowrap; }
-  .body { margin-top: 14mm; font-size: 12.5pt; line-height: 1.9; text-align: justify; }
-  .body b { color: ${NAVY}; }
-  .closing { margin-top: 10mm; font-size: 12pt; }
-  .date { margin-top: auto; text-align: right; font-size: 12pt; padding-bottom: 22mm; }
-  .sign { text-align: center; padding-bottom: 20mm; }
-  .sign .line { width: 90mm; margin: 0 auto 3mm; border-top: .35mm solid ${NAVY}; }
-  .sign .who { font-size: 12.5pt; font-weight: 700; color: ${NAVY}; }
-  .sign .cnpj { font-size: 10pt; color: #4b5563; margin-top: 1mm; }
-  .sign .role { font-size: 9pt; color: #9ca3af; margin-top: 1mm; }
-  footer { background: ${NAVY}; color: #cbd5e1; padding: 5mm 22mm; display: flex; justify-content: space-between;
-           align-items: center; font-size: 8.5pt; letter-spacing: .04em; position: relative; }
-  footer::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: .8mm; background: ${GOLD}; }
-  footer b { color: #fff; font-weight: 600; }
-  .toolbar { position: fixed; top: 4mm; right: 4mm; display: flex; gap: 2mm; }
-  .toolbar button { font: 600 10pt 'Helvetica Neue', Arial, sans-serif; padding: 2.5mm 5mm; border-radius: 99px; border: 0;
-                    background: ${NAVY}; color: #fff; cursor: pointer; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { background: #e9ebef; }
+  body { font-family: 'Poppins', system-ui, sans-serif; color: #1f2937; font-size: 10pt; }
+  .bar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .bar div { max-width: 210mm; margin: 0 auto; padding: 12px 16px; display: flex; justify-content: flex-end; }
+  .bar button { font: 500 14px 'Poppins', sans-serif; color: #fff; background: ${NAVY}; border: 0; border-radius: 99px; padding: 8px 16px; cursor: pointer; }
+  .sheet { width: 210mm; min-height: 297mm; margin: 24px auto; background: #fff; padding: 12mm 14mm;
+           box-shadow: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1); display: flex; flex-direction: column; }
+  .eyebrow { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; }
+  .gold { color: ${GOLD}; font-weight: 600; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 2px solid ${NAVY}; }
+  header img { height: 15mm; }
+  header .doc { text-align: right; }
+  header .doc .t { font-size: 8pt; text-transform: uppercase; letter-spacing: .2em; font-weight: 600; color: ${GOLD}; }
+  header .doc .n { font-size: 18pt; font-weight: 600; line-height: 1.25; color: ${NAVY}; }
+  header .doc .d { font-size: 9pt; color: #6b7280; }
+  .info { display: grid; grid-template-columns: 1fr .8fr 1.6fr; gap: 16px; padding: 16px 0; font-size: 9pt; }
+  .info p:last-child { font-weight: 500; color: #111827; }
+  h2 { font-size: 11pt; font-weight: 600; text-transform: uppercase; letter-spacing: .025em; color: ${NAVY};
+       padding-bottom: 6px; margin: 16px 0 12px; border-bottom: 1px solid ${GOLD}; }
+  .text { font-size: 10pt; line-height: 1.8; color: #374151; text-align: justify; }
+  .text b { font-weight: 600; color: #111827; }
+  .close { display: grid; grid-template-columns: 1fr 72mm; gap: 32px; align-items: start; margin-top: 32px; font-size: 9pt; }
+  .block + .block { margin-top: 12px; }
+  .block .gold { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .08em; }
+  .block p:last-child { color: #374151; }
+  .total { border-radius: 6px; padding: 12px 16px; background: ${NAVY}; color: #fff; display: flex; justify-content: space-between; align-items: baseline; }
+  .total span { font-size: 8pt; text-transform: uppercase; letter-spacing: .15em; color: ${GOLD}; }
+  .total strong { font-size: 15pt; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sign { margin-top: 34mm; text-align: center; }
+  .sign .line { width: 80mm; margin: 0 auto 8px; border-top: 1px solid ${NAVY}; }
+  .sign .who { font-size: 10pt; font-weight: 600; color: ${NAVY}; }
+  .sign .sub { font-size: 8pt; color: #6b7280; }
+  .sign .role { font-size: 7.5pt; color: #9ca3af; margin-top: 2px; }
+  footer { margin-top: auto; padding-top: 12px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 7.5pt; color: #9ca3af; }
   @media print {
     html, body { background: #fff; }
-    .page { margin: 0; box-shadow: none; }
-    .toolbar { display: none; }
+    .bar { display: none; }
+    .sheet { margin: 0; box-shadow: none; min-height: 297mm; height: 297mm; }
   }
 </style></head>
 <body>
-  <div class="toolbar"><button onclick="window.print()">Imprimir / salvar PDF</button></div>
-  <div class="page">
-    <div class="topbar"></div>
-    <img class="watermark" src="${origin}/logo.svg" alt="">
-    <div class="content">
-      <header>
-        <img src="${origin}/logo-full.svg" alt="Luknos Iluminação">
-        <div class="doc">
-          <div class="eyebrow">Comprovante de pagamento</div>
-          ${numero ? `<div class="num">${esc(numero)}</div>` : ''}
-        </div>
-      </header>
-
-      <div class="title-row">
-        <h1>RECIBO</h1>
-        <div class="amount"><small>Valor recebido</small><strong>${esc(valor)}</strong></div>
+  <div class="bar"><div><button onclick="window.print()">Imprimir / Salvar PDF</button></div></div>
+  <div class="sheet">
+    <header>
+      <img src="${origin}/logo-full.svg" alt="Luknos Iluminação">
+      <div class="doc">
+        <p class="t">Recibo</p>
+        ${numero ? `<p class="n">${esc(numero)}</p>` : ''}
+        <p class="d">${esc(dataCurta)}</p>
       </div>
+    </header>
 
-      <p class="body">
-        A <b>Luknos Iluminação</b>, inscrita no CNPJ <b>${CNPJ}</b>, declara que recebeu de
-        <b>${esc(d.name)}</b>${d.cpf ? `, CPF <b>${esc(d.cpf)}</b>` : ''}${d.address ? `, residente em <b>${esc(d.address)}</b>` : ''},
-        a quantia de <b>${esc(valor)}</b> (${esc(extenso)})${d.reference ? `, referente a <b>${esc(d.reference)}</b>` : ''}.
-      </p>
+    <section class="info">
+      <div><p class="eyebrow">Cliente</p><p>${esc(d.name)}</p></div>
+      <div><p class="eyebrow">CPF</p><p>${esc(d.cpf || '—')}</p></div>
+      <div><p class="eyebrow">Endereço</p><p>${esc(d.address || '—')}</p></div>
+    </section>
 
-      <p class="closing">Para comprovação do pagamento, firma-se o presente recibo, dando plena e geral quitação do valor acima.</p>
+    <h2>Declaração</h2>
+    <p class="text">
+      A <b>Luknos Iluminação</b>, inscrita no CNPJ <b>${CNPJ}</b>, declara que recebeu de
+      <b>${esc(d.name)}</b>${d.cpf ? `, CPF <b>${esc(d.cpf)}</b>` : ''}${d.address ? `, residente em ${esc(d.address)}` : ''},
+      a quantia de <b>${esc(valor)}</b> (${esc(extenso)})${d.reference ? `, referente a <b>${esc(d.reference)}</b>` : ''}.
+      Para comprovação do pagamento, firma-se o presente recibo, dando plena e geral quitação do valor acima.
+    </p>
 
-      <div class="date">Maceió, ${esc(dataPorExtenso(d.date))}.</div>
-
-      <div class="sign">
-        <div class="line"></div>
-        <div class="who">Luknos Iluminação</div>
-        <div class="cnpj">CNPJ ${CNPJ}</div>
-        <div class="role">Assinatura do responsável</div>
+    <section class="close">
+      <div>
+        ${d.reference ? `<div class="block"><p class="gold">Referente a</p><p>${esc(d.reference.charAt(0).toUpperCase() + d.reference.slice(1))}</p></div>` : ''}
+        <div class="block"><p class="gold">Valor por extenso</p><p>${esc(extenso.charAt(0).toUpperCase() + extenso.slice(1))}</p></div>
+        <div class="block"><p class="gold">Local e data</p><p>Maceió, ${esc(dataPorExtenso(d.date))}</p></div>
       </div>
+      <div>
+        <div class="total"><span>Valor recebido</span><strong>${esc(valor)}</strong></div>
+      </div>
+    </section>
+
+    <div class="sign">
+      <div class="line"></div>
+      <p class="who">Luknos Iluminação</p>
+      <p class="sub">CNPJ ${CNPJ}</p>
+      <p class="role">Assinatura do responsável</p>
     </div>
-    <footer>
-      <span><b>Luknos Iluminação</b> &nbsp;·&nbsp; CNPJ ${CNPJ}</span>
-      <span>Maceió · Alagoas</span>
-    </footer>
+
+    <footer>Luknos Iluminação · CNPJ ${CNPJ} · luknosiluminacao.com.br</footer>
   </div>
   <script>
     var imgs = Array.prototype.slice.call(document.images);
-    Promise.all(imgs.map(function (i) { return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r }) }))
+    Promise.all(imgs.map(function (i) { return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r }) })
+      .concat(document.fonts ? [document.fonts.ready] : []))
       .then(function () { setTimeout(function () { window.print() }, 150) });
   </script>
 </body></html>`
