@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { printOptions, proposalTotals, roomTotal, type ProposalRoom } from './calc'
+import { genericName, printOptions, proposalTotals, roomTotal, type ProposalRoom } from './calc'
 
 const item = (qty: number, unit_price: number) => ({ id: 'x', catalog_id: null, source: null, ref: null, name: 'p', image_url: null, qty, unit_price })
 const rooms: ProposalRoom[] = [
@@ -26,4 +26,20 @@ describe('printOptions', () => {
     expect(printOptions({ images: false })).toMatchObject({ images: false, prices: true, brand: false })
     expect(printOptions(null).images).toBe(true)
   })
+})
+
+describe('genericName', () => {
+  it.each([
+    ['10664 - PERFIL DE ALUMÍNIO EMBUTIR PARA FITA LED PXG-1206', 'Perfil'],
+    ['Fita LED 12V 6W/M 3.000K', 'Fita de LED'],
+    ['Fonte Colmeia 200W 12V/16.5A Bivolt para Fita LED 200W', 'Fonte'],
+    ['Conector Pix Mult 10mm', 'Conector'],
+    ['Embutido De Solo Preto 3000K', 'Embutido de solo'],
+    ['Spot Trilho Magnético 10W', 'Spot'],
+    ['Pendente Accord Living Hinges', 'Pendente'],
+    ['Plafon Led Madrid', 'Plafon'],
+    ['Sistema Trilho Eletrificado 1m', 'Trilho'],
+    ['Lâmpada Bulbo E27 9W', 'Lâmpada'],
+    ['Vigo 3000K', 'Vigo'],
+  ])('%s → %s', (name, expected) => expect(genericName(name)).toBe(expected))
 })

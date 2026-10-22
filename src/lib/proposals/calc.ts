@@ -11,6 +11,7 @@ export type ProposalItem = {
   qty: number
   unit_price: number
   note?: string | null        // acabamento, cor, observação do item
+  label?: string | null       // nome que o cliente vê (vazio = nome genérico automático)
 }
 
 export type ProposalRoom = { id: string; name: string; items: ProposalItem[] }
@@ -18,6 +19,7 @@ export type ProposalRoom = { id: string; name: string; items: ProposalItem[] }
 export type DiscountType = 'percent' | 'value'
 
 export type PrintOptions = {
+  generic: boolean     // nome genérico (Perfil, Spot, Fita de LED…) em vez do nome do fornecedor
   images: boolean      // foto dos produtos
   prices: boolean      // valor unitário e total de cada item
   roomTotals: boolean  // total de cada ambiente
@@ -29,10 +31,11 @@ export type PrintOptions = {
 }
 
 export const DEFAULT_PRINT: PrintOptions = {
-  images: true, prices: true, roomTotals: true, total: true, discount: true, ref: true, brand: false, notes: true,
+  generic: true, images: true, prices: true, roomTotals: true, total: true, discount: true, ref: true, brand: false, notes: true,
 }
 
 export const PRINT_LABELS: { key: keyof PrintOptions; label: string; hint?: string }[] = [
+  { key: 'generic', label: 'Nome genérico', hint: 'Perfil, Spot, Fita de LED… em vez do nome do fornecedor' },
   { key: 'images', label: 'Fotos dos produtos' },
   { key: 'prices', label: 'Preços dos itens', hint: 'valor unitário e total de cada produto' },
   { key: 'roomTotals', label: 'Total por ambiente' },
@@ -73,3 +76,50 @@ export const sourceLabel = (s: string | null | undefined) => (s ? SOURCE_LABEL[s
 
 export const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 export const proposalCode = (n: number) => String(n).padStart(4, '0')
+
+// Nome genérico do produto para o cliente, pelo tipo escrito no nome do fornecedor.
+// Vale o tipo que aparece primeiro ("Fonte … para Fita LED" é Fonte, "Spot Trilho" é Spot);
+// empate na mesma posição fica com o que vem antes na lista.
+const GENERIC: [RegExp, string][] = [
+  [/\bperfi(l|s)\b/, 'Perfil'],
+  [/\bfitas?\b|fitasdeled/, 'Fita de LED'],
+  [/\b(fontes?|drivers?)\b/, 'Fonte'],
+  [/\b(conector(es)?|emendas?|juncao)\b/, 'Conector'],
+  [/\bmangueira\b/, 'Mangueira de LED'],
+  [/\bespeto\b/, 'Espeto'],
+  [/\b(lampadas?|dicroica|bulbo)\b|lampadastecnicas/, 'Lâmpada'],
+  [/\bpendentes?\b/, 'Pendente'],
+  [/\blustres?\b/, 'Lustre'],
+  [/\barandelas?\b/, 'Arandela'],
+  [/\bplafon/, 'Plafon'],
+  [/\babajur\b|\bluminaria de mesa\b/, 'Luminária de mesa'],
+  [/\bcoluna\b/, 'Luminária de coluna'],
+  [/\bbalizador/, 'Balizador'],
+  [/\b(embutido|embutir)\b.*\bsolo\b|\bsolo\b/, 'Embutido de solo'],
+  [/\bspots?\b/, 'Spot'],
+  [/\bdownlight/, 'Downlight'],
+  [/\b(embutido|embutir)\b/, 'Embutido'],
+  [/\bpain(el|eis)\b/, 'Painel de LED'],
+  [/\b(refletor|projetor)\b/, 'Refletor'],
+  [/\bposte\b/, 'Poste'],
+  [/\btrilhos?\b/, 'Trilho'],
+  [/\btartaruga\b/, 'Tartaruga'],
+  [/\bmodulos?\b/, 'Módulo de LED'],
+  [/\bsobrepor\b|\bluminarias?\b|\blum\./, 'Luminária'],
+]
+
+export function genericName(name: string): string {
+  const n = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  let best: { at: number; label: string } | null = null
+  for (const [re, label] of GENERIC) {
+    const m = re.exec(n)
+    if (m && (!best || m.index < best.at)) best = { at: m.index, label }
+  }
+  if (best) return best.label
+  const first = name.replace(/^\s*\d+\s*-\s*/, '').trim().split(/\s+/)[0] ?? ''
+  return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : name
+}
+
+// Nome do item no PDF: o que a pessoa escreveu, senão o genérico (com a opção ligada), senão o do fornecedor.
+export const displayName = (i: ProposalItem, generic: boolean) =>
+  i.label?.trim() || (generic && i.catalog_id ? genericName(i.name) : i.name)

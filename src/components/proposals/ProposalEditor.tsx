@@ -12,7 +12,7 @@ import { useConfirm } from '@/components/ui/useConfirm'
 import { searchContacts } from '@/lib/actions'
 import { duplicateProposal, saveProposal, type Proposal, type ProposalInput } from '@/lib/proposals/actions'
 import {
-  brl, itemTotal, proposalCode, proposalTotals, roomTotal, sourceLabel,
+  brl, genericName, itemTotal, proposalCode, proposalTotals, roomTotal, sourceLabel,
   type ProposalItem, type ProposalRoom,
 } from '@/lib/proposals/calc'
 import { ProductSearchModal } from './ProductSearchModal'
@@ -102,6 +102,13 @@ function ItemRow({ item, first, last, onChange, onRemove, onMove }: {
         <p className="text-xs text-gray-500 mt-0.5">
           {[item.ref && `Ref. ${item.ref}`, brand].filter(Boolean).join(' · ') || (manual ? 'Item avulso' : '')}
         </p>
+        {!manual && (
+          <label className="mt-1 flex items-center gap-1.5 text-xs" title="Como o produto aparece no PDF quando a opção “Nome genérico” está ligada">
+            <span className="shrink-0 text-gray-400">No PDF:</span>
+            <input className="flex-1 min-w-0 font-medium text-navy bg-transparent border-b border-dashed border-gray-200 focus:border-brand-500 outline-none placeholder:text-navy/70"
+              value={item.label ?? ''} placeholder={genericName(item.name)} onChange={e => onChange({ label: e.target.value })} />
+          </label>
+        )}
         <input className="mt-1 w-full text-xs text-gray-600 bg-transparent outline-none placeholder:text-gray-300 focus:placeholder:text-gray-400"
           value={item.note ?? ''} placeholder="+ observação (acabamento, cor, temperatura…)" onChange={e => onChange({ note: e.target.value })} />
       </div>
