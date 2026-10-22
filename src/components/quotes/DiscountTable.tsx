@@ -16,16 +16,11 @@ export function DiscountTable({ quotedValue }: Props) {
     getPaymentRates().then(r => { if (r.length) setRates(r as PaymentRate[]) })
   }, [])
 
-  if (!quotedValue) {
-    return (
-      <div className="text-sm text-gray-400 italic py-2">
-        Defina o valor orçado para visualizar os descontos.
-      </div>
-    )
-  }
-
   return (
     <div className="overflow-x-auto">
+      {!quotedValue && (
+        <p className="text-xs text-gray-400 italic mb-2">Defina o valor orçado para ver os preços calculados.</p>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-surface-border">
@@ -37,14 +32,16 @@ export function DiscountTable({ quotedValue }: Props) {
         </thead>
         <tbody>
           {rates.map(r => {
-            const fairPrice = quotedValue * (1 - r.max_discount_pct / 100)
+            const fairPrice = quotedValue ? quotedValue * (1 - r.max_discount_pct / 100) : null
             const isZero = r.max_discount_pct === 0
             return (
               <tr key={r.method_key} className="border-b border-surface-border last:border-0">
                 <td className="py-2 pr-4 text-gray-800 font-medium">{r.label}</td>
                 <td className="py-2 pr-4 text-right text-gray-500">{formatPct(r.machine_fee_pct)}</td>
                 <td className="py-2 pr-4 text-right text-gray-700">
-                  R$ {fairPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  {fairPrice != null
+                    ? `R$ ${fairPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                    : <span className="text-gray-300">—</span>}
                 </td>
                 <td className={cn('py-2 text-right font-semibold', isZero ? 'text-amber-600' : 'text-gray-900')}>
                   {isZero ? '0% ⚠️' : formatPct(r.max_discount_pct)}

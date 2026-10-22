@@ -12,6 +12,7 @@ export const PAGE_CATALOG: { href: string; label: string }[] = [
   { href: '/partners', label: 'Parceiros' },
   { href: '/metropolitano', label: 'Metropolitano (pontuação)' },
   { href: '/marketing', label: 'Marketing' },
+  { href: '/site-admin', label: 'Site (especificadores)' },
   { href: '/finance', label: 'Financeiro' },
   { href: '/hr', label: 'RH' },
   { href: '/purchases', label: 'Notas de Entrada' },

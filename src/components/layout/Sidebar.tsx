@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone, Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import type { User } from '@/types'
@@ -28,6 +28,7 @@ const NAV = [
 const ADMIN_NAV = [
   { href: '/reports', label: 'Relatórios', icon: BarChart3 },
   { href: '/marketing', label: 'Marketing', icon: Megaphone },
+  { href: '/site-admin', label: 'Site', icon: Globe },
   { href: '/finance', label: 'Financeiro', icon: Wallet },
   { href: '/hr', label: 'RH', icon: UserCog },
   { href: '/purchases', label: 'Notas de Entrada', icon: ShoppingBag },
