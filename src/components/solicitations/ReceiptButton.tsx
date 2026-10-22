@@ -9,7 +9,7 @@ import { Receipt, X, Printer } from 'lucide-react'
 import { Portal } from '@/components/ui/Portal'
 
 const CNPJ = '45.118.870/0001-06'
-const NAVY = '#001A3C'
+const NAVY = '#0A1F3B'
 const GOLD = '#CBA455'
 
 // ── Valor por extenso ──────────────────────────────────────────────────────
@@ -117,51 +117,55 @@ type ReceiptData = {
   number: number | null
 }
 
+// Estética do PDF de orçamento (components/proposals/ProposalPrint.tsx): Poppins,
+// mesmas cores, tamanhos de fonte, espaçamentos, caixa azul do valor e rodapé.
 function receiptHtml(d: ReceiptData, origin: string) {
   const valor = fmtMoney(d.value)
   const extenso = valorPorExtenso(d.value)
   const numero = d.number ? `Nº ${String(d.number).padStart(4, '0')}` : ''
+  const font = (w: number) => `@font-face { font-family: 'Poppins'; font-weight: ${w}; font-style: normal; font-display: block; src: url('${origin}/fonts/Poppins-${w}.woff2') format('woff2'); }`
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <title>Recibo ${esc(numero)} - ${esc(d.name)}</title>
 <style>
+  ${font(400)} ${font(500)} ${font(600)}
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: #eef0f3; }
-  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937;
+  html, body { background: #e9ebef; }
+  body { font-family: 'Poppins', system-ui, sans-serif; color: #1f2937; font-size: 10pt;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { width: 210mm; height: 297mm; margin: 12mm auto; background: #fff; position: relative;
-          overflow: hidden; box-shadow: 0 6px 30px rgba(0,26,60,.12); display: flex; flex-direction: column; }
-  .topbar { height: 6mm; background: ${NAVY}; position: relative; }
-  .topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1.2mm; height: 1.2mm; background: ${GOLD}; }
+  .page { width: 210mm; height: 297mm; margin: 24px auto; background: #fff; position: relative; overflow: hidden;
+          box-shadow: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1); display: flex; flex-direction: column; }
+  .topbar { height: 4mm; background: ${NAVY}; position: relative; }
+  .topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: ${GOLD}; }
   .watermark { position: absolute; right: -38mm; bottom: 38mm; width: 150mm; opacity: .05; pointer-events: none; }
-  .content { flex: 1; padding: 18mm 22mm 0; position: relative; display: flex; flex-direction: column; }
-  header { display: flex; justify-content: space-between; align-items: center; }
-  header img { height: 17mm; }
+  .content { flex: 1; padding: 12mm 14mm 0; position: relative; display: flex; flex-direction: column; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; }
+  header img { height: 15mm; }
   .doc { text-align: right; }
-  .doc .eyebrow { font-size: 8.5pt; letter-spacing: .28em; text-transform: uppercase; color: ${GOLD}; font-weight: 600; }
-  .doc .num { font-size: 10pt; color: #6b7280; margin-top: 1.5mm; }
-  .title-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20mm;
-               padding-bottom: 6mm; border-bottom: .4mm solid #e5e7eb; }
-  h1 { font-size: 34pt; font-weight: 700; letter-spacing: .06em; color: ${NAVY}; line-height: 1; }
-  .amount { background: ${NAVY}; color: #fff; padding: 4mm 7mm; border-radius: 2mm; border-left: 1.6mm solid ${GOLD}; text-align: right; }
-  .amount small { display: block; font-size: 7.5pt; letter-spacing: .22em; text-transform: uppercase; color: ${GOLD}; margin-bottom: 1mm; }
-  .amount strong { font-size: 20pt; font-weight: 700; white-space: nowrap; }
-  .body { margin-top: 14mm; font-size: 12.5pt; line-height: 1.9; text-align: justify; }
-  .body b { color: ${NAVY}; }
-  .closing { margin-top: 10mm; font-size: 12pt; }
-  .date { margin-top: auto; text-align: right; font-size: 12pt; padding-bottom: 22mm; }
-  .sign { text-align: center; padding-bottom: 20mm; }
-  .sign .line { width: 90mm; margin: 0 auto 3mm; border-top: .35mm solid ${NAVY}; }
-  .sign .who { font-size: 12.5pt; font-weight: 700; color: ${NAVY}; }
-  .sign .cnpj { font-size: 10pt; color: #4b5563; margin-top: 1mm; }
-  .sign .role { font-size: 9pt; color: #9ca3af; margin-top: 1mm; }
-  footer { background: ${NAVY}; color: #cbd5e1; padding: 5mm 22mm; display: flex; justify-content: space-between;
-           align-items: center; font-size: 8.5pt; letter-spacing: .04em; position: relative; }
-  footer::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: .8mm; background: ${GOLD}; }
-  footer b { color: #fff; font-weight: 600; }
-  .toolbar { position: fixed; top: 4mm; right: 4mm; display: flex; gap: 2mm; }
-  .toolbar button { font: 600 10pt 'Helvetica Neue', Arial, sans-serif; padding: 2.5mm 5mm; border-radius: 99px; border: 0;
+  .doc .eyebrow { font-size: 8pt; letter-spacing: .2em; text-transform: uppercase; color: ${GOLD}; font-weight: 600; }
+  .doc .num { font-size: 9pt; color: #6b7280; }
+  .title-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 16mm;
+               padding-bottom: 20px; border-bottom: 2px solid ${NAVY}; }
+  h1 { font-size: 18pt; font-weight: 600; letter-spacing: .2em; color: ${NAVY}; line-height: 1.25; }
+  .amount { background: ${NAVY}; color: #fff; padding: 12px 16px; border-radius: 6px; text-align: right; min-width: 72mm; }
+  .amount small { display: block; font-size: 8pt; letter-spacing: .15em; text-transform: uppercase; color: ${GOLD}; margin-bottom: 2px; }
+  .amount strong { font-size: 15pt; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .body { margin-top: 12mm; font-size: 10pt; line-height: 1.8; color: #374151; text-align: justify; }
+  .body b { font-weight: 600; color: #111827; }
+  .closing { margin-top: 8mm; font-size: 10pt; color: #374151; }
+  .date { margin-top: auto; text-align: right; font-size: 10pt; color: #374151; padding-bottom: 20mm; }
+  .sign { text-align: center; padding-bottom: 16mm; }
+  .sign .line { width: 80mm; margin: 0 auto 8px; border-top: 1px solid ${NAVY}; }
+  .sign .who { font-size: 10pt; font-weight: 600; color: ${NAVY}; }
+  .sign .cnpj { font-size: 8pt; color: #6b7280; }
+  .sign .role { font-size: 7.5pt; color: #9ca3af; margin-top: 2px; }
+  footer { background: ${NAVY}; color: #cbd5e1; padding: 4mm 14mm; display: flex; justify-content: space-between;
+           align-items: center; font-size: 7.5pt; position: relative; }
+  footer::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: ${GOLD}; }
+  footer b { color: #fff; font-weight: 500; }
+  .toolbar { position: fixed; top: 12px; right: 16px; display: flex; gap: 8px; }
+  .toolbar button { font: 500 14px 'Poppins', sans-serif; padding: 8px 16px; border-radius: 99px; border: 0;
                     background: ${NAVY}; color: #fff; cursor: pointer; }
   @media print {
     html, body { background: #fff; }
@@ -170,7 +174,7 @@ function receiptHtml(d: ReceiptData, origin: string) {
   }
 </style></head>
 <body>
-  <div class="toolbar"><button onclick="window.print()">Imprimir / salvar PDF</button></div>
+  <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
   <div class="page">
     <div class="topbar"></div>
     <img class="watermark" src="${origin}/logo.svg" alt="">
@@ -212,7 +216,8 @@ function receiptHtml(d: ReceiptData, origin: string) {
   </div>
   <script>
     var imgs = Array.prototype.slice.call(document.images);
-    Promise.all(imgs.map(function (i) { return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r }) }))
+    Promise.all(imgs.map(function (i) { return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r }) })
+      .concat(document.fonts ? [document.fonts.ready] : []))
       .then(function () { setTimeout(function () { window.print() }, 150) });
   </script>
 </body></html>`
