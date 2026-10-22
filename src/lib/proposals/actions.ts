@@ -7,7 +7,8 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normText } from '@/lib/pricing/synonyms'
-import { proposalTotals, printOptions, type DiscountType, type PrintOptions, type ProposalRoom } from './calc'
+import { rebuildCatalogPrices } from './catalog-prices'
+import { genericName, proposalTotals, printOptions, type DiscountType, type PrintOptions, type ProposalRoom } from './calc'
 
 async function guard(): Promise<{ userId: string } | { error: string }> {
   const supabase = createClient()
@@ -133,10 +134,19 @@ export async function deleteProposal(id: string): Promise<{ ok: true } | { error
   return { ok: true }
 }
 
+export type CatalogPrice = {
+  value: number
+  from: 'compra' | 'orcamento'   // compra mais recente (Cotação e Preços) ou último orçamento com esse produto
+  approx: boolean                // compra casada só pelo nome: confira
+  date: string | null
+  desc: string | null            // descrição do item na nota
+}
+
 export type CatalogHit = {
   id: string; source: string; ref: string; name: string; line: string | null; model: string | null
   variant: string | null; image_url: string | null; dims: string
   finishes: { code: string; name: string; url: string }[]
+  price: CatalogPrice | null
 }
 
 const dims = (r: any) => [
@@ -144,8 +154,43 @@ const dims = (r: any) => [
   r.profundidade_cm && `P ${Number(r.profundidade_cm)}`, r.diametro_cm && `Ø ${Number(r.diametro_cm)}`,
 ].filter(Boolean).join(' × ') + (r.altura_cm || r.largura_cm || r.profundidade_cm || r.diametro_cm ? ' cm' : '')
 
+// Preço de cada produto: compra mais recente (catalog_prices); senão o último preço usado num orçamento.
+async function pricesFor(products: { id: string; source: string; ref: string }[]): Promise<Map<string, CatalogPrice>> {
+  const out = new Map<string, CatalogPrice>()
+  if (!products.length) return out
+  const db = createAdminClient()
+  const bySource = new Map<string, string[]>()
+  for (const p of products) bySource.set(p.source, [...(bySource.get(p.source) ?? []), p.ref])
+  const idOf = new Map(products.map(p => [`${p.source}|${p.ref}`, p.id]))
+  await Promise.all(Array.from(bySource.entries()).map(async ([source, refs]) => {
+    const { data } = await db.from('catalog_prices').select('source, ref, price, match, invoice_date, supplier_desc').eq('source', source).in('ref', refs)
+    for (const r of (data ?? []) as any[]) {
+      const id = idOf.get(`${r.source}|${r.ref}`)
+      if (id) out.set(id, { value: Number(r.price), from: 'compra', approx: r.match === 'nome', date: r.invoice_date, desc: r.supplier_desc })
+    }
+  }))
+  const missing = new Set(products.map(p => p.id).filter(id => !out.has(id)))
+  if (missing.size) {
+    const { data } = await db.from('product_proposals').select('rooms, updated_at').order('updated_at', { ascending: false }).limit(300)
+    for (const prop of (data ?? []) as any[]) for (const room of prop.rooms ?? []) for (const it of room.items ?? []) {
+      if (it.catalog_id && missing.has(it.catalog_id) && Number(it.unit_price) > 0) {
+        out.set(it.catalog_id, { value: Number(it.unit_price), from: 'orcamento', approx: false, date: String(prop.updated_at).slice(0, 10), desc: null })
+        missing.delete(it.catalog_id)
+      }
+    }
+  }
+  return out
+}
+
+export async function suggestedPrices(products: { id: string; source: string; ref: string }[]): Promise<Record<string, CatalogPrice> | { error: string }> {
+  const auth = await guard()
+  if ('error' in auth) return auth
+  return Object.fromEntries(await pricesFor(products.slice(0, 300)))
+}
+
 // Busca no catálogo dos fornecedores: cada palavra tem que aparecer no nome, ref, modelo, linha ou variação.
-export async function searchCatalog(query: string, source?: string | null): Promise<{ hits: CatalogHit[] } | { error: string }> {
+// Ordem: do tipo buscado (genérico), com preço, nome começando pela busca, com foto.
+export async function searchCatalog(query: string, source?: string | null, onlyPriced = false): Promise<{ hits: CatalogHit[] } | { error: string }> {
   const auth = await guard()
   if ('error' in auth) return auth
   const terms = normText(query).split(/[\s,()%*]+/).filter(t => t.length >= 2).slice(0, 6)
@@ -158,13 +203,40 @@ export async function searchCatalog(query: string, source?: string | null): Prom
     const p = `%${t.replace(/[aeiou]/g, '_')}%`
     q = q.or(`name.ilike.${p},ref.ilike.${p},model.ilike.${p},line.ilike.${p},variant.ilike.${p}`)
   }
-  const { data, error } = await q.order('name').limit(80)
+  const { data, error } = await q.order('name').limit(400)
   if (error) return { error: error.message }
-  const hits = (data ?? []).map((r: any) => ({
-    id: r.id, source: r.source, ref: r.ref, name: r.name, line: r.line, model: r.model, variant: r.variant,
-    image_url: r.image_url, dims: dims(r), finishes: Array.isArray(r.finishes) ? r.finishes : [],
-  }))
-  // com foto primeiro
-  hits.sort((a, b) => Number(!a.image_url) - Number(!b.image_url))
+  const rows = (data ?? []) as any[]
+  const prices = await pricesFor(rows.map(r => ({ id: r.id, source: r.source, ref: r.ref })))
+  const qn = terms.join(' ')
+  const score = (r: any) => {
+    const name = normText(String(r.name)).replace(/^\d+\s*-\s*/, '')
+    const generic = normText(genericName(r.name))
+    return (terms.every(t => generic.includes(t)) ? 8 : 0)
+      + (prices.has(r.id) ? 4 : 0) + (name.startsWith(qn) ? 2 : 0) + (r.image_url ? 1 : 0)
+  }
+  const hits = rows
+    .filter(r => !onlyPriced || prices.has(r.id))
+    .map(r => ({ r, s: score(r) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 80)
+    .map(({ r }) => ({
+      id: r.id, source: r.source, ref: r.ref, name: r.name, line: r.line, model: r.model, variant: r.variant,
+      image_url: r.image_url, dims: dims(r), finishes: Array.isArray(r.finishes) ? r.finishes : [],
+      price: prices.get(r.id) ?? null,
+    }))
   return { hits }
+}
+
+export async function refreshCatalogPrices(): Promise<{ prices: number } | { error: string }> {
+  const auth = await guard()
+  if ('error' in auth) return auth
+  const r = await rebuildCatalogPrices()
+  return 'error' in r ? r : { prices: r.prices }
+}
+
+export async function catalogPricesInfo(): Promise<{ updated_at: string | null; count: number }> {
+  const auth = await guard()
+  if ('error' in auth) return { updated_at: null, count: 0 }
+  const { data, count } = await createAdminClient().from('catalog_prices').select('updated_at', { count: 'exact' }).order('updated_at', { ascending: false }).limit(1)
+  return { updated_at: data?.[0]?.updated_at ?? null, count: count ?? 0 }
 }

@@ -10,12 +10,12 @@ import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { searchContacts } from '@/lib/actions'
-import { duplicateProposal, saveProposal, type Proposal, type ProposalInput } from '@/lib/proposals/actions'
+import { duplicateProposal, saveProposal, suggestedPrices, type CatalogPrice, type Proposal, type ProposalInput } from '@/lib/proposals/actions'
 import {
   brl, genericName, itemTotal, proposalCode, proposalTotals, roomTotal, sourceLabel,
   type ProposalItem, type ProposalRoom,
 } from '@/lib/proposals/calc'
-import { ProductSearchModal } from './ProductSearchModal'
+import { ProductSearchModal, priceTitle } from './ProductSearchModal'
 import { PrintOptionsModal } from './PrintOptionsModal'
 
 const ROOM_SUGGESTIONS = ['Sala de estar', 'Sala de jantar', 'Cozinha', 'Quarto', 'Suíte', 'Banheiro', 'Varanda', 'Área gourmet', 'Área externa', 'Hall', 'Escritório', 'Lavabo']
@@ -80,8 +80,8 @@ function ContactField({ label, value, onChange, type, excludeType, placeholder }
   )
 }
 
-function ItemRow({ item, first, last, onChange, onRemove, onMove }: {
-  item: ProposalItem; first: boolean; last: boolean
+function ItemRow({ item, first, last, suggested, onChange, onRemove, onMove }: {
+  item: ProposalItem; first: boolean; last: boolean; suggested?: CatalogPrice
   onChange: (patch: Partial<ProposalItem>) => void; onRemove: () => void; onMove: (d: -1 | 1) => void
 }) {
   const brand = sourceLabel(item.source)
@@ -128,7 +128,12 @@ function ItemRow({ item, first, last, onChange, onRemove, onMove }: {
               className={cn('w-full pl-8 pr-2 py-1.5 text-sm text-right tabular-nums rounded-pill border bg-white outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500',
                 item.unit_price ? 'border-surface-border' : 'border-amber-300')} />
           </div>
-          <p className="text-[10px] text-gray-400 text-right mt-0.5 pr-1">unitário</p>
+          {suggested && Math.abs(suggested.value - item.unit_price) >= 0.01
+            ? <button type="button" title={priceTitle(suggested)} onClick={() => onChange({ unit_price: suggested.value })}
+                className={cn('block w-full text-[10px] text-right mt-0.5 pr-1 hover:underline', item.unit_price ? 'text-gray-400' : 'text-brand-600 font-medium')}>
+                {item.unit_price ? 'sistema' : 'usar'} {brl(suggested.value)}{suggested.approx ? ' ≈' : ''}
+              </button>
+            : <p className="text-[10px] text-gray-400 text-right mt-0.5 pr-1">unitário</p>}
         </div>
         <div className="w-24 text-right">
           <p className="text-sm font-semibold text-gray-900 tabular-nums">{brl(itemTotal(item))}</p>
@@ -237,6 +242,21 @@ export function ProposalEditor({ initial }: { initial: Proposal }) {
 
   const missingPrice = p.rooms.some(r => r.items.some(i => !i.unit_price))
 
+  // Preço do sistema (última compra ou último orçamento) dos produtos do catálogo já adicionados.
+  const [suggestions, setSuggestions] = useState<Record<string, CatalogPrice>>({})
+  const catalogKey = p.rooms.flatMap(r => r.items).filter(i => i.catalog_id && i.source && i.ref).map(i => i.catalog_id).sort().join(',')
+  useEffect(() => {
+    const items = p.rooms.flatMap(r => r.items).filter(i => i.catalog_id && i.source && i.ref && !(i.catalog_id! in suggestions))
+    if (!items.length) return
+    suggestedPrices(items.map(i => ({ id: i.catalog_id!, source: i.source!, ref: i.ref! })))
+      .then(r => { if (!('error' in r)) setSuggestions(cur => ({ ...cur, ...r })) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogKey])
+  const fillable = p.rooms.flatMap(r => r.items).filter(i => !i.unit_price && i.catalog_id && suggestions[i.catalog_id])
+  const fillBlank = () => setRooms(rs => rs.map(r => ({
+    ...r, items: r.items.map(i => (!i.unit_price && i.catalog_id && suggestions[i.catalog_id] ? { ...i, unit_price: suggestions[i.catalog_id].value } : i)),
+  })))
+
   return (
     <div className="space-y-5 pb-16">
       {ConfirmDialog}
@@ -319,6 +339,7 @@ export function ProposalEditor({ initial }: { initial: Proposal }) {
               <div>
                 {room.items.map((item, ii) => (
                   <ItemRow key={item.id} item={item} first={ii === 0} last={ii === room.items.length - 1}
+                    suggested={item.catalog_id ? suggestions[item.catalog_id] : undefined}
                     onChange={patch => updateRoom(room.id, r => ({ ...r, items: r.items.map(i => (i.id === item.id ? { ...i, ...patch } : i)) }))}
                     onRemove={() => updateRoom(room.id, r => ({ ...r, items: r.items.filter(i => i.id !== item.id) }))}
                     onMove={d => updateRoom(room.id, r => ({ ...r, items: move(r.items, ii, d) }))} />
@@ -402,7 +423,16 @@ export function ProposalEditor({ initial }: { initial: Proposal }) {
             <span className="text-2xl font-semibold text-gray-900 tabular-nums">{brl(totals.total)}</span>
           </div>
           <p className="text-xs text-gray-400">{itemCount} {itemCount === 1 ? 'produto' : 'produtos'} em {p.rooms.length} {p.rooms.length === 1 ? 'ambiente' : 'ambientes'}</p>
-          {missingPrice && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5">Há produtos sem preço (campo em amarelo).</p>}
+          {missingPrice && (
+            <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5">
+              Há produtos sem preço (campo em amarelo).
+              {fillable.length > 0 && (
+                <button type="button" onClick={fillBlank} className="block mt-1 font-semibold underline">
+                  Preencher {fillable.length} com o preço do sistema
+                </button>
+              )}
+            </div>
+          )}
           <button className="btn-primary w-full justify-center" onClick={() => setPrintOpen(true)}><Printer className="w-4 h-4" /> Imprimir PDF</button>
         </div>
       </div>
