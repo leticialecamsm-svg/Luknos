@@ -443,7 +443,7 @@ export async function seedProductTypes(rows: { ncm: string; name: string; count:
 // ── Comparar: o mesmo produto em vários fornecedores ─────────────────────────
 export type CompareRow = {
   supplier_id: string; supplier: string; descricao: string; ncm: string | null; tipo_icms: string | null
-  date: string | null; nota: string | null; qty: number; custo: number | null; venda: number | null; compras: number
+  date: string | null; nota: string | null; qty: number; unitario: number | null; custo: number | null; venda: number | null; compras: number
 }
 
 // Cada palavra digitada precisa aparecer na descrição (a 1ª também por sinônimo:
@@ -456,7 +456,7 @@ export async function compareProducts(query: string) {
   const groups = words.map(w => (w.length >= 2 ? expandTerms(w) : [w]))
   const first = groups[0].filter(t => /^[a-z0-9]+$/.test(t))
   const { data, error } = await createAdminClient().from('purchase_invoice_items')
-    .select('descricao, ncm, tipo_icms, quantidade, custo_unitario, preco_credito, purchase_invoices!inner(numero_nota, data_emissao, pricing_supplier_id, on_hold, pricing_suppliers(name))')
+    .select('descricao, ncm, tipo_icms, quantidade, valor_total, custo_unitario, preco_credito, purchase_invoices!inner(numero_nota, data_emissao, pricing_supplier_id, on_hold, pricing_suppliers(name))')
     .not('purchase_invoices.pricing_supplier_id', 'is', null).eq('purchase_invoices.on_hold', false)
     .or(first.map(t => `descricao.ilike.%${t}%`).join(',')).limit(3000)
   if (error) return { error: error.message }
@@ -470,7 +470,7 @@ export async function compareProducts(query: string) {
     const cur = best.get(key)
     const row: CompareRow = {
       supplier_id: inv.pricing_supplier_id, supplier: inv.pricing_suppliers?.name ?? '—', descricao: r.descricao, ncm: r.ncm, tipo_icms: r.tipo_icms,
-      date: inv.data_emissao, nota: inv.numero_nota, qty: Number(r.quantidade), custo: r.custo_unitario != null ? Number(r.custo_unitario) : null,
+      date: inv.data_emissao, nota: inv.numero_nota, qty: Number(r.quantidade), unitario: Number(r.quantidade) > 0 ? Number(r.valor_total) / Number(r.quantidade) : null, custo: r.custo_unitario != null ? Number(r.custo_unitario) : null,
       venda: r.preco_credito != null ? Number(r.preco_credito) : null, compras: 1,
     }
     if (!cur) best.set(key, row)

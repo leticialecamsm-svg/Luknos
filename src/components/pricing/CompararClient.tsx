@@ -80,7 +80,7 @@ export function CompararClient() {
                 <thead>
                   <tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                     <th className="px-3 py-2.5">Fornecedor</th><th className="px-3 py-2.5">Produto</th><th className="px-3 py-2.5">NCM</th>
-                    <th className="px-3 py-2.5">Última compra</th><th className="px-3 py-2.5 text-right">Custo un.</th><th className="px-3 py-2.5 text-right">Venda (crédito)</th>
+                    <th className="px-3 py-2.5">Última compra</th><th className="px-3 py-2.5 text-right">Valor unit.</th><th className="px-3 py-2.5 text-right">Custo un.</th><th className="px-3 py-2.5 text-right">Venda (crédito)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -97,6 +97,7 @@ export function CompararClient() {
                         <td className="px-3 py-2.5 text-gray-800">{r.descricao}{r.compras > 1 && <span className="text-xs text-gray-400"> · comprado {r.compras}×</span>}</td>
                         <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{r.ncm}</td>
                         <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(r.date)}{r.nota ? ` · nota ${r.nota}` : ''}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{r.unitario != null ? brl(r.unitario) : '—'}</td>
                         <td className={cn('px-3 py-2.5 text-right tabular-nums', best && 'font-semibold text-green-700')}>{r.custo != null ? brl(r.custo) : '—'}{best && ' ★'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-green-700">{r.venda != null ? brl(r.venda) : '—'}</td>
                       </tr>
