@@ -10,6 +10,7 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
+import { LinkPreviewCard, firstUrl } from './LinkPreviewCard'
 import { ConvTags } from './ConvTags'
 import { FollowupPopover, DUE_STYLE } from './FollowupPopover'
 import { dueState, formatDue } from '@/lib/crm-followup'
@@ -65,6 +66,7 @@ import { subscribeCrmMessages, subscribeCrmPresence } from '@/lib/crm-realtime'
 import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
+import { QuickReplies } from './QuickReplies'
 import { CrmSolicitationModal, type SolicSelection, SOLIC_STAGES } from './CrmSolicitationModal'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
@@ -73,7 +75,7 @@ import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
 import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
 import {
   Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -206,6 +208,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
+  const [showQuickReplies, setShowQuickReplies] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<Msg | null>(null)
@@ -1877,6 +1880,27 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <div className="relative">
                   <button
                     type="button"
+                    onClick={() => setShowQuickReplies((v) => !v)}
+                    className={cn('p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showQuickReplies && 'bg-gray-100')}
+                    title="Respostas rápidas"
+                    aria-label="Respostas rápidas"
+                    aria-expanded={showQuickReplies}
+                  >
+                    <Zap className="w-5 h-5" />
+                  </button>
+                  {showQuickReplies && (
+                    <QuickReplies
+                      onClose={() => setShowQuickReplies(false)}
+                      onPick={(body) => {
+                        setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n${body}` : body))
+                        requestAnimationFrame(() => textareaRef.current?.focus())
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="relative">
+                  <button
+                    type="button"
                     onClick={() => setShowStickers((v) => !v)}
                    
                     className={cn('p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showStickers && 'bg-gray-100')}
@@ -2378,6 +2402,7 @@ function MessageBubble({
           </p>
         )}
 
+        {msg.message_type === 'text' && firstUrl(msg.body) && <LinkPreviewCard url={firstUrl(msg.body)!} />}
         {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} tail={tail} />}
 
         {needsDownload && <DownloadCard msg={msg} onDownload={onDownload} />}

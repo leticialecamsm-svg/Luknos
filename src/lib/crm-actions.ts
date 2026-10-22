@@ -3004,3 +3004,47 @@ export async function linkCrmMessagesToSolicitationStage(input: {
 
   return { ok: true }
 }
+
+// ── Respostas rápidas (mensagens salvas da equipe) ──────────────────────────
+
+export type CrmQuickReply = { id: string; title: string; body: string; sort: number }
+
+export async function listCrmQuickReplies(): Promise<CrmQuickReply[]> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return []
+  const { data } = await createAdminClient()
+    .from('crm_quick_replies').select('id, title, body, sort')
+    .order('sort', { ascending: true }).order('created_at', { ascending: true })
+  return (data ?? []) as CrmQuickReply[]
+}
+
+export async function saveCrmQuickReply(input: { id?: string; title: string; body: string }): Promise<{ ok: true; reply: CrmQuickReply } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const title = input.title.trim().slice(0, 80)
+  const body = input.body.trim()
+  if (!title || !body) return { error: 'Preencha o título e a mensagem.' }
+  if (body.length > 4000) return { error: 'Mensagem muito longa.' }
+  const admin = createAdminClient()
+  if (input.id) {
+    const { data, error } = await admin.from('crm_quick_replies')
+      .update({ title, body, updated_at: new Date().toISOString() }).eq('id', input.id)
+      .select('id, title, body, sort').single()
+    if (error) return { error: error.message }
+    return { ok: true, reply: data as CrmQuickReply }
+  }
+  const { data: last } = await admin.from('crm_quick_replies').select('sort').order('sort', { ascending: false }).limit(1).maybeSingle()
+  const { data, error } = await admin.from('crm_quick_replies')
+    .insert({ title, body, sort: (last?.sort ?? 0) + 10, created_by: auth.actedBy?.id ?? auth.userId })
+    .select('id, title, body, sort').single()
+  if (error) return { error: error.message }
+  return { ok: true, reply: data as CrmQuickReply }
+}
+
+export async function deleteCrmQuickReply(id: string): Promise<{ ok: true } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const { error } = await createAdminClient().from('crm_quick_replies').delete().eq('id', id)
+  if (error) return { error: error.message }
+  return { ok: true }
+}
