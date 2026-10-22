@@ -38,6 +38,7 @@ import { avatarColor } from '@/lib/avatar-color'
 import { RecordRow, StagePanel, StatusSelect } from '@/components/solicitations/StageRecords'
 import { StageResponsibles } from '@/components/solicitations/StageResponsibles'
 import { StageLinks } from '@/components/solicitations/StageLinks'
+import { ReceiptButton } from '@/components/solicitations/ReceiptButton'
 import { Select } from '@/components/ui/Select'
 import { SupplierLogo } from '@/components/pricing/SupplierLogo'
 
@@ -365,10 +366,21 @@ export function SolicitationDetail({
       label: label('negociacao', 'Negociação'),
       icon: HandCoins,
       badge: solicitation.negotiations.length,
-      content: withResponsibles('negociacao', 'Negociação', primaryQuote ? (
-        <NegotiationSection quote={primaryQuote} />
-      ) : (
-        <Empty>Nenhuma negociação vinculada a esta solicitação.</Empty>
+      content: withResponsibles('negociacao', 'Negociação', (
+        <>
+          <div className="flex justify-end mb-3">
+            <ReceiptButton
+              clientName={solicitation.clientName}
+              value={primaryQuote?.final_value ?? null}
+              solicitationNumber={solicitation.number}
+            />
+          </div>
+          {primaryQuote ? (
+            <NegotiationSection quote={primaryQuote} />
+          ) : (
+            <Empty>Nenhuma negociação vinculada a esta solicitação.</Empty>
+          )}
+        </>
       )),
     },
     {
