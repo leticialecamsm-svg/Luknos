@@ -24,6 +24,8 @@ export const viewport: Viewport = {
   themeColor: '#0A1F3B',
   width: 'device-width',
   initialScale: 1,
+  // sem isso o iPhone dá zoom ao tocar num campo e a tela "solta" para os lados
+  maximumScale: 1,
   viewportFit: 'cover',
   interactiveWidget: 'resizes-content',
 }

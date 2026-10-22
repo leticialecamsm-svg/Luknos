@@ -1611,7 +1611,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
             })()}
 
             {/* Mensagens */}
-            <div ref={threadRef} data-thread onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setComposerFiles(Array.from(e.dataTransfer.files)) } }} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
+            <div ref={threadRef} data-thread onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setComposerFiles(Array.from(e.dataTransfer.files)) } }} onScroll={onThreadScroll} onWheel={markReading} onTouchMove={markReading} onKeyDown={markReading} className="flex-1 overflow-y-auto overflow-x-hidden px-[4%] py-3 bg-[#EFEAE2]" style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
               {loadingThread && messages.length === 0 && !threadError && <ThreadSkeleton />}
               {threadError && messages.length === 0 && (
                 <LoadError message="Não foi possível carregar as mensagens." onRetry={() => { setThreadError(null); setLoadingThread(true); refreshThread(selectedId!) }} />
@@ -1916,7 +1916,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 />
 
                 {/* Input */}
-                <div className="relative flex-1 flex">
+                <div className="relative flex-1 min-w-0 flex">
                 {mention && mentionOptions.length > 0 && (
                   <div role="listbox" aria-label="Mencionar" className="absolute bottom-full left-0 mb-2 z-40 w-72 max-w-full bg-white border border-gray-200 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
                     {mentionOptions.map((o, i) => (
@@ -1964,7 +1964,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onPaste={handlePaste}
                   placeholder={actingAsName ? `Respondendo como ${actingAsName}…` : 'Escreva uma mensagem…'}
                   rows={1}
-                  className="flex-1 px-4 py-2.5 bg-white text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
+                  className="flex-1 min-w-0 px-4 py-2.5 text-base md:text-sm bg-white text-gray-900 placeholder-gray-500 rounded-lg border-0 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-0 max-h-36"
                 />
                 </div>
 
@@ -1972,7 +1972,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 {text.trim() ? (
                   <button
                     onClick={handleSend}
-                    className="p-2.5 bg-gray-900 text-white hover:bg-gray-800 rounded-full transition-colors"
+                    className="shrink-0 p-2.5 bg-gray-900 text-white hover:bg-gray-800 rounded-full transition-colors"
                     title="Enviar mensagem"
                   >
                     <Send className="w-5 h-5" />
@@ -1981,8 +1981,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button
                     type="button"
                     onClick={startRecording}
-
-                    className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                    className="shrink-0 p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                     title="Gravar áudio"
                   >
                     <Mic className="w-5 h-5" />
@@ -2252,8 +2251,11 @@ function MessageBubble({
     const box = anchor.closest('[data-thread]')?.getBoundingClientRect()
     const at = anchor.getBoundingClientRect()
     const up = !!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80)
+    // sempre dentro da tela: no celular o botão fica colado na borda e o menu saía para fora
+    const w = Math.min(kind === 'full' ? 224 : 300, window.innerWidth - 16)
+    const want = isOutbound ? at.right - w : at.left
     setMenuPos({
-      ...(isOutbound ? { right: window.innerWidth - at.right } : { left: at.left }),
+      left: Math.max(8, Math.min(want, window.innerWidth - w - 8)),
       ...(up ? { bottom: window.innerHeight - at.top + 4 } : { top: at.bottom + 4 }),
     })
     setMenu((cur) => (cur === kind ? false : kind))
@@ -2318,7 +2320,7 @@ function MessageBubble({
           style={{ position: 'fixed', zIndex: 100, ...menuPos }}
           className={cn(
             'bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
-            menu === 'react' ? 'p-1' : 'w-56 py-1',
+            menu === 'react' ? 'p-1 max-w-[calc(100vw-16px)] overflow-x-auto' : 'w-56 py-1',
           )}
         >
           {menu === 'react' ? reactionRow : (

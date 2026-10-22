@@ -38,7 +38,7 @@ export function ActingAsSelect({ ctx }: { ctx: ActingContext | null }) {
         value={ctx.acting?.id ?? ''}
         disabled={busy}
         onChange={(e) => change(e.target.value || null)}
-        className={`max-w-[11rem] border rounded-full pl-2.5 pr-1 py-1 text-xs bg-white ${ctx.acting ? 'border-amber-400 text-amber-900' : 'border-gray-200 text-gray-700'}`}
+        className={`max-w-[11rem] max-sm:max-w-[7.5rem] border rounded-full pl-2.5 pr-1 py-1 text-xs bg-white ${ctx.acting ? 'border-amber-400 text-amber-900' : 'border-gray-200 text-gray-700'}`}
       >
         <option value="">Eu mesmo</option>
         {ctx.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role_label}</option>)}

@@ -70,10 +70,10 @@ export function FollowupNotifier() {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Meus follow-ups: ${items.length}`}
-        className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border', overdue ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50')}
+        className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border whitespace-nowrap', overdue ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50')}
       >
-        <CalendarClock className="w-4 h-4" />
-        Follow-ups
+        <CalendarClock className="w-4 h-4 shrink-0" />
+        <span className="max-sm:hidden">Follow-ups</span>
         {items.length > 0 && <span className={cn('text-xs rounded-full px-1.5 py-0.5', overdue ? 'bg-red-600 text-white' : today ? 'bg-amber-200 text-amber-900' : 'bg-gray-200 text-gray-700')}>{items.length}</span>}
       </button>
       {open && (

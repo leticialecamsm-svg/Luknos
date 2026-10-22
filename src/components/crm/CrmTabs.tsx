@@ -17,7 +17,7 @@ export function CrmTabs() {
   return (
     <>
     <ActingAsBanner ctx={acting} />
-    <nav aria-label="CRM" className="flex items-center gap-1 mb-2 border-b border-gray-200">
+    <nav aria-label="CRM" className="flex items-center gap-1 mb-2 border-b border-gray-200 min-w-0">
       {TABS.map((t) => {
         const active = t.href === '/crm' ? pathname === '/crm' : pathname.startsWith(t.href)
         return (
@@ -26,7 +26,7 @@ export function CrmTabs() {
             href={t.href}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'px-3 py-1.5 text-sm font-medium -mb-px border-b-2',
+              'shrink-0 px-3 max-sm:px-2 py-1.5 text-sm font-medium -mb-px border-b-2',
               active ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800',
             )}
           >
@@ -34,7 +34,7 @@ export function CrmTabs() {
           </Link>
         )
       })}
-      <div className="ml-auto flex items-center gap-2 pb-1">
+      <div className="ml-auto flex items-center gap-2 pb-1 min-w-0">
         <ActingAsSelect ctx={acting} />
         <FollowupNotifier />
       </div>
