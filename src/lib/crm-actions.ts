@@ -3048,3 +3048,25 @@ export async function deleteCrmQuickReply(id: string): Promise<{ ok: true } | { 
   if (error) return { error: error.message }
   return { ok: true }
 }
+
+// ── Reações favoritas (os 6 emojis da fileira de reação, por atendente) ─────
+
+export async function getMyReactionEmojis(): Promise<string[] | null> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return null
+  const uid = auth.actedBy?.id ?? auth.userId
+  const { data } = await createAdminClient().from('users').select('crm_reaction_emojis').eq('id', uid).maybeSingle()
+  const list = (data?.crm_reaction_emojis as string[] | null) ?? null
+  return list && list.length ? list.filter(isValidReaction).slice(0, 6) : null
+}
+
+export async function saveMyReactionEmojis(emojis: string[]): Promise<{ ok: true } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const list = Array.from(new Set(emojis)).filter((e) => e && isValidReaction(e)).slice(0, 6)
+  if (list.length !== 6) return { error: 'Escolha 6 emojis diferentes.' }
+  const uid = auth.actedBy?.id ?? auth.userId
+  const { error } = await createAdminClient().from('users').update({ crm_reaction_emojis: list }).eq('id', uid)
+  if (error) return { error: error.message }
+  return { ok: true }
+}

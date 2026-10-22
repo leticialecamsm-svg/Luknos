@@ -72,7 +72,9 @@ import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
-import { QUICK_REACTIONS, type ReactionChip } from '@/lib/crm-reactions'
+import { type ReactionChip } from '@/lib/crm-reactions'
+import { ReactionPicker } from './ReactionPicker'
+import { useReactionFavorites } from './useReactionFavorites'
 import {
   Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap,
@@ -2172,7 +2174,8 @@ function MessageBubble({
 }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   // 'react' = só a fileira de reações (botão 🙂); 'full' = todas as opções (botão ⌄ ou clique direito)
-  const [menu, setMenu] = useState<false | 'react' | 'full'>(false)
+  const [menu, setMenu] = useState<false | 'react' | 'full' | 'picker'>(false)
+  const favorites = useReactionFavorites()
   const [menuPos, setMenuPos] = useState<{ left?: number; right?: number; top?: number; bottom?: number } | null>(null)
   useEffect(() => {
     if (!menu) return
@@ -2271,12 +2274,12 @@ function MessageBubble({
 
   const hasActions = canReply || canDelete || canSaveSticker || canEdit || canForward
   // abre o menu para baixo, ou para cima quando a mensagem está perto do fim da tela
-  const openMenu = (kind: 'react' | 'full', anchor: Element) => {
-    const box = anchor.closest('[data-thread]')?.getBoundingClientRect()
+  const openMenu = (kind: 'react' | 'full' | 'picker', anchor: Element) => {
+    const box = anchor.closest('[data-thread]')?.getBoundingClientRect() ?? document.querySelector('[data-thread]')?.getBoundingClientRect()
     const at = anchor.getBoundingClientRect()
-    const up = !!box && box.bottom - at.bottom < (kind === 'full' ? 260 : 80)
+    const up = !!box && box.bottom - at.bottom < (kind === 'full' ? 260 : kind === 'picker' ? 440 : 80)
     // sempre dentro da tela: no celular o botão fica colado na borda e o menu saía para fora
-    const w = Math.min(kind === 'full' ? 224 : 300, window.innerWidth - 16)
+    const w = Math.min(kind === 'full' ? 224 : kind === 'picker' ? 320 : 340, window.innerWidth - 16)
     const want = isOutbound ? at.right - w : at.left
     setMenuPos({
       left: Math.max(8, Math.min(want, window.innerWidth - w - 8)),
@@ -2286,7 +2289,7 @@ function MessageBubble({
   }
   const reactionRow = (
     <div className="flex items-center gap-0.5" role="group" aria-label="Reagir">
-      {QUICK_REACTIONS.map((e) => {
+      {favorites.map((e) => {
         const mine = msg.reactions?.some((r) => r.mine && r.emoji === e)
         return (
           <button
@@ -2300,6 +2303,13 @@ function MessageBubble({
           >{e}</button>
         )
       })}
+      <button
+        type="button"
+        aria-label="Mais emojis"
+        title="Mais emojis e editar favoritos"
+        onClick={(ev) => { ev.stopPropagation(); openMenu('picker', ev.currentTarget) }}
+        className="w-9 h-9 rounded-full text-gray-500 hover:bg-gray-100 flex items-center justify-center"
+      ><Plus className="w-5 h-5" /></button>
     </div>
   )
   const item = 'w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 text-left'
@@ -2344,10 +2354,15 @@ function MessageBubble({
           style={{ position: 'fixed', zIndex: 100, ...menuPos }}
           className={cn(
             'bg-white border border-gray-200 rounded-xl shadow-lg text-sm text-gray-800',
-            menu === 'react' ? 'p-1 max-w-[calc(100vw-16px)] overflow-x-auto' : 'w-56 py-1',
+            menu === 'react' ? 'p-1 max-w-[calc(100vw-16px)] overflow-x-auto' : menu === 'picker' ? '' : 'w-56 py-1',
           )}
         >
-          {menu === 'react' ? reactionRow : (
+          {menu === 'picker' ? (
+            <ReactionPicker
+              mine={(msg.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji)}
+              onPick={(e) => { setMenu(false); onReact(msg.reactions?.some((r) => r.mine && r.emoji === e) ? '' : e) }}
+            />
+          ) : menu === 'react' ? reactionRow : (
             <>
               {canReply && <div className="px-1.5 pb-1 mb-1 border-b border-gray-100">{reactionRow}</div>}
               {canReply && <button role="menuitem" className={item} onClick={() => { setMenu(false); onReply() }}><Reply className="w-4 h-4" /> Responder</button>}

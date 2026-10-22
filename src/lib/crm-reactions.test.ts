@@ -17,6 +17,12 @@ describe('crm-reactions', () => {
   it('valida o emoji', () => {
     expect(isValidReaction('👍')).toBe(true)
     expect(isValidReaction('')).toBe(true)
-    expect(isValidReaction('💣')).toBe(false)
+    expect(isValidReaction('💣')).toBe(true)
+    expect(isValidReaction('👩‍💻')).toBe(true)
+    expect(isValidReaction('👍🏽')).toBe(true)
+    expect(isValidReaction('🇧🇷')).toBe(true)
+    expect(isValidReaction('👍👍')).toBe(false)
+    expect(isValidReaction('a')).toBe(false)
+    expect(isValidReaction('1')).toBe(false)
   })
 })

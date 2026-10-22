@@ -17,7 +17,28 @@ export function groupReactions(rows: ReactionRow[]): ReactionChip[] {
   return Array.from(by.values()).sort((a, b) => b.count - a.count)
 }
 
-// Emoji aceito para reagir: um dos rápidos, ou vazio (tira a reação).
-export function isValidReaction(emoji: string): boolean {
-  return emoji === '' || (QUICK_REACTIONS as readonly string[]).includes(emoji)
+// (RegExp com 'u' pelo construtor: o tsconfig ainda mira ES5)
+const EMOJI_ONLY = new RegExp('^(?:\\p{Extended_Pictographic}|\\p{Emoji_Component}|\\p{Regional_Indicator}|\\u200d|\\ufe0f|\\u20e3)+$', 'u')
+const EMOJI_ANY = new RegExp('\\p{Extended_Pictographic}|\\p{Regional_Indicator}|\\u20e3', 'u')
+
+// Um único emoji (pode ter tom de pele, bandeira ou junções como 👩‍💻).
+export function isSingleEmoji(s: string): boolean {
+  if (!s || s.length > 32) return false
+  if (!EMOJI_ONLY.test(s) || !EMOJI_ANY.test(s)) return false
+  const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return Array.from(seg.segment(s)).length === 1
 }
+
+// Emoji aceito para reagir: qualquer emoji, ou vazio (tira a reação).
+export function isValidReaction(emoji: string): boolean {
+  return emoji === '' || isSingleEmoji(emoji)
+}
+
+// Seletor de reações: emojis por grupo (os mais usados em atendimento primeiro).
+export const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: 'Carinhas', emojis: '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😋 😛 😜 🤪 😝 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 💀 🤡 👻 👽 🤖 😺 😸 😹 😻'.split(' ') },
+  { label: 'Gestos', emojis: '👍 👎 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💪 🫶 🫡 🫠 🫢 🤷 🤦 🙋 🙆 🙅 💁 🙇'.split(' ') },
+  { label: 'Corações', emojis: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ❤️‍🔥'.split(' ') },
+  { label: 'Comemoração', emojis: '🎉 🎊 🥂 🍾 🎁 🎈 🏆 🥇 ⭐ 🌟 ✨ 💫 🔥 💯 ✅ ☑️ ✔️ ❌ ❗ ❓ ⚠️ 🚀 👀 💡 🕯️ 🔦 🏠 🏡 🛋️ 🛠️ 🔧 🔨 📐 📏 📦 🚚 💰 💵 💳 🧾 📄 📎 📌 📍 🗓️ ⏰ ⌛ 📞 📱 💬 🗨️'.split(' ') },
+  { label: 'Natureza', emojis: '☀️ 🌤️ ⛅ 🌧️ ⛈️ 🌈 ❄️ 🌙 🌸 🌹 🌻 🌷 🌱 🌿 🍀 🌵 🐶 🐱 🦋 🐝 ☕ 🍕 🍔 🍰 🎂 🍫 🍷 🍺'.split(' ') },
+]
