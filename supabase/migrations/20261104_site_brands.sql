@@ -36,3 +36,7 @@ CREATE POLICY site_bucket_auth_update ON storage.objects
   FOR UPDATE TO authenticated USING (bucket_id = 'site');
 CREATE POLICY site_bucket_auth_delete ON storage.objects
   FOR DELETE TO authenticated USING (bucket_id = 'site');
+-- Sem SELECT o upload falha: o Storage grava com INSERT ... RETURNING, que
+-- exige poder ler a linha de volta (erro 400 "violates row-level security").
+CREATE POLICY site_bucket_auth_select ON storage.objects
+  FOR SELECT TO authenticated USING (bucket_id = 'site');

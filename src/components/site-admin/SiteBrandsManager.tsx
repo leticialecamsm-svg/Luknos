@@ -51,15 +51,35 @@ function storagePaths(b: Pick<SiteBrand, 'logo_path' | 'catalogs'>) {
   return [b.logo_path, ...b.catalogs.map((c) => c.path)].filter((p): p is string => !!p)
 }
 
-async function uploadToSite(path: string, file: File) {
+// XHR em vez de supabase.storage.upload: catálogos têm dezenas de MB e levam
+// mais de um minuto pra subir — o XHR dá o progresso pra tela não parecer travada.
+async function uploadToSite(path: string, file: File, onProgress?: (pct: number) => void): Promise<{ url?: string; error?: string }> {
   const supabase = createClient()
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    contentType: file.type || 'application/octet-stream',
-    upsert: true,
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return { error: 'Sessão expirada. Entre de novo no sistema.' }
+
+  const endpoint = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${BUCKET}/${path}`
+  const result = await new Promise<{ ok: boolean; status: number; body: string }>((resolve) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', endpoint)
+    xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`)
+    xhr.setRequestHeader('apikey', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.setRequestHeader('x-upsert', 'false')
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100)) }
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body: xhr.responseText })
+    xhr.onerror = () => resolve({ ok: false, status: 0, body: '' })
+    xhr.send(file)
   })
-  if (error) {
-    const tooBig = /size|large|exceed/i.test(error.message)
-    return { error: tooBig ? 'Arquivo grande demais para enviar. Suba no Google Drive e cole o link.' : error.message }
+
+  if (!result.ok) {
+    let message = ''
+    try { message = JSON.parse(result.body).message ?? '' } catch {}
+    if (result.status === 413 || /size|large|exceed/i.test(message)) {
+      return { error: 'Arquivo grande demais para enviar. Suba no Google Drive e cole o link.' }
+    }
+    if (result.status === 0) return { error: 'A conexão caiu durante o envio. Tente de novo.' }
+    return { error: message || `Falha no envio (erro ${result.status})` }
   }
   return { url: supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl }
 }
@@ -407,6 +427,7 @@ function BrandEditor({
   const [form, setForm] = useState<SiteBrand>({ ...brand, catalogs: brand.catalogs.map((c) => ({ ...c })) })
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null) // 'logo' | 'cat-<i>'
+  const [progress, setProgress] = useState(0)
   // arquivos enviados nesta edição — se cancelar, são apagados pra não sobrar lixo no bucket
   const uploadedRef = useRef<string[]>([])
   const logoInput = useRef<HTMLInputElement>(null)
@@ -437,9 +458,10 @@ function BrandEditor({
       return
     }
     setUploading('logo')
+    setProgress(0)
     const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
     const path = `brands/${form.id}/logo-${Date.now()}.${ext}`
-    const res = await uploadToSite(path, file)
+    const res = await uploadToSite(path, file, setProgress)
     setUploading(null)
     if (res.error) {
       toast.error('OCORREU UM ERRO', res.error)
@@ -456,9 +478,10 @@ function BrandEditor({
       return
     }
     setUploading(`cat-${i}`)
+    setProgress(0)
     const base = file.name.replace(/\.pdf$/i, '')
     const path = `brands/${form.id}/catalogos/${Date.now()}-${slug(base)}.pdf`
-    const res = await uploadToSite(path, file)
+    const res = await uploadToSite(path, file, setProgress)
     setUploading(null)
     if (res.error) {
       toast.error('OCORREU UM ERRO', res.error)
@@ -666,7 +689,7 @@ function BrandEditor({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-surface-border text-gray-700 hover:bg-surface-secondary shrink-0"
                       >
                         {uploading === `cat-${i}` ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                        PDF
+                        {uploading === `cat-${i}` ? `${progress}%` : 'PDF'}
                       </button>
                       {c.url && (
                         <a href={c.url} target="_blank" rel="noopener noreferrer" className="w-8 h-8 inline-flex items-center justify-center rounded text-gray-500 hover:bg-surface-secondary shrink-0" title="Abrir">
@@ -681,7 +704,17 @@ function BrandEditor({
                         onChange={(e) => { onCatalogFile(i, e.target.files?.[0]); e.target.value = '' }}
                       />
                     </div>
-                    {c.path && <p className="text-xs text-green-700">PDF enviado pelo sistema</p>}
+                    {uploading === `cat-${i}` && (
+                      <div>
+                        <div className="h-1.5 w-full rounded-full bg-surface-secondary overflow-hidden">
+                          <div className="h-full bg-brand-600 transition-[width]" style={{ width: `${progress}%` }} />
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Enviando PDF… {progress}%{progress >= 100 ? ' — finalizando' : ''}. Catálogos grandes levam mais de um minuto; não feche esta janela.
+                        </p>
+                      </div>
+                    )}
+                    {c.path && uploading !== `cat-${i}` && <p className="text-xs text-green-700">PDF enviado pelo sistema</p>}
                   </div>
                 ))}
               </div>
