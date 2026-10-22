@@ -25,7 +25,7 @@ export function NegotiationSection({ quote }: { quote: any }) {
   const [showCloseSale, setShowCloseSale] = useState(false)
   const [showMarkLost, setShowMarkLost] = useState(false)
   const [showEditPayment, setShowEditPayment] = useState(false)
-  const [showDiscounts, setShowDiscounts] = useState(false)
+  const [showDiscounts, setShowDiscounts] = useState(true)
   const [lossReason, setLossReason] = useState('price')
   const [localFinalValue, setLocalFinalValue] = useState<number | null>(quote.final_value ?? null)
   const [localSplits, setLocalSplits] = useState<any[]>(quote.payment_splits ?? [])
@@ -269,8 +269,8 @@ export function NegotiationSection({ quote }: { quote: any }) {
             <DiscountTable
               quotedValue={
                 selectedProposalId
-                  ? (proposals.find(p => p.id === selectedProposalId)?.value ?? quote.quoted_value ?? null)
-                  : (quote.quoted_value ?? null)
+                  ? (proposals.find(p => p.id === selectedProposalId)?.value ?? quote.quoted_value ?? quote.final_value ?? null)
+                  : (quote.quoted_value ?? quote.final_value ?? null)
               }
             />
           </div>
