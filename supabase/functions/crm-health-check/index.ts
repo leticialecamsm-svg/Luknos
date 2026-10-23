@@ -54,13 +54,18 @@ async function logEvent(component: string, kind: string, message: string, meta: 
   await db.from('crm_health_events').insert({ component, kind, message, meta })
 }
 
-// Incidente de VPS na página de status da Hostinger (explica o motivo de uma queda).
+// Incidente de VPS ou do datacenter de Campinas na página de status da Hostinger (explica uma queda).
 async function hostingerNotice(): Promise<{ name: string; status: string; text: string; since: string } | null | undefined> {
   try {
     const r = await get('https://statuspage.hostinger.com/api/v2/summary.json')
     if (!r.ok) return undefined
     const d = await r.json()
-    const inc = (d.incidents ?? []).find((i: any) => /vps/i.test(i.name) || (i.components ?? []).some((c: any) => /vps/i.test(c.name)))
+    // o servidor fica em Campinas (BR-CAM): incidente do datacenter também derruba a máquina
+    const region = /br-cam|campinas|brasil|brazil/i
+    const text = (i: any) => `${i.name} ${i.incident_updates?.[i.incident_updates.length - 1]?.body ?? ''}`
+    const list: any[] = d.incidents ?? []
+    const inc = list.find((i) => region.test(text(i)))
+      ?? list.find((i) => /vps/i.test(i.name) || (i.components ?? []).some((c: any) => /vps/i.test(c.name)))
     if (!inc) return null
     const body = String(inc.incident_updates?.[0]?.body ?? '').replace(/\s+/g, ' ').trim()
     return { name: inc.name, status: inc.status, text: body.slice(0, 280), since: inc.started_at ?? inc.created_at }
