@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl, pct } from '@/lib/pricing/engine'
-import { supplierBrand, onColor } from '@/lib/pricing/supplier-brand'
 import { SupplierLogo } from './SupplierLogo'
+import { SupplierPicker } from './SupplierPicker'
 import { ItemSimulatorModal } from './ItemSimulatorModal'
 import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
 import { catalogSourceFor, AUTO_SYNC_SOURCES, type CatalogEntry } from '@/lib/catalog/match'
@@ -79,29 +79,9 @@ export function PrecosClient({ suppliers, nav }: { suppliers: SupplierOverview[]
           <h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1>
           <p className="text-sm text-gray-500">Todas as notas e produtos por fornecedor, com data de compra e as cotações feitas em cada um.</p>
         </div>
-        {supplier && (
-          <div className="flex items-center gap-3 shrink-0 rounded-xl border bg-white px-3 py-2" style={{ borderColor: supplierBrand(supplier.name).color }}>
-            <Logo name={supplier.name} size={44} />
-            <span className="text-sm font-semibold text-gray-900">{supplier.name}</span>
-          </div>
-        )}
+        <SupplierPicker suppliers={suppliers} value={supplierId} onChange={setSupplierId} />
       </div>
       {nav}
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
-        {suppliers.map(s => {
-          const b = supplierBrand(s.name)
-          const on = s.id === supplierId
-          return (
-            <button key={s.id} onClick={() => setSupplierId(s.id)}
-              className={cn('shrink-0 flex items-center gap-1.5 pl-1.5 pr-3 py-1 rounded-full text-xs font-semibold border-2 transition-colors', !on && 'bg-white text-gray-700 hover:brightness-95')}
-              style={on ? { background: b.color, borderColor: b.color, color: onColor(b.color) } : { borderColor: b.color }}>
-              <Logo name={s.name} size={20} />
-              {s.name}
-            </button>
-          )
-        })}
-      </div>
-
       {supplier && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex bg-surface-secondary rounded-lg p-1">
