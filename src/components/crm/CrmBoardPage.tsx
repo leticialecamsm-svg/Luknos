@@ -51,7 +51,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const [cards, setCards] = useState<ConversationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [scope, setScope] = useState<Scope>('mine')
+  const [scope, setScope] = useState<Scope>('all')
   const [query, setQuery] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
   const [overStage, setOverStage] = useState<string | null>(null)
@@ -197,7 +197,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="max-w-[16rem]" />
         <div className="flex gap-2">
-          {(['mine', 'unassigned', 'all'] as const).map((k) => (
+          {(['all', 'mine'] as const).map((k) => (
             <button
               key={k}
               onClick={() => setScope(k)}
@@ -206,9 +206,9 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
                 scope === k ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
               )}
             >
-              {k === 'mine' ? 'Minhas' : k === 'unassigned' ? 'Pendentes' : 'Todas'}
+              {k === 'mine' ? 'Minhas' : 'Todas'}
               {counts[k] > 0 && (
-                <span className={cn('ml-1 text-[11px]', k === 'unassigned' && scope !== k ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[k]}</span>
+                <span className="ml-1 text-[11px] opacity-70">{counts[k]}</span>
               )}
             </button>
           ))}
@@ -240,12 +240,6 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
         )}
       </div>
 
-      {!loading && scope === 'mine' && counts.mine === 0 && counts.unassigned > 0 && (
-        <div className="mb-2 flex items-center gap-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Você não tem conversas atribuídas, mas há <b>{counts.unassigned}</b> sem responsável.
-          <button className="underline font-medium" onClick={() => setScope('unassigned')}>Ver pendentes</button>
-        </div>
-      )}
       {cards.length >= BOARD_LIMIT && (
         <div className="mb-2 flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <AlertTriangle className="w-4 h-4 shrink-0" />

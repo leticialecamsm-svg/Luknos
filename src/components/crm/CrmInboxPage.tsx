@@ -200,7 +200,7 @@ interface SystemUser { id: string; name: string; role: string; role_label?: stri
 
 export function CrmInboxPage({ currentUserId, users, initialConversationId = null, actingAsName = null, isAdmin = false }: { currentUserId: string; users: SystemUser[]; initialConversationId?: string | null; actingAsName?: string | null; isAdmin?: boolean }) {
   const toast = useToast()
-  const [scope, setScope] = useState<ScopeTab>(initialConversationId ? 'all' : 'mine')
+  const [scope, setScope] = useState<ScopeTab>('all')
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId)
@@ -1315,7 +1315,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           </div>
           {shortDigits && <p role="status" className="text-xs text-amber-700 mb-2">Digite ao menos 3 números para buscar por telefone</p>}
           <div className="flex gap-1" role="tablist">
-            {(['mine', 'unassigned', 'all', 'groups'] as const).map((key) => (
+            {(['all', 'mine', 'groups'] as const).map((key) => (
               <button
                 key={key}
                 role="tab"
@@ -1329,9 +1329,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
               >
-                {key === 'mine' ? 'Minhas' : key === 'unassigned' ? 'Pendentes' : key === 'all' ? 'Todas' : 'Canais'}
+                {key === 'mine' ? 'Minhas' : key === 'all' ? 'Todas' : 'Canais'}
                 {counts[key] > 0 && (
-                  <span className={cn('ml-0.5 text-[11px]', key === 'unassigned' && scope !== key ? 'text-amber-700 font-semibold' : 'opacity-70')}>{counts[key]}</span>
+                  <span className="ml-0.5 text-[11px] opacity-70">{counts[key]}</span>
                 )}
               </button>
             ))}
@@ -1355,11 +1355,6 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           {!loadingList && filter.loaded && !listError && visibleConversations.length === 0 && (
             <div className="text-sm text-gray-500 p-4 text-center space-y-2">
               <p>{q ? `Nenhuma conversa encontrada para “${query.trim()}”` : 'Nenhuma conversa aqui'}</p>
-              {!q && scope === 'mine' && counts.unassigned > 0 && (
-                <button className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 underline" onClick={() => setScope('unassigned')}>
-                  Há {counts.unassigned} conversa(s) sem responsável — ver pendentes
-                </button>
-              )}
             </div>
           )}
           {!q && (showArchived || archivedCount > 0) && (
