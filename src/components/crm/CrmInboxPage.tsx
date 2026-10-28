@@ -1,5 +1,6 @@
 'use client'
 
+import { createPortal } from 'react-dom'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 
 import { getAvatarColor } from '@/lib/crm-ui'
@@ -302,6 +303,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const selectedKey = filter.selected.join(',')
   const labelFilter = useLabelFilter()
   const labelKey = labelFilter.selected.join(',')
+  // o filtro de etiquetas fica na linha das abas do CRM (ao lado de "Atuar como")
+  const [tabsSlot, setTabsSlot] = useState<HTMLElement | null>(null)
+  useEffect(() => { setTabsSlot(document.getElementById('crm-tabs-slot')) }, [])
   const [syncingContacts, setSyncingContacts] = useState(false)
 
   const handleSyncContacts = () => {
@@ -1316,10 +1320,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mb-2 min-w-0">
-            <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="min-w-0" />
-            <LabelFilter labels={labelCatalog} selected={labelFilter.selected} onChange={labelFilter.setSelected} />
-          </div>
+          <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-2" />
+          {tabsSlot && createPortal(<LabelFilter labels={labelCatalog} selected={labelFilter.selected} onChange={labelFilter.setSelected} />, tabsSlot)}
           <div className="relative mb-2">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input

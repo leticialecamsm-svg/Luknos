@@ -35,6 +35,8 @@ export function CrmTabs() {
         )
       })}
       <div className="ml-auto flex items-center gap-2 pb-1 min-w-0">
+        {/* a tela de Conversas põe aqui o filtro de etiquetas */}
+        <div id="crm-tabs-slot" className="contents" />
         <ActingAsSelect ctx={acting} />
         <FollowupNotifier />
       </div>

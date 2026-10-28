@@ -81,7 +81,7 @@ export function LabelFilter({
         )}
       </div>
       {open && (
-        <div role="listbox" aria-multiselectable="true" className="absolute left-0 top-full mt-1 z-30 w-60 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+        <div role="listbox" aria-multiselectable="true" className="absolute right-0 top-full mt-1 z-30 w-60 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
           {labels.map((l) => {
             const on = active.includes(l.id)
             return (
