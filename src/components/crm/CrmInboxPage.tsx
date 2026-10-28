@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 
 import { getAvatarColor } from '@/lib/crm-ui'
 import { InstanceFilter, useInstanceFilter, readSavedInstanceSelection } from './InstanceFilter'
+import { LabelFilter, useLabelFilter, readSavedLabelSelection } from './LabelFilter'
 import { ConvAvatar } from './ConvAvatar'
 import { threadLayout } from '@/lib/crm-thread-layout'
 import { WhatsappIcon } from './WhatsappIcon'
@@ -299,6 +300,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // com um WhatsApp só na tela, a etiqueta dele em cada linha é repetição (a borda colorida já diz)
   const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
   const selectedKey = filter.selected.join(',')
+  const labelFilter = useLabelFilter()
+  const labelKey = labelFilter.selected.join(',')
   const [syncingContacts, setSyncingContacts] = useState(false)
 
   const handleSyncContacts = () => {
@@ -327,7 +330,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // Uma por vez, sem repintar quando nada mudou. O resultado fica guardado por aba/filtro:
   // voltar a uma aba mostra na hora o que já tinha e atualiza por trás.
   const listCache = useRef(new Map<string, { items: ConversationRow[]; counts: typeof counts }>())
-  const listKey = `${scope}|${filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')}`
+  const listKey = `${scope}|${filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')}|${filter.loaded ? labelKey : readSavedLabelSelection().join(',')}`
   const listKeyRef = useRef(listKey)
   listKeyRef.current = listKey
   const [listError, setListError] = useState<string | null>(null)
@@ -340,13 +343,14 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     void silent // a lista nunca some da tela ao atualizar; o esqueleto só aparece quando não há nada guardado
     // antes de o filtro "carregar", usa a escolha salva direto (mesma chave que ele vai ter)
     const sel = filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')
-    const key = `${scope}|${sel}`
+    const lab = filter.loaded ? labelKey : readSavedLabelSelection().join(',')
+    const key = `${scope}|${sel}|${lab}`
     if (listInFlight.current) { listDirty.current = true; return }
     listInFlight.current = true
     lastStartRef.current = { key, at: Date.now() }
     const ids = sel ? sel.split(',') : undefined
     window.dispatchEvent(new Event(CRM_AWAITING_REFRESH)) // atualiza o contador do menu (limitado a 1 a cada 15 s)
-    fetchCrmSnapshot(scope, 200, ids)
+    fetchCrmSnapshot(scope, 200, ids, false, undefined, lab ? lab.split(',') : undefined)
       .then((r) => {
         if (r.error && !r.items?.length) throw new Error(r.error)
         listCache.current.set(key, { items: r.items ?? [], counts: r.counts })
@@ -363,7 +367,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         if (listKeyRef.current === key) setLoadingList(false)
         if (listDirty.current) { listDirty.current = false; setTimeout(() => refreshListRef.current(true), 300) }
       })
-  }, [scope, selectedKey, filter.loaded])
+  }, [scope, selectedKey, labelKey, filter.loaded])
   refreshListRef.current = refreshList
   // Trocou de aba/filtro: mostra na hora o que já estava guardado (ou o esqueleto) e atualiza.
   useEffect(() => {
@@ -1312,7 +1316,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               </button>
             </div>
           </div>
-          <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="mb-2" />
+          <div className="flex items-center gap-1.5 mb-2 min-w-0">
+            <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="min-w-0" />
+            <LabelFilter labels={labelCatalog} selected={labelFilter.selected} onChange={labelFilter.setSelected} />
+          </div>
           <div className="relative mb-2">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -1369,7 +1376,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           )}
           {!loadingList && filter.loaded && !listError && visibleConversations.length === 0 && (
             <div className="text-sm text-gray-500 p-4 text-center space-y-2">
-              <p>{q ? `Nenhuma conversa encontrada para “${query.trim()}”` : 'Nenhuma conversa aqui'}</p>
+              <p>{q ? `Nenhuma conversa encontrada para “${query.trim()}”` : labelFilter.selected.length ? 'Nenhuma conversa com essa etiqueta aqui' : 'Nenhuma conversa aqui'}</p>
             </div>
           )}
           {!q && (showArchived || archivedCount > 0) && (

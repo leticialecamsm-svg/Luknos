@@ -625,6 +625,7 @@ export async function getCrmConversations(
   limit = 200,
   instanceIds?: string[],
   onlyId?: string, // uma conversa só (link direto), com a mesma regra de quem pode ver
+  labelIds?: string[], // só as que têm alguma destas etiquetas
 ) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] as ConversationRow[] }
@@ -670,6 +671,12 @@ export async function getCrmConversations(
   }
 
   if (instanceIds && instanceIds.length) q = q.in('instance_id', instanceIds)
+  if (labelIds && labelIds.length) {
+    const { data: tagged } = await admin.from('crm_conversation_labels').select('conversation_id').in('label_id', labelIds)
+    const tids = Array.from(new Set((tagged ?? []).map((r: { conversation_id: string }) => r.conversation_id)))
+    if (!tids.length) return { items: [] as ConversationRow[] }
+    q = q.in('id', tids)
+  }
   if (vis.hiddenConvIds.length) q = q.not('id', 'in', inList(vis.hiddenConvIds))
   if (auth.actedBy) {
     const blocked = await blockedInstanceIds(admin, auth.actedBy.id)
@@ -2461,9 +2468,9 @@ export async function sendContactCards(conversationId: string, contactIds: strin
 
 // Lista + contadores (+ colunas do Quadro) numa única ação. As ações do servidor entram numa
 // fila por usuário; fazer 3 chamadas separadas a cada atualização engarrafava os cliques.
-export async function getCrmSnapshot(scope: ListScope = 'mine', limit = 200, instanceIds?: string[], withStages = false) {
+export async function getCrmSnapshot(scope: ListScope = 'mine', limit = 200, instanceIds?: string[], withStages = false, labelIds?: string[]) {
   const [conv, counts, stages] = await Promise.all([
-    getCrmConversations(scope, limit, instanceIds),
+    getCrmConversations(scope, limit, instanceIds, undefined, labelIds),
     getCrmScopeCounts(instanceIds),
     withStages ? getCrmStages() : Promise.resolve(null),
   ])

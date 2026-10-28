@@ -13,9 +13,10 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return body as T
 }
 
-export function fetchCrmSnapshot(scope: string, limit: number, ids?: string[], withStages = false, signal?: AbortSignal) {
+export function fetchCrmSnapshot(scope: string, limit: number, ids?: string[], withStages = false, signal?: AbortSignal, labels?: string[]) {
   const p = new URLSearchParams({ scope, limit: String(limit) })
   if (ids?.length) p.set('ids', ids.join(','))
+  if (labels?.length) p.set('labels', labels.join(','))
   if (withStages) p.set('stages', '1')
   return getJson<Snapshot>(`/api/crm/snapshot?${p}`, signal)
 }

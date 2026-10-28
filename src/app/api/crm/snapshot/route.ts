@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   const scope = (SCOPES as readonly string[]).includes(sp.get('scope') ?? '') ? (sp.get('scope') as Scope) : 'mine'
   const limit = Math.min(Math.max(Number(sp.get('limit')) || 200, 1), 500)
   const ids = (sp.get('ids') ?? '').split(',').filter(Boolean)
-  const r = await getCrmSnapshot(scope, limit, ids.length ? ids : undefined, sp.get('stages') === '1')
+  const labels = (sp.get('labels') ?? '').split(',').filter(Boolean)
+  const r = await getCrmSnapshot(scope, limit, ids.length ? ids : undefined, sp.get('stages') === '1', labels.length ? labels : undefined)
   return NextResponse.json(r, { headers: { 'Cache-Control': 'no-store' } })
 }
