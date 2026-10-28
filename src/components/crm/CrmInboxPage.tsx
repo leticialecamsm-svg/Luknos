@@ -52,6 +52,7 @@ import {
   getCrmAttachmentUrl,
   getConversationAttachmentUrls,
   syncCrmContactInfo,
+  getCrmConversationRow,
   type ConversationRow,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
@@ -664,7 +665,19 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const selectedRowRef = useRef<ConversationRow | null>(null)
   const foundSelected = selectedId ? conversations.find((c) => c.id === selectedId) ?? null : null
   if (foundSelected) selectedRowRef.current = foundSelected
-  const selected = foundSelected ?? (selectedId && conversations.length === 0 && selectedRowRef.current?.id === selectedId ? selectedRowRef.current : null)
+  // Aberta por link (atividade da equipe, quadro, avisos) mas fora da lista na tela — outro WhatsApp
+  // no filtro ou fora das mais recentes: busca só ela e abre do mesmo jeito.
+  const [linkedRow, setLinkedRow] = useState<ConversationRow | null>(null)
+  const missingSelected = !!selectedId && !foundSelected && !loadingList && filter.loaded && linkedRow?.id !== selectedId
+  useEffect(() => {
+    if (!missingSelected || !selectedId) return
+    let alive = true
+    getCrmConversationRow(selectedId).then((row) => { if (alive && row) setLinkedRow(row) }).catch(() => {})
+    return () => { alive = false }
+  }, [missingSelected, selectedId])
+  const selected = foundSelected
+    ?? (selectedId && conversations.length === 0 && selectedRowRef.current?.id === selectedId ? selectedRowRef.current : null)
+    ?? (linkedRow && linkedRow.id === selectedId ? linkedRow : null)
 
   // ── "Digitando…" ─────────────────────────────────────────────────────────────
   // Recebido: o contato (pelo WhatsApp) ou outro atendente (pelo CRM) digitando, via crm_presence

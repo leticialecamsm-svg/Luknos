@@ -624,6 +624,7 @@ export async function getCrmConversations(
   scope: ListScope = 'mine',
   limit = 200,
   instanceIds?: string[],
+  onlyId?: string, // uma conversa só (link direto), com a mesma regra de quem pode ver
 ) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error, items: [] as ConversationRow[] }
@@ -650,7 +651,9 @@ export async function getCrmConversations(
     ...(vis.sharedConvIds.length ? [`id.in.${inList(vis.sharedConvIds)}`] : []),
   ].join(',')
 
-  if (scope === 'groups') {
+  if (onlyId) {
+    q = q.or(visible).eq('id', onlyId)
+  } else if (scope === 'groups') {
     q = q.or(visible).like('remote_jid', GROUP_LIKE)
   } else {
     q = q.not('remote_jid', 'like', GROUP_LIKE)
@@ -758,6 +761,13 @@ export async function getCrmConversations(
   items.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (a.pinned && b.pinned ? (pinsBy.get(b.id) ?? '').localeCompare(pinsBy.get(a.id) ?? '') : 0))
 
   return { items }
+}
+
+// Uma conversa avulsa, para abrir por link quando ela não está na lista carregada
+// (outro WhatsApp no filtro, ou fora das 200 mais recentes).
+export async function getCrmConversationRow(conversationId: string): Promise<ConversationRow | null> {
+  const r = await getCrmConversations('all', 1, undefined, conversationId)
+  return r.items[0] ?? null
 }
 
 // Quantas conversas há em cada aba (Minhas / Pendentes / Todas / Grupos), com a mesma
