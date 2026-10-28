@@ -67,7 +67,7 @@ function Small({ value, label }: { value: string; label: string }) {
 }
 
 export function SolicitationsHome({ rows, userName, cardPrefs }: { rows: IndexRow[]; userName: string; cardPrefs: Record<string, CardPropsConfig> }) {
-  const [view, setView] = useState<'team' | 'mine'>(rows.some(r => r.isMine) ? 'mine' : 'team')
+  const [view, setView] = useState<'team' | 'mine'>('team')
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [focus, setFocus] = useState<Focus | null>(null)
   const [hour, setHour] = useState<number | null>(null)
