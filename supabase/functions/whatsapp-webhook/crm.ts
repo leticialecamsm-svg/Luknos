@@ -239,6 +239,50 @@ function isForwardedMessage(data: NonNullable<EvolutionWebhook['data']>): boolea
   return false
 }
 
+// Conversa vinda de anúncio (Click-to-WhatsApp): o WhatsApp manda externalAdReply com sourceType 'ad'
+// no contextInfo (no topo do payload ou dentro do nó da mensagem). Guarda o necessário para o cartão.
+export interface AdContext {
+  source: 'facebook' | 'instagram' | 'status'
+  title: string | null
+  body: string | null
+  thumb: string | null
+  url: string | null
+  greeting: string | null
+}
+
+// deno-lint-ignore no-explicit-any
+export function findAdContext(data: Record<string, any>): AdContext | null {
+  // deno-lint-ignore no-explicit-any
+  const nodes: any[] = [data.contextInfo, ...Object.values(data.message ?? {}).map((n: any) => n?.contextInfo)]
+  for (const ci of nodes) {
+    const ad = ci?.externalAdReply
+    if (!ad || (ad.sourceType !== 'ad' && !ad.ctwaClid && !ad.showAdAttribution)) continue
+    const app = String(ad.sourceApp ?? ci.entryPointConversionApp ?? '').toLowerCase()
+    const url = typeof ad.sourceUrl === 'string' ? ad.sourceUrl : null
+    const source: AdContext['source'] = app.includes('insta') ? 'instagram' : (app === 'whatsapp' || url?.includes('/status/')) ? 'status' : 'facebook'
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 1000) : null)
+    return {
+      source,
+      title: str(ad.title),
+      body: str(ad.body),
+      thumb: thumbDataUri(ad.thumbnail),
+      url,
+      greeting: ad.automatedGreetingMessageShown ? str(ad.greetingMessageBody) : null,
+    }
+  }
+  return null
+}
+
+// Etiqueta "Tráfego pago" na conversa (criada pela migração 20261110_crm_ad_context).
+async function tagPaidTraffic(db: SupabaseClient, conversationId: string) {
+  const { data: label } = await db.from('crm_labels').select('id').eq('name', 'Tráfego pago').maybeSingle()
+  if (!label) return
+  await db.from('crm_conversation_labels').upsert(
+    { conversation_id: conversationId, label_id: label.id },
+    { onConflict: 'conversation_id,label_id', ignoreDuplicates: true },
+  )
+}
+
 function quotedPreview(q?: Record<string, unknown>): string | null {
   if (!q) return null
   if (typeof q.conversation === 'string') return q.conversation.slice(0, 300)
@@ -486,6 +530,7 @@ export async function handleCrmMessage(
 
   const ctx = findContext(data)
   const sentAt = messageTime(data)
+  const ad = !fromMe && !isGroup ? findAdContext(data) : null
 
   const { data: msg, error: msgErr } = await db
     .from('crm_messages')
@@ -503,6 +548,7 @@ export async function handleCrmMessage(
       participant_jid: isGroup ? (key.participant ?? null) : null,
       participant_name: isGroup && !fromMe ? (data.pushName ?? null) : null,
       is_forwarded: isForwardedMessage(data),
+      ad_context: ad,
     })
     .select('id')
     .single()
@@ -511,6 +557,8 @@ export async function handleCrmMessage(
     if (msgErr.code === '23505') return { handled: true, deduped: true }
     throw msgErr
   }
+
+  if (ad) await tagPaidTraffic(db, conversation.id).catch((e) => console.error('falha ao etiquetar tráfego pago', e))
 
   if (messageType === 'document' || messageType === 'image' || messageType === 'audio' || messageType === 'video') {
     try {

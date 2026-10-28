@@ -811,7 +811,7 @@ export async function getCrmMessages(conversationId: string, opts: { before?: st
   const limit = Math.min(Math.max(opts.limit ?? 60, 1), 200)
   let q = admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, signed, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, signed, ad_context, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(limit + 1)

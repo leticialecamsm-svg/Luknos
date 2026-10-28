@@ -12,6 +12,7 @@ import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
 import { splitButtons } from '@/lib/crm-buttons'
 import { LinkPreviewCard, firstUrl } from './LinkPreviewCard'
+import { AdCard, type AdContext } from './AdCard'
 import { ConvTags } from './ConvTags'
 import { FollowupPopover, DUE_STYLE } from './FollowupPopover'
 import { dueState, formatDue } from '@/lib/crm-followup'
@@ -98,6 +99,7 @@ interface Msg {
   deleted_by_name?: string | null
   edited_at?: string | null
   is_forwarded?: boolean
+  ad_context?: AdContext | null
   // Envio otimista: aparece na hora com relógio (pending); se falhar, fica marcada (failed) com
   // "Tentar de novo". realId = id gravado no banco, para trocar pela mensagem real sem duplicar.
   pending?: boolean
@@ -178,7 +180,7 @@ function withMyReaction(chips: ReactionChip[], emoji: string): ReactionChip[] {
   return out
 }
 
-const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed'] as const
+const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed', 'ad_context'] as const
 
 const DRAFTS_KEY = 'crm-drafts'
 function readDrafts(): Record<string, string> {
@@ -2459,6 +2461,7 @@ function MessageBubble({
         {speaker && first && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', speakerColor(msg.participant_jid ?? msg.participant_name ?? ''))}>{speaker}</p>}
         {outLabel && <p className={cn('text-[12.5px] font-semibold leading-4 mb-0.5', msg.sender_name ? 'text-emerald-800' : 'text-gray-500 italic font-medium')}>{outLabel}</p>}
         {msg.is_forwarded && <p className="flex items-center gap-1 text-[11px] italic text-gray-400 mb-0.5"><Forward className="w-3 h-3" /> Encaminhada</p>}
+        {msg.ad_context && !msg.deleted_at && <AdCard ad={msg.ad_context} />}
 
         {msg.reply_to_provider_id && (
           <button
