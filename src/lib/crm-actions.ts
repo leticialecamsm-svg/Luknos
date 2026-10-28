@@ -2278,6 +2278,11 @@ export async function markConversationRead(conversationId: string) {
     .from('crm_conversation_reads')
     .upsert({ conversation_id: conversationId, user_id: auth.userId, last_read_at: new Date().toISOString(), marked_unread: false }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
+  // histórico de aberturas para a Atividade da equipe (admin); a mesma conversa conta 1x a cada 5 min
+  const since = new Date(Date.now() - 5 * 60_000).toISOString()
+  const { data: recent } = await admin.from('crm_conversation_opens').select('id')
+    .eq('conversation_id', conversationId).eq('user_id', auth.userId).gte('at', since).limit(1)
+  if (!recent?.length) await admin.from('crm_conversation_opens').insert({ conversation_id: conversationId, user_id: auth.userId })
   return { ok: true }
 }
 

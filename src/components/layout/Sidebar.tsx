@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone, Globe, FileSpreadsheet } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone, Globe, FileSpreadsheet, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import type { User } from '@/types'
@@ -35,6 +35,7 @@ const ADMIN_NAV = [
   { href: '/propostas', label: 'Orçamento de Produtos', icon: FileSpreadsheet },
   { href: '/fiscal', label: 'Fiscal (NF-e/NFC-e)', icon: Receipt },
   { href: '/admin', label: 'Administração', icon: Settings },
+  { href: '/admin/atividade', label: 'Atividade da equipe', icon: Activity },
   { href: '/bot-config', label: 'Robô WhatsApp', icon: Bot },
   { href: '/crm-instances', label: 'Números do CRM', icon: Smartphone },
   { href: '/theme-admin', label: 'Tema Viver de IA', icon: Sparkles },
