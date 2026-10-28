@@ -324,6 +324,17 @@ export async function createQuote(formData: {
 
   if (quoteError) return { error: quoteError.message }
 
+  // Cria solicitation automática para que o orçamento apareça em /solicitacoes
+  const admin = createAdminClient()
+  const { data: newSol } = await admin.from('solicitations').insert({
+    client_id: formData.client_id,
+    architect_id: formData.architect_id || null,
+    created_by: user.id,
+  }).select('id').single()
+  if (newSol?.id) {
+    await admin.from('quotes').update({ solicitation_id: newSol.id }).eq('id', quoteId)
+  }
+
   const owners: { quote_id: string; user_id: string; role: string }[] = []
   if (formData.primary_owner_id) {
     owners.push({ quote_id: quoteId, user_id: formData.primary_owner_id, role: 'primary' })
@@ -342,7 +353,8 @@ export async function createQuote(formData: {
 
   revalidatePath('/dashboard')
   revalidatePath('/quotes')
-  return { data: { id: quoteId } }
+  revalidatePath('/solicitacoes')
+  return { data: { id: quoteId, solicitation_id: newSol?.id ?? null } }
 }
 
 export async function deleteQuote(quoteId: string) {

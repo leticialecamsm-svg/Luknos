@@ -130,7 +130,7 @@ export function QuoteDetail({ quote, activities, onFlagChange, showNegotiation =
             onClick={async () => {
               const ok = await confirm(`Excluir orçamento de "${quote.client_name}"?`, 'Sim, excluir')
               if (!ok) return
-              act(async () => { await deleteQuote(quote.id); router.push('/quotes') })
+              act(async () => { await deleteQuote(quote.id); router.push('/solicitacoes') })
             }}
             className="btn-secondary text-xs py-1.5 gap-1.5 text-red-500 hover:bg-red-50 hover:border-red-200"
           >

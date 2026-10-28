@@ -29,7 +29,7 @@ export function QuoteQuickViewModal({ quoteId, onClose, onFlagChange }: { quoteI
             {quote ? `Orçamento #${String(quote.number).padStart(3, '0')} · ${quote.client_name}` : 'Orçamento'}
           </h2>
           <div className="flex items-center gap-2 shrink-0">
-            <a href={`/quotes/${quoteId}`} className="btn-secondary text-xs py-1.5 gap-1.5">
+            <a href={quote?.solicitation_id ? `/solicitacoes/${quote.solicitation_id}?tab=orcamento` : `/quotes/${quoteId}`} className="btn-secondary text-xs py-1.5 gap-1.5">
               <ExternalLink className="w-3.5 h-3.5" /> Abrir página
             </a>
             <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface-secondary">

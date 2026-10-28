@@ -78,11 +78,12 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
         const res = await updateQuote(quote.id, payload)
         if (res.error) { setError(res.error); toast.error('OCORREU UM ERRO', 'Não foi possível salvar.'); return }
         toast.success('TUDO CERTO!', 'Orçamento atualizado.')
-        router.push(`/quotes/${quote.id}`); router.refresh()
+        router.push(`/quotes/${quote.id}?tab=orcamento`); router.refresh()
       } else {
         const res = await createQuote(payload as any)
         if (res.error) { setError(res.error); toast.error('OCORREU UM ERRO', 'Não foi possível criar.'); return }
         const newId = res.data?.id
+        const newSolId = res.data?.solicitation_id
         if (newId && stagedFiles.length > 0) {
           let ok = 0
           for (const file of stagedFiles) {
@@ -96,6 +97,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
           toast.success('TUDO CERTO!', 'Orçamento criado.')
         }
         if (onSuccess) onSuccess(newId)
+        else if (newSolId) { router.push(`/solicitacoes/${newSolId}?tab=orcamento`); router.refresh() }
         else { router.push(`/quotes/${newId}`); router.refresh() }
       }
     })

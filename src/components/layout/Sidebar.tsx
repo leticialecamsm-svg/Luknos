@@ -15,7 +15,6 @@ const NAV = [
   // 'Projetos' (/design-projects) e 'Contatos do Site' (/site-leads) saíram do menu:
   // as rotas continuam existindo, só não aparecem na navegação.
   { href: '/solicitacoes',    label: 'Solicitações', icon: ClipboardList },
-  { href: '/quotes',          label: 'Orçamentos',  icon: FileText },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
   { href: '/crm',             label: 'CRM WhatsApp', icon: MessagesSquare },

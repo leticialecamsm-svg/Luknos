@@ -21,9 +21,10 @@ export function NewQuoteModal({ onClose, onCreated }: { onClose: () => void; onC
     return () => { alive = false }
   }, [])
 
-  function handleSuccess(id?: string) {
+  function handleSuccess(id?: string, solicitationId?: string) {
     onClose()
     if (onCreated) onCreated(id)
+    else if (solicitationId) { router.push(`/solicitacoes/${solicitationId}?tab=orcamento`); router.refresh() }
     else if (id) { router.push(`/quotes/${id}`); router.refresh() }
   }
 
