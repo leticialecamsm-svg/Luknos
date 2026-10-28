@@ -375,11 +375,11 @@ export function StagePipeline({ s, primaryQuote, onSelect }: { s: SolicitationVi
                 <div className="text-[9px] uppercase tracking-widest font-semibold mb-0.5" style={{ color: '#9ca3af' }}>
                   Etapa {i + 1}
                 </div>
-                <div className="flex items-center gap-1.5 w-full">
+                <div className="flex items-center gap-1.5 w-full overflow-hidden">
                   {(() => { const Icon = STAGE_ICON[st.id]; return Icon ? <span style={{ color: labelColor, display: 'contents' }}><Icon className="w-3.5 h-3.5 shrink-0" /></span> : null })()}
-                  <span className="text-[11.5px] font-semibold leading-tight" style={{ color: labelColor }}>{st.label}</span>
-                  {isDone && <Check className="ml-auto shrink-0 w-3 h-3 text-green-500" />}
-                  {isCur && <Clock className="ml-auto shrink-0 w-3 h-3 text-amber-500" />}
+                  <span className="text-[11.5px] font-semibold leading-tight flex-1 min-w-0 truncate" style={{ color: labelColor }}>{st.label}</span>
+                  {isDone && <Check className="shrink-0 w-3 h-3 text-green-500" />}
+                  {isCur && <Clock className="shrink-0 w-3 h-3 text-amber-500" />}
                 </div>
                 <div className="text-[10px] font-medium mt-0.5" style={{ color: '#9ca3af' }}>
                   {st.days != null ? `${st.days} ${st.days === 1 ? 'dia' : 'dias'}` : ' '}
@@ -523,7 +523,7 @@ function WhatsAppCrmButton({ clientId, phone }: { clientId: string; phone: strin
 
   if (!phone && !(convs && convs.length)) return null
 
-  const go = (id: string) => { setOpen(false); router.push(`/crm/conversas?c=${id}`) }
+  const go = (id: string) => { setOpen(false); window.location.href = `/crm/conversas?c=${id}` }
   function click() {
     if (convs && convs.length === 1) return go(convs[0].id)
     if (convs && convs.length > 1) return setOpen(true)

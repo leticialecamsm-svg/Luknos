@@ -296,7 +296,8 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     eventRows = []
   }
 
-  // Equipe envolvida: created_by distintos da Solicitação e dos registros.
+  // Equipe envolvida: created_by distintos + responsáveis por etapa.
+  const stageRespIds = Object.values(stageRespMap).flat().map((u) => u.id)
   const creatorIds = Array.from(new Set(
     [
       (solicitation as any).created_by,
@@ -306,6 +307,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
       ...(installationTrackings ?? []).map((r: any) => r.created_by),
       ...(postSaleFollowups ?? []).map((r: any) => r.created_by),
       ...eventRows.map((r: any) => r.created_by),
+      ...stageRespIds,
     ].filter(Boolean) as string[]
   ))
   const { data: teamUsers } = creatorIds.length

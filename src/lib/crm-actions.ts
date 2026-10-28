@@ -2987,6 +2987,33 @@ export async function linkCrmMessagesToSolicitationStage(input: {
 
   const admin = createAdminClient()
 
+  // Se estiver registrando na etapa "orcamento" e ainda não existe quote, cria um em "Na fila".
+  if (input.stage === 'orcamento') {
+    const { data: existingQuote } = await admin
+      .from('quotes')
+      .select('id')
+      .eq('solicitation_id', input.solicitationId)
+      .limit(1)
+      .maybeSingle()
+    if (!existingQuote) {
+      const { data: sol } = await admin
+        .from('solicitations')
+        .select('client_id, architect_id')
+        .eq('id', input.solicitationId)
+        .maybeSingle()
+      if (sol) {
+        const { data: newQuote } = await admin.from('quotes').insert({
+          client_id: sol.client_id,
+          architect_id: sol.architect_id ?? null,
+          solicitation_id: input.solicitationId,
+          status: 'queue',
+          created_by: user.id,
+        }).select('id').single()
+        if (!newQuote) return { error: 'Erro ao criar orçamento para a etapa' }
+      }
+    }
+  }
+
   const rows = input.links.map((l) => ({
     solicitation_id: input.solicitationId,
     stage: input.stage,
