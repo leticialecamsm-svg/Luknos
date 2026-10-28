@@ -314,7 +314,8 @@ export async function handleCrmMessage(
     const rows = (all ?? []) as { id: string; name: string; phone: string | null }[]
     const byPhone = rows.find((c) => c.phone && samePhone(c.phone, senderDigits))
     if (byPhone) return { id: byPhone.id, name: byPhone.name, source: 'phone' }
-    const pn = data.pushName ? normName(data.pushName) : ''
+    // mensagem NOSSA: o pushName e o do nosso proprio perfil (nao do contato) — nao serve para achar pelo nome
+    const pn = !fromMe && data.pushName ? normName(data.pushName) : ''
     if (pn.split(' ').length >= 2) {
       const hits = rows.filter((c) => normName(c.name) === pn)
       if (hits.length === 1) return { id: hits[0].id, name: hits[0].name, source: 'name' }
