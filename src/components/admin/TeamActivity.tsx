@@ -81,7 +81,8 @@ export function TeamActivity({ day, today, userId, team, items, waits }: {
     const end = focus.until ?? new Date().toISOString()
     return it.at >= focus.from && it.at <= end
   }
-  const visible = items.filter((it) => !hidden.has(it.kind) && (!focus || inFocus(it)))
+  // mais recentes primeiro
+  const visible = items.filter((it) => !hidden.has(it.kind) && (!focus || inFocus(it))).reverse()
 
   return (
     <div className="space-y-5">
