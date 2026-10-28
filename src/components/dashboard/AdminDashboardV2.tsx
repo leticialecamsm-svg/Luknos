@@ -431,7 +431,7 @@ export function AdminDashboardV2({
           <div className="bg-gradient-card rounded-card shadow-card border border-surface-border overflow-hidden">
             <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Funil da loja</h3>
-              <a href="/quotes" className="text-xs text-navy hover:text-brand-600">Ver Kanban →</a>
+              <a href="/solicitacoes" className="text-xs text-navy hover:text-brand-600">Ver Kanban →</a>
             </div>
             <div className="p-4 space-y-1.5">
               {[

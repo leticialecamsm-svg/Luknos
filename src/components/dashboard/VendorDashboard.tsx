@@ -293,7 +293,7 @@ export function VendorDashboard({
         <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
           <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Meus orçamentos</h3>
-            <a href="/quotes" className="text-xs text-brand-600 hover:text-brand-700">Ver todos →</a>
+            <a href="/solicitacoes" className="text-xs text-brand-600 hover:text-brand-700">Ver todos →</a>
           </div>
           <div className="p-4 space-y-3">
             {recentQuotes.length > 0 ? (
@@ -335,7 +335,7 @@ export function VendorDashboard({
       <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
         <div className="border-b border-surface-border px-4 py-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Meu funil</h3>
-          <a href="/negotiations" className="text-xs text-brand-600 hover:text-brand-700">Ver negociações →</a>
+          <a href="/solicitacoes" className="text-xs text-brand-600 hover:text-brand-700">Ver negociações →</a>
         </div>
         <div className="p-4 space-y-3">
           {[

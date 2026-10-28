@@ -40,14 +40,14 @@ function buildSuggestions(quotes: any[]): Suggestion[] {
     const val = hot.reduce((s, q) => s + Number(q.quoted_value ?? 0), 0)
     const names = hot.slice(0, 3).map(q => q.client_name).filter(Boolean).join(', ')
     out.push({ key: 'hot', icon: Flame, tone: 'red', title: `Feche ${hot.length} orçamento(s) quente(s) — ${formatCurrency(val)}`,
-      detail: `Estão prontos para fechar. Priorize: ${names}${hot.length > 3 ? '…' : ''}.`, href: '/negotiations' })
+      detail: `Estão prontos para fechar. Priorize: ${names}${hot.length > 3 ? '…' : ''}.`, href: '/solicitacoes' })
   }
 
   // 2. Prazo vencido
   const overdue = open.filter(q => q.deadline && q.deadline < todayISO)
   if (overdue.length) {
     out.push({ key: 'overdue', icon: AlertTriangle, tone: 'orange', title: `${overdue.length} orçamento(s) com prazo vencido`,
-      detail: `Retome o contato hoje para não perder a oportunidade.`, href: '/quotes' })
+      detail: `Retome o contato hoje para não perder a oportunidade.`, href: '/solicitacoes' })
   }
 
   // 3. Mornos para aquecer
@@ -55,21 +55,21 @@ function buildSuggestions(quotes: any[]): Suggestion[] {
   if (warm.length) {
     const val = warm.reduce((s, q) => s + Number(q.quoted_value ?? 0), 0)
     out.push({ key: 'warm', icon: Clock, tone: 'amber', title: `Aqueça ${warm.length} negociação(ões) morna(s) — ${formatCurrency(val)}`,
-      detail: `Ofereça uma condição ou agende uma visita para avançar.`, href: '/negotiations' })
+      detail: `Ofereça uma condição ou agende uma visita para avançar.`, href: '/solicitacoes' })
   }
 
   // 4. Na fila sem atendimento
   const queue = open.filter(q => q.status === 'queue')
   if (queue.length) {
     out.push({ key: 'queue', icon: Inbox, tone: 'blue', title: `${queue.length} orçamento(s) novo(s) na fila`,
-      detail: `Distribua e inicie o atendimento antes que esfriem.`, href: '/quotes' })
+      detail: `Distribua e inicie o atendimento antes que esfriem.`, href: '/solicitacoes' })
   }
 
   // 5. Frios parados há muito tempo
   const coldStale = open.filter(q => (q.temperature === 'cold' || !q.temperature) && (daysSince(q.created_at) ?? 0) >= 14)
   if (coldStale.length) {
     out.push({ key: 'cold', icon: Snowflake, tone: 'violet', title: `Reative ${coldStale.length} orçamento(s) frio(s)`,
-      detail: `Parados há 2+ semanas. Um follow-up pode reabrir a conversa.`, href: '/quotes' })
+      detail: `Parados há 2+ semanas. Um follow-up pode reabrir a conversa.`, href: '/solicitacoes' })
   }
 
   // 6. Pagamentos pendentes (vendas fechadas com método em aberto)
@@ -78,7 +78,7 @@ function buildSuggestions(quotes: any[]): Suggestion[] {
     const val = pendingPay.reduce((s, q) =>
       s + q.payment_splits.filter((p: any) => p.status === 'open').reduce((a: number, p: any) => a + Number(p.amount ?? 0), 0), 0)
     out.push({ key: 'pay', icon: Wallet, tone: 'emerald', title: `Cobre ${formatCurrency(val)} em pagamentos pendentes`,
-      detail: `${pendingPay.length} venda(s) fechada(s) com pagamento em aberto.`, href: '/quotes' })
+      detail: `${pendingPay.length} venda(s) fechada(s) com pagamento em aberto.`, href: '/solicitacoes' })
   }
 
   // 7. Parceiro com maior valor em negociação

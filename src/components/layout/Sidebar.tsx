@@ -16,7 +16,6 @@ const NAV = [
   // as rotas continuam existindo, só não aparecem na navegação.
   { href: '/solicitacoes',    label: 'Solicitações', icon: ClipboardList },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
-  { href: '/negotiations',    label: 'Negociações', icon: TrendingUp },
   { href: '/crm',             label: 'CRM WhatsApp', icon: MessagesSquare },
   { href: '/shipping',        label: 'Expedição',   icon: Package },
   { href: '/partners',        label: 'Parceiros',   icon: Users2 },

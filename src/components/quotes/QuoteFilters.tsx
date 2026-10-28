@@ -55,7 +55,7 @@ export function QuoteFilters({ isAdmin }: { isAdmin: boolean }) {
 
       {(activeStatus || activeTemp) && (
         <button
-          onClick={() => window.location.href = '/quotes'}
+          onClick={() => window.location.href = '/solicitacoes'}
           className="text-xs text-gray-400 hover:text-gray-600 ml-1"
         >
           × Limpar filtros
