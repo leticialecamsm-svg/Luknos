@@ -25,7 +25,7 @@ export function MonthNavigator({ year, month }: { year: number; month: number })
     const d = new Date(target.year, target.month - 1 + delta, 1)
     const next = { year: d.getFullYear(), month: d.getMonth() + 1 }
     setTarget(next)
-    startTransition(() => router.push(`/dashboard?year=${next.year}&month=${next.month}`))
+    startTransition(() => router.push(`/dashboard?year=${next.year}&month=${next.month}`, { scroll: false }))
   }
 
   const btn = 'w-8 h-full flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-surface-secondary transition-colors'

@@ -92,11 +92,11 @@ export function GoalsPage({
     let y = year
     if (m < 1) { m = 12; y-- }
     if (m > 12) { m = 1; y++ }
-    router.push(`/admin/goals?year=${y}&month=${m}`)
+    router.push(`/admin/goals?year=${y}&month=${m}`, { scroll: false })
   }
 
   function goToCurrentMonth() {
-    router.push(`/admin/goals?year=${currentYear}&month=${currentMonth}`)
+    router.push(`/admin/goals?year=${currentYear}&month=${currentMonth}`, { scroll: false })
   }
 
   function getGoal(userId: string | null) {
@@ -221,7 +221,7 @@ export function GoalsPage({
               return (
                 <button
                   key={`${entry.year}-${entry.month}`}
-                  onClick={() => router.push(`/admin/goals?year=${entry.year}&month=${entry.month}`)}
+                  onClick={() => router.push(`/admin/goals?year=${entry.year}&month=${entry.month}`, { scroll: false })}
                   className={cn(
                     'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
                     isSelected ? 'bg-brand-50' : 'hover:bg-surface-secondary'

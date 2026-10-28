@@ -336,7 +336,8 @@ function StageFileList({ solicitationId, stage, refreshKey, onChanged }: { solic
     }
   }
 
-  if (loading) {
+  // só na primeira carga: ao atualizar, a lista continua na tela (não pula a página)
+  if (loading && !files) {
     return <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando arquivos…</p>
   }
   if (!files || files.length === 0) {

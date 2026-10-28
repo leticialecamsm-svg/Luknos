@@ -24,7 +24,7 @@ export function QuoteSchedules({ quoteId, quoteLabel, allowedTypes }: { quoteId:
   useEffect(() => { load() }, [])
 
   async function load() {
-    setLoading(true)
+    // o carregando só aparece na 1ª vez (estado inicial); ao atualizar, a lista fica na tela
     let data = await getSchedulesByQuote(quoteId) as any[]
     if (allowedTypes?.length) data = data.filter(s => allowedTypes.includes(s.type))
     setSchedules(data)

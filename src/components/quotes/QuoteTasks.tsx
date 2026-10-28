@@ -36,7 +36,7 @@ export function QuoteTasks({ quoteId, quoteLabel }: { quoteId: string; quoteLabe
   useEffect(() => { load() }, [])
 
   async function load() {
-    setLoading(true)
+    // o carregando só aparece na 1ª vez (estado inicial); ao atualizar, a lista fica na tela
     const data = await getTasksByQuote(quoteId)
     setTasks(data as Task[])
     setLoading(false)

@@ -58,7 +58,7 @@ export function AdminDashboardV2({
 
   function navigateMonth(delta: number) {
     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
-    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
+    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`, { scroll: false })
   }
 
   // Limites do mês selecionado (YYYY-MM-DD)

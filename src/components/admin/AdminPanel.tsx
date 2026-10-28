@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound, Camera, Target } from 'lucide-react'
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function AdminPanel({ users, goals }: Props) {
+  const router = useRouter()
   const toast = useToast()
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<'users' | 'contacts' | 'goals' | 'rates'>('users')
@@ -49,7 +51,7 @@ export function AdminPanel({ users, goals }: Props) {
       setCreateSuccess(true)
       setNewName(''); setNewEmail(''); setNewPassword('')
       setShowNewUser(false)
-      window.location.reload()
+      router.refresh()
     })
   }
 
@@ -297,6 +299,7 @@ export function AdminPanel({ users, goals }: Props) {
 }
 
 function UserRow({ user: u }: { user: User }) {
+  const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const toast = useToast()
   const [editing, setEditing] = useState(false)
@@ -317,7 +320,7 @@ function UserRow({ user: u }: { user: User }) {
     await updateUser(u.id, { name, role })
     setSaving(false)
     setEditing(false)
-    window.location.reload()
+    router.refresh()
   }
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -332,7 +335,7 @@ function UserRow({ user: u }: { user: User }) {
     e.target.value = ''
     if (res.error) { toast.error('OCORREU UM ERRO', res.error); return }
     toast.success('TUDO CERTO!', 'Foto atualizada.')
-    window.location.reload()
+    router.refresh()
   }
 
   async function handleDelete() {
@@ -346,7 +349,7 @@ function UserRow({ user: u }: { user: User }) {
       return
     }
     toast.success('TUDO CERTO!', `${u.name} removido do sistema.`)
-    window.location.reload()
+    router.refresh()
   }
 
   async function handlePasswordSave() {

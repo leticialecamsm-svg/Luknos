@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { updateTemperature } from '@/lib/actions'
 import { formatCurrency, formatDate, isOverdue, cn } from '@/lib/utils'
@@ -20,6 +21,9 @@ const COLUMNS = [
 
 export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: any[]; isAdmin: boolean }) {
   const [quotes, setQuotes] = useState(initialQuotes)
+  const router = useRouter()
+  // dados novos do servidor (router.refresh) entram sem recarregar a página nem perder a rolagem
+  useEffect(() => { setQuotes(initialQuotes) }, [initialQuotes])
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useState<string>('all')
   const [pending, startTransition] = useTransition()
@@ -195,7 +199,7 @@ export function NegotiationsBoard({ quotes: initialQuotes, isAdmin }: { quotes: 
           )
         })}
       </div>
-      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} onFlagChange={() => { window.location.reload() }} />}
+      {quoteModal && <QuoteQuickViewModal quoteId={quoteModal} onClose={() => setQuoteModal(null)} onFlagChange={() => router.refresh()} />}
     </div>
   )
 }

@@ -46,7 +46,7 @@ export function TasksList() {
 
   // Carregar tarefas
   const loadTasks = async () => {
-    setLoading(true)
+    // o carregando só aparece na 1ª vez (estado inicial); ao atualizar, a lista fica na tela
     const data = await getTasks({
       status: filterStatus || undefined,
       priority: filterPriority || undefined,

@@ -49,7 +49,7 @@ export function BotDashboardPage({ stats, range }: { stats: Stats; range: string
           {RANGES.map(([key, label]) => (
             <button
               key={key}
-              onClick={() => router.push(`/bot-dashboard?range=${key}`)}
+              onClick={() => router.push(`/bot-dashboard?range=${key}`, { scroll: false })}
               className={
                 'px-3 py-1.5 rounded-md text-sm transition-colors ' +
                 (range === key ? 'bg-brand-500 text-white' : 'text-gray-600 hover:bg-surface')

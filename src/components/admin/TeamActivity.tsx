@@ -51,7 +51,7 @@ export function TeamActivity({ day, today, userId, team, items, waits }: {
   const go = (d: string, u: string | null) => {
     setFocus(null)
     setOpen(null)
-    startTransition(() => router.push(`/admin/atividade?d=${d}${u ? `&u=${u}` : ''}`))
+    startTransition(() => router.push(`/admin/atividade?d=${d}${u ? `&u=${u}` : ''}`, { scroll: false }))
   }
 
   const person = team.find((p) => p.id === userId)

@@ -260,8 +260,8 @@ export function TasksV5({ myTasks, allTasks, allUsers, currentUser, isAdmin, can
     } else if (userId === currentUser.id) {
       // Peguei de volta pra mim: sai de "Atribuídas por mim" e volta pra minha lista
       setDelegated(list => list.filter(t => t.id !== task.id))
+      setTasks(prev => [{ ...task, user_id: userId, users: newUsers }, ...prev.filter(t => t.id !== task.id)])
       setSelected(null)
-      window.location.reload()
       return
     } else {
       // Passei pra outra pessoa: some da minha lista e vai pra "Atribuídas por mim"

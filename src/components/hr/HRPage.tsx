@@ -713,7 +713,7 @@ export function HRPage({ earnings, prevEarnings, payroll, monthUpload, allUsers,
     let y = year
     if (m < 1) { m = 12; y-- }
     if (m > 12) { m = 1; y++ }
-    router.push(`/hr?year=${y}&month=${m}&tab=${tab}`)
+    router.push(`/hr?year=${y}&month=${m}&tab=${tab}`, { scroll: false })
   }
 
   return (

@@ -58,7 +58,7 @@ export function BotConversationsPage({
           <button
             key={key}
             onClick={() =>
-              router.push(key === 'all' ? '/bot-conversations' : `/bot-conversations?status=${key}`)
+              router.push(key === 'all' ? '/bot-conversations' : `/bot-conversations?status=${key}`, { scroll: false })
             }
             className={
               'px-3 py-1.5 rounded-full text-sm border transition-colors ' +

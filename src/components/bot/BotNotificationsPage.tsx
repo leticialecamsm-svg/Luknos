@@ -73,7 +73,7 @@ export function BotNotificationsPage({
           <button
             key={key}
             onClick={() =>
-              router.push(key === 'all' ? '/bot-notifications' : `/bot-notifications?status=${key}`)
+              router.push(key === 'all' ? '/bot-notifications' : `/bot-notifications?status=${key}`, { scroll: false })
             }
             className={
               'px-3 py-1.5 rounded-full text-sm border transition-colors ' +

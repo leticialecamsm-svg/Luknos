@@ -17,9 +17,15 @@ export function GroupPicker({ onClose, onChanged }: { onClose: () => void; onCha
   const [onlyActive, setOnlyActive] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
+  // ordem fixa enquanto a janela está aberta: ativar/desativar não muda o grupo de lugar
+  const [activeAtOpen, setActiveAtOpen] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    getCrmGroups().then((r) => { if ('error' in r) setError(r.error); else setRows(r.items) })
+    getCrmGroups().then((r) => {
+      if ('error' in r) { setError(r.error); return }
+      setRows(r.items)
+      setActiveAtOpen(new Set(r.items.filter((g) => g.enabled).map((g) => g.id)))
+    })
   }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -43,7 +49,7 @@ export function GroupPicker({ onClose, onChanged }: { onClose: () => void; onCha
   const q = query.trim().toLocaleLowerCase('pt-BR')
   const shown = useMemo(() => (rows ?? [])
     .filter((g) => (!onlyActive || g.enabled) && (!q || g.name.toLocaleLowerCase('pt-BR').includes(q) || g.instance_label.toLocaleLowerCase('pt-BR').includes(q)))
-    .sort((a, b) => Number(b.enabled) - Number(a.enabled) || b.last_seen_at.localeCompare(a.last_seen_at)), [rows, q, onlyActive])
+    .sort((a, b) => Number(activeAtOpen.has(b.id)) - Number(activeAtOpen.has(a.id)) || b.last_seen_at.localeCompare(a.last_seen_at)), [rows, q, onlyActive, activeAtOpen])
   const activeCount = (rows ?? []).filter((g) => g.enabled).length
 
   return (

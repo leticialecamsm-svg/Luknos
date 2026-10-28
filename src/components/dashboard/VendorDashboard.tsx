@@ -49,7 +49,7 @@ export function VendorDashboard({
 
   function navigateMonth(delta: number) {
     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
-    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`)
+    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`, { scroll: false })
   }
 
   // KPIs — abertura/fechamento de negociação é definido pela TEMPERATURA

@@ -5,15 +5,14 @@ import { QUOTE_STATUS_LABEL, TEMPERATURE_LABEL } from '@/types'
 import { cn } from '@/lib/utils'
 
 export function QuoteFilters({ isAdmin }: { isAdmin: boolean }) {
-  const router = useSearchParams()
+  const router = useRouter()
   const params = useSearchParams()
 
   function setFilter(key: string, value: string) {
     const p = new URLSearchParams(params.toString())
     if (p.get(key) === value) p.delete(key)
     else p.set(key, value)
-    window.history.pushState(null, '', `?${p.toString()}`)
-    window.location.reload()
+    router.push(`?${p.toString()}`, { scroll: false })
   }
 
   const activeStatus = params.get('status')
