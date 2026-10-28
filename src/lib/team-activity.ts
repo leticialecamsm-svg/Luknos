@@ -92,9 +92,9 @@ const TABLE_HREF: Record<string, (id: string) => string> = {
   solicitations: (id) => `/solicitacoes/${id}`,
 }
 
-function fmtValue(v: unknown, people: Map<string, string>): string {
+function fmtValue(v: unknown, names: Map<string, string>): string {
   if (v == null) return '—'
-  if (typeof v === 'string') return people.get(v) ?? (v.length > 120 ? `${v.slice(0, 120)}…` : v)
+  if (typeof v === 'string') return names.get(v) ?? (v.length > 120 ? `${v.slice(0, 120)}…` : v)
   if (typeof v === 'boolean') return v ? 'sim' : 'não'
   if (typeof v === 'number') return String(v)
   const s = JSON.stringify(v)
@@ -143,6 +143,13 @@ export async function loadTeamActivity(day: string, userId: string | null) {
   ])
 
   const people = new Map<string, string>((users ?? []).map((u) => [u.id, u.name]))
+  // nomes para mostrar no lugar dos ids nas edições (pessoas, colunas e etiquetas do CRM)
+  const [{ data: stages }, { data: labels }] = await Promise.all([
+    admin.from('crm_stages').select('id, name'),
+    admin.from('crm_labels').select('id, name'),
+  ])
+  const names = new Map<string, string>(people)
+  for (const r of [...(stages ?? []), ...(labels ?? [])]) names.set(r.id, r.name)
   const who = (m: MsgRow) => m.acted_by_user_id ?? m.sender_user_id
 
   // ── resumo de todos no dia ──
@@ -219,9 +226,9 @@ export async function loadTeamActivity(day: string, userId: string | null) {
     const changes = e.op === 'update'
       ? Object.entries(e.changes ?? {}).map(([k, v]) => {
         const [from, to] = Array.isArray(v) ? v : [undefined, v]
-        return { field: FIELD_LABEL[k] ?? k.replace(/_/g, ' '), from: fmtValue(from, people), to: fmtValue(to, people) }
+        return { field: FIELD_LABEL[k] ?? k.replace(/_/g, ' '), from: fmtValue(from, names), to: fmtValue(to, names) }
       })
-      : Object.entries(e.changes ?? {}).filter(([k]) => k !== 'id').map(([k, v]) => ({ field: FIELD_LABEL[k] ?? k.replace(/_/g, ' '), to: fmtValue(v, people) }))
+      : Object.entries(e.changes ?? {}).filter(([k]) => k !== 'id').map(([k, v]) => ({ field: FIELD_LABEL[k] ?? k.replace(/_/g, ' '), to: fmtValue(v, names) }))
     const conv = e.table_name === 'crm_conversations' && e.row_id ? convs.get(e.row_id) : undefined
     items.push({
       at: e.at, kind: 'edit',
