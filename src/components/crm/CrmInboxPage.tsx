@@ -34,7 +34,7 @@ import {
   saveMessageAsSticker,
   getGroupParticipants,
   setConversationPinned,
-  setConversationSignature,
+  setConversationSignature, getMySignaturePref, setMySignaturePref,
   type ConversationAccessInfo,
   type CrmLabel,
   getCrmLabels,
@@ -67,6 +67,7 @@ import { GroupPicker } from './GroupPicker'
 import { SendContactModal } from './SendContactModal'
 import { NewConversationModal, ForwardModal, OtherNumberModal } from './CrmConversationModals'
 import { QuickReplies } from './QuickReplies'
+import { SignatureSettings } from './SignatureSettings'
 import { CrmSolicitationModal, type SolicSelection, SOLIC_STAGES } from './CrmSolicitationModal'
 import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
@@ -116,6 +117,7 @@ interface Msg {
   message_type: string
   body: string | null
   storage_path: string | null
+  signed?: boolean | null
   file_name: string | null
   mime_type: string | null
   is_system: boolean
@@ -175,7 +177,7 @@ function withMyReaction(chips: ReactionChip[], emoji: string): ReactionChip[] {
   return out
 }
 
-const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid'] as const
+const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed'] as const
 
 const DRAFTS_KEY = 'crm-drafts'
 function readDrafts(): Record<string, string> {
@@ -212,6 +214,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showStickers, setShowStickers] = useState(false)
   const [showQuickReplies, setShowQuickReplies] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  const [showSig, setShowSig] = useState(false)
+  // assinar as mensagens: preferência de quem digita (vem do perfil)
+  const [iSign, setISign] = useState(true)
+  useEffect(() => { getMySignaturePref().then(setISign).catch(() => {}) }, [])
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<Msg | null>(null)
@@ -556,6 +562,8 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       m.sender_avatar_url = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_url ?? null : null
       m.sender_avatar_color = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_color ?? null : null
       m.acted_by_name = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.name ?? null : null
+      m.acted_by_avatar_url = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.avatar_url ?? null : null
+      m.acted_by_avatar_color = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.avatar_color ?? null : null
     }
     if (r.deleted_by_user_id && !m.deleted_by_name) m.deleted_by_name = usersById.get(r.deleted_by_user_id)?.name ?? null
     if (m.deleted_at) { m.body = null; m.storage_path = null; m.file_name = null; m.reactions = [] }
@@ -864,6 +872,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     })
   }
 
+  const handleToggleMySignature = () => {
+    const next = !iSign
+    setISign(next)
+    startTransition(async () => {
+      const r = await setMySignaturePref(next)
+      if ('error' in r && r.error) { setISign(!next); toast.error('ERRO', r.error) }
+      else toast.success(next ? 'COM ASSINATURA' : 'SEM ASSINATURA', next ? 'Suas mensagens voltam a levar o seu nome no começo, em todas as conversas' : 'Suas mensagens vão sem nome no começo, em todas as conversas')
+    })
+  }
   const handleToggleSignature = () => {
     if (!selected) return
     const id = selected.id
@@ -1038,6 +1055,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     direction: 'outbound', sender_user_id: currentUserId, sender_name: meName,
     sender_avatar_url: users.find((u) => u.id === currentUserId)?.avatar_url ?? null, sender_avatar_color: users.find((u) => u.id === currentUserId)?.avatar_color ?? null,
     message_type: 'text', body: null, storage_path: null, file_name: null, mime_type: null,
+    signed: iSign && !selected?.hide_signature,
     is_system: false, created_at: new Date().toISOString(),
     reply_to_provider_id: reply?.provider_message_id ?? null,
     reply_to_preview: reply ? (messagePreview({ message_type: reply.message_type, body: reply.body, file_name: reply.file_name }) || null) : null,
@@ -1860,7 +1878,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     aria-expanded={showMore}
                   >
                     <Plus className="w-5 h-5" />
-                    {selected?.hide_signature && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" aria-hidden />}
+                    {(!iSign || selected?.hide_signature) && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" aria-hidden />}
                   </button>
                   {showMore && (
                     <>
@@ -1878,16 +1896,9 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         <button role="menuitem" type="button" onClick={() => { setShowMore(false); setShowFormat((v) => !v) }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
                           <span className="w-5 text-center font-semibold text-gray-500">Aa</span> {showFormat ? 'Esconder formatação' : 'Formatação'}
                         </button>
-                        <button role="menuitemcheckbox" aria-checked={!selected?.hide_signature} type="button" onClick={() => { setShowMore(false); handleToggleSignature() }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left border-t border-gray-100">
-                          <PenLine className={cn('w-5 h-5', selected?.hide_signature ? 'text-amber-600' : 'text-gray-500')} />
-                          <span className="flex-1">
-                            Assinatura
-                            <span className="block text-xs text-gray-500">{selected?.hide_signature ? 'Desligada: vai sem o seu nome' : 'Ligada: vai com o seu nome no começo'}</span>
-                          </span>
-                          <span className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', selected?.hide_signature ? 'bg-gray-300' : 'bg-emerald-500')}>
-                            <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', selected?.hide_signature ? 'left-0.5' : 'left-[1.125rem]')} />
-                          </span>
-                        </button>
+                        <div className="border-t border-gray-100">
+                          <SignatureSettings iSign={iSign} convHidden={!!selected?.hide_signature} onToggleMine={() => { setShowMore(false); handleToggleMySignature() }} onToggleConv={() => { setShowMore(false); handleToggleSignature() }} />
+                        </div>
                       </div>
                     </>
                   )}
@@ -1961,20 +1972,29 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                     />
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleToggleSignature}
-                 
-                  className={cn('max-md:hidden p-2.5 rounded-lg transition-colors', selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
-                  title={selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para voltar a assinar)' : 'Mensagens vão com o seu nome no começo (clique para enviar sem assinatura)'}
-                  aria-label="Assinatura"
-                  aria-pressed={!!selected?.hide_signature}
-                >
-                  <span className="relative inline-flex">
-                    <PenLine className="w-5 h-5" />
-                    {selected?.hide_signature && <span className="absolute left-0 right-0 top-1/2 h-0.5 -rotate-45 bg-amber-700 rounded" />}
-                  </span>
-                </button>
+                <div className="relative max-md:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowSig((v) => !v)}
+                    className={cn('p-2.5 rounded-lg transition-colors', !iSign || selected?.hide_signature ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'text-gray-600 hover:bg-gray-100')}
+                    title={!iSign ? 'Suas mensagens vão sem assinatura (clique para mudar)' : selected?.hide_signature ? 'Sem assinatura nesta conversa (clique para mudar)' : 'Mensagens vão com o seu nome no começo (clique para mudar)'}
+                    aria-label="Assinatura"
+                    aria-expanded={showSig}
+                  >
+                    <span className="relative inline-flex">
+                      <PenLine className="w-5 h-5" />
+                      {(!iSign || selected?.hide_signature) && <span className="absolute left-0 right-0 top-1/2 h-0.5 -rotate-45 bg-amber-700 rounded" />}
+                    </span>
+                  </button>
+                  {showSig && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowSig(false)} aria-hidden />
+                      <div role="menu" className="absolute bottom-full right-0 mb-2 z-40 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1">
+                        <SignatureSettings iSign={iSign} convHidden={!!selected?.hide_signature} onToggleMine={handleToggleMySignature} onToggleConv={handleToggleSignature} />
+                      </div>
+                    </>
+                  )}
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2257,11 +2277,13 @@ function MessageBubble({
   const isStickerMsg = msg.message_type === 'image' && (msg.mime_type ?? '').includes('webp')
   const carriesSignature = msg.message_type === 'text' || (['image', 'video', 'document'].includes(msg.message_type) && !isStickerMsg)
   const outLabel = !isOutbound ? null
-    : msg.sender_name ? (carriesSignature && !hideSignature ? `${msg.sender_name}:` : null)
+    : msg.sender_name ? (carriesSignature && (msg.signed ?? !hideSignature) ? `${msg.sender_name}:` : null)
     : (first ? 'Pelo celular' : null)
   const outAvatar = isOutbound ? (
     msg.sender_name ? (
-      <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.sender_name}${msg.acted_by_name ? ` (respondeu ${msg.acted_by_name})` : ''}`} />
+      msg.acted_by_name
+        ? <Avatar user={{ name: msg.acted_by_name, avatar_url: msg.acted_by_avatar_url, avatar_color: msg.acted_by_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.acted_by_name} (como ${msg.sender_name})`} />
+        : <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.sender_name}`} />
     ) : (
       <span title="Enviada pelo celular" className="w-7 h-7 mt-0.5 rounded-full bg-gray-300 text-white flex items-center justify-center shrink-0"><Smartphone className="w-4 h-4" /></span>
     )

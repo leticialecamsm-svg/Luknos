@@ -49,6 +49,8 @@ interface Payload {
   contacts?: ContactToSend[]
   // mensagem encaminhada (selo "Encaminhada")
   forwarded?: boolean
+  // quem digita prefere não assinar (preferência da pessoa no CRM)
+  no_signature?: boolean
 }
 
 Deno.serve(async (req) => {
@@ -126,7 +128,7 @@ async function send(payload: Required<Pick<Payload, 'conversation_id' | 'sender_
   const { data: sender } = await db.from('users').select('name').eq('id', payload.sender_user_id).maybeSingle()
   const senderName = sender?.name ?? 'Equipe Luknos'
   // Conversa marcada "sem assinatura": a mensagem vai sem o "*Nome:*" no comeco.
-  const signature = conv.hide_signature ? '' : `*${senderName}:*`
+  const signature = conv.hide_signature || payload.no_signature ? '' : `*${senderName}:*`
 
   const number = targetNumber(conv.remote_jid)
   const text = payload.text?.trim() || null
@@ -191,6 +193,8 @@ async function send(payload: Required<Pick<Payload, 'conversation_id' | 'sender_
       reply_to_provider_id: payload.quoted_provider_id ?? null,
       reply_to_preview: payload.quoted_provider_id ? (payload.quoted_text ?? '').slice(0, 300) : null,
       is_forwarded: payload.forwarded ?? false,
+      // áudio não leva legenda/assinatura
+      signed: !!signature && messageType !== 'audio',
     })
     .select('id')
     .single()
@@ -342,7 +346,7 @@ async function editMessage(payload: Payload) {
   if (!instanceName) return { edited: false, error: 'instance_not_found' }
 
   let full = text
-  if (!conv.hide_signature && msg.sender_user_id) {
+  if (!conv.hide_signature && !payload.no_signature && msg.sender_user_id) {
     const { data: sender } = await db.from('users').select('name').eq('id', msg.sender_user_id).maybeSingle()
     full = `*${sender?.name ?? 'Equipe Luknos'}:*\n${text}`
   }

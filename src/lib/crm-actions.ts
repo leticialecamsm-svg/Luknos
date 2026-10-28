@@ -811,7 +811,7 @@ export async function getCrmMessages(conversationId: string, opts: { before?: st
   const limit = Math.min(Math.max(opts.limit ?? 60, 1), 200)
   let q = admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, signed, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(limit + 1)
@@ -1197,6 +1197,7 @@ export async function sendCrmMessage(input: {
         mentioned: input.mentioned ?? [],
         mention_all: !!input.mentionAll,
         forwarded: !!input.forwarded,
+        no_signature: !(await signsMessages(auth)),
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -1891,7 +1892,7 @@ export async function editCrmMessage(messageId: string, text: string) {
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/crm-send-message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, 'x-internal-call': '1' },
-      body: JSON.stringify({ action: 'edit', message_id: messageId, text: clean }),
+      body: JSON.stringify({ action: 'edit', message_id: messageId, text: clean, no_signature: !(await signsMessages(auth)) }),
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || !body?.edited) return { error: body?.error ?? 'Não foi possível editar a mensagem' }
@@ -2736,6 +2737,26 @@ export async function setConversationPinned(conversationId: string, pinned: bool
   } else {
     await admin.from('crm_conversation_pins').delete().eq('conversation_id', conversationId).eq('user_id', auth.userId)
   }
+  return { ok: true }
+}
+
+// Assinatura "*Nome:*": vale a preferência de quem está digitando (o admin, mesmo atuando como outro).
+async function signsMessages(auth: { userId: string; actedBy: { id: string } | null }) {
+  const { data } = await createAdminClient().from('users').select('crm_signature').eq('id', auth.actedBy?.id ?? auth.userId).maybeSingle()
+  return data?.crm_signature !== false
+}
+
+export async function getMySignaturePref(): Promise<boolean> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return true
+  return signsMessages(auth)
+}
+
+export async function setMySignaturePref(sign: boolean): Promise<{ ok: true } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const { error } = await createAdminClient().from('users').update({ crm_signature: sign }).eq('id', auth.actedBy?.id ?? auth.userId)
+  if (error) return { error: error.message }
   return { ok: true }
 }
 
