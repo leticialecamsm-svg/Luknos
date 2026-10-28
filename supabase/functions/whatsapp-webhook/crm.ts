@@ -199,7 +199,7 @@ function describeOther(message: Record<string, any> | undefined, rawType: string
 const MAX_VIDEO_BASE64_CHARS = 30_000_000
 
 function normName(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
 // Contexto de resposta (a mensagem citada), venha onde vier no payload.
@@ -273,15 +273,20 @@ export function findAdContext(data: Record<string, any>): AdContext | null {
   return null
 }
 
-// Etiqueta "Tráfego pago" na conversa (criada pela migração 20261110_crm_ad_context).
-async function tagPaidTraffic(db: SupabaseClient, conversationId: string) {
-  const { data: label } = await db.from('crm_labels').select('id').eq('name', 'Tráfego pago').maybeSingle()
+// Coloca uma etiqueta (pelo nome) na conversa; não faz nada se a etiqueta não existir.
+async function tagConversation(db: SupabaseClient, conversationId: string, labelName: string) {
+  const { data: label } = await db.from('crm_labels').select('id').eq('name', labelName).maybeSingle()
   if (!label) return
   await db.from('crm_conversation_labels').upsert(
     { conversation_id: conversationId, label_id: label.id },
     { onConflict: 'conversation_id,label_id', ignoreDuplicates: true },
   )
 }
+
+// Etiqueta automática pelo texto que o cliente manda (mensagens prontas dos botões do site/Google).
+const TEXT_LABELS: { re: RegExp; label: string }[] = [
+  { re: /vim pelo google/i, label: 'Google' },
+]
 
 function quotedPreview(q?: Record<string, unknown>): string | null {
   if (!q) return null
@@ -558,7 +563,13 @@ export async function handleCrmMessage(
     throw msgErr
   }
 
-  if (ad) await tagPaidTraffic(db, conversation.id).catch((e) => console.error('falha ao etiquetar tráfego pago', e))
+  // etiquetas automáticas: anúncio (cartão + "Tráfego pago") e textos conhecidos (ex.: "vim pelo google")
+  const autoLabels = new Set<string>()
+  if (ad) autoLabels.add('Tráfego pago')
+  if (!fromMe && !isGroup && body) for (const t of TEXT_LABELS) if (t.re.test(body)) autoLabels.add(t.label)
+  for (const name of autoLabels) {
+    await tagConversation(db, conversation.id, name).catch((e) => console.error(`falha ao etiquetar "${name}"`, e))
+  }
 
   if (messageType === 'document' || messageType === 'image' || messageType === 'audio' || messageType === 'video') {
     try {
