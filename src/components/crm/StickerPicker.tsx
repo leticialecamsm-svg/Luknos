@@ -80,7 +80,7 @@ export function StickerPicker({ conversationId, onClose, onSent }: { conversatio
   }
 
   return (
-    <div ref={boxRef} role="dialog" aria-label="Figurinhas" className="absolute bottom-full left-0 mb-2 z-40 w-[22rem] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-xl p-3">
+    <div ref={boxRef} role="dialog" aria-label="Figurinhas" className="absolute bottom-full left-0 mb-2 z-40 w-[22rem] max-w-[92vw] max-md:fixed max-md:left-2 max-md:right-2 max-md:bottom-20 max-md:mb-0 max-md:w-auto max-md:max-w-none bg-white border border-gray-200 rounded-xl shadow-xl p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm font-semibold text-gray-900">Figurinhas da equipe</p>
         <button onClick={onClose} aria-label="Fechar" className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>

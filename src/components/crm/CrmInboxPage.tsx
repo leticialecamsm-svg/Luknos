@@ -211,6 +211,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
   const [showQuickReplies, setShowQuickReplies] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<Msg | null>(null)
@@ -1849,6 +1850,48 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
               )}
               {showFormat && <FormatToolbar textareaRef={textareaRef} value={text} setValue={setText} />}
               <div className={cn('flex items-end gap-1', showFormat && 'mt-1')}>
+                {/* Celular: o que não cabe na linha fica no menu "+" */}
+                <div className="relative md:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowMore((v) => !v)}
+                    className={cn('relative p-2.5 rounded-lg transition-colors text-gray-600 hover:bg-gray-100', showMore && 'bg-gray-100')}
+                    aria-label="Mais opções"
+                    aria-expanded={showMore}
+                  >
+                    <Plus className="w-5 h-5" />
+                    {selected?.hide_signature && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" aria-hidden />}
+                  </button>
+                  {showMore && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowMore(false)} aria-hidden />
+                      <div role="menu" className="absolute bottom-full left-0 mb-2 z-40 w-64 bg-white border border-gray-200 rounded-xl shadow-xl py-1 text-sm text-gray-800">
+                        <button role="menuitem" type="button" onClick={() => { setShowMore(false); fileInputRef.current?.click() }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
+                          <Paperclip className="w-5 h-5 text-gray-500" /> Anexar arquivo
+                        </button>
+                        <button role="menuitem" type="button" onClick={() => { setShowMore(false); setShowStickers(true) }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
+                          <StickerIcon className="w-5 h-5 text-gray-500" /> Figurinhas
+                        </button>
+                        <button role="menuitem" type="button" onClick={() => { setShowMore(false); setShowSendContact(true) }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
+                          <ContactRound className="w-5 h-5 text-gray-500" /> Enviar contato
+                        </button>
+                        <button role="menuitem" type="button" onClick={() => { setShowMore(false); setShowFormat((v) => !v) }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
+                          <span className="w-5 text-center font-semibold text-gray-500">Aa</span> {showFormat ? 'Esconder formatação' : 'Formatação'}
+                        </button>
+                        <button role="menuitemcheckbox" aria-checked={!selected?.hide_signature} type="button" onClick={() => { setShowMore(false); handleToggleSignature() }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left border-t border-gray-100">
+                          <PenLine className={cn('w-5 h-5', selected?.hide_signature ? 'text-amber-600' : 'text-gray-500')} />
+                          <span className="flex-1">
+                            Assinatura
+                            <span className="block text-xs text-gray-500">{selected?.hide_signature ? 'Desligada: vai sem o seu nome' : 'Ligada: vai com o seu nome no começo'}</span>
+                          </span>
+                          <span className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', selected?.hide_signature ? 'bg-gray-300' : 'bg-emerald-500')}>
+                            <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', selected?.hide_signature ? 'left-0.5' : 'left-[1.125rem]')} />
+                          </span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowFormat((v) => !v)}
@@ -1863,8 +1906,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                 
-                  className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                  className="max-md:hidden p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                   title="Anexar arquivo"
                 >
                   <Paperclip className="w-5 h-5" />
@@ -1904,8 +1946,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   <button
                     type="button"
                     onClick={() => setShowStickers((v) => !v)}
-                   
-                    className={cn('p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showStickers && 'bg-gray-100')}
+                    className={cn('max-md:hidden p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600', showStickers && 'bg-gray-100')}
                     title="Figurinhas"
                     aria-label="Figurinhas"
                     aria-expanded={showStickers}
