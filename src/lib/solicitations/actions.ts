@@ -1120,8 +1120,18 @@ export async function updateQuoteStatusWithCompletion(
   const patch: Record<string, any> = { status }
   if (status === 'done') patch.completed_at = new Date().toISOString()
   else patch.completed_at = null
+  const admin = createAdminClient()
   const { error } = await createClient().from('quotes').update(patch).eq('id', quoteId)
   if (error) return { error: error.message }
+  // Ao desmarcar "concluído", remove a linha de negociação auto-criada pelo trigger
+  // (temperature=null) que não foi tocada pelo usuário, para que o card de negociação
+  // não apareça indevidamente na barra de etapas.
+  if (status !== 'done') {
+    await admin.from('negotiations')
+      .delete()
+      .eq('quote_id', quoteId)
+      .is('temperature', null)
+  }
   await logSolicitationEvent(solicitationId, 'orcamento', `Orçamento → ${status}`, user.id)
   revalidatePath('/quotes')
   revalidatePath('/dashboard')

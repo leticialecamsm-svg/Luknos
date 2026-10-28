@@ -98,20 +98,32 @@ export function computeStages(s: SolicitationView, now: Date = new Date()): Stag
   const started: Record<string, boolean> = {}
   const done: Record<string, boolean> = {}
   for (const st of STAGES) {
-    // etapa iniciada = tem registros próprios OU mensagens do WhatsApp vinculadas via CRM
-    started[st.id] = records(st.id, s).length > 0 || (s.crmMessages?.[st.id]?.length ?? 0) > 0
+    // etapa iniciada = tem registros próprios OU mensagens do WhatsApp vinculadas via CRM.
+    // Negociação criada automaticamente pelo trigger (temperature=null) não conta como iniciada —
+    // só conta quando o usuário agiu explicitamente (definiu temperatura ou fechou/perdeu).
+    const recs = records(st.id, s)
+    const effectiveRecs = st.id === 'negociacao'
+      ? (s.negotiations ?? []).filter((n: any) => n.temperature != null)
+      : recs
+    started[st.id] = effectiveRecs.length > 0 || (s.crmMessages?.[st.id]?.length ?? 0) > 0
     done[st.id] = isStageDone(st.id, s)
   }
   const current = pickCurrentStage(STAGES.map(x => x.id), started, done)
   return STAGES.map(st => {
     if (!started[st.id]) return { id: st.id, label: st.label, state: 'not_started' as const, days: null }
     const crmDates = (s.crmMessages?.[st.id] ?? []).map(m => m.linkedAt)
-    const start = minDate([...records(st.id, s).map(r => r.created_at), ...crmDates])
+    const effectiveRecs = st.id === 'negociacao'
+      ? (s.negotiations ?? []).filter((n: any) => n.temperature != null)
+      : records(st.id, s)
+    const start = minDate([...effectiveRecs.map((r: any) => r.created_at), ...crmDates])
     let state: StageState
     let days: number | null
     if (done[st.id] && st.id !== current) {
       state = 'done'; days = dayCount(start, stageEnd(st.id, s))
     } else if (st.id === current && !done[st.id]) {
+      state = 'current'; days = dayCount(start, now)
+    } else if (!done[st.id]) {
+      // started e não concluída, mas não é a etapa principal atual (ex: duas etapas em paralelo)
       state = 'current'; days = dayCount(start, now)
     } else {
       // concluída e é a última (current por regra): continua "concluída"
