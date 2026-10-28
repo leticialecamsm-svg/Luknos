@@ -10,6 +10,7 @@ import { WhatsappIcon } from './WhatsappIcon'
 import { DealValue } from './DealValue'
 import { ContactInfoPanel } from './ContactInfoPanel'
 import { WaText } from './WaText'
+import { splitButtons } from '@/lib/crm-buttons'
 import { LinkPreviewCard, firstUrl } from './LinkPreviewCard'
 import { ConvTags } from './ConvTags'
 import { FollowupPopover, DUE_STYLE } from './FollowupPopover'
@@ -77,7 +78,7 @@ import { type ReactionChip } from '@/lib/crm-reactions'
 import { ReactionPicker } from './ReactionPicker'
 import { useReactionFavorites } from './useReactionFavorites'
 import {
-  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, MessageSquareText, Inbox, Users as UsersIcon, X,
+  Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, ExternalLink, Phone, List, MessageSquareText, Inbox, Users as UsersIcon, X,
   Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap,
 } from 'lucide-react'
 
@@ -2314,7 +2315,10 @@ function MessageBubble({
   const needsDownload = !hasFile && !isTempMsg && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
   // arquivo ainda saindo (ex.: encaminhado e ainda não baixado): só o nome, sem "Baixar"
   const pendingFile = !hasFile && isTempMsg && ['image', 'video', 'audio', 'document'].includes(msg.message_type)
-  const caption = msg.body && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? msg.body : null
+  // mensagem de empresa com botões: texto em cima e os botões embaixo, como no WhatsApp
+  const waButtons = msg.message_type === 'other' && !card ? splitButtons(msg.body) : null
+  const captionText = waButtons?.buttons.length ? waButtons.text : msg.body
+  const caption = captionText && !card && ['image', 'video', 'document', 'other'].includes(msg.message_type) ? captionText : null
 
   if (msg.deleted_at) {
     return (
@@ -2562,6 +2566,19 @@ function MessageBubble({
         )}
 
         {caption && <div className="mt-1.5"><WaText text={mentionNames ? renderMentions(caption, mentionNames) : caption} tail={tail} /></div>}
+
+        {!!waButtons?.buttons.length && (
+          <div className="mt-2 -mx-2.5 -mb-1 pt-3 border-t border-black/10 divide-y divide-black/10">
+            {waButtons.buttons.map((b, i) => {
+              const Icon = b.kind === 'url' ? ExternalLink : b.kind === 'call' ? Phone : b.kind === 'list' ? List : Reply
+              const inner = <><Icon className="w-4 h-4 shrink-0" /><span className="truncate">{b.label}</span></>
+              const cls = 'flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-[#027eb5]'
+              return b.kind === 'url' && b.value && /^https?:\/\//.test(b.value)
+                ? <a key={i} href={b.value} target="_blank" rel="noreferrer" className={cn(cls, 'hover:bg-black/5')} title={b.value}>{inner}</a>
+                : <div key={i} className={cls} title={b.value ?? undefined}>{inner}</div>
+            })}
+          </div>
+        )}
 
         {card && (
           <div className="space-y-1.5 min-w-[14rem]">

@@ -65,6 +65,94 @@ function vcardPhone(vcard?: string): string | null {
   return digits ? `+${digits}` : null
 }
 
+// Mensagem de empresa com botoes/lista (buttonsMessage, templateMessage, interactiveMessage,
+// listMessage): guarda o texto como o WhatsApp mostra e, no fim, depois de uma linha em branco,
+// um botao por linha: "🔘 Rotulo", "🔗 Rotulo · url", "📞 Rotulo · telefone", "📋 Rotulo" (lista).
+// O CRM desenha essas linhas finais como os botoes do WhatsApp.
+// deno-lint-ignore no-explicit-any
+export function describeInteractive(m: Record<string, any>): string | null {
+  const parts: string[] = []
+  const buttons: string[] = []
+  const add = (t: unknown, wrap = '') => { if (typeof t === 'string' && t.trim()) parts.push(`${wrap}${t.trim()}${wrap}`) }
+  // deno-lint-ignore no-explicit-any
+  const nativeFlow = (nf: any) => {
+    for (const b of nf?.buttons ?? []) {
+      let p: Record<string, string> = {}
+      try { p = JSON.parse(b.buttonParamsJson ?? '{}') } catch { /* ignora */ }
+      const label = p.display_text ?? p.title ?? b.name ?? 'Botão'
+      if (b.name === 'cta_url' && p.url) buttons.push(`🔗 ${label} · ${p.url}`)
+      else if (b.name === 'cta_call' && p.phone_number) buttons.push(`📞 ${label} · ${p.phone_number}`)
+      else if (b.name === 'cta_copy') buttons.push(`📋 ${label}${p.copy_code ? ` · ${p.copy_code}` : ''}`)
+      else if (b.name === 'single_select') buttons.push(`📋 ${label}`)
+      else buttons.push(`🔘 ${label}`)
+    }
+  }
+  // deno-lint-ignore no-explicit-any
+  const interactive = (im: any) => {
+    add(im?.header?.title, '*')
+    add(im?.header?.subtitle)
+    add(im?.body?.text)
+    add(im?.footer?.text, '_')
+    nativeFlow(im?.nativeFlowMessage)
+    for (const c of im?.carouselMessage?.cards ?? []) { const t = describeInteractive({ interactiveMessage: c }); if (t) parts.push(t) }
+  }
+
+  if (m.buttonsMessage) {
+    const b = m.buttonsMessage
+    add(b.text, '*')
+    add(b.contentText)
+    add(b.footerText, '_')
+    for (const x of b.buttons ?? []) buttons.push(`🔘 ${x.buttonText?.displayText ?? 'Botão'}`)
+  } else if (m.templateMessage) {
+    const t = m.templateMessage.hydratedTemplate ?? m.templateMessage.hydratedFourRowTemplate
+    if (t) {
+      add(t.hydratedTitleText, '*')
+      add(t.hydratedContentText)
+      add(t.hydratedFooterText, '_')
+      for (const x of t.hydratedButtons ?? []) {
+        if (x.urlButton) buttons.push(`🔗 ${x.urlButton.displayText ?? 'Abrir'} · ${x.urlButton.url ?? ''}`.trim())
+        else if (x.callButton) buttons.push(`📞 ${x.callButton.displayText ?? 'Ligar'} · ${x.callButton.phoneNumber ?? ''}`.trim())
+        else if (x.quickReplyButton) buttons.push(`🔘 ${x.quickReplyButton.displayText ?? 'Botão'}`)
+      }
+    } else if (m.templateMessage.interactiveMessageTemplate) {
+      interactive(m.templateMessage.interactiveMessageTemplate)
+    }
+  } else if (m.interactiveMessage) {
+    interactive(m.interactiveMessage)
+  } else if (m.listMessage) {
+    const l = m.listMessage
+    add(l.title, '*')
+    add(l.description)
+    add(l.footerText, '_')
+    const rows = (l.sections ?? []).flatMap((sec: { rows?: { title?: string }[] }) => sec.rows ?? []).map((r: { title?: string }) => r.title).filter(Boolean)
+    if (rows.length) parts.push(rows.map((r: string) => `• ${r}`).join('\n'))
+    buttons.push(`📋 ${l.buttonText ?? 'Ver opções'}`)
+  } else {
+    return null
+  }
+  const text = parts.join('\n')
+  if (!text && !buttons.length) return null
+  return buttons.length ? `${text || ' '}\n\n${buttons.join('\n')}` : text
+}
+
+// Embrulhos que so carregam outra mensagem dentro (mensagem temporaria, foto de album...):
+// trata a de dentro como se tivesse vindo direto.
+const WRAPPERS = ['ephemeralMessage', 'associatedChildMessage', 'deviceSentMessage']
+// deno-lint-ignore no-explicit-any
+function unwrap(data: NonNullable<EvolutionWebhook['data']>): NonNullable<EvolutionWebhook['data']> {
+  let d = data
+  for (let i = 0; i < 3; i++) {
+    // deno-lint-ignore no-explicit-any
+    const m = (d.message ?? {}) as Record<string, any>
+    const w = WRAPPERS.find((k) => m[k]?.message)
+    if (!w) break
+    const inner = m[w].message as Record<string, unknown>
+    const innerType = Object.keys(inner).find((k) => k !== 'messageContextInfo') ?? 'unknown'
+    d = { ...d, message: inner, messageType: innerType === 'extendedTextMessage' ? 'conversation' : innerType }
+  }
+  return d
+}
+
 // Texto curto para os tipos que o CRM ainda nao mostra por inteiro (contato, localizacao,
 // enquete, produto...). No fim, se for desconhecido, guarda o nome do tipo para diagnostico.
 // Contato: 1a linha "👤 Contato" (ou "Contatos") e uma linha "Nome · +55..." por pessoa.
@@ -92,10 +180,15 @@ function describeOther(message: Record<string, any> | undefined, rawType: string
   if (m.pollUpdateMessage) return '📊 Voto em enquete'
   if (m.productMessage) return `🛍️ Produto: ${m.productMessage.product?.title ?? 'do catálogo'}`
   if (m.orderMessage) return '🧾 Pedido'
+  const inter = describeInteractive(m)
+  if (inter) return inter
   if (m.listMessage) return `📋 Lista: ${m.listMessage.title ?? ''}`.trim()
   if (m.listResponseMessage) return `📋 ${m.listResponseMessage.title ?? 'Resposta de lista'}`
   if (m.buttonsMessage || m.templateMessage || m.interactiveMessage) return '🔘 Mensagem com botões'
   if (m.buttonsResponseMessage) return `🔘 ${m.buttonsResponseMessage.selectedDisplayText ?? 'Resposta de botão'}`
+  if (m.templateButtonReplyMessage) return `🔘 ${m.templateButtonReplyMessage.selectedDisplayText ?? 'Resposta de botão'}`
+  if (m.interactiveResponseMessage) return `🔘 ${m.interactiveResponseMessage.body?.text ?? 'Resposta de botão'}`
+  if (m.pinInChatMessage) return '📌 Fixou uma mensagem'
   if (m.viewOnceMessage || m.viewOnceMessageV2 || m.viewOnceMessageV2Extension) return '👁️ Mensagem de visualização única'
   if (m.ptvMessage) return '🎥 Vídeo curto'
   if (m.call || m.scheduledCallCreationMessage) return '📞 Chamada'
@@ -249,7 +342,7 @@ export async function handleCrmMessage(
   crmInstance: CrmInstanceRow,
   payload: EvolutionWebhook,
 ) {
-  const data = payload.data ?? {}
+  const data = unwrap(payload.data ?? {})
   const key = data.key ?? {}
   const remoteJid = key.remoteJid ?? ''
   const isGroup = remoteJid.endsWith('@g.us')

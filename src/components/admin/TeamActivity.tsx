@@ -74,7 +74,7 @@ export function TeamActivity({ day, today, userId, team, items, waits }: {
     }
     return out
   }, [items])
-  const maxHour = Math.max(1, ...hours.map((x) => x.total))
+  const maxHour = Math.max(1, ...hours.map((x) => (Object.keys(KIND) as ActivityKind[]).reduce((n, k) => n + (hidden.has(k) ? 0 : x.v[k]), 0)))
 
   const inFocus = (it: ActivityItem) => {
     if (!focus) return false
@@ -146,11 +146,11 @@ export function TeamActivity({ day, today, userId, team, items, waits }: {
               </div>
             </div>
             <div className="flex items-end gap-1 h-32">
-              {hours.map(({ h, v, total }) => (
-                <div key={h} className="flex-1 min-w-0 flex flex-col items-center gap-1" title={`${h}h: ${v.message} mensagens, ${v.open} aberturas, ${v.edit} edições, ${v.event} eventos`}>
-                  <div className="w-full flex flex-col-reverse rounded-t overflow-hidden" style={{ height: `${(total / maxHour) * 100}%` }}>
-                    {(Object.keys(KIND) as ActivityKind[]).filter((k) => !hidden.has(k)).map((k) => (
-                      <div key={k} className={KIND[k].bar} style={{ height: total ? `${(v[k] / total) * 100}%` : 0 }} />
+              {hours.map(({ h, v }) => (
+                <div key={h} className="flex-1 min-w-0 h-full flex flex-col items-center gap-1" title={`${h}h: ${v.message} mensagens, ${v.open} aberturas, ${v.edit} edições, ${v.event} eventos`}>
+                  <div className="w-full flex-1 min-h-0 flex flex-col justify-end">
+                    {(Object.keys(KIND) as ActivityKind[]).filter((k) => !hidden.has(k)).reverse().map((k) => (
+                      <div key={k} className={cn(KIND[k].bar, 'w-full first:rounded-t')} style={{ height: `${(v[k] / maxHour) * 100}%` }} />
                     ))}
                   </div>
                   <span className="text-[10px] text-gray-400">{h}h</span>
