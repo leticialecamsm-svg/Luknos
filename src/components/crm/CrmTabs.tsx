@@ -9,6 +9,7 @@ import { FollowupNotifier } from './FollowupNotifier'
 const TABS = [
   { href: '/crm', label: 'Quadro' },
   { href: '/crm/conversas', label: 'Conversas' },
+  { href: '/crm/metricas-trafego', label: 'Métricas do tráfego', adminOnly: true },
 ]
 
 export function CrmTabs() {
@@ -18,7 +19,7 @@ export function CrmTabs() {
     <>
     <ActingAsBanner ctx={acting} />
     <nav aria-label="CRM" className="flex items-center gap-1 mb-2 border-b border-gray-200 min-w-0">
-      {TABS.map((t) => {
+      {TABS.filter((t) => !t.adminOnly || acting?.can_act || pathname.startsWith(t.href)).map((t) => {
         const active = t.href === '/crm' ? pathname === '/crm' : pathname.startsWith(t.href)
         return (
           <Link
