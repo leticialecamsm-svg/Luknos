@@ -102,6 +102,8 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
   const ghostTries = ghosted.length ? ghosted.reduce((s, l) => s + l.outbound_count, 0) / ghosted.length : 0
   const fast = replied.filter((l) => (replyMin(l) ?? Infinity) <= 30)
   const fastGhost = fast.filter((l) => l.inbound_after_reply === 0).length
+  const slow = replied.filter((l) => (replyMin(l) ?? 0) > 30)
+  const slowGhost = slow.filter((l) => l.inbound_after_reply === 0).length
   const prevTotal = campaign ? null : source ? (data.prev.bySource[source] ?? 0) : data.prev.total
 
   // ── por canal (respeita só o filtro de anúncio) ──
@@ -235,7 +237,12 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
       insights.push(`${d >= 0 ? 'Aumento' : 'Queda'} de ${Math.abs(d)}% em relação ao período anterior (${fmtDay(data.prev.from)} – ${fmtDay(data.prev.to)}: ${prevTotal}).`)
     }
     if (ghosted.length) insights.push(`${ghosted.length} de ${replied.length} clientes (${pct(ghosted.length, replied.length)}%) não responderam depois que a equipe falou com eles — mesmo recebendo em média ${ghostTries.toFixed(1).replace('.', ',')} mensagens nossas.`)
-    if (fast.length >= 3 && fastGhost) insights.push(`Entre os atendidos em até 30 min, ${fastGhost} de ${fast.length} (${pct(fastGhost, fast.length)}%) também não responderam: a demora no atendimento não explica a falta de retorno.`)
+    if (fast.length >= 3 && slow.length >= 3) {
+      const f = pct(fastGhost, fast.length), sl = pct(slowGhost, slow.length)
+      insights.push(sl - f >= 15
+        ? `A rapidez pesa: atendidos em até 30 min não responderam em ${f}% dos casos (${fastGhost} de ${fast.length}); atendidos depois de 30 min, em ${sl}% (${slowGhost} de ${slow.length}).`
+        : `Atendidos em até 30 min não responderam em ${f}% dos casos (${fastGhost} de ${fast.length}), quase o mesmo dos atendidos depois (${sl}%, ${slowGhost} de ${slow.length}): a demora não explica a falta de retorno.`)
+    }
   }
 
   // ── exportar ──
@@ -345,6 +352,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
               <ul className="mt-2 space-y-1 text-xs text-gray-700">
                 <li>Enviamos em média <b>{ghostTries.toFixed(1).replace('.', ',')}</b> mensagens para cada um deles</li>
                 {fast.length > 0 && <li>Atendidos em até 30 min que não voltaram: <b>{fastGhost} de {fast.length}</b> ({pct(fastGhost, fast.length)}%)</li>}
+                {slow.length > 0 && <li>Atendidos depois de 30 min que não voltaram: <b>{slowGhost} de {slow.length}</b> ({pct(slowGhost, slow.length)}%)</li>}
                 <li>Mandaram só a mensagem do anúncio: <b>{leads.filter((l) => l.inbound_count <= 1).length}</b></li>
               </ul>
               <button type="button" onClick={() => { setListMode('ghost'); setShowAll(true); document.getElementById('lista-trafego')?.scrollIntoView({ behavior: 'smooth' }) }} className="mt-3 text-xs font-medium text-red-700 hover:underline">
