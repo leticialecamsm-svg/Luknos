@@ -27,6 +27,8 @@ export interface TrafficLead {
   stage_id: string | null
   has_solicitation: boolean
   returning_contact: boolean
+  inbound_after_reply: number // mensagens do cliente depois da nossa 1ª resposta (0 = não respondeu à equipe)
+  last_inbound_at: string | null
 }
 
 export interface TrafficCampaign { key: string; title: string; thumb: string | null; url: string | null }
@@ -60,7 +62,7 @@ type Row = {
   thumb_hash: string; url: string | null; instance_id: string; assigned_user_id: string | null
   contact_name: string | null; remote_jid: string | null; first_reply_at: string | null; first_reply_user: string | null
   inbound_count: number; outbound_count: number; deal_value: number | string | null; stage_id: string | null
-  has_solicitation: boolean; returning_contact: boolean
+  has_solicitation: boolean; returning_contact: boolean; inbound_after_reply: number; last_inbound_at: string | null
 }
 
 const SOURCES: TrafficSource[] = ['status', 'instagram', 'facebook', 'google']
@@ -125,6 +127,8 @@ export async function loadTrafficMetrics(from: string, to: string): Promise<Traf
     stage_id: r.stage_id,
     has_solicitation: r.has_solicitation,
     returning_contact: r.returning_contact,
+    inbound_after_reply: r.inbound_after_reply ?? 0,
+    last_inbound_at: r.last_inbound_at,
   })).sort((a, b) => b.entry_at.localeCompare(a.entry_at))
 
   const prevList = (prevRows ?? []) as Row[]

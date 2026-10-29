@@ -1,8 +1,10 @@
 -- Métricas do tráfego (CRM): cada conversa que entrou por tráfego no período, com o que aconteceu depois.
 -- Entrada = primeira mensagem do cliente com dados de anúncio (ad_context) no período; se não houver,
 -- a primeira com "vim pelo google". Uma mesma conversa pode contar em períodos diferentes (voltou por outro clique).
+-- Depois da 1ª resposta: quantas mensagens o cliente mandou (0 = não voltou a falar com a equipe).
 -- Primeira resposta: primeira mensagem nossa depois da entrada, ignorando os primeiros 15 s (resposta automática).
-create or replace function public.crm_traffic_leads(p_from timestamptz, p_to timestamptz)
+drop function if exists public.crm_traffic_leads(timestamptz, timestamptz);
+create function public.crm_traffic_leads(p_from timestamptz, p_to timestamptz)
 returns table (
   conversation_id uuid,
   entry_message_id uuid,
@@ -22,7 +24,9 @@ returns table (
   deal_value numeric,
   stage_id uuid,
   has_solicitation boolean,
-  returning_contact boolean
+  returning_contact boolean,
+  inbound_after_reply int,     -- mensagens do cliente depois da nossa 1ª resposta (0 = não respondeu à equipe)
+  last_inbound_at timestamptz
 )
 language sql
 stable
@@ -69,7 +73,9 @@ as $$
       select 1 from crm_messages p
       where p.conversation_id = l.conversation_id and not coalesce(p.is_system, false)
         and p.created_at < l.entry_at - interval '1 minute'
-    )
+    ),
+    (select count(*) from crm_messages x where x.conversation_id = l.conversation_id and x.direction = 'inbound' and r.created_at is not null and x.created_at > r.created_at)::int,
+    (select max(x.created_at) from crm_messages x where x.conversation_id = l.conversation_id and x.direction = 'inbound')
   from leads l
   join crm_conversations c on c.id = l.conversation_id
   left join contacts ct on ct.id = c.contact_id

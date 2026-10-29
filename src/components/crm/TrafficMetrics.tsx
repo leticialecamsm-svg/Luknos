@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   Clock, Download, ExternalLink, Facebook, FileText, Info, Instagram, Lightbulb, Loader2, Megaphone,
-  MessageCircle, Search, TrendingDown, TrendingUp, UserPlus, Wallet, X,
+  MessageCircle, Search, TrendingDown, TrendingUp, UserX, Wallet, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
@@ -67,6 +67,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
   const [source, setSource] = useState<TrafficSource | null>(null)
   const [campaign, setCampaign] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [listMode, setListMode] = useState<'all' | 'ghost' | 'noreply'>('all')
 
   const go = (from: string, to: string) => {
     setShowAll(false)
@@ -94,7 +95,13 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
   const withValue = leads.filter((l) => (l.deal_value ?? 0) > 0)
   const value = withValue.reduce((s, l) => s + (l.deal_value ?? 0), 0)
   const newOnes = leads.filter((l) => !l.returning_contact).length
-  const engaged = leads.filter((l) => l.inbound_count >= 3).length // conversou de fato (3+ mensagens do cliente)
+  // retorno do cliente depois que a equipe respondeu
+  const ghosted = replied.filter((l) => l.inbound_after_reply === 0) // respondemos e o cliente não voltou a falar
+  const talked = replied.filter((l) => l.inbound_after_reply >= 3) // conversou de fato depois da nossa resposta
+  const cameBack = replied.length - ghosted.length
+  const ghostTries = ghosted.length ? ghosted.reduce((s, l) => s + l.outbound_count, 0) / ghosted.length : 0
+  const fast = replied.filter((l) => (replyMin(l) ?? Infinity) <= 30)
+  const fastGhost = fast.filter((l) => l.inbound_after_reply === 0).length
   const prevTotal = campaign ? null : source ? (data.prev.bySource[source] ?? 0) : data.prev.total
 
   // ── por canal (respeita só o filtro de anúncio) ──
@@ -105,6 +112,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
       replied: ls.filter((l) => l.first_reply_at).length,
       med: median(ls.map(replyMin).filter((x): x is number => x != null)),
       solic: ls.filter((l) => l.has_solicitation).length,
+      ghost: ls.filter((l) => l.first_reply_at && l.inbound_after_reply === 0).length,
     }
   }).filter((c) => c.n > 0 || c.prev > 0 || META.includes(c.s))
   const channelMax = Math.max(1, ...channels.map((c) => c.n))
@@ -120,6 +128,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
       replied: ls.filter((l) => l.first_reply_at).length,
       med: median(ls.map(replyMin).filter((x): x is number => x != null)),
       solic: ls.filter((l) => l.has_solicitation).length,
+      ghost: ls.filter((l) => l.first_reply_at && l.inbound_after_reply === 0).length,
       value: ls.reduce((s, l) => s + (l.deal_value ?? 0), 0),
       first: ls.reduce((m, l) => (l.entry_at < m ? l.entry_at : m), ls[0].entry_at),
       last: ls.reduce((m, l) => (l.entry_at > m ? l.entry_at : m), ls[0].entry_at),
@@ -225,16 +234,18 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
       const d = Math.round(((total - prevTotal) / prevTotal) * 100)
       insights.push(`${d >= 0 ? 'Aumento' : 'Queda'} de ${Math.abs(d)}% em relação ao período anterior (${fmtDay(data.prev.from)} – ${fmtDay(data.prev.to)}: ${prevTotal}).`)
     }
-    if (total - engaged > 0) insights.push(`${pct(engaged, total)}% dos clientes mandaram 3 mensagens ou mais (conversaram de verdade); o restante parou nas primeiras mensagens.`)
+    if (ghosted.length) insights.push(`${ghosted.length} de ${replied.length} clientes (${pct(ghosted.length, replied.length)}%) não responderam depois que a equipe falou com eles — mesmo recebendo em média ${ghostTries.toFixed(1).replace('.', ',')} mensagens nossas.`)
+    if (fast.length >= 3 && fastGhost) insights.push(`Entre os atendidos em até 30 min, ${fastGhost} de ${fast.length} (${pct(fastGhost, fast.length)}%) também não responderam: a demora no atendimento não explica a falta de retorno.`)
   }
 
   // ── exportar ──
   const exportCsv = () => {
-    const head = ['Data', 'Contato', 'Telefone', 'Canal', 'Anúncio', 'WhatsApp', 'Atendente', '1ª resposta (min)', 'Msgs do cliente', 'Msgs nossas', 'Etapa', 'Valor', 'Solicitação', 'Já era contato']
-    const rows = leads.map((l) => [
+    const head = ['Data', 'Contato', 'Telefone', 'Canal', 'Anúncio', 'WhatsApp', 'Atendente', '1ª resposta (min)', 'Respondeu à equipe', 'Msgs do cliente depois da resposta', 'Msgs do cliente', 'Msgs nossas', 'Etapa', 'Valor', 'Solicitação', 'Já era contato']
+    const rows = listed.map((l) => [
       dateTime(l.entry_at), l.contact_name ?? '', l.phone ?? '', SOURCE[l.source].label, campOf.get(l.campaign)?.title ?? '',
       instOf.get(l.instance_id) ?? '', userOf.get(l.first_reply_user ?? l.assigned_user_id ?? '')?.name ?? '',
-      replyMin(l) != null ? String(Math.round(replyMin(l)!)) : 'sem resposta', l.inbound_count, l.outbound_count,
+      replyMin(l) != null ? String(Math.round(replyMin(l)!)) : 'sem resposta',
+      !l.first_reply_at ? '' : l.inbound_after_reply ? 'sim' : 'não', l.first_reply_at ? l.inbound_after_reply : '', l.inbound_count, l.outbound_count,
       l.stage_id ? stageOf.get(l.stage_id)?.name ?? '' : '', l.deal_value ?? '', l.has_solicitation ? 'sim' : 'não', l.returning_contact ? 'sim' : 'não',
     ])
     const csv = [head, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
@@ -246,7 +257,8 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
     URL.revokeObjectURL(url)
   }
 
-  const visible = showAll ? leads : leads.slice(0, 30)
+  const listed = listMode === 'ghost' ? ghosted : listMode === 'noreply' ? unanswered : leads
+  const visible = showAll ? listed : listed.slice(0, 30)
 
   return (
     <div className={cn('space-y-4 pb-10 transition-opacity', pending && 'opacity-60')}>
@@ -281,10 +293,10 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
           sub={prevTotal != null ? <Delta now={total} before={prevTotal} /> : <span>no período</span>} />
         <Kpi icon={Clock} label="1ª resposta (mediana)" value={dur(median(times))}
           sub={<span>{pct(replied.length, total)}% respondidas</span>} />
-        <Kpi icon={MessageCircle} label="Sem resposta" value={String(unanswered.length)} tone={unanswered.length ? 'warn' : undefined}
-          sub={<span>{total ? `${pct(unanswered.length, total)}% do total` : '—'}</span>} />
-        <Kpi icon={UserPlus} label="Clientes novos" value={String(newOnes)}
-          sub={<span>{total - newOnes} já conversavam antes</span>} />
+        <Kpi icon={MessageCircle} label="Sem resposta nossa" value={String(unanswered.length)} tone={unanswered.length ? 'warn' : undefined}
+          sub={<span>{total ? `${pct(unanswered.length, total)}% do total · ${newOnes} cliente(s) novo(s)` : '—'}</span>} />
+        <Kpi icon={UserX} label="Não responderam à equipe" value={String(ghosted.length)} tone={ghosted.length ? 'warn' : undefined}
+          sub={<span>{replied.length ? `${pct(ghosted.length, replied.length)}% dos atendidos` : '—'}</span>} />
         <Kpi icon={FileText} label="Viraram solicitação" value={String(solic)}
           sub={<span>{pct(solic, total)}% das conversas</span>} />
         <Kpi icon={Wallet} label="Valor em negociação" value={value ? brl(value) : '—'}
@@ -303,6 +315,44 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
           <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-2"><Lightbulb className="w-4 h-4 text-amber-500" /> Leitura rápida</p>
           <ul className="space-y-1 text-sm text-gray-700 list-disc pl-5">{insights.map((t, i) => <li key={i}>{t}</li>)}</ul>
         </div>
+      )}
+
+      {replied.length > 0 && (
+        <section className="card p-4">
+          <Title hint="Do clique no anúncio até virar solicitação. “Respondeu à equipe” = mandou ao menos uma mensagem depois da nossa 1ª resposta.">Retorno dos clientes</Title>
+          <div className="mt-4 grid md:grid-cols-[1fr_18rem] gap-5 items-start">
+            <div className="space-y-2">
+              {[
+                { label: 'Chegaram pelo tráfego', n: total, color: '#111827' },
+                { label: 'Equipe respondeu', n: replied.length, color: '#2563eb' },
+                { label: 'Cliente respondeu à equipe', n: cameBack, color: '#16a34a' },
+                { label: 'Conversou (3+ mensagens depois)', n: talked.length, color: '#15803d' },
+                { label: 'Virou solicitação', n: solic, color: '#7c3aed' },
+              ].map((f) => (
+                <div key={f.label} className="flex items-center gap-3 text-sm">
+                  <span className="w-52 shrink-0 text-gray-700 max-sm:w-36 max-sm:text-xs">{f.label}</span>
+                  <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden">
+                    <div className="h-full rounded-md flex items-center justify-end pr-2 text-[11px] font-semibold text-white min-w-[1.75rem]" style={{ width: `${Math.max(total ? (f.n / total) * 100 : 0, f.n ? 6 : 0)}%`, background: f.color }}>{f.n || ''}</div>
+                  </div>
+                  <span className="w-10 text-right text-xs text-gray-500 tabular-nums">{pct(f.n, total)}%</span>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl bg-red-50 ring-1 ring-red-100 p-4">
+              <p className="text-xs font-medium text-red-800">Não responderam depois do contato da equipe</p>
+              <p className="text-3xl font-semibold text-red-700 tabular-nums mt-1">{ghosted.length} <span className="text-base font-medium">de {replied.length}</span></p>
+              <p className="text-sm text-red-800">{pct(ghosted.length, replied.length)}% dos clientes atendidos</p>
+              <ul className="mt-2 space-y-1 text-xs text-gray-700">
+                <li>Enviamos em média <b>{ghostTries.toFixed(1).replace('.', ',')}</b> mensagens para cada um deles</li>
+                {fast.length > 0 && <li>Atendidos em até 30 min que não voltaram: <b>{fastGhost} de {fast.length}</b> ({pct(fastGhost, fast.length)}%)</li>}
+                <li>Mandaram só a mensagem do anúncio: <b>{leads.filter((l) => l.inbound_count <= 1).length}</b></li>
+              </ul>
+              <button type="button" onClick={() => { setListMode('ghost'); setShowAll(true); document.getElementById('lista-trafego')?.scrollIntoView({ behavior: 'smooth' }) }} className="mt-3 text-xs font-medium text-red-700 hover:underline">
+                Ver quem são →
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -327,6 +377,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
                     {!campaign && <span><Delta now={c.n} before={c.prev} small /></span>}
                     <span>1ª resposta {dur(c.med)}</span>
                     <span>{pct(c.replied, c.n)}% respondidas</span>
+                    {c.replied > 0 && <span className={c.ghost ? 'text-red-600' : undefined}>{pct(c.ghost, c.replied)}% não responderam à equipe</span>}
                     {c.solic > 0 && <span>{c.solic} solicitação(ões)</span>}
                   </div>
                 </button>
@@ -377,6 +428,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
                   </div>
                   <p className="text-xs text-gray-500 mt-1.5">
                     1ª resposta {dur(c.med)} · {pct(c.replied, c.ls.length)}% respondidas
+                    {c.replied > 0 && <> · <span className={c.ghost ? 'text-red-600' : undefined}>{pct(c.ghost, c.replied)}% não responderam à equipe</span></>}
                     {c.solic > 0 && <> · {c.solic} solicitação(ões)</>}
                     {c.value > 0 && <> · {brl(c.value)}</>}
                   </p>
@@ -493,9 +545,17 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
       </div>
 
       {/* Lista */}
-      <section className="card p-0 overflow-hidden">
-        <div className="p-4 pb-2 flex items-center justify-between gap-2">
-          <Title hint="Mais recentes primeiro. Clique no nome para abrir a conversa.">Conversas ({total})</Title>
+      <section id="lista-trafego" className="card p-0 overflow-hidden scroll-mt-4">
+        <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-2">
+          <Title hint="Mais recentes primeiro. Clique no nome para abrir a conversa.">Conversas ({listed.length})</Title>
+          <div className="flex gap-1">
+            {([['all', `Todas ${total}`], ['ghost', `Não responderam à equipe ${ghosted.length}`], ['noreply', `Sem resposta nossa ${unanswered.length}`]] as const).map(([k, label]) => (
+              <button key={k} type="button" onClick={() => setListMode(k)}
+                className={cn('px-2.5 py-1 rounded-full text-xs font-medium', listMode === k ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -507,6 +567,7 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
                 <th className="text-left font-medium px-2 py-2">Anúncio</th>
                 <th className="text-left font-medium px-2 py-2">Atendente</th>
                 <th className="text-right font-medium px-2 py-2">1ª resposta</th>
+                <th className="text-left font-medium px-2 py-2" title="O cliente mandou mensagem depois da nossa 1ª resposta?">Retorno do cliente</th>
                 <th className="text-right font-medium px-2 py-2" title="Mensagens do cliente / nossas desde que chegou">Msgs</th>
                 <th className="text-left font-medium px-2 py-2">Etapa</th>
                 <th className="text-right font-medium px-4 py-2">Valor</th>
@@ -531,6 +592,11 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
                     <td className="px-2 py-2 text-gray-600 max-w-[14rem] truncate">{campOf.get(l.campaign)?.title ?? '—'}</td>
                     <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{who?.name.split(' ')[0] ?? '—'}</td>
                     <td className={cn('px-2 py-2 text-right whitespace-nowrap tabular-nums', m == null ? 'text-red-600 font-medium' : m > 120 ? 'text-orange-600' : 'text-gray-700')}>{m == null ? 'sem resposta' : dur(m)}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-xs">
+                      {!l.first_reply_at ? <span className="text-gray-400">—</span>
+                        : l.inbound_after_reply === 0 ? <span className="text-red-600 font-medium">não respondeu</span>
+                        : <span className="text-emerald-700">{l.inbound_after_reply} msg{l.inbound_after_reply > 1 ? 's' : ''}{l.last_inbound_at && <span className="text-gray-400"> · últ. {dateTime(l.last_inbound_at).slice(0, 5)}</span>}</span>}
+                    </td>
                     <td className="px-2 py-2 text-right tabular-nums text-gray-500">{l.inbound_count}/{l.outbound_count}</td>
                     <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{st?.name ?? '—'}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-700">{l.deal_value ? brl(l.deal_value) : '—'}</td>
@@ -540,11 +606,12 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
             </tbody>
           </table>
         </div>
-        {leads.length > visible.length && (
+        {listed.length > visible.length && (
           <button type="button" onClick={() => setShowAll(true)} className="w-full py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 border-t border-gray-100">
-            Ver todas ({leads.length})
+            Ver todas ({listed.length})
           </button>
         )}
+        {!listed.length && <p className="px-4 pb-4 text-sm text-gray-500">Nenhuma conversa aqui.</p>}
       </section>
 
       <p className="text-xs text-gray-400 flex gap-1.5">
