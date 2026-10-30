@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { getActingContext, setActingAs, type ActingContext } from '@/lib/crm-actions'
 import { Avatar } from '@/components/ui/Avatar'
 import { useToast } from '@/components/ui/Toast'
-import { UserCog, Loader2, Undo2 } from 'lucide-react'
+import { UserCog, Undo2 } from 'lucide-react'
+import { ToolbarMenu, ToolbarMenuItem } from './ToolbarMenu'
 
 // Só administradores: atuar no CRM em nome de outro atendente (ex.: alguém faltou).
 // A assinatura das mensagens passa a ser a da pessoa, e o seu avatar aparece junto.
@@ -30,21 +31,32 @@ function useChangeActing() {
 export function ActingAsSelect({ ctx }: { ctx: ActingContext | null }) {
   const { busy, change } = useChangeActing()
   if (!ctx || !ctx.can_act) return null
+  const current = ctx.acting
   return (
-    <label className="inline-flex items-center gap-1.5 text-xs text-gray-500" title="Atuar no CRM em nome de outro atendente">
-      <UserCog className="w-4 h-4 text-gray-400" />
-      <span className="sr-only">Atuar como</span>
-      <select
-        value={ctx.acting?.id ?? ''}
-        disabled={busy}
-        onChange={(e) => change(e.target.value || null)}
-        className={`max-w-[11rem] max-sm:max-w-[7.5rem] border rounded-full pl-2.5 pr-1 py-1 text-xs bg-white ${ctx.acting ? 'border-amber-400 text-amber-900' : 'border-gray-200 text-gray-700'}`}
-      >
-        <option value="">Eu mesmo</option>
-        {ctx.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role_label}</option>)}
-      </select>
-      {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
-    </label>
+    <ToolbarMenu
+      ariaLabel="Atuar como"
+      title="Atuar no CRM em nome de outro atendente"
+      tone={current ? 'amber' : 'default'}
+      disabled={busy}
+      busy={busy}
+      className="max-w-[13rem] max-sm:max-w-[9rem]"
+      width="w-72"
+      icon={current ? <Avatar user={current} size={18} /> : <UserCog className="w-3.5 h-3.5 text-gray-500" />}
+      label={current ? current.name : 'Eu mesmo'}
+    >
+      {(close) => (
+        <>
+          <ToolbarMenuItem selected={!current} onClick={() => { close(); if (current) change(null) }} lead={<span className="w-5 h-5 rounded-full bg-gray-100 inline-flex items-center justify-center"><UserCog className="w-3 h-3 text-gray-500" /></span>}>
+            Eu mesmo
+          </ToolbarMenuItem>
+          {ctx.users.map((u) => (
+            <ToolbarMenuItem key={u.id} selected={current?.id === u.id} onClick={() => { close(); if (current?.id !== u.id) change(u.id) }} lead={<Avatar user={u} size={20} />} hint={u.role_label}>
+              {u.name}
+            </ToolbarMenuItem>
+          ))}
+        </>
+      )}
+    </ToolbarMenu>
   )
 }
 

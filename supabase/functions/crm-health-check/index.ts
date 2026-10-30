@@ -60,12 +60,18 @@ async function hostingerNotice(): Promise<{ name: string; status: string; text: 
     const r = await get('https://statuspage.hostinger.com/api/v2/summary.json')
     if (!r.ok) return undefined
     const d = await r.json()
-    // o servidor fica em Campinas (BR-CAM): incidente do datacenter também derruba a máquina
-    const region = /br-cam|campinas|brasil|brazil/i
+    // o servidor fica em Campinas (BR-CAM): incidente do datacenter/rede também derruba a máquina.
+    // Fora: manutenção de servidor de hospedagem de sites ("Server BR-1196", cPanel, websites) — não é o nosso VPS.
     const text = (i: any) => `${i.name} ${i.incident_updates?.[i.incident_updates.length - 1]?.body ?? ''}`
+    const hosting = (t: string) => /server\s+br-\d+|web hosting|websites? hosted|cpanel|agency hosting/i.test(t) && !/vps|br-cam|campinas/i.test(t)
+    const ours = (i: any) => {
+      const t = text(i)
+      if (hosting(t)) return false
+      return /vps|br-cam|campinas/i.test(t) || (i.components ?? []).some((c: any) => /vps/i.test(c.name))
+        || (/brasil|brazil/i.test(t) && /data ?center|network|rede/i.test(t))
+    }
     const list: any[] = d.incidents ?? []
-    const inc = list.find((i) => region.test(text(i)))
-      ?? list.find((i) => /vps/i.test(i.name) || (i.components ?? []).some((c: any) => /vps/i.test(c.name)))
+    const inc = list.find(ours)
     if (!inc) return null
     const body = String(inc.incident_updates?.[0]?.body ?? '').replace(/\s+/g, ' ').trim()
     return { name: inc.name, status: inc.status, text: body.slice(0, 280), since: inc.started_at ?? inc.created_at }

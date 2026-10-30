@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { createPortal } from 'react-dom'
 import {
   setConversationValue,
   getCrmStages,
@@ -10,7 +11,9 @@ import {
   deleteCrmStage,
   reorderCrmStages,
   moveConversationToStage,
+  getCrmLabels,
   type ConversationRow,
+  type CrmLabel,
 } from '@/lib/crm-actions'
 import { groupByStage, STAGE_COLORS, STAGE_NAME_MAX, type CrmStage } from '@/lib/crm-stages'
 import { useToast } from '@/components/ui/Toast'
@@ -20,6 +23,7 @@ import { formatListTime } from '@/lib/crm-time'
 import { ConvAvatar } from './ConvAvatar'
 import { formatCents, sumCents } from '@/lib/crm-money'
 import { InstanceFilter, useInstanceFilter, readSavedInstanceSelection } from './InstanceFilter'
+import { LabelFilter, useLabelFilter, readSavedLabelSelection } from './LabelFilter'
 import { DealValue } from './DealValue'
 import { ConvTags } from './ConvTags'
 import { DUE_STYLE } from './FollowupPopover'
@@ -63,6 +67,13 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   // com um WhatsApp só na tela, a etiqueta dele em cada cartão é repetição (a borda colorida já diz)
   const showInstanceChip = filter.options.length > 1 && filter.selected.length !== 1
   const selectedKey = filter.selected.join(',')
+  // filtro de etiquetas: o mesmo da tela de Conversas (mesma escolha salva), na linha das abas
+  const labelFilter = useLabelFilter()
+  const labelKey = labelFilter.selected.join(',')
+  const [labelCatalog, setLabelCatalog] = useState<CrmLabel[]>([])
+  useEffect(() => { getCrmLabels().then(setLabelCatalog) }, [])
+  const [tabsSlot, setTabsSlot] = useState<HTMLElement | null>(null)
+  useEffect(() => { setTabsSlot(document.getElementById('crm-tabs-slot')) }, [])
   const busy = useRef(0) // operações de escrita em andamento: pausa o polling
 
   // Leitura por GET (fora da fila das ações: mover um cartão não espera a atualização terminar).
@@ -72,13 +83,15 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
   const keyRef = useRef('')
   // antes de o filtro "carregar", usa a escolha salva direto (a primeira busca não espera re-renderizar)
   const sel = filter.loaded ? selectedKey : readSavedInstanceSelection().join(',')
-  keyRef.current = `${scope}|${sel}`
+  const lab = filter.loaded ? labelKey : readSavedLabelSelection().join(',')
+  keyRef.current = `${scope}|${sel}|${lab}`
   const load = useCallback(async (silent = false) => {
     void silent
-    const key = `${scope}|${sel}`
+    const key = `${scope}|${sel}|${lab}`
     const ids = sel ? sel.split(',') : undefined
+    const labels = lab ? lab.split(',') : undefined
     try {
-      const snap = await fetchCrmSnapshot(scope, BOARD_LIMIT, ids, true)
+      const snap = await fetchCrmSnapshot(scope, BOARD_LIMIT, ids, true, undefined, labels)
       if (keyRef.current !== key) return // trocou de aba no meio do caminho
       setCounts(snap.counts)
       if (snap.error) { setLoadError(snap.error); return }
@@ -92,12 +105,12 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
     } finally {
       if (keyRef.current === key) setLoading(false)
     }
-  }, [scope, sel])
+  }, [scope, sel, lab])
   useEffect(() => {
-    const c = cache.current.get(`${scope}|${sel}`)
+    const c = cache.current.get(`${scope}|${sel}|${lab}`)
     if (c) { setCards(c.items); setStages(c.stages); setCounts(c.counts) }
     setLoading(!c)
-  }, [scope, sel])
+  }, [scope, sel, lab])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -193,6 +206,7 @@ export function CrmBoardPage({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[420px]">
+      {tabsSlot && createPortal(<LabelFilter labels={labelCatalog} selected={labelFilter.selected} onChange={labelFilter.setSelected} />, tabsSlot)}
       {/* barra de filtros */}
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <InstanceFilter options={filter.options} selected={filter.selected} onChange={filter.setSelected} className="max-w-[16rem]" />
