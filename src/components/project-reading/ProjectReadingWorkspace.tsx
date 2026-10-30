@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, ChevronDown, MousePointer2, Shapes, Ruler,
   Lightbulb, Square, Pencil, Type, Trash2, Loader2, Undo2, Redo2, PanelRightClose, PanelRightOpen,
-  RotateCw, X, Layers, Download, Zap, EyeOff, Locate, Copy, Move,
+  RotateCw, X, Layers, Layers2, Download, Zap, EyeOff, Locate, Copy, Move,
 } from 'lucide-react'
 
 // O worker fica em /public (fora do bundle do webpack) porque o Terser do
@@ -212,6 +212,16 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   // tracejado, deixa só o nome em cinza como guia — continua clicável (área
   // invisível), só não fica com aquela pintura toda por cima da planta.
   const [ambientesDiscretos, setAmbientesDiscretos] = useState(false)
+  // Camadas do PDF (Optional Content Groups) — só existem quando o arquiteto
+  // plotou do AutoCAD com "incluir informações de camada". Esconder camadas
+  // (cotas, textos, mobiliário, elétrica...) deixa a planta limpa pra
+  // trabalhar por cima; as marcações da Luknos ficam no SVG e não são afetadas.
+  // Guardadas no navegador por nome de camada, por planta.
+  const [ocConfig, setOcConfig] = useState<any>(null)
+  const [pdfLayers, setPdfLayers] = useState<{ id: string; name: string }[]>([])
+  const [hiddenLayers, setHiddenLayers] = useState<string[]>([])
+  const [layersOpen, setLayersOpen] = useState(false)
+  const hiddenLayersKey = `plan-hidden-layers-${plan.id}`
   const [draggingAnnotation, setDraggingAnnotation] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null)
   // Arrastar a ponta de uma medição selecionada pra redimensionar.
   const [draggingPoint, setDraggingPoint] = useState<{ measurementId: string; pointIndex: number } | null>(null)
@@ -683,9 +693,40 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   useEffect(() => {
     let cancelled = false
     setRendering(true)
-    pdfjsLib.getDocument(plan.pdfUrl).promise.then(doc => { if (!cancelled) setPdfDoc(doc) })
+    pdfjsLib.getDocument(plan.pdfUrl).promise.then(async doc => {
+      if (cancelled) return
+      const config = await doc.getOptionalContentConfig()
+      const groups = (config.getGroups() ?? {}) as Record<string, { name: string | null }>
+      const layers = Object.entries(groups)
+        .map(([id, g]) => ({ id, name: (g.name ?? '').trim() || '(sem nome)' }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      let hidden: string[] = []
+      try { hidden = JSON.parse(localStorage.getItem(hiddenLayersKey) ?? '[]') } catch {}
+      for (const l of layers) config.setVisibility(l.id, !hidden.includes(l.name))
+      if (cancelled) return
+      setOcConfig(config)
+      setPdfLayers(layers)
+      setHiddenLayers(hidden.filter(n => layers.some(l => l.name === n)))
+      setPdfDoc(doc)
+    })
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan.pdfUrl])
+
+  // Nomes típicos de camadas que poluem a planta pra quem vai trabalhar por
+  // cima dela. Cada escritório nomeia diferente — o atalho acerta a maioria
+  // e o resto a pessoa ajusta na lista.
+  const CAMADAS_POLUENTES = /cota|dim|texto|text|anota|mobili|layout|el[eé]tric|tomada|interrupt|hachur|hatch|piso|logo|n[ií]vel|legenda|lumin|ilumina/i
+
+  function applyHiddenLayers(names: string[]) {
+    if (!ocConfig) return
+    for (const l of pdfLayers) ocConfig.setVisibility(l.id, !names.includes(l.name))
+    setHiddenLayers(names)
+    try { localStorage.setItem(hiddenLayersKey, JSON.stringify(names)) } catch {}
+  }
+  function toggleLayer(name: string) {
+    applyHiddenLayers(hiddenLayers.includes(name) ? hiddenLayers.filter(n => n !== name) : [...hiddenLayers, name])
+  }
 
   // Rotação total = a que já vem embutida no PDF + a que o consultor pediu
   // pra corrigir (0/90/180/270). Sempre passada explícita pro getViewport,
@@ -708,7 +749,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       canvas.width = viewport.width
       canvas.height = viewport.height
       const ctx = canvas.getContext('2d')!
-      const task = page.render({ canvasContext: ctx, viewport })
+      const task = page.render({
+        canvasContext: ctx, viewport,
+        ...(ocConfig ? { optionalContentConfigPromise: Promise.resolve(ocConfig) } : {}),
+      })
       localTask = task
       task.promise.then(() => {
         if (!cancelled) {
@@ -733,7 +777,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       try { localTask?.cancel() } catch { /* já tinha terminado, ignora */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfDoc, pageNum, renderScale, rotationMap])
+  }, [pdfDoc, pageNum, renderScale, rotationMap, hiddenLayers])
 
   function fitToScreen() {
     const container = canvasRef.current?.parentElement?.parentElement
@@ -1531,6 +1575,49 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 ambientesDiscretos ? 'bg-surface-secondary0 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
               <EyeOff className="w-3.5 h-3.5" /> Ambientes discretos
             </button>
+            <div className="relative">
+              <button onClick={() => setLayersOpen(v => !v)} title="Mostrar/esconder camadas do PDF (cotas, textos, mobiliário...)"
+                className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  hiddenLayers.length > 0 ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>
+                <Layers2 className="w-3.5 h-3.5" /> Camadas{hiddenLayers.length > 0 && ` (${hiddenLayers.length} ocultas)`}
+              </button>
+              {layersOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 w-72 bg-white border border-surface-border rounded-xl shadow-lg p-3 text-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-navy">Camadas do PDF</span>
+                    <button onClick={() => setLayersOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  {pdfLayers.length === 0 ? (
+                    <p className="text-navy-muted leading-relaxed">
+                      Este PDF não tem camadas. Peça ao arquiteto pra plotar direto do AutoCAD com
+                      <b> &quot;Incluir informações de camada&quot;</b> marcado — e mandar o arquivo original,
+                      sem reimprimir pelo navegador.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex gap-1.5 mb-2">
+                        <button onClick={() => applyHiddenLayers(pdfLayers.filter(l => CAMADAS_POLUENTES.test(l.name)).map(l => l.name))}
+                          className="flex-1 px-2 py-1.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700">
+                          Planta limpa
+                        </button>
+                        <button onClick={() => applyHiddenLayers([])}
+                          className="flex-1 px-2 py-1.5 rounded-lg border border-surface-border text-navy-muted font-medium hover:bg-surface-secondary">
+                          Mostrar todas
+                        </button>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto -mx-1">
+                        {pdfLayers.map(l => (
+                          <label key={l.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-surface-secondary cursor-pointer">
+                            <input type="checkbox" checked={!hiddenLayers.includes(l.name)} onChange={() => toggleLayer(l.name)} />
+                            <span className={cn('truncate', hiddenLayers.includes(l.name) && 'text-gray-400')}>{l.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             <button onClick={exportViewToPdf} disabled={busy} title="Exportar esta visualização em PDF"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary disabled:opacity-40">
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Exportar PDF
