@@ -30,7 +30,7 @@ export function NewQuoteModal({ onClose, onCreated }: { onClose: () => void; onC
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-3 sm:p-4" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="shrink-0 bg-white border-b border-surface-border px-5 py-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Novo orçamento</h2>

@@ -342,7 +342,7 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
 
   return (
     <>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
@@ -644,7 +644,7 @@ function GerarContasModal({ invoiceId, fornecedorNome, numeroNota, duplicatas, o
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 modal-backdrop z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <h2 className="text-base font-bold text-gray-900">Gerar Contas a Pagar</h2>
@@ -701,7 +701,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
   const items: any[] = invoice.purchase_invoice_items ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <div>
@@ -844,7 +844,7 @@ function NFeReceivedDetailModal({ nfe, onClose, onAdd, onUpdated }: { nfe: any; 
   const cnpjFmt = (c: string) => c ? `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12)}` : '—'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <div>

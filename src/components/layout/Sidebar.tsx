@@ -179,7 +179,7 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
 
   return (
     <>
-    {mobileOpen && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden />}
+    {mobileOpen && <div className="fixed inset-0 modal-backdrop z-40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden />}
     <div className={cn(
       'relative z-30 shrink-0 flex',
       'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:transition-transform max-md:duration-300 max-md:bg-white',

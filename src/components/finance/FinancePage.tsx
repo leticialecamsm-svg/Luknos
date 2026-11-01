@@ -153,7 +153,7 @@ function DarBaixaModal({ entry, accounts, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-surface-border flex items-start justify-between">
           <div>
@@ -259,7 +259,7 @@ function EntryDetailModal({ entry: initialEntry, accounts, onClose, onEdit, onRe
   return (
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="px-6 pt-5 pb-4">
@@ -545,7 +545,7 @@ function FinanceForm({ entry, suppliers, categories, onClose, onSaved, onNewSupp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>

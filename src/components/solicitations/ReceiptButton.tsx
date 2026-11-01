@@ -276,7 +276,7 @@ export function ReceiptButton({
 
       {open && (
         <Portal>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[9998] flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+          <div className="fixed inset-0 modal-backdrop z-[9998] flex items-center justify-center p-4" onClick={() => setOpen(false)}>
             <form
               onSubmit={generate}
               onClick={e => e.stopPropagation()}

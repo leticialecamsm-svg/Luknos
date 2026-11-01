@@ -141,7 +141,7 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
 
       {qr && <QrTrap refEl={qrRef} onClose={() => setQr(null)} />}
       {qr && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setQr(null) }}>
+        <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setQr(null) }}>
           <div ref={qrRef} role="dialog" aria-modal="true" aria-label="Conectar WhatsApp" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 text-center space-y-3">
             <div className="flex items-center">
               <h3 className="font-semibold text-gray-900">Conectar {qr.inst.label}</h3>
@@ -186,7 +186,7 @@ function InstanceForm({ inst, users, onClose, onSaved }: { inst: Instance | null
 
   const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300'
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
       <form ref={formRef} onSubmit={submit} role="dialog" aria-modal="true" aria-label={inst ? 'Editar número' : 'Novo número'} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3">
         <h3 className="font-semibold text-gray-900">{inst ? 'Editar número' : 'Novo número'}</h3>
         <div>
@@ -247,7 +247,7 @@ function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users:
   const toggle = (id: string) => setMembers((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]))
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
       <form ref={ref} onSubmit={submit} role="dialog" aria-modal="true" aria-label={`Acesso a ${inst.label}`} className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
         <h3 className="font-semibold text-gray-900">Acesso — {inst.label}</h3>
 

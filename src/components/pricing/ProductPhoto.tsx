@@ -139,7 +139,7 @@ export function CatalogPickerModal({ item, supplierId, catalog, canSync, onClose
 
   const current = item.photo
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-start gap-4 p-5 border-b border-surface-border">
           <div className="w-28 h-28 shrink-0 rounded-lg border border-surface-border flex items-center justify-center bg-white overflow-hidden">

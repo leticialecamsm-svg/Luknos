@@ -105,7 +105,7 @@ export function MarketingOnboarding({ onClose }: { onClose: () => void }) {
             }}
           />
         ) : (
-          <div className="absolute inset-0 bg-slate-900/55" onClick={finish} />
+          <div className="fixed inset-0 modal-backdrop" onClick={finish} />
         )}
 
         {/* Card do passo */}

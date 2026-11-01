@@ -21,7 +21,7 @@ export function QuoteQuickViewModal({ quoteId, onClose, onFlagChange }: { quoteI
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-3 sm:p-4" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header fixo */}
         <div className="shrink-0 bg-white border-b border-surface-border px-5 py-3 flex items-center justify-between">

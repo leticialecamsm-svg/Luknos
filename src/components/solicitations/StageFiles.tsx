@@ -261,7 +261,7 @@ export function FilePreviewModal({ file, onClose }: { file: { id: string; name: 
 
   return (
     <div
-      className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[9998] flex items-center justify-center p-4"
+      className="fixed inset-0 modal-backdrop z-[9998] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div

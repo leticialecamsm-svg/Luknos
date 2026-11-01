@@ -96,7 +96,7 @@ export function PostModal({ post, defaultDate, editorialLines, users, onClose, o
   return (
     <Portal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 modal-backdrop" />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-surface-border px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-base font-semibold text-gray-900">{post ? 'Editar postagem' : 'Nova postagem'}</h2>

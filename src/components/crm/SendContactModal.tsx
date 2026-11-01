@@ -47,7 +47,7 @@ export function SendContactModal({ conversationId, onClose, onSent }: { conversa
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Enviar contato" className="bg-white rounded-xl w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 p-5 pb-3">
           <div>

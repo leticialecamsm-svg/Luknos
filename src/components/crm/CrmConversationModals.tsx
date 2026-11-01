@@ -240,7 +240,7 @@ function Overlay({ children, title, icon, onClose }: { children: React.ReactNode
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div role="dialog" aria-modal="true" aria-label={title} className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="flex items-center gap-2 font-semibold text-gray-900">{icon}{title}</h3>

@@ -21,7 +21,7 @@ export function PrintOptionsModal({ options, onPrint, onClose }: {
   const [busy, setBusy] = useState(false)
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onClick={onClose}>
         <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-base font-semibold text-gray-900">Imprimir orçamento</h2>

@@ -2768,7 +2768,7 @@ function ReassignModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50" onClick={onClose}>
       <div role="dialog" aria-modal="true" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold text-gray-900">Transferir ou liberar</h3>
@@ -2917,7 +2917,7 @@ function LinkContactModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-gray-900">Vincular contato</h3>

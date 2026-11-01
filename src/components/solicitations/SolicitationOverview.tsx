@@ -554,7 +554,7 @@ function WhatsAppCrmButton({ clientId, phone }: { clientId: string; phone: strin
 
       {open && convs && (
         <Portal>
-          <div className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
+          <div className="fixed inset-0 modal-backdrop z-[9999] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
             <div role="dialog" aria-modal="true" aria-label="Escolher conversa" className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div>

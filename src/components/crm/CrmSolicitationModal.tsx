@@ -132,7 +132,7 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div role="dialog" aria-modal="true" aria-label="Registrar solicitação" className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[85vh]">
 
         {/* Cabeçalho */}

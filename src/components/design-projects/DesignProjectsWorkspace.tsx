@@ -278,7 +278,7 @@ function ProjectsTable({ projects, onEvolveToQuote, onStatusChange }: {
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[9998] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop z-[9998] flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>

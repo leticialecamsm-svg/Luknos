@@ -66,7 +66,7 @@ export function ItemSimulatorModal({ item, onClose, onSaved }: { item: SheetItem
   )
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3 border-b border-surface-border">
           <div>

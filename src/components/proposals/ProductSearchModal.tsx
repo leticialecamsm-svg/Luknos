@@ -75,7 +75,7 @@ export function ProductSearchModal({ roomName, onAdd, onClose }: {
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 bg-black/30 flex items-start sm:items-center justify-center p-0 sm:p-6" onClick={onClose}>
+      <div className="fixed inset-0 modal-backdrop z-50 flex items-start sm:items-center justify-center p-0 sm:p-6" onClick={onClose}>
         <div className="bg-white w-full max-w-4xl h-full sm:h-[85vh] sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
           <div className="p-4 border-b border-surface-border space-y-3">
             <div className="flex items-center justify-between">

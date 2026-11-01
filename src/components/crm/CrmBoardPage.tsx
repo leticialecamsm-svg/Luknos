@@ -497,7 +497,7 @@ function StageModal({ stage, onClose, onSaved }: { stage: CrmStage | null; onClo
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
       <form ref={formRef} onSubmit={submit} role="dialog" aria-modal="true" aria-label={stage ? 'Editar coluna' : 'Nova coluna'} className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4">
         <h3 className="font-semibold text-gray-900">{stage ? 'Editar coluna' : 'Nova coluna'}</h3>
         <div>

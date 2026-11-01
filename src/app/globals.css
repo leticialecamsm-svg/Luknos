@@ -22,6 +22,17 @@
 }
 
 @layer components {
+  /* Fundo de TODOS os modais — igual ao do Viver de IA: névoa azul-acinzentada
+     com blur forte, cobrindo a tela inteira (fixed + inset-0 = viewport, nunca
+     o tamanho de um container). */
+  .modal-backdrop {
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(120, 140, 170, 0.35) 0%, rgba(120, 140, 170, 0) 60%),
+      rgba(52, 72, 104, 0.42);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+  }
+
   /* Recipe calibrada por inspeção real do app.viverdeia.ai: base com leve
      degradê branco -> cinza-azulado (não branco chapado), borda navy bem
      sutil, sombra em camadas (realce interno + difusa externa), raio

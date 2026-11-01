@@ -656,7 +656,7 @@ function QuickCreateModal({ stageId, stageLabel, onClose, onCreated }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
         {/* Cabeçalho */}
         <div className="flex items-center gap-2.5 px-6 pt-5 pb-4 border-b border-gray-100">
