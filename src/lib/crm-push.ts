@@ -52,7 +52,9 @@ export async function sendCrmMessagePush(messageId: string) {
   if (!c || c.status !== 'open' || isGroupJid(c.remote_jid)) return { sent: 0, skipped: 'not_eligible' }
 
   const { data: shared } = await admin.from('crm_conversation_access').select('user_id').eq('conversation_id', c.id)
-  const users = Array.from(new Set([c.assigned_user_id, ...(shared ?? []).map((s) => s.user_id)].filter(Boolean) as string[]))
+  const { data: blocks } = await admin.from('crm_conversation_blocks').select('user_id').eq('conversation_id', c.id)
+  const blocked = new Set((blocks ?? []).map((b) => b.user_id as string))
+  const users = Array.from(new Set([c.assigned_user_id, ...(shared ?? []).map((s) => s.user_id)].filter(Boolean) as string[])).filter((u) => !blocked.has(u))
   if (!users.length) return { sent: 0, skipped: 'no_recipient' }
   const { data: subs } = await admin.from('crm_push_subscriptions').select('endpoint, p256dh, auth').in('user_id', users)
   if (!subs?.length) return { sent: 0, skipped: 'no_subscription' }

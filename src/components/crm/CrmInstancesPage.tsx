@@ -23,6 +23,7 @@ interface Instance {
   default_user_id: string | null
   is_active: boolean
   is_private: boolean
+  groups_private?: boolean
   member_ids: string[]
   users?: { name: string } | null
 }
@@ -125,6 +126,7 @@ export function CrmInstancesPage({ instances, users }: { instances: Instance[]; 
               </div>
               <span title={states[i.id] === 'unknown' ? 'Não foi possível consultar a Evolution agora. Tente recarregar; se persistir, confira a conexão do servidor.' : undefined} className={cn('text-xs px-2 py-0.5 rounded-full', st.cls)}>{states[i.id] ? st.text : 'Verificando…'}</span>
               {i.is_private && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"><Lock className="w-3 h-3" /> Privado</span>}
+              {i.groups_private && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"><Lock className="w-3 h-3" /> Grupos só do dono</span>}
               {!i.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700">Inativo</span>}
               <button onClick={() => openQr(i)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"><QrCode className="w-4 h-4" /> Conectar</button>
               <button onClick={() => setAccess(i)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"><ShieldCheck className="w-4 h-4" /> Acesso</button>
@@ -228,6 +230,7 @@ function QrTrap({ refEl, onClose }: { refEl: React.RefObject<HTMLDivElement>; on
 
 function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users: SysUser[]; onClose: () => void; onSaved: () => void }) {
   const [isPrivate, setIsPrivate] = useState(inst.is_private)
+  const [groupsPrivate, setGroupsPrivate] = useState(!!inst.groups_private)
   const [members, setMembers] = useState<string[]>(inst.member_ids)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -238,7 +241,7 @@ function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users:
     e.preventDefault()
     if (saving) return
     setSaving(true); setError(null)
-    const r = await setCrmInstanceAccess(inst.id, isPrivate, members)
+    const r = await setCrmInstanceAccess(inst.id, isPrivate, members, groupsPrivate)
     setSaving(false)
     if ('error' in r && r.error) { setError(r.error); return }
     onSaved()
@@ -256,6 +259,14 @@ function AccessModal({ inst, users, onClose, onSaved }: { inst: Instance; users:
           <span>
             <b className="text-gray-900">Número privado</b>
             <span className="block text-gray-500">Esconde as conversas de quem não é administrador. Continuam vendo: administradores, o atendente padrão, os membros abaixo, quem for o atendente de uma conversa e quem receber uma conversa liberada.</span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2.5 text-sm">
+          <input type="checkbox" checked={groupsPrivate} onChange={(e) => setGroupsPrivate(e.target.checked)} className="mt-0.5" />
+          <span>
+            <b className="text-gray-900">Grupos só do dono</b>
+            <span className="block text-gray-500">Os grupos deste número ficam só para {(inst.users as any)?.name ?? 'o atendente padrão'} e os administradores. As conversas com clientes continuam seguindo o acesso acima. Para mostrar um grupo a alguém, use “Liberar” dentro do grupo.</span>
           </span>
         </label>
 

@@ -109,7 +109,7 @@ export async function getCrmInstances() {
   const [{ data }, { data: members }] = await Promise.all([
     admin
       .from('crm_instances')
-      .select('id, instance_name, phone_e164, label, default_user_id, is_active, is_private, users:default_user_id(name)')
+      .select('id, instance_name, phone_e164, label, default_user_id, is_active, is_private, groups_private, users:default_user_id(name)')
       .order('label'),
     admin.from('crm_instance_members').select('instance_id, user_id'),
   ])
@@ -122,7 +122,7 @@ export async function getCrmInstances() {
 // Privacidade do número: privado = esconde de quem NÃO é administrador. Veem: administradores,
 // o atendente padrão, os membros (memberIds), o atendente de cada conversa e quem recebeu uma
 // conversa liberada.
-export async function setCrmInstanceAccess(id: string, isPrivate: boolean, memberIds: string[]) {
+export async function setCrmInstanceAccess(id: string, isPrivate: boolean, memberIds: string[], groupsPrivate = false) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
@@ -136,7 +136,7 @@ export async function setCrmInstanceAccess(id: string, isPrivate: boolean, membe
       if (err) return { error: err }
     }
   }
-  const { error } = await admin.from('crm_instances').update({ is_private: isPrivate }).eq('id', id)
+  const { error } = await admin.from('crm_instances').update({ is_private: isPrivate, groups_private: groupsPrivate }).eq('id', id)
   if (error) return { error: error.message }
   await admin.from('crm_instance_members').delete().eq('instance_id', id)
   if (ids.length) {
@@ -320,9 +320,10 @@ interface Scope {
   instanceIds: string[]
   // conversas avulsas liberadas para ele
   sharedConvIds: string[]
-  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string; is_main?: boolean }[]
+  instances: { id: string; label: string; is_private: boolean; is_active: boolean; default_user_id: string | null; created_at: string; is_main?: boolean; groups_private?: boolean }[]
   memberOf: Set<string>
-  // conversas restritas (grupos) que ele NÃO pode ver: nem atendente, nem liberado
+  // conversas que ele NÃO pode ver mesmo tendo o número: bloqueado nela, fechada para todos
+  // (sem ser atendente, liberado ou dono do número) ou grupo de número com "grupos só do dono"
   hiddenConvIds: string[]
 }
 
@@ -333,21 +334,34 @@ async function isAdminUser(admin: Admin, userId: string): Promise<boolean> {
 
 async function loadScope(admin: Admin, userId: string): Promise<Scope> {
   // tudo numa rodada só (antes: papel → números/membros/liberações → conversas restritas, em sequência)
-  const [userIsAdmin, { data: instances }, { data: mem }, { data: shared }, { data: restricted }] = await Promise.all([
+  const [userIsAdmin, { data: instances }, { data: mem }, { data: shared }, { data: restricted }, { data: blocks }] = await Promise.all([
     isAdminUser(admin, userId),
-    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at, is_main'),
+    admin.from('crm_instances').select('id, label, is_private, is_active, default_user_id, created_at, is_main, groups_private'),
     admin.from('crm_instance_members').select('instance_id').eq('user_id', userId),
     admin.from('crm_conversation_access').select('conversation_id').eq('user_id', userId),
-    admin.from('crm_conversations').select('id, assigned_user_id').eq('is_restricted', true),
+    admin.from('crm_conversations').select('id, assigned_user_id, instance_id').eq('is_restricted', true),
+    admin.from('crm_conversation_blocks').select('conversation_id').eq('user_id', userId),
   ])
   const memberOf = new Set((mem ?? []).map((m) => m.instance_id as string))
   const list = (instances ?? []) as Scope['instances']
   const sharedIds = (shared ?? []).map((s) => s.conversation_id as string)
+  const ownerOf = (instanceId: string) => list.find((i) => i.id === instanceId)?.default_user_id ?? null
   let hiddenConvIds: string[] = []
   if (!userIsAdmin) {
-    hiddenConvIds = (restricted ?? [])
-      .filter((r) => r.assigned_user_id !== userId && !sharedIds.includes(r.id as string))
-      .map((r) => r.id as string)
+    const hidden = new Set<string>((blocks ?? []).map((b) => b.conversation_id as string))
+    for (const r of restricted ?? []) {
+      if (r.assigned_user_id !== userId && !sharedIds.includes(r.id as string) && ownerOf(r.instance_id as string) !== userId) hidden.add(r.id as string)
+    }
+    // grupos dos números com "grupos só do dono" em que ele não é o dono
+    const closed = list.filter((i) => i.groups_private && i.default_user_id !== userId).map((i) => i.id)
+    if (closed.length) {
+      const { data: groups } = await admin
+        .from('crm_conversations').select('id, assigned_user_id').in('instance_id', closed).like('remote_jid', '%@g.us')
+      for (const g of groups ?? []) {
+        if (g.assigned_user_id !== userId && !sharedIds.includes(g.id as string)) hidden.add(g.id as string)
+      }
+    }
+    hiddenConvIds = Array.from(hidden)
   }
   return {
     instances: list,
@@ -402,17 +416,18 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
   // (antes eram até 4 consultas em sequência a cada ação dentro de uma conversa).
   const { data: c } = await admin
     .from('crm_conversations')
-    .select('id, instance_id, assigned_user_id, is_restricted, inst:crm_instances(is_private, default_user_id)')
+    .select('id, instance_id, remote_jid, assigned_user_id, is_restricted, inst:crm_instances(is_private, default_user_id, groups_private)')
     .eq('id', conversationId)
     .maybeSingle()
   if (!c) return { ok: false as const, error: 'Conversa não encontrada' }
-  const inst = (Array.isArray((c as any).inst) ? (c as any).inst[0] : (c as any).inst) as { is_private: boolean | null; default_user_id: string | null } | null
+  const inst = (Array.isArray((c as any).inst) ? (c as any).inst[0] : (c as any).inst) as { is_private: boolean | null; default_user_id: string | null; groups_private: boolean | null } | null
   const isPrivate = !!inst?.is_private
   const restricted = !!c.is_restricted
-  const [userIsAdmin, { data: member }, { data: shared }] = await Promise.all([
-    isPrivate || restricted ? isAdminUser(admin, userId) : Promise.resolve(false),
+  const [userIsAdmin, { data: member }, { data: shared }, { data: blocked }] = await Promise.all([
+    isAdminUser(admin, userId),
     admin.from('crm_instance_members').select('user_id').eq('instance_id', c.instance_id).eq('user_id', userId).maybeSingle(),
     admin.from('crm_conversation_access').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
+    admin.from('crm_conversation_blocks').select('user_id').eq('conversation_id', conversationId).eq('user_id', userId).maybeSingle(),
   ])
   if (userIsAdmin) {
     return {
@@ -424,9 +439,11 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
       canManage: true,
     }
   }
-  const isOwnerOrMember = inst?.default_user_id === userId || !!member
+  const isOwner = inst?.default_user_id === userId
+  const isOwnerOrMember = isOwner || !!member
   const isAssigned = c.assigned_user_id === userId
-  const canSee = isAssigned || !!shared || (!restricted && (!isPrivate || isOwnerOrMember))
+  const closedGroup = !!inst?.groups_private && isGroupJid(c.remote_jid as string) && !isOwner
+  const canSee = !blocked && (isAssigned || !!shared || (restricted && isOwner) || (!restricted && !closedGroup && (!isPrivate || isOwnerOrMember)))
   if (!canSee) return { ok: false as const, error: 'Você não tem acesso a esta conversa' }
   return {
     ok: true as const,
@@ -466,14 +483,26 @@ export async function getCrmInstanceOptions() {
     .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private, color_index: colorIndex.get(i.id) ?? 0 }))
 }
 
+export type AccessState = 'admin' | 'owner' | 'assigned' | 'shared' | 'number' | 'blocked' | 'none'
+
 export interface ConversationAccessInfo {
   can_manage: boolean
+  can_control: boolean // pode fechar para todos e bloquear pessoas (administradores e Jennifer)
   instance_private: boolean
   restricted: boolean
   is_group: boolean
   can_restrict: boolean
   assigned_user_id: string | null
   shared: { user_id: string; name: string }[]
+  // quem vê esta conversa e por quê (só para quem pode controlar)
+  people: { user_id: string; name: string; role_label: string; avatar_url: string | null; avatar_color: string | null; state: AccessState }[]
+}
+
+// Administradores e quem tem users.crm_access_manager (Jennifer) decidem quem vê cada conversa.
+async function canControlAccess(admin: Admin, auth: { userId: string; isAdmin: boolean }) {
+  if (auth.isAdmin) return true
+  const { data } = await admin.from('users').select('crm_access_manager').eq('id', auth.userId).maybeSingle()
+  return !!data?.crm_access_manager
 }
 
 export async function getConversationAccessInfo(conversationId: string): Promise<ConversationAccessInfo | { error: string }> {
@@ -482,19 +511,49 @@ export async function getConversationAccessInfo(conversationId: string): Promise
   const admin = createAdminClient()
   const acc = await convAccess(admin, auth, conversationId)
   if (!acc.ok) return { error: acc.error }
-  const { data } = await admin
-    .from('crm_conversation_access')
-    .select('user_id, users:user_id(name)')
-    .eq('conversation_id', conversationId)
-  const { data: conv } = await admin.from('crm_conversations').select('remote_jid').eq('id', conversationId).maybeSingle()
+  const [{ data }, { data: conv }, control] = await Promise.all([
+    admin.from('crm_conversation_access').select('user_id, users:user_id(name)').eq('conversation_id', conversationId),
+    admin.from('crm_conversations').select('remote_jid, instance_id, assigned_user_id, is_restricted, inst:crm_instances(is_private, default_user_id, groups_private)').eq('id', conversationId).maybeSingle(),
+    canControlAccess(admin, auth),
+  ])
+  const isGroup = isGroupJid(conv?.remote_jid ?? '')
+  let people: ConversationAccessInfo['people'] = []
+  if (control && conv) {
+    const inst = (Array.isArray((conv as any).inst) ? (conv as any).inst[0] : (conv as any).inst) as { is_private: boolean; default_user_id: string | null; groups_private: boolean } | null
+    const [users, { data: members }, { data: blocks }] = await Promise.all([
+      allActiveUsers(),
+      admin.from('crm_instance_members').select('user_id').eq('instance_id', conv.instance_id),
+      admin.from('crm_conversation_blocks').select('user_id').eq('conversation_id', conversationId),
+    ])
+    const memberIds = new Set((members ?? []).map((m) => m.user_id as string))
+    const blockedIds = new Set((blocks ?? []).map((b) => b.user_id as string))
+    const sharedIds = new Set((data ?? []).map((r: any) => r.user_id as string))
+    // mesma regra de crm_can_see_conversation
+    const stateOf = (uid: string, role: string): AccessState => {
+      if (role === 'admin') return 'admin'
+      if (blockedIds.has(uid)) return 'blocked'
+      if (conv.assigned_user_id === uid) return 'assigned'
+      if (sharedIds.has(uid)) return 'shared'
+      if (inst?.default_user_id === uid) return 'owner'
+      if (conv.is_restricted) return 'none'
+      if (isGroup && inst?.groups_private) return 'none'
+      return !inst?.is_private || memberIds.has(uid) ? 'number' : 'none'
+    }
+    people = users.filter((u) => u.has_crm).map((u) => ({
+      user_id: u.id, name: u.name, role_label: u.role_label ?? u.role, avatar_url: u.avatar_url ?? null, avatar_color: u.avatar_color ?? null,
+      state: stateOf(u.id, u.role),
+    }))
+  }
   return {
     can_manage: acc.canManage,
+    can_control: control,
     instance_private: acc.isPrivate,
     restricted: acc.restricted,
-    is_group: isGroupJid(conv?.remote_jid ?? ''),
-    can_restrict: auth.isAdmin,
+    is_group: isGroup,
+    can_restrict: control,
     assigned_user_id: acc.assignedUserId,
     shared: (data ?? []).map((r: any) => ({ user_id: r.user_id, name: r.users?.name ?? '—' })),
+    people,
   }
 }
 
@@ -504,19 +563,43 @@ async function systemNote(admin: Admin, conversationId: string, body: string) {
   })
 }
 
-// Restringe um grupo: só administradores, o atendente e quem for liberado passam a vê-lo.
+// Fecha a conversa (grupo ou cliente) para todos: só administradores, o dono do número, o atendente e
+// quem for liberado continuam vendo. Só administradores e Jennifer (crm_access_manager).
 export async function setConversationRestricted(conversationId: string, restricted: boolean) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }
-  if (!auth.isAdmin) return { error: 'Só administradores controlam o acesso aos grupos' }
   const admin = createAdminClient()
-  const { data: c } = await admin.from('crm_conversations').select('id, remote_jid').eq('id', conversationId).maybeSingle()
-  if (!c) return { error: 'Conversa não encontrada' }
+  if (!(await canControlAccess(admin, auth))) return { error: 'Só administradores e a Jennifer controlam quem vê as conversas' }
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
   const { error } = await admin.from('crm_conversations').update({ is_restricted: restricted }).eq('id', conversationId)
   if (error) return { error: error.message }
   await systemNote(admin, conversationId, restricted
-    ? `Acesso restrito por ${whoLabel(auth)}: só administradores e pessoas liberadas veem esta conversa.`
-    : `Restrição removida por ${whoLabel(auth)}: volta a seguir o acesso do WhatsApp.`)
+    ? `Conversa fechada para todos por ${whoLabel(auth)}: só administradores, o dono do número e pessoas liberadas veem.`
+    : `Conversa reaberta por ${whoLabel(auth)}: volta a seguir o acesso do WhatsApp.`)
+  return { ok: true }
+}
+
+// Bloqueia (ou desbloqueia) uma pessoa nesta conversa: ela deixa de ver mesmo tendo acesso ao número.
+export async function setConversationBlocked(conversationId: string, userId: string, blocked: boolean) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  if (!(await canControlAccess(admin, auth))) return { error: 'Só administradores e a Jennifer controlam quem vê as conversas' }
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+  const target = (await allActiveUsers()).find((u) => u.id === userId)
+  if (!target) return { error: 'Usuário inválido ou inativo' }
+  if (blocked && target.role === 'admin') return { error: 'Administradores veem todas as conversas' }
+  if (blocked) {
+    const { error } = await admin.from('crm_conversation_blocks').upsert({ conversation_id: conversationId, user_id: userId, created_by: auth.actedBy?.id ?? auth.userId }, { onConflict: 'conversation_id,user_id' })
+    if (error) return { error: error.message }
+    // o bloqueio vence a liberação avulsa
+    await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', userId)
+  } else {
+    const { error } = await admin.from('crm_conversation_blocks').delete().eq('conversation_id', conversationId).eq('user_id', userId)
+    if (error) return { error: error.message }
+  }
   return { ok: true }
 }
 
@@ -527,7 +610,7 @@ export async function shareConversation(conversationId: string, userId: string) 
   const admin = createAdminClient()
   const acc = await convAccess(admin, auth, conversationId)
   if (!acc.ok) return { error: acc.error }
-  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode liberá-la' }
+  if (!acc.canManage && !(await canControlAccess(admin, auth))) return { error: 'Só quem atende esta conversa pode liberá-la' }
   if (userId === auth.userId) return { error: 'Você já tem acesso a esta conversa' }
   const target = (await allActiveUsers()).find((u) => u.id === userId)
   if (!target) return { error: 'Usuário inválido ou inativo' }
@@ -538,6 +621,7 @@ export async function shareConversation(conversationId: string, userId: string) 
     .from('crm_conversation_access')
     .upsert({ conversation_id: conversationId, user_id: userId, granted_by: auth.userId }, { onConflict: 'conversation_id,user_id' })
   if (error) return { error: error.message }
+  await admin.from('crm_conversation_blocks').delete().eq('conversation_id', conversationId).eq('user_id', userId) // liberar desfaz o bloqueio
   await systemNote(admin, conversationId, `Conversa liberada para ${target.name} por ${whoLabel(auth)}.`)
   return { ok: true }
 }
@@ -548,7 +632,7 @@ export async function unshareConversation(conversationId: string, userId: string
   const admin = createAdminClient()
   const acc = await convAccess(admin, auth, conversationId)
   if (!acc.ok) return { error: acc.error }
-  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode retirar a liberação' }
+  if (!acc.canManage && !(await canControlAccess(admin, auth))) return { error: 'Só quem atende esta conversa pode retirar a liberação' }
   const { data: u } = await admin.from('users').select('name').eq('id', userId).maybeSingle()
   const { error } = await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', userId)
   if (error) return { error: error.message }
@@ -881,11 +965,16 @@ export async function reassignConversation(conversationId: string, newUserId: st
   const admin = createAdminClient()
   const acc = await convAccess(admin, auth, conversationId)
   if (!acc.ok) return { error: acc.error }
-  if (!acc.canManage) return { error: 'Só quem atende esta conversa pode transferi-la' }
+  if (!acc.canManage && !(await canControlAccess(admin, auth))) return { error: 'Só quem atende esta conversa pode transferi-la' }
+  if ((acc.assignedUserId ?? null) === newUserId) return { ok: true }
 
+  const everyone = await allActiveUsers()
+  const { data: prevUser } = acc.assignedUserId
+    ? await admin.from('users').select('name').eq('id', acc.assignedUserId).maybeSingle()
+    : { data: null }
   let newName: string | null = null
   if (newUserId) {
-    const target = (await allActiveUsers()).find((u) => u.id === newUserId)
+    const target = everyone.find((u) => u.id === newUserId)
     if (!target) return { error: 'Usuário inválido ou inativo' }
     const grantErr = await grantCrmAccessIfNeeded(auth.isAdmin, target)
     if (grantErr) return { error: grantErr }
@@ -894,10 +983,15 @@ export async function reassignConversation(conversationId: string, newUserId: st
   const { error } = await admin.from('crm_conversations').update({ assigned_user_id: newUserId }).eq('id', conversationId)
   if (error) return { error: error.message }
   // quem recebeu o atendimento não precisa mais da liberação avulsa
-  if (newUserId) await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', newUserId)
+  if (newUserId) {
+    await admin.from('crm_conversation_access').delete().eq('conversation_id', conversationId).eq('user_id', newUserId)
+    await admin.from('crm_conversation_blocks').delete().eq('conversation_id', conversationId).eq('user_id', newUserId)
+  }
 
-  await systemNote(admin, conversationId,
-    newUserId ? `Conversa transferida para ${newName} por ${whoLabel(auth)}.` : `Conversa deixada sem responsável por ${whoLabel(auth)}.`)
+  const from = prevUser?.name ?? 'ninguém'
+  await systemNote(admin, conversationId, newUserId
+    ? `Consultor alterado de ${from} para ${newName} por ${whoLabel(auth)}.`
+    : `Consultor ${from} retirado por ${whoLabel(auth)}: conversa sem responsável.`)
 
   return { ok: true }
 }
@@ -2519,6 +2613,8 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
   ])
   if (!c || c.status !== 'open' || isGroupJid(c.remote_jid)) return null
   if (c.assigned_user_id !== auth.userId && !shared) return null
+  const { data: blocked } = await admin.from('crm_conversation_blocks').select('user_id').eq('conversation_id', c.id).eq('user_id', auth.userId).maybeSingle()
+  if (blocked) return null
   const name = (c as any).contacts?.name ?? c.contact_name_cache ?? c.remote_jid.split('@')[0]
   const preview = messagePreview({ message_type: m.message_type, body: m.body, file_name: m.file_name })
   const colorIndex = Math.max(0, (insts ?? []).findIndex((i) => i.id === c.instance_id))
@@ -3139,4 +3235,89 @@ export async function saveMyReactionEmojis(emojis: string[]): Promise<{ ok: true
   const { error } = await createAdminClient().from('users').update({ crm_reaction_emojis: list }).eq('id', uid)
   if (error) return { error: error.message }
   return { ok: true }
+}
+
+// ─── Histórico de ocorrências da conversa ───────────────────────────────────
+// crm_conversation_events (gatilho no banco, desde 01/11/2026) + as notas do sistema anteriores a ele
+// (transferências e liberações que já ficavam escritas na conversa).
+const HISTORY_EVENTS_SINCE = '2026-11-01T01:00:00Z'
+
+export interface ConversationHistoryItem {
+  id: string
+  at: string
+  actor: { id: string; name: string; avatar_url: string | null; avatar_color: string | null } | null // null = automático
+  kind: string
+  text: string
+}
+
+export async function getConversationHistory(conversationId: string): Promise<{ items: ConversationHistoryItem[] } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+
+  const [{ data: evs }, { data: notes }, { data: users }, { data: stages }, { data: labels }, { data: instances }] = await Promise.all([
+    admin.from('crm_conversation_events').select('id, at, actor_id, kind, data').eq('conversation_id', conversationId).order('at', { ascending: false }).limit(300),
+    admin.from('crm_messages').select('id, created_at, body').eq('conversation_id', conversationId).eq('is_system', true).lt('created_at', HISTORY_EVENTS_SINCE).order('created_at', { ascending: false }).limit(100),
+    admin.from('users').select('id, name, avatar_url, avatar_color'),
+    admin.from('crm_stages').select('id, name'),
+    admin.from('crm_labels').select('id, name'),
+    admin.from('crm_instances').select('id, label'),
+  ])
+  const userBy = new Map((users ?? []).map((u) => [u.id as string, u]))
+  const name = (id: unknown) => (typeof id === 'string' && userBy.get(id)?.name) || null
+  const stage = (id: unknown) => (typeof id === 'string' && (stages ?? []).find((x) => x.id === id)?.name) || null
+  const label = (id: unknown) => (typeof id === 'string' && (labels ?? []).find((x) => x.id === id)?.name) || 'etiqueta apagada'
+  const brl = (v: unknown) => (v == null || v === '' ? null : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
+
+  const contactIds = (evs ?? []).flatMap((e: any) => e.kind === 'contact' ? [e.data?.from, e.data?.to] : []).filter((x): x is string => typeof x === 'string')
+  const solIds = (evs ?? []).filter((e: any) => e.kind === 'solicitation').map((e: any) => e.data?.solicitation_id).filter(Boolean)
+  const [{ data: contacts }, { data: sols }] = await Promise.all([
+    contactIds.length ? admin.from('contacts').select('id, name').in('id', contactIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    solIds.length ? admin.from('solicitations').select('id, number, title').in('id', solIds) : Promise.resolve({ data: [] as { id: string; number: number; title: string | null }[] }),
+  ])
+  const contact = (id: unknown) => (typeof id === 'string' && (contacts ?? []).find((x) => x.id === id)?.name) || null
+  const fmtDue = (d: unknown) => (typeof d === 'string' ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(d)) : '')
+
+  const describe = (e: { kind: string; data: any }): string => {
+    const d = e.data ?? {}
+    switch (e.kind) {
+      case 'created': {
+        const inst = (instances ?? []).find((i) => i.id === d.instance_id)?.label
+        return `Conversa começou${inst ? ` no WhatsApp ${inst}` : ''}${name(d.assigned_user_id) ? `, com ${name(d.assigned_user_id)} como consultor` : ''}`
+      }
+      case 'assigned':
+        if (!d.to) return `Consultor ${name(d.from) ?? ''} retirado (sem responsável)`.replace('  ', ' ')
+        return d.from ? `Consultor alterado de ${name(d.from) ?? 'usuário removido'} para ${name(d.to) ?? 'usuário removido'}` : `${name(d.to) ?? 'Alguém'} virou o consultor`
+      case 'stage': return d.from ? `Etapa: ${stage(d.from) ?? 'coluna apagada'} → ${stage(d.to) ?? 'coluna apagada'}` : `Entrou na etapa ${stage(d.to) ?? 'coluna apagada'}`
+      case 'value': return d.to == null ? `Valor removido (era ${brl(d.from)})` : d.from == null ? `Valor definido: ${brl(d.to)}` : `Valor: ${brl(d.from)} → ${brl(d.to)}`
+      case 'restricted': return d.to === true || d.to === 'true' ? 'Conversa fechada para todos' : 'Conversa reaberta (segue o acesso do WhatsApp)'
+      case 'contact': return d.to ? `Vinculada ao contato ${contact(d.to) ?? '(apagado)'}` : 'Contato desvinculado'
+      case 'status': return d.to === 'open' ? 'Conversa reaberta' : `Status: ${d.to}`
+      case 'label_add': return `Etiqueta "${label(d.label_id)}" adicionada`
+      case 'label_remove': return `Etiqueta "${label(d.label_id)}" removida`
+      case 'share': return `Liberada para ${name(d.user_id) ?? 'usuário'}`
+      case 'unshare': return `Liberação de ${name(d.user_id) ?? 'usuário'} retirada`
+      case 'block': return `${name(d.user_id) ?? 'Usuário'} bloqueado(a) nesta conversa`
+      case 'unblock': return `${name(d.user_id) ?? 'Usuário'} desbloqueado(a)`
+      case 'followup': return `Follow-up para ${fmtDue(d.due)}${name(d.user_id) ? ` (${name(d.user_id)})` : ''}${d.note ? `: ${d.note}` : ''}`
+      case 'followup_done': return `Follow-up concluído${d.note ? `: ${d.note}` : ''}`
+      case 'solicitation': {
+        const sol = (sols ?? []).find((x) => x.id === d.solicitation_id)
+        return `Registrada na solicitação${sol ? ` #${sol.number}${sol.title ? ` (${sol.title})` : ''}` : ''}`
+      }
+      default: return e.kind
+    }
+  }
+  const actorOf = (id: string | null) => {
+    const u = id ? userBy.get(id) : null
+    return u ? { id: u.id as string, name: u.name as string, avatar_url: (u.avatar_url as string | null) ?? null, avatar_color: (u.avatar_color as string | null) ?? null } : null
+  }
+
+  const items: ConversationHistoryItem[] = [
+    ...(evs ?? []).map((e: any) => ({ id: `e${e.id}`, at: e.at as string, actor: actorOf(e.actor_id), kind: e.kind as string, text: describe(e) })),
+    ...(notes ?? []).map((n) => ({ id: `n${n.id}`, at: n.created_at as string, actor: null, kind: 'note', text: String(n.body ?? '') })),
+  ].sort((a, b) => b.at.localeCompare(a.at))
+  return { items }
 }

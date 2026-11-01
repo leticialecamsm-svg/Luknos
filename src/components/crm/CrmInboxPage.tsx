@@ -32,6 +32,8 @@ import {
   shareConversation,
   unshareConversation,
   setConversationRestricted,
+  setConversationBlocked,
+  type AccessState,
   markConversationRead,
   markConversationUnread,
   setConversationArchived,
@@ -78,12 +80,14 @@ import { MediaComposer, type ComposedFile } from './MediaComposer'
 import { StickerPicker } from './StickerPicker'
 import { activeMention, applyMentionsToSend, buildMentionNames, filterMembers, memberLabel, renderMentions, type GroupMember, type MentionPick } from '@/lib/crm-mentions'
 import { parseContactCard, prettyPhone } from '@/lib/crm-contact-card'
+import { ConsultantSelect } from './ConsultantSelect'
+import { ConversationHistory } from './ConversationHistory'
 import { type ReactionChip } from '@/lib/crm-reactions'
 import { ReactionPicker } from './ReactionPicker'
 import { useReactionFavorites } from './useReactionFavorites'
 import {
   Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, ExternalLink, Phone, List, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap, History, ShieldOff,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -215,6 +219,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [text, setText] = useState('')
   const [pending, startTransition] = useTransition()
   const [showReassign, setShowReassign] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showGroupPicker, setShowGroupPicker] = useState(false)
   const [showSendContact, setShowSendContact] = useState(false)
   const [showStickers, setShowStickers] = useState(false)
@@ -1035,7 +1040,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         <div className="min-w-0 flex-1 py-2 border-b border-gray-100">
           <div className="flex items-center gap-1.5">
             <p className={cn('flex-1 min-w-0 truncate text-[14.5px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-800')}>
-              {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+              {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Conversa fechada para todos" />}
               {name}
             </p>
             {withChip && (
@@ -1435,7 +1440,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <div className="min-w-0 flex-1 py-2.5 border-b border-gray-100">
                   <div className="flex items-center gap-1.5">
                     <p className={cn('flex-1 min-w-0 truncate text-[15px] leading-5', unread ? 'font-semibold text-gray-950' : 'text-gray-900')}>
-                      {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+                      {c.is_restricted && <Lock className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-600" aria-label="Conversa fechada para todos" />}
                       {name}
                     </p>
                     {showInstanceChip && (
@@ -1529,7 +1534,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <ConvAvatar id={selected.id} name={selected.contact_name ?? selected.remote_jid.split('@')[0]} photo={selected.contact_photo_url} isGroup={selected.is_group} size={40} />
                 <div className="min-w-0 overflow-hidden">
                   <h3 className="font-semibold text-gray-900 truncate leading-5">
-                    {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Grupo restrito" />}
+                    {selected.is_restricted && <Lock className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-600" aria-label="Conversa fechada para todos" />}
                     {selected.contact_name ?? selected.remote_jid.split('@')[0]}
                   </h3>
                   {(() => {
@@ -1558,6 +1563,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                       return null
                     }}
                   />
+                </div>}
+                {!selected.is_group && <div className="max-md:hidden ml-1 pl-3 border-l border-gray-200 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[11px] text-gray-400 leading-none mb-1">Consultor</p>
+                  <ConsultantSelect conversationId={selected.id} assignedId={selected.assigned_user_id} users={users} onChanged={() => refreshList(true)} />
                 </div>}
               </div>
 
@@ -1626,7 +1635,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                         <Folder className="w-4 h-4 text-indigo-500" /> Registrar solicitação
                       </button>
                       <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowReassign(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
-                        <UserCog className="w-4 h-4 text-gray-500" /> Transferir ou liberar
+                        <UserCog className="w-4 h-4 text-gray-500" /> Transferir, liberar ou bloquear
+                      </button>
+                      <button role="menuitem" onClick={() => { setHeaderMenu(false); setShowHistory(true) }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
+                        <History className="w-4 h-4 text-gray-500" /> Histórico da conversa
                       </button>
                     </div>
                   )}
@@ -2146,6 +2158,10 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
       {showGroupPicker && (
         <GroupPicker onClose={() => setShowGroupPicker(false)} onChanged={() => { refreshList(true); setSelectedId((id) => (id && !conversations.find((c) => c.id === id) ? null : id)) }} />
+      )}
+
+      {showHistory && selected && (
+        <ConversationHistory conversationId={selected.id} title={selected.contact_name ?? selected.remote_jid.split('@')[0]} onClose={() => setShowHistory(false)} />
       )}
 
       {showReassign && selected && (
@@ -2721,6 +2737,16 @@ function UserLabel({ u }: { u: SystemUser }) {
   )
 }
 
+const ACCESS_STATE: Record<AccessState, { text: string; cls: string }> = {
+  admin: { text: 'Administrador: vê tudo', cls: 'text-gray-400' },
+  owner: { text: 'Dono do número: vê', cls: 'text-emerald-700' },
+  assigned: { text: 'Consultor da conversa: vê', cls: 'text-emerald-700' },
+  shared: { text: 'Liberado nesta conversa: vê', cls: 'text-emerald-700' },
+  number: { text: 'Vê pelo acesso ao número', cls: 'text-emerald-700' },
+  blocked: { text: 'Bloqueado: não vê', cls: 'text-red-600' },
+  none: { text: 'Não vê', cls: 'text-gray-400' },
+}
+
 function ReassignModal({
   conversationId,
   currentUserId,
@@ -2740,14 +2766,14 @@ function ReassignModal({
 }) {
   const toast = useToast()
   const [pending, startTransition] = useTransition()
-  const [tab, setTab] = useState<'transfer' | 'share'>('transfer')
+  const [tab, setTab] = useState<'transfer' | 'share' | 'access'>('transfer')
   const [info, setInfo] = useState<ConversationAccessInfo | { error: string } | null>(null)
 
   const loadInfo = useCallback(() => { getConversationAccessInfo(conversationId).then(setInfo) }, [conversationId])
   useEffect(() => { loadInfo() }, [loadInfo])
 
   const ok = info && !('error' in info) ? info : null
-  const canManage = ok?.can_manage ?? false
+  const canManage = !!(ok?.can_manage || ok?.can_control)
   const sharedIds = new Set(ok?.shared.map((x) => x.user_id) ?? [])
   const others = users.filter((u) => u.id !== selfId)
 
@@ -2756,6 +2782,22 @@ function ReassignModal({
       const res = await reassignConversation(conversationId, userId)
       if (res.error) toast.error('ERRO', res.error)
       else { toast.success('TRANSFERIDA!', 'Atendimento transferido'); onSuccess() }
+    })
+  }
+
+  const handleBlock = (userId: string, on: boolean) => {
+    startTransition(async () => {
+      const res = await setConversationBlocked(conversationId, userId, on)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success(on ? 'BLOQUEADO' : 'DESBLOQUEADO', on ? 'A pessoa não vê mais esta conversa' : ''); loadInfo(); onChanged() }
+    })
+  }
+
+  const handleRestrict = (on: boolean) => {
+    startTransition(async () => {
+      const res = await setConversationRestricted(conversationId, on)
+      if (res.error) toast.error('ERRO', res.error)
+      else { toast.success(on ? 'FECHADA PARA TODOS' : 'CONVERSA REABERTA'); loadInfo(); onChanged() }
     })
   }
 
@@ -2771,14 +2813,14 @@ function ReassignModal({
     <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50" onClick={onClose}>
       <div role="dialog" aria-modal="true" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-900">Transferir ou liberar</h3>
+          <h3 className="font-bold text-gray-900">Transferir, liberar ou bloquear</h3>
           <button onClick={onClose} aria-label="Fechar" className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="flex gap-2 mb-3">
-          {([['transfer', 'Transferir atendimento'], ['share', 'Liberar só esta conversa']] as const).map(([k, label]) => (
+          {([['transfer', 'Transferir'], ['share', 'Liberar'], ...(ok?.can_control ? [['access', 'Quem vê']] as const : [])] as const).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setTab(k)}
@@ -2821,30 +2863,44 @@ function ReassignModal({
           </div>
         )}
 
-        {ok && ok.is_group && ok.can_restrict && tab === 'share' && (
-          <label className="flex items-start gap-2.5 mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={ok.restricted}
-              disabled={pending}
-              onChange={(e) => {
-                const on = e.target.checked
-                startTransition(async () => {
-                  const res = await setConversationRestricted(conversationId, on)
-                  if (res.error) toast.error('ERRO', res.error)
-                  else { toast.success(on ? 'GRUPO RESTRITO' : 'RESTRIÇÃO REMOVIDA'); loadInfo(); onChanged() }
-                })
-              }}
-            />
-            <span className="text-sm text-amber-900">
-              <b>Restringir este grupo</b><br />
-              <span className="text-xs">Só administradores, o atendente e as pessoas liberadas abaixo veem o grupo, mesmo quem tem acesso ao WhatsApp.</span>
-            </span>
-          </label>
+        {ok && ok.restricted && tab === 'share' && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">Conversa fechada para todos: só administradores, o dono do número e as pessoas liberadas veem.</p>
         )}
-        {ok && ok.is_group && !ok.can_restrict && ok.restricted && tab === 'share' && (
-          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">Grupo restrito por um administrador.</p>
+
+        {ok && ok.can_control && tab === 'access' && (
+          <div className="space-y-3">
+            <label className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-50 border border-amber-200 cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={ok.restricted} disabled={pending} onChange={(e) => handleRestrict(e.target.checked)} />
+              <span className="text-sm text-amber-900">
+                <b>Fechar para todos</b><br />
+                <span className="text-xs">Só administradores, o dono do número, o consultor e quem estiver liberado continuam vendo, mesmo quem tem acesso ao WhatsApp.</span>
+              </span>
+            </label>
+            <div className="max-h-[50vh] overflow-y-auto -mx-1 divide-y divide-gray-100">
+              {ok.people.map((p) => {
+                const st = ACCESS_STATE[p.state]
+                const canBlock = p.state !== 'admin' && p.state !== 'blocked'
+                return (
+                  <div key={p.user_id} className="flex items-center gap-2 px-1 py-2">
+                    <Avatar user={p} size={26} />
+                    <span className="flex-1 min-w-0">
+                      <span className={cn('block text-sm truncate', p.state === 'blocked' ? 'text-gray-400 line-through' : 'text-gray-800')}>{p.name}</span>
+                      <span className={cn('block text-[11px] truncate', st.cls)}>{st.text}</span>
+                    </span>
+                    {p.state === 'blocked' && (
+                      <button onClick={() => handleBlock(p.user_id, false)} disabled={pending} className="px-3 py-1 text-xs font-medium rounded-full bg-gray-900 text-white hover:bg-gray-700">Desbloquear</button>
+                    )}
+                    {canBlock && (
+                      <button onClick={() => handleBlock(p.user_id, true)} disabled={pending} className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-full bg-red-50 text-red-700 hover:bg-red-100">
+                        <ShieldOff className="w-3 h-3" /> Bloquear
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-gray-500">Bloquear tira a conversa da pessoa mesmo que ela tenha acesso ao número. Para dar acesso a quem não vê, use a aba Liberar.</p>
+          </div>
         )}
 
         {ok && canManage && tab === 'share' && (

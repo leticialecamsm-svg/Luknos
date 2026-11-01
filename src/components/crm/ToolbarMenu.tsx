@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 // Menu da barra das abas do CRM (Etiquetas, Atuar como): fechado é uma pílula branca com borda e seta;
 // aberto é um painel branco com um item por linha (bolinha de cor ou avatar à esquerda, ✓ no escolhido).
 export function ToolbarMenu({
-  icon, label, tone = 'default', onClear, clearLabel, busy, disabled, ariaLabel, title, multi, width = 'w-64', children, className,
+  icon, label, tone = 'default', onClear, clearLabel, busy, disabled, ariaLabel, title, multi, width = 'w-64', align = 'right', children, className,
 }: {
   icon: ReactNode
   label: ReactNode
@@ -20,6 +20,7 @@ export function ToolbarMenu({
   title?: string
   multi?: boolean
   width?: string
+  align?: 'left' | 'right'
   children: (close: () => void) => ReactNode
   className?: string
 }) {
@@ -68,7 +69,7 @@ export function ToolbarMenu({
         <div
           role="listbox"
           aria-multiselectable={multi || undefined}
-          className={cn('absolute right-0 top-full mt-1 z-30 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm', width)}
+          className={cn('absolute top-full mt-1 z-30', align === 'left' ? 'left-0' : 'right-0', 'max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm', width)}
         >
           {children(() => setOpen(false))}
         </div>
