@@ -248,6 +248,9 @@ export interface AdContext {
   thumb: string | null
   url: string | null
   greeting: string | null
+  // ID do anúncio na Meta (casa com a conta de anúncios) e código do clique (API de conversões).
+  source_id?: string | null
+  ctwa_clid?: string | null
 }
 
 // deno-lint-ignore no-explicit-any
@@ -261,6 +264,8 @@ export function findAdContext(data: Record<string, any>): AdContext | null {
     const url = typeof ad.sourceUrl === 'string' ? ad.sourceUrl : null
     const source: AdContext['source'] = app.includes('insta') ? 'instagram' : (app === 'whatsapp' || url?.includes('/status/')) ? 'status' : 'facebook'
     const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 1000) : null)
+    // Anúncios do Status trazem o ID no fim do link (wa.me/wamo/status/preview/<telefone>/<id>).
+    const sourceId = str(ad.sourceId) ?? url?.match(/\/status\/preview\/\d+\/(\d+)/)?.[1] ?? null
     return {
       source,
       title: str(ad.title),
@@ -268,6 +273,8 @@ export function findAdContext(data: Record<string, any>): AdContext | null {
       thumb: thumbDataUri(ad.thumbnail),
       url,
       greeting: ad.automatedGreetingMessageShown ? str(ad.greetingMessageBody) : null,
+      source_id: sourceId,
+      ctwa_clid: str(ad.ctwaClid),
     }
   }
   return null
