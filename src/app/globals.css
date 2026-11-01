@@ -26,6 +26,10 @@
      com blur forte, cobrindo a tela inteira (fixed + inset-0 = viewport, nunca
      o tamanho de um container). */
   .modal-backdrop {
+    /* `space-y-*` / `space-x-*` do pai injetam margin nos irmãos, e margin
+       desloca um elemento fixed (modal dentro de space-y-4 ficava 16px
+       abaixo do topo, com o cabeçalho de fora do blur). */
+    margin: 0 !important;
     background:
       radial-gradient(120% 90% at 50% 0%, rgba(120, 140, 170, 0.35) 0%, rgba(120, 140, 170, 0) 60%),
       rgba(52, 72, 104, 0.42);
