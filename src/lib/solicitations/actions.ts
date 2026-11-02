@@ -1064,9 +1064,12 @@ export async function createQuoteForSolicitation(
   // Número do orçamento: reutiliza a sequence existente
   let seq: any = null
   try { const r = await db.rpc('next_quote_number').maybeSingle(); seq = r?.data ?? null } catch { seq = null }
+  // Herda architect_id da solicitação se existir
+  const { data: solic } = await db.from('solicitations').select('architect_id').eq('id', solicitationId).maybeSingle()
   const { data: inserted, error } = await db.from('quotes').insert({
     client_id: data.clientId,
     solicitation_id: solicitationId,
+    architect_id: solic?.architect_id ?? null,
     status: data.status ?? 'queue',
     priority: data.priority ?? 'normal',
   }).select('id').maybeSingle()
