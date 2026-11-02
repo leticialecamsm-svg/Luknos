@@ -1025,18 +1025,20 @@ export async function updateSolicitationDetails(
     workStage?: string | null
     priority?: string
     architectId?: string | null
+    clientId?: string | null
   }
 ): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
   const patch: Record<string, any> = {}
-  if ('title' in data)      patch.title       = data.title?.toString().trim() || null
-  if ('category' in data)   patch.category   = data.category   ?? null
-  if ('size' in data)       patch.size        = data.size       ?? null
-  if ('origin' in data)     patch.origin      = data.origin     ?? null
-  if ('workStage' in data)  patch.work_stage  = data.workStage  ?? null
-  if ('priority' in data)   patch.priority    = data.priority   ?? 'normal'
+  if ('title' in data)      patch.title        = data.title?.toString().trim() || null
+  if ('category' in data)   patch.category     = data.category   ?? null
+  if ('size' in data)       patch.size         = data.size       ?? null
+  if ('origin' in data)     patch.origin       = data.origin     ?? null
+  if ('workStage' in data)  patch.work_stage   = data.workStage  ?? null
+  if ('priority' in data)   patch.priority     = data.priority   ?? 'normal'
   if ('architectId' in data) patch.architect_id = data.architectId ?? null
+  if ('clientId' in data && data.clientId)  patch.client_id = data.clientId
   const { error } = await createAdminClient().from('solicitations').update(patch).eq('id', id)
   if (error) return { error: error.message }
   await logSolicitationEvent(id, null, 'Detalhes da solicitação atualizados', user.id)

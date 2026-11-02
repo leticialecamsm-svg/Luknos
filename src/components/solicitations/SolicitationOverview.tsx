@@ -648,6 +648,21 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   const [workStage, setWorkStage] = useState(s.workStage ?? '')
   const [priority, setPriority] = useState(s.priority ?? 'normal')
 
+  // Cliente typeahead
+  const [clientId, setClientId] = useState<string>(s.clientId)
+  const [clientLabel, setClientLabel] = useState(s.clientName ?? '')
+  const [clientQuery, setClientQuery] = useState('')
+  const [clientResults, setClientResults] = useState<any[]>([])
+  const [clientOpen, setClientOpen] = useState(false)
+  const clientRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (clientQuery.length < 2) { setClientResults([]); return }
+    let active = true
+    searchContacts(clientQuery).then(r => { if (active) setClientResults(r as any[]) })
+    return () => { active = false }
+  }, [clientQuery])
+
   // Arquiteto typeahead
   const [architectId, setArchitectId] = useState<string | null>(s.architectId ?? null)
   const [architectLabel, setArchitectLabel] = useState(s.architectName ?? '')
@@ -665,6 +680,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
 
   useEffect(() => {
     function handle(e: MouseEvent) {
+      if (clientRef.current && !clientRef.current.contains(e.target as Node)) setClientOpen(false)
       if (archRef.current && !archRef.current.contains(e.target as Node)) setArchOpen(false)
     }
     document.addEventListener('mousedown', handle)
@@ -681,6 +697,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
         workStage: workStage || null,
         priority: priority || 'normal',
         architectId: architectId ?? null,
+        clientId: clientId || null,
       })
       setEditing(false)
       router.refresh()
@@ -742,6 +759,29 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                   className="w-full text-xs"
                   options={PRIORITY_OPTIONS.map(([k, l]) => ({ value: k, label: l, tag: PRIORITY_COLOR[k as keyof typeof PRIORITY_COLOR] }))}
                 />
+              </div>
+              <div className="col-span-2" ref={clientRef}>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Cliente</label>
+                <div className="relative">
+                  <input
+                    value={clientQuery || clientLabel}
+                    placeholder="Buscar cliente…"
+                    className="input w-full text-xs"
+                    onChange={e => { setClientQuery(e.target.value); setClientLabel(e.target.value); setClientOpen(true) }}
+                    onFocus={() => setClientOpen(true)}
+                  />
+                  {clientOpen && clientResults.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                      {clientResults.map((c: any) => (
+                        <button key={c.id} type="button"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
+                          onClick={() => { setClientId(c.id); setClientLabel(c.name); setClientQuery(''); setClientOpen(false) }}>
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="col-span-2" ref={archRef}>
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Arquiteto(a)</label>
