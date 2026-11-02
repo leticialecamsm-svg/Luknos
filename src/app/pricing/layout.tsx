@@ -1,10 +1,10 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { FloatingActionButton } from '@/components/ui/FloatingActionButton'
-import { requirePageAccess } from '@/lib/access'
+import { requireAnyPageAccess } from '@/lib/access'
 
 export default async function PricingLayout({ children }: { children: React.ReactNode }) {
-  const { profile, allowedPages, roleLabel } = await requirePageAccess('/pricing')
+  const { profile, allowedPages, roleLabel } = await requireAnyPageAccess(['/pricing', '/pricing-comercial'])
 
   return (
     <div className="flex h-screen overflow-hidden">

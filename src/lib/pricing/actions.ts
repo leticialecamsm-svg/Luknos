@@ -7,7 +7,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { Metric } from './engine'
+import { computeQuote, type Metric } from './engine'
 import { typeName } from './parse-sheet'
 import { expandTerms, normText } from './synonyms'
 import type { ItemPhoto } from '@/lib/catalog/match'
@@ -19,17 +19,33 @@ import { syncEmbuledCatalog } from '@/lib/catalog/embuled-sync'
 import { syncBlumenauCatalog } from '@/lib/catalog/blumenau-sync'
 import { catalogSource, loadCatalog, loadSupplierSheet } from './sheet'
 
-async function guard(adminOnly = false): Promise<{ userId: string } | { error: string }> {
+type Auth = { userId: string; isAdmin: boolean; restricted: boolean }
+
+// mode: false = qualquer acesso ao módulo; 'full' = admin ou acesso completo (sem o modo "comercial");
+// true = só admin. O acesso "comercial" ('/pricing-comercial') enxerga preços mas nunca as margens.
+async function guard(mode: boolean | 'full' = false): Promise<Auth | { error: string }> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const { data: profile } = await supabase.from('users').select('role, extra_pages').eq('id', user.id).single()
   if (!profile) return { error: 'Sem permissão' }
-  if (profile.role === 'admin') return { userId: user.id }
-  if (adminOnly) return { error: 'Apenas administradores' }
+  if (profile.role === 'admin') return { userId: user.id, isAdmin: true, restricted: false }
+  if (mode === true) return { error: 'Apenas administradores' }
   const { data: role } = await createAdminClient().from('roles').select('allowed_pages').eq('name', profile.role).maybeSingle()
   const pages: string[] = [...(role?.allowed_pages ?? []), ...((profile.extra_pages as string[] | null) ?? [])]
-  return pages.some(p => p === '/pricing' || '/pricing'.startsWith(p + '/')) ? { userId: user.id } : { error: 'Sem permissão' }
+  if (pages.some(p => p === '/pricing' || '/pricing'.startsWith(p + '/'))) return { userId: user.id, isAdmin: false, restricted: false }
+  if (pages.some(p => p === '/pricing-comercial')) {
+    if (mode === 'full') return { error: 'Sem permissão' }
+    return { userId: user.id, isAdmin: false, restricted: true }
+  }
+  return { error: 'Sem permissão' }
+}
+
+// Usado pelas páginas para saber em que modo desenhar a tela.
+export async function getPricingAccess() {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  return { userId: auth.userId, isAdmin: auth.isAdmin, restricted: auth.restricted }
 }
 
 export type PricingSupplier = { id: string; name: string; region_label: string | null; default_uf: string | null }
@@ -41,12 +57,14 @@ export type PricingProductType = {
 export type TaxProfile = {
   supplier_id: string; ncm: string; tipo: string; uf: string; n: number
   icms_pct: number | null; fecoep_pct: number | null; ipi_pct: number | null; last_date: string | null
+  manual?: boolean; manual_id?: string; name?: string | null // cadastrado à mão (tem prioridade sobre as notas)
 }
 export type SavedQuote = {
   id: string; number: number; supplier_label: string | null; product_ref: string | null; product_type: string | null
   ncm: string; tipo_icms: string | null; uf_origem: string | null; quantity: number; unit_price: number
   ipi_pct: number; icms_pct: number; fecoep_pct: number; metrics: Metric[]
   cost_unit: number; price_credit: number; price_cash: number | null; notes: string | null; created_at: string
+  created_by?: string | null; creator?: { name: string | null; avatar_url: string | null; avatar_color: string | null } | null
 }
 
 // Índice de tipos/NCM em tempo real: o que cada fornecedor já vendeu, com um
@@ -88,7 +106,7 @@ export async function getPricingBootstrap() {
   ])
   return {
     suppliers: (suppliers.data ?? []) as PricingSupplier[],
-    metrics: (metrics.data ?? []).map((m: any) => ({
+    metrics: auth.restricted ? ([] as Metric[]) : (metrics.data ?? []).map((m: any) => ({
       key: m.key, label: m.label, kind: m.kind, value: Number(m.default_value), value_by_tipo: m.value_by_tipo,
     })) as Metric[],
     productTypes: types,
@@ -102,8 +120,18 @@ export async function getTaxProfiles(supplierId: string | null, mirrorId: string
   if ('error' in auth) return { error: auth.error }
   const db = createAdminClient()
   const load = async (id: string) => {
-    const { data } = await db.from('pricing_tax_profiles').select('*').eq('supplier_id', id).eq('ncm', ncm)
-    return (data ?? []) as TaxProfile[]
+    const [auto, man] = await Promise.all([
+      db.from('pricing_tax_profiles').select('*').eq('supplier_id', id).eq('ncm', ncm),
+      db.from('pricing_manual_profiles').select('*').eq('supplier_id', id).eq('ncm', ncm),
+    ])
+    // o cadastro manual vence o que veio das notas para o mesmo tipo/UF
+    const manual: TaxProfile[] = (man.data ?? []).map((m: any) => ({
+      supplier_id: m.supplier_id, ncm: m.ncm, tipo: m.tipo, uf: m.uf, n: 0,
+      icms_pct: Number(m.icms_pct), fecoep_pct: Number(m.fecoep_pct), ipi_pct: Number(m.ipi_pct),
+      last_date: String(m.created_at).slice(0, 10), manual: true, manual_id: m.id, name: m.name,
+    }))
+    const taken = new Set(manual.map(p => `${p.tipo}|${p.uf}`))
+    return [...manual, ...((auto.data ?? []) as TaxProfile[]).filter(p => !taken.has(`${p.tipo}|${p.uf}`))]
   }
   if (supplierId) {
     const own = await load(supplierId)
@@ -190,6 +218,13 @@ export async function getSupplierTypes(supplierId: string) {
     }
     if (!data || data.length < 1000) break
   }
+  // NCMs cadastrados à mão para este fornecedor também aparecem na busca por tipo/NCM
+  const { data: manual } = await db.from('pricing_manual_profiles').select('ncm, name, created_at').eq('supplier_id', supplierId)
+  for (const m of (manual ?? []) as any[]) {
+    const name = String(m.name ?? '').trim() || `NCM ${m.ncm}`
+    const k = `${m.ncm}|${name}`
+    if (!counts.has(k)) counts.set(k, { ncm: m.ncm, name, count: 0, sample: 'Cadastrado à mão', last_date: String(m.created_at).slice(0, 10), nota: null })
+  }
   return { types: Array.from(counts.values()).sort((a, b) => b.count - a.count) }
 }
 
@@ -198,9 +233,13 @@ export async function getNcmSuppliers(ncm: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const db = createAdminClient()
-  const { data } = await db.from('pricing_tax_profiles').select('supplier_id, n, last_date').eq('ncm', ncm)
+  const [{ data: auto }, { data: manual }] = await Promise.all([
+    db.from('pricing_tax_profiles').select('supplier_id, n, last_date').eq('ncm', ncm),
+    db.from('pricing_manual_profiles').select('supplier_id, created_at').eq('ncm', ncm),
+  ])
+  const data = [...(auto ?? []), ...(manual ?? []).map((m: any) => ({ supplier_id: m.supplier_id, n: 0, last_date: String(m.created_at).slice(0, 10) }))]
   const agg = new Map<string, { n: number; last: string | null }>()
-  for (const r of data ?? []) {
+  for (const r of data) {
     const cur = agg.get(r.supplier_id) ?? { n: 0, last: null }
     cur.n += r.n
     if (r.last_date && (!cur.last || r.last_date > cur.last)) cur.last = r.last_date
@@ -213,12 +252,23 @@ export async function getNcmSuppliers(ncm: string) {
   return { suppliers: list }
 }
 
+// Junta o avatar/nome de quem criou cada cotação; no modo comercial tira as margens (metrics).
+async function shapeQuotes(rows: any[], restricted: boolean): Promise<SavedQuote[]> {
+  const ids = Array.from(new Set(rows.map(r => r.created_by).filter(Boolean)))
+  const byId = new Map<string, { name: string | null; avatar_url: string | null; avatar_color: string | null }>()
+  if (ids.length) {
+    const { data: users } = await createAdminClient().from('users').select('id, name, avatar_url, avatar_color').in('id', ids)
+    for (const u of (users ?? []) as any[]) byId.set(u.id, { name: u.name, avatar_url: u.avatar_url, avatar_color: u.avatar_color })
+  }
+  return rows.map(r => ({ ...r, metrics: restricted ? [] : r.metrics, creator: r.created_by ? byId.get(r.created_by) ?? null : null })) as SavedQuote[]
+}
+
 export async function getSupplierQuotes(supplierId: string, limit = 5) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
   const { data } = await createAdminClient().from('pricing_quotes').select('*')
     .eq('supplier_id', supplierId).order('created_at', { ascending: false }).limit(limit)
-  return { quotes: (data ?? []) as unknown as SavedQuote[] }
+  return { quotes: await shapeQuotes(data ?? [], auth.restricted) }
 }
 
 export type SupplierOverview = { id: string; name: string; default_uf: string | null; notas: number; itens: number; last_date: string | null }
@@ -253,7 +303,12 @@ export type SheetInvoice = { id: string; numero_nota: string | null; data_emissa
 export async function getSupplierSheet(supplierId: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
-  return loadSupplierSheet(supplierId)
+  const sheet = await loadSupplierSheet(supplierId)
+  if ('error' in sheet || !auth.restricted) return sheet
+  // modo comercial: só quantidade, valor do fornecedor, custo com impostos e venda — nada da composição
+  return { invoices: sheet.invoices.map(inv => ({ ...inv, items: inv.items.map(i => ({
+    ...i, tipo_icms: null, ipi_percent: 0, valor_icms: 0, valor_fecoep: 0, imposto_ant_percent: null, maquininha: 0, comissao: 0, lucro: 0,
+  })) })) }
 }
 
 export async function getSupplierCatalog(supplierId: string) {
@@ -264,7 +319,7 @@ export async function getSupplierCatalog(supplierId: string) {
 
 // Fixa a foto de um item: ref do catálogo, '-' = sem foto, null = volta ao automático.
 export async function setItemCatalogRef(itemId: string, ref: string | null) {
-  const auth = await guard()
+  const auth = await guard('full')
   if ('error' in auth) return { error: auth.error }
   const { error } = await createAdminClient().from('purchase_invoice_items').update({ catalog_ref: ref }).eq('id', itemId)
   if (error) return { error: error.message }
@@ -275,7 +330,7 @@ export async function setItemCatalogRef(itemId: string, ref: string | null) {
 // fornecedor, então outras notas com a mesma ref também passam a mostrá-la.
 // ref: a que o item já usa; sem ela, a REF da descrição, o código do XML ou uma nova.
 export async function uploadItemPhoto(form: FormData) {
-  const auth = await guard()
+  const auth = await guard('full')
   if ('error' in auth) return { error: auth.error }
   const itemId = String(form.get('itemId') ?? '')
   const file = form.get('file')
@@ -338,7 +393,7 @@ export async function updateSheetItem(id: string, v: {
   quantidade: number; valor_total: number; tipo_icms: string | null; ipi_percent: number; valor_icms: number; valor_fecoep: number
   imposto_ant_percent: number; maquininha: number; comissao: number; lucro: number; custo_unitario: number; preco_credito: number
 }) {
-  const auth = await guard(true)
+  const auth = await guard('full')
   if ('error' in auth) return { error: auth.error }
   const { error } = await createAdminClient().from('purchase_invoice_items').update(v).eq('id', id)
   if (error) return { error: error.message }
@@ -346,7 +401,7 @@ export async function updateSheetItem(id: string, v: {
 }
 
 export async function createPricingSupplier(name: string, defaultUf?: string) {
-  const auth = await guard()
+  const auth = await guard('full')
   if ('error' in auth) return { error: auth.error }
   const clean = name.trim().toUpperCase()
   if (!clean) return { error: 'Informe o nome do fornecedor' }
@@ -356,24 +411,106 @@ export async function createPricingSupplier(name: string, defaultUf?: string) {
   return { supplier: data as PricingSupplier }
 }
 
-export async function saveQuote(input: {
+type QuoteInput = {
   supplier_id: string | null; mirror_supplier_id: string | null; supplier_label: string
   product_ref?: string; product_type?: string; ncm: string; tipo_icms?: string; uf_origem?: string
   quantity: number; unit_price: number; ipi_pct: number; icms_pct: number; fecoep_pct: number
   metrics: Metric[]; cost_unit: number; price_credit: number; price_cash: number | null; notes?: string
-}) {
+}
+
+async function defaultMetrics(): Promise<Metric[]> {
+  const { data } = await createAdminClient().from('pricing_metrics')
+    .select('key, label, kind, default_value, value_by_tipo, sort_order').eq('is_active', true).order('sort_order')
+  return (data ?? []).map((m: any) => ({ key: m.key, label: m.label, kind: m.kind, value: Number(m.default_value), value_by_tipo: m.value_by_tipo })) as Metric[]
+}
+
+// Modo comercial: o cliente nunca recebe as margens, então quem calcula é o servidor, com as margens padrão.
+// Devolve só custo com impostos e preços — nada da composição.
+export async function calcQuoteRestricted(input: { unitPrice: number; quantity: number; ipiPct: number; icmsPct: number; fecoepPct: number; tipo: string }) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
+  const r = computeQuote({
+    unitPrice: input.unitPrice, quantity: input.quantity || 1, ipiPct: input.ipiPct, icmsPct: input.icmsPct,
+    fecoepPct: input.fecoepPct, tipoIcms: input.tipo, metrics: await defaultMetrics(),
+  })
+  return { costUnit: r.costUnit, priceCredit: r.priceCredit, priceCash: r.priceCash, error: r.error }
+}
+
+// No modo comercial os valores calculados vêm do servidor; ignora o que o navegador mandou.
+async function resolveQuoteRow(input: QuoteInput, restricted: boolean): Promise<QuoteInput | { error: string }> {
+  if (!restricted) return input
+  const metrics = await defaultMetrics()
+  const r = computeQuote({
+    unitPrice: input.unit_price, quantity: input.quantity || 1, ipiPct: input.ipi_pct, icmsPct: input.icms_pct,
+    fecoepPct: input.fecoep_pct, tipoIcms: input.tipo_icms, metrics,
+  })
+  if (r.priceCredit == null) return { error: r.error ?? 'Não foi possível calcular o preço' }
+  return { ...input, metrics, cost_unit: r.costUnit, price_credit: r.priceCredit, price_cash: r.priceCash }
+}
+
+export async function saveQuote(input: QuoteInput) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const row = await resolveQuoteRow(input, auth.restricted)
+  if ('error' in row) return { error: row.error }
   const { data, error } = await createAdminClient()
-    .from('pricing_quotes').insert({ ...input, created_by: auth.userId }).select('*').single()
+    .from('pricing_quotes').insert({ ...row, created_by: auth.userId }).select('*').single()
   if (error) return { error: error.message }
-  return { quote: data as unknown as SavedQuote }
+  const [quote] = await shapeQuotes([data], auth.restricted)
+  return { quote }
+}
+
+// Quem tem acesso completo edita/exclui qualquer cotação; no modo comercial, só as próprias.
+async function canTouchQuote(auth: Auth, id: string) {
+  if (!auth.restricted) return true
+  const { data } = await createAdminClient().from('pricing_quotes').select('created_by').eq('id', id).maybeSingle()
+  return !!data && data.created_by === auth.userId
+}
+
+export async function updateQuote(id: string, input: QuoteInput) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  if (!(await canTouchQuote(auth, id))) return { error: 'Você só pode editar as cotações que criou.' }
+  const row = await resolveQuoteRow(input, auth.restricted)
+  if ('error' in row) return { error: row.error }
+  const { data, error } = await createAdminClient().from('pricing_quotes').update(row).eq('id', id).select('*').single()
+  if (error) return { error: error.message }
+  const [quote] = await shapeQuotes([data], auth.restricted)
+  return { quote }
 }
 
 export async function deleteQuote(id: string) {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
+  if (!(await canTouchQuote(auth, id))) return { error: 'Você só pode excluir as cotações que criou.' }
   const { error } = await createAdminClient().from('pricing_quotes').delete().eq('id', id)
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// ── NCM cadastrado à mão por fornecedor ──────────────────────────────────────
+
+export async function addManualProfile(input: {
+  supplierId: string; ncm: string; name?: string; tipo: 'ST' | 'ANT'; uf: string
+  icms_pct: number; fecoep_pct: number; ipi_pct: number
+}) {
+  const auth = await guard('full')
+  if ('error' in auth) return { error: auth.error }
+  const ncm = input.ncm.replace(/\D/g, '')
+  if (!/^\d{8}$/.test(ncm)) return { error: 'O NCM precisa ter 8 dígitos' }
+  if (!input.supplierId) return { error: 'Escolha o fornecedor' }
+  const { error } = await createAdminClient().from('pricing_manual_profiles').upsert({
+    supplier_id: input.supplierId, ncm, name: input.name?.trim() || null, tipo: input.tipo, uf: input.uf || '',
+    icms_pct: input.icms_pct, fecoep_pct: input.fecoep_pct, ipi_pct: input.ipi_pct, created_by: auth.userId,
+  }, { onConflict: 'supplier_id,ncm,tipo,uf' })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+export async function deleteManualProfile(id: string) {
+  const auth = await guard('full')
+  if ('error' in auth) return { error: auth.error }
+  const { error } = await createAdminClient().from('pricing_manual_profiles').delete().eq('id', id)
   if (error) return { error: error.message }
   return { ok: true }
 }

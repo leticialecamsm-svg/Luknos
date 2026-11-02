@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation'
+import { getPricingAccess } from '@/lib/pricing/actions'
 import { ImportarPlanilhaClient } from '@/components/pricing/ImportarPlanilhaClient'
 import { NotasEntradaClient } from '@/components/pricing/NotasEntradaClient'
 import { PricingNav } from '@/components/pricing/PricingNav'
@@ -5,7 +7,9 @@ import { PricingNav } from '@/components/pricing/PricingNav'
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Importar planilha — Luknos' }
 
-export default function Page() {
+export default async function Page() {
+  const access = await getPricingAccess()
+  if ('error' in access || access.restricted) redirect('/pricing')
   return (
     <div>
       <div className="mb-4"><h1 className="text-xl font-semibold text-gray-900">Cotação e Preços</h1></div>

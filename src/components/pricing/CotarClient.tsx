@@ -3,13 +3,16 @@
 import { SupplierLogo } from './SupplierLogo'
 import { supplierBrand } from '@/lib/pricing/supplier-brand'
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Save, Plus, Trash2, RotateCcw, Tag, Info } from 'lucide-react'
+import { Save, Plus, Trash2, RotateCcw, Tag, Info, Pencil, X, Loader2 } from 'lucide-react'
+import { Avatar } from '@/components/ui/Avatar'
+import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { matchType, normText } from '@/lib/pricing/synonyms'
-import { computeQuote, effectiveValue, brl, pct, type Metric } from '@/lib/pricing/engine'
+import { computeQuote, effectiveValue, brl, pct, type Metric, type QuoteResult } from '@/lib/pricing/engine'
 import {
-  getTaxProfiles, getReferenceItems, getSupplierQuotes, getSupplierTypes, getNcmSuppliers, saveQuote, deleteQuote, createPricingSupplier,
+  getTaxProfiles, getReferenceItems, getSupplierQuotes, getSupplierTypes, getNcmSuppliers, saveQuote, updateQuote, deleteQuote, createPricingSupplier,
+  calcQuoteRestricted, addManualProfile, deleteManualProfile,
   type PricingSupplier, type PricingProductType, type TaxProfile, type SavedQuote, type ReferenceItem, type SupplierType,
 } from '@/lib/pricing/actions'
 
@@ -28,10 +31,16 @@ type Props = {
   suppliers: PricingSupplier[]
   metrics: Metric[]
   productTypes: PricingProductType[]
+  restricted?: boolean      // acesso comercial: preço sem margens, sem o passo 3
+  currentUserId?: string
 }
 
-export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes }: Props) {
+// resultado que o modo comercial recebe do servidor: só custo com impostos e preços
+type Calc = { costUnit: number; priceCredit: number | null; priceCash: number | null; error?: string }
+
+export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes, restricted = false, currentUserId }: Props) {
   const toast = useToast()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
   const [suppliers, setSuppliers] = useState(initialSuppliers)
   const [quotes, setQuotes] = useState<SavedQuote[]>([])
@@ -66,6 +75,12 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   const [supplierTypes, setSupplierTypes] = useState<SupplierType[] | null>(null)
   const [ncmSuppliers, setNcmSuppliers] = useState<{ id: string; name: string; n: number; last: string | null }[]>([])
   const [activeRef, setActiveRef] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | string | null>(null)
+  const [editingNumber, setEditingNumber] = useState<number | null>(null)
+  const [profilesVersion, setProfilesVersion] = useState(0)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manual, setManual] = useState({ ncm: '', name: '', tipo: 'ST' as 'ST' | 'ANT', uf: '', icms: '', fecoep: '0', ipi: '0' })
+  const [manualBusy, setManualBusy] = useState(false)
 
   const supplier = suppliers.find(s => s.id === supplierId)
   const validNcm = /^\d{8}$/.test(ncm)
@@ -135,8 +150,11 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
       const items = 'error' in refRes ? [] : refRes.items
       setRefs(items)
       if (!('error' in profRes)) {
-        const list = [...profRes.profiles].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? '') || b.n - a.n)
+        const list = [...profRes.profiles].sort((a, b) => Number(!!b.manual) - Number(!!a.manual) || (b.last_date ?? '').localeCompare(a.last_date ?? '') || b.n - a.n)
         setProfiles(list); setProfileSource(profRes.source)
+        // o que foi cadastrado à mão para o fornecedor vale mais que o histórico das notas
+        const manualBest = list.find(p => p.manual && p.tipo === tipo && (!uf || !p.uf || p.uf === uf)) ?? list.find(p => p.manual)
+        if (manualBest) { applyProfile(manualBest); return }
         if (!items.length) {
           const best = list.find(p => p.tipo === tipo && (!uf || p.uf === uf)) ?? list[0]
           if (best) applyProfile(best); else setActiveProfile(null)
@@ -146,7 +164,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ncm, supplierId, mirrorId, isNew])
+  }, [ncm, supplierId, mirrorId, isNew, profilesVersion])
 
   useEffect(() => {
     if (!supplierId || isNew) { setQuotes([]); return }
@@ -158,7 +176,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   // ao trocar ST/ANT ou UF à mão, tenta casar com um perfil existente
   useEffect(() => {
     if (activeRef) return
-    const match = profiles.find(p => p.tipo === tipo && (!uf || p.uf === uf))
+    const match = profiles.find(p => p.tipo === tipo && (!uf || p.uf === uf || (p.manual && !p.uf)))
     if (match && match !== activeProfile) applyProfile(match)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo, uf])
@@ -169,7 +187,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     setSupplierTypes(null)
     getSupplierTypes(supplierId).then(res => { if (!cancelled && !('error' in res)) setSupplierTypes(res.types) })
     return () => { cancelled = true }
-  }, [supplierId, isNew])
+  }, [supplierId, isNew, profilesVersion])
 
   useEffect(() => {
     if (!validNcm) { setNcmSuppliers([]); return }
@@ -192,14 +210,35 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
 
   // ── cálculo ────────────────────────────────────────────────────────────────
   const activeMetrics = useMemo(() => [...metrics], [metrics])
-  const result = useMemo(() => {
+  const fullResult = useMemo<QuoteResult | null>(() => {
+    if (restricted) return null
     const price = parseNum(unitPrice)
     if (price <= 0) return null
     return computeQuote({
       unitPrice: price, quantity: parseNum(qty) || 1, ipiPct: parseNum(ipi) / 100, icmsPct: parseNum(icms) / 100,
       fecoepPct: parseNum(fecoep) / 100, tipoIcms: tipo, metrics: activeMetrics,
     })
-  }, [unitPrice, qty, ipi, icms, fecoep, tipo, activeMetrics])
+  }, [restricted, unitPrice, qty, ipi, icms, fecoep, tipo, activeMetrics])
+
+  // Acesso comercial: o navegador nunca tem as margens, então o servidor calcula e devolve só os preços.
+  const [remote, setRemote] = useState<Calc | null>(null)
+  const [calculating, setCalculating] = useState(false)
+  useEffect(() => {
+    if (!restricted) return
+    const price = parseNum(unitPrice)
+    if (price <= 0) { setRemote(null); setCalculating(false); return }
+    let cancelled = false
+    setCalculating(true)
+    const t = setTimeout(async () => {
+      const r = await calcQuoteRestricted({ unitPrice: price, quantity: parseNum(qty) || 1, ipiPct: parseNum(ipi) / 100, icmsPct: parseNum(icms) / 100, fecoepPct: parseNum(fecoep) / 100, tipo })
+      if (cancelled) return
+      setCalculating(false)
+      setRemote(typeof r.costUnit === 'number' ? { costUnit: r.costUnit, priceCredit: r.priceCredit ?? null, priceCash: r.priceCash ?? null, error: r.error } : { costUnit: 0, priceCredit: null, priceCash: null, error: r.error })
+    }, 350)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [restricted, unitPrice, qty, ipi, icms, fecoep, tipo])
+
+  const result: Calc | null = restricted ? remote : fullResult
 
   const setMetricValue = (key: string, input: string, kind: Metric['kind']) => {
     const v = parseNum(input) / (kind === 'unit_amount' ? 1 : 100)
@@ -216,9 +255,21 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
   const removeExtra = (key: string) => setMetrics(prev => prev.filter(m => m.key !== key))
 
   // ── salvar / reabrir ───────────────────────────────────────────────────────
-  const canSave = !!result && result.priceCredit != null && validNcm && (supplierId !== '' && (!isNew || newName.trim() !== ''))
+  const canSave = !!result && result.priceCredit != null && validNcm && (supplierId !== '' && (!isNew || newName.trim() !== '')) && !calculating
 
-  const save = () => {
+  const resetEditing = () => { setEditingId(null); setEditingNumber(null) }
+
+  // monta o que vai para o banco; no acesso comercial o servidor recalcula e ignora custo/preço/métricas daqui
+  const buildPayload = (sid: string | null, label: string) => ({
+    supplier_id: sid, mirror_supplier_id: mirrorId || null, supplier_label: label,
+    product_ref: productRef || undefined, product_type: typeName || undefined, ncm, tipo_icms: tipo, uf_origem: uf || undefined,
+    quantity: parseNum(qty) || 1, unit_price: parseNum(unitPrice), ipi_pct: parseNum(ipi) / 100,
+    icms_pct: parseNum(icms) / 100, fecoep_pct: parseNum(fecoep) / 100,
+    metrics: restricted ? [] : metrics.map(m => ({ ...m, value: effectiveValue(m, tipo), value_by_tipo: null })),
+    cost_unit: result!.costUnit, price_credit: result!.priceCredit!, price_cash: result!.priceCash, notes: notes || undefined,
+  })
+
+  const save = (asNew = false) => {
     if (!result || result.priceCredit == null) return
     startTransition(async () => {
       let sid: string | null = supplierId && !isNew ? supplierId : null
@@ -230,35 +281,77 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
         sid = created.supplier.id; label = created.supplier.name
         setSupplierId(sid)
       }
-      const res = await saveQuote({
-        supplier_id: sid, mirror_supplier_id: mirrorId || null, supplier_label: label,
-        product_ref: productRef || undefined, product_type: typeName || undefined, ncm, tipo_icms: tipo, uf_origem: uf || undefined,
-        quantity: parseNum(qty) || 1, unit_price: parseNum(unitPrice), ipi_pct: parseNum(ipi) / 100,
-        icms_pct: parseNum(icms) / 100, fecoep_pct: parseNum(fecoep) / 100,
-        metrics: metrics.map(m => ({ ...m, value: effectiveValue(m, tipo), value_by_tipo: null })),
-        cost_unit: result.costUnit, price_credit: result.priceCredit!, price_cash: result.priceCash, notes: notes || undefined,
-      })
+      const payload = buildPayload(sid, label)
+      if (editingId && !asNew) {
+        const res = await updateQuote(String(editingId), payload)
+        if ('error' in res) return toast.error('Erro ao atualizar a cotação', res.error)
+        setQuotes(prev => prev.map(q => q.id === res.quote.id ? res.quote : q))
+        toast.success(`Cotação #${res.quote.number} atualizada`)
+        resetEditing()
+        return
+      }
+      const res = await saveQuote(payload)
       if ('error' in res) return toast.error('Erro ao salvar a cotação', res.error)
       setQuotes(prev => [res.quote, ...prev].slice(0, 5))
       toast.success(`Cotação #${res.quote.number} salva`)
+      resetEditing()
     })
   }
 
+  // abre a cotação no formulário para editar (atualiza a mesma) — ou salvar como nova
   const reopen = (q: SavedQuote) => {
     setSupplierId(suppliers.find(s => s.name === q.supplier_label)?.id ?? '')
     setTypeName(q.product_type ?? ''); setTypeQuery(q.product_type ?? q.ncm); setNcm(q.ncm)
     setProductRef(q.product_ref ?? ''); setUnitPrice(String(q.unit_price).replace('.', ',')); setQty(String(q.quantity))
     setTipo((q.tipo_icms as 'ST' | 'ANT') ?? 'ST'); setUf(q.uf_origem ?? '')
     setIpi(fmtPct(q.ipi_pct)); setIcms(fmtPct(q.icms_pct)); setFecoep(fmtPct(q.fecoep_pct))
-    setMetrics(q.metrics); setNotes(q.notes ?? '')
+    if (!restricted && q.metrics.length) setMetrics(q.metrics)
+    setNotes(q.notes ?? '')
+    setEditingId(q.id); setEditingNumber(q.number)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const remove = (id: string) => startTransition(async () => {
-    const res = await deleteQuote(id)
-    if ('error' in res) return toast.error('Não foi possível excluir', res.error)
-    setQuotes(prev => prev.filter(q => q.id !== id))
-  })
+  const remove = async (q: SavedQuote) => {
+    if (!(await confirm(`Excluir a cotação #${q.number}? Isso não pode ser desfeito.`, 'Excluir'))) return
+    startTransition(async () => {
+      const res = await deleteQuote(q.id)
+      if ('error' in res) return toast.error('Não foi possível excluir', res.error)
+      setQuotes(prev => prev.filter(x => x.id !== q.id))
+      if (editingId === q.id) resetEditing()
+      toast.success(`Cotação #${q.number} excluída`)
+    })
+  }
+
+  // acesso completo mexe em qualquer cotação; o comercial só nas que ele mesmo criou
+  const canTouch = (q: SavedQuote) => !restricted || (!!currentUserId && q.created_by === currentUserId)
+
+  const saveManual = async () => {
+    if (!supplierId || isNew) return
+    setManualBusy(true)
+    const res = await addManualProfile({
+      supplierId, ncm: manual.ncm, name: manual.name, tipo: manual.tipo, uf: manual.uf,
+      icms_pct: parseNum(manual.icms) / 100, fecoep_pct: parseNum(manual.fecoep) / 100, ipi_pct: parseNum(manual.ipi) / 100,
+    })
+    setManualBusy(false)
+    if ('error' in res) return toast.error('Não foi possível cadastrar', res.error)
+    toast.success('NCM cadastrado para este fornecedor')
+    setManualOpen(false)
+    const n = manual.ncm.replace(/\D/g, '')
+    if (n === ncm) setProfilesVersion(v => v + 1)
+    else { setNcm(n); setTypeQuery(manual.name || n); setTypeName(manual.name || ''); setProfilesVersion(v => v + 1) }
+  }
+  const removeManual = async (p: TaxProfile) => {
+    if (!p.manual_id) return
+    if (!(await confirm(`Remover o cadastro manual do NCM ${p.ncm} (${p.tipo || '—'} · ${pct(p.icms_pct, 1)})?`, 'Remover'))) return
+    const res = await deleteManualProfile(p.manual_id)
+    if ('error' in res) return toast.error('Não foi possível remover', res.error)
+    setProfilesVersion(v => v + 1)
+  }
+  const openManual = () => {
+    setManual({ ncm: validNcm ? ncm : '', name: typeName, tipo, uf, icms: icms || '', fecoep: fecoep || '0', ipi: ipi || '0' })
+    setManualOpen(true)
+  }
+
 
   const modified = (m: Metric) => {
     const d = defaultMetrics.find(x => x.key === m.key)
@@ -267,6 +360,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
 
   return (
     <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+      {ConfirmDialog}
       <div className="space-y-5 min-w-0">
         {/* 1. fornecedor + produto */}
         <div className="card p-5 space-y-4">
@@ -283,7 +377,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
               <select className={inputCls} value={supplierId} onChange={e => setSupplierId(e.target.value)}>
                 <option value="">Escolha…</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                <option value="new">+ Fornecedor novo (usar espelho)</option>
+                {!restricted && <option value="new">+ Fornecedor novo (usar espelho)</option>}
               </select>
             </label>
             {isNew ? (
@@ -366,7 +460,9 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
               <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
               {profiles.length === 0
                 ? 'Sem histórico de notas para esse NCM — preencha os percentuais à mão.'
-                : <span>
+                : activeProfile?.manual
+                  ? <span>Percentuais cadastrados à mão para este fornecedor (valem mais que o histórico das notas).</span>
+                  : <span>
                     Percentuais preenchidos pelo histórico
                     {profileSource === 'mirror' && ' do fornecedor espelho'}
                     {profileSource === 'any' && ' (fornecedor sem histórico com esse NCM — usando outros fornecedores)'}
@@ -402,21 +498,71 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
               </select>
             </div>
           )}
-          {profiles.length > 1 && (
+          {(profiles.length > 1 || profiles.some(p => p.manual)) && (
             <div className="flex flex-wrap gap-1.5">
               {profiles.slice(0, 8).map((p, i) => (
-                <button key={i} onClick={() => applyProfile(p)}
-                  className={cn('text-xs px-2.5 py-1 rounded-full border transition-colors',
-                    p === activeProfile ? 'bg-navy text-white border-navy' : 'bg-white border-surface-border text-gray-600 hover:border-gray-400')}>
-                  {p.tipo || '—'} · {p.uf || '—'} · {pct(p.icms_pct, 1)} <span className="opacity-60">({p.n})</span>
-                </button>
+                <span key={i} className="inline-flex items-center">
+                  <button onClick={() => applyProfile(p)}
+                    className={cn('text-xs px-2.5 py-1 border transition-colors', p.manual && !restricted ? 'rounded-l-full' : 'rounded-full',
+                      p === activeProfile ? 'bg-navy text-white border-navy' : 'bg-white border-surface-border text-gray-600 hover:border-gray-400')}>
+                    {p.tipo || '—'} · {p.uf || '—'} · {pct(p.icms_pct, 1)}{' '}
+                    {p.manual ? <span className="opacity-70">manual</span> : <span className="opacity-60">({p.n})</span>}
+                  </button>
+                  {p.manual && !restricted && (
+                    <button onClick={() => removeManual(p)} title="Remover cadastro manual"
+                      className="text-xs px-1.5 py-1 rounded-r-full border border-l-0 border-surface-border text-gray-400 hover:text-red-500 hover:border-red-200 bg-white">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
               ))}
+            </div>
+          )}
+
+          {/* NCM cadastrado à mão para este fornecedor (acesso completo) */}
+          {!restricted && supplier && !isNew && (
+            <div className="border-t border-surface-border pt-3">
+              {!manualOpen ? (
+                <button onClick={openManual} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700">
+                  <Plus className="w-3.5 h-3.5" /> Cadastrar NCM e impostos para {supplier.name}
+                </button>
+              ) : (
+                <div className="rounded-lg border border-surface-border bg-surface-secondary/50 p-3 space-y-3">
+                  <p className="text-xs font-semibold text-gray-700">Novo NCM em {supplier.name}</p>
+                  <div className="grid sm:grid-cols-4 gap-3">
+                    <label className="block"><span className="text-[11px] text-gray-500">NCM (8 dígitos)</span>
+                      <input className={inputCls} inputMode="numeric" maxLength={8} value={manual.ncm} onChange={e => setManual(m => ({ ...m, ncm: e.target.value.replace(/\D/g, '') }))} /></label>
+                    <label className="block sm:col-span-2"><span className="text-[11px] text-gray-500">Tipo do produto (opcional, para achar na busca)</span>
+                      <input className={inputCls} placeholder="ex.: Fita, Driver" value={manual.name} onChange={e => setManual(m => ({ ...m, name: e.target.value }))} /></label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block"><span className="text-[11px] text-gray-500">ICMS</span>
+                        <select className={inputCls} value={manual.tipo} onChange={e => setManual(m => ({ ...m, tipo: e.target.value as 'ST' | 'ANT' }))}><option value="ST">ST</option><option value="ANT">ANT</option></select></label>
+                      <label className="block"><span className="text-[11px] text-gray-500">UF</span>
+                        <select className={inputCls} value={manual.uf} onChange={e => setManual(m => ({ ...m, uf: e.target.value }))}><option value="">—</option>{UFS.map(u => <option key={u}>{u}</option>)}</select></label>
+                    </div>
+                  </div>
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    <label className="block"><span className="text-[11px] text-gray-500">ICMS ST/ANT (% do valor)</span>
+                      <input className={inputCls} inputMode="decimal" value={manual.icms} onChange={e => setManual(m => ({ ...m, icms: e.target.value }))} /></label>
+                    <label className="block"><span className="text-[11px] text-gray-500">FECOEP (%)</span>
+                      <input className={inputCls} inputMode="decimal" value={manual.fecoep} onChange={e => setManual(m => ({ ...m, fecoep: e.target.value }))} /></label>
+                    <label className="block"><span className="text-[11px] text-gray-500">IPI (%)</span>
+                      <input className={inputCls} inputMode="decimal" value={manual.ipi} onChange={e => setManual(m => ({ ...m, ipi: e.target.value }))} /></label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={saveManual} disabled={manualBusy || !/^\d{8}$/.test(manual.ncm) || !manual.icms.trim()} className="btn-primary flex items-center gap-2 disabled:opacity-50 text-sm">
+                      {manualBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Cadastrar
+                    </button>
+                    <button onClick={() => setManualOpen(false)} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-800">Cancelar</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* 3. métricas */}
-        <div className="card p-5 space-y-3">
+        {/* 3. métricas — não existe no acesso comercial */}
+        {!restricted && <div className="card p-5 space-y-3">
           <h2 className="text-sm font-semibold text-gray-800">3 · Margens e métricas <span className="font-normal text-gray-400">— mude para simular</span></h2>
           <div className="divide-y divide-surface-border">
             {metrics.map(m => {
@@ -454,7 +600,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
             <input className={cn(inputCls, 'w-24')} placeholder="valor" inputMode="decimal" value={extra.value} onChange={e => setExtra({ ...extra, value: e.target.value })} />
             <button onClick={addExtra} className="p-2 rounded-lg border border-surface-border text-gray-600 hover:bg-surface-secondary"><Plus className="w-4 h-4" /></button>
           </div>
-        </div>
+        </div>}
 
         {/* histórico */}
         <div className="card overflow-hidden">
@@ -465,7 +611,7 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-surface-secondary text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  <th className="px-4 py-2.5">Nº</th><th className="px-4 py-2.5">Data</th><th className="px-4 py-2.5">Fornecedor</th>
+                  <th className="px-4 py-2.5">Nº</th><th className="px-4 py-2.5">Data</th><th className="px-4 py-2.5">Por</th><th className="px-4 py-2.5">Fornecedor</th>
                   <th className="px-4 py-2.5">Produto</th><th className="px-4 py-2.5 text-right">Compra</th><th className="px-4 py-2.5 text-right">Venda</th><th className="px-4 py-2.5" />
                 </tr></thead>
                 <tbody>
@@ -473,13 +619,18 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
                     <tr key={q.id} className="border-t border-surface-border hover:bg-surface-secondary/60">
                       <td className="px-4 py-2.5 text-gray-500">#{q.number}</td>
                       <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{new Date(q.created_at).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-4 py-2.5">{q.creator ? <Avatar user={q.creator} size="sm" title={q.creator.name ?? undefined} /> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-2.5 font-medium text-gray-800">{q.supplier_label}</td>
                       <td className="px-4 py-2.5 text-gray-600 max-w-[240px] truncate">{q.product_ref || q.product_type || '—'} <span className="font-mono text-xs text-gray-400">{q.ncm}</span></td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{brl(q.unit_price)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{brl(q.price_credit)}</td>
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        <button onClick={() => reopen(q)} className="text-xs text-brand-600 hover:text-brand-700 font-medium mr-3">Reabrir</button>
-                        <button onClick={() => remove(q.id)} disabled={pending} className="text-gray-300 hover:text-red-500 align-middle"><Trash2 className="w-4 h-4" /></button>
+                        {canTouch(q) ? (
+                          <>
+                            <button onClick={() => reopen(q)} className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium mr-3"><Pencil className="w-3 h-3" /> Editar</button>
+                            <button onClick={() => remove(q)} disabled={pending} title="Excluir" className="text-gray-300 hover:text-red-500 align-middle"><Trash2 className="w-4 h-4" /></button>
+                          </>
+                        ) : <span className="text-[11px] text-gray-300">de {q.creator?.name?.split(' ')[0] ?? 'outra pessoa'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -494,21 +645,26 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
       <div className="lg:sticky lg:top-4 space-y-4">
         <div className="card p-5">
           <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Preço de venda (crédito)</p>
-          <p className="text-4xl font-bold text-navy mt-1 tabular-nums">{result?.priceCredit != null ? brl(result.priceCredit) : '—'}</p>
+          <p className={cn('text-4xl font-bold text-navy mt-1 tabular-nums transition-opacity', calculating && 'opacity-40')}>{result?.priceCredit != null ? brl(result.priceCredit) : '—'}</p>
           {result?.error && <p className="text-xs text-red-600 mt-2">{result.error}</p>}
           {result && result.priceCredit != null && (
             <>
               <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
-                <div><p className="text-xs text-gray-400">À vista</p><p className="font-semibold tabular-nums">{result.priceCash !== result.priceCredit ? brl(result.priceCash) : <span className="text-gray-400 text-xs font-normal">preencha o desconto à vista</span>}</p></div>
-                <div><p className="text-xs text-gray-400">Custo unitário</p><p className="font-semibold tabular-nums">{brl(result.costUnit)}</p></div>
-                <div><p className="text-xs text-gray-400">Sobra sobre o custo</p><p className="font-semibold tabular-nums">{brl(result.marginAmount)}</p></div>
-                <div><p className="text-xs text-gray-400">Fator sobre a compra</p><p className="font-semibold tabular-nums">{(result.priceCredit / (parseNum(unitPrice) || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}×</p></div>
+                {restricted && <div><p className="text-xs text-gray-400">Valor do fornecedor</p><p className="font-semibold tabular-nums">{brl(parseNum(unitPrice))}</p></div>}
+                <div><p className="text-xs text-gray-400">{restricted ? 'Custo com impostos' : 'Custo unitário'}</p><p className="font-semibold tabular-nums">{brl(result.costUnit)}</p></div>
+                {(!restricted || result.priceCash !== result.priceCredit) && (
+                  <div><p className="text-xs text-gray-400">À vista</p><p className="font-semibold tabular-nums">{result.priceCash !== result.priceCredit ? brl(result.priceCash) : <span className="text-gray-400 text-xs font-normal">preencha o desconto à vista</span>}</p></div>
+                )}
+                {fullResult && <div><p className="text-xs text-gray-400">Sobra sobre o custo</p><p className="font-semibold tabular-nums">{brl(fullResult.marginAmount)}</p></div>}
+                {fullResult && <div><p className="text-xs text-gray-400">Fator sobre a compra</p><p className="font-semibold tabular-nums">{(result.priceCredit / (parseNum(unitPrice) || 1)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}×</p></div>}
               </div>
-              <div className="mt-4 border-t border-surface-border pt-3 space-y-1.5">
-                <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-1">Para onde vai o preço</p>
-                <Row label="Custo do produto" value={brl(result.costUnit)} share={result.costUnit / result.priceCredit} />
-                {result.lines.map(l => <Row key={l.key} label={l.label} value={brl(l.amount)} share={l.pct} highlight={l.key === 'lucro'} />)}
-              </div>
+              {fullResult && (
+                <div className="mt-4 border-t border-surface-border pt-3 space-y-1.5">
+                  <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-1">Para onde vai o preço</p>
+                  <Row label="Custo do produto" value={brl(fullResult.costUnit)} share={fullResult.costUnit / fullResult.priceCredit!} />
+                  {fullResult.lines.map(l => <Row key={l.key} label={l.label} value={brl(l.amount)} share={l.pct} highlight={l.key === 'lucro'} />)}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -516,9 +672,20 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
         <div className="card p-5 space-y-3">
           <label className="block"><span className="text-xs text-gray-500">Observações</span>
             <textarea className={cn(inputCls, 'min-h-[64px]')} value={notes} onChange={e => setNotes(e.target.value)} /></label>
-          <button onClick={save} disabled={!canSave || pending} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50">
-            <Save className="w-4 h-4" /> Salvar cotação
+          {editingId && (
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              <span>Editando a cotação <b>#{editingNumber}</b></span>
+              <button onClick={resetEditing} className="font-medium hover:underline">Cancelar edição</button>
+            </div>
+          )}
+          <button onClick={() => save(false)} disabled={!canSave || pending} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50">
+            <Save className="w-4 h-4" /> {editingId ? `Atualizar cotação #${editingNumber}` : 'Salvar cotação'}
           </button>
+          {editingId && (
+            <button onClick={() => save(true)} disabled={!canSave || pending} className="w-full text-sm text-gray-600 hover:text-gray-900 py-1.5 disabled:opacity-50">
+              Salvar como nova cotação
+            </button>
+          )}
           {!canSave && <p className="text-[11px] text-gray-400">Escolha o fornecedor, informe um NCM válido e o valor de compra.</p>}
         </div>
       </div>

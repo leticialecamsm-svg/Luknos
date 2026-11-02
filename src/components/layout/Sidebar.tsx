@@ -170,7 +170,8 @@ export function Sidebar({ user, allowedPages, roleLabel, focus = false }: { user
 
   // Treinamento é aberto a todos os logados (cada um vê só as trilhas atribuídas)
   const visibleNav = isAdmin ? NAV : NAV.filter(item => item.href === '/treinamento' || item.href === '/politicas' || canAccessNav(item.href))
-  const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href))
+  // o acesso comercial (/pricing-comercial) abre a mesma tela de Cotação e Preços, só que sem as margens
+  const visibleAdminNav = isAdmin ? ADMIN_NAV : ADMIN_NAV.filter(item => canAccess(item.href) || (item.href === '/pricing' && canAccess('/pricing-comercial')))
   // Papéis sem nenhuma página de operação liberada (ex: marketing puro) caem no atalho dedicado
   if (!isAdmin && visibleNav.length === 0 && visibleAdminNav.length === 0 && isMarketing) {
     visibleNav.push(MARKETING_ITEM)

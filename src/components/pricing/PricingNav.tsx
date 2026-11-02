@@ -11,11 +11,11 @@ const TABS: { href: string; label: string; exact?: boolean; soon?: boolean }[] =
   { href: '/pricing/importar', label: 'Importar' },
 ]
 
-export function PricingNav() {
+export function PricingNav({ restricted = false }: { restricted?: boolean }) {
   const pathname = usePathname()
   return (
     <div className="flex items-center gap-1 border-b border-surface-border mb-6">
-      {TABS.map(t => {
+      {TABS.filter(t => !(restricted && t.href === '/pricing/importar')).map(t => {
         const active = t.exact ? pathname === t.href : pathname.startsWith(t.href)
         if (t.soon) {
           return (
