@@ -864,8 +864,11 @@ function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardPro
         }
       }
       // fallback: solicitação sem nenhuma etapa ativa vai para a coluna do currentStage
+      // ou para a coluna especial '__none__' se não tiver nenhuma etapa
       if (!placed && r.currentStage) {
         ;(map[r.currentStage] ??= []).push(r)
+      } else if (!placed) {
+        ;(map['__none__'] ??= []).push(r)
       }
     }
     return map
@@ -881,8 +884,24 @@ function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardPro
           onCreated={(id) => { setCreateStage(null); router.push(`/solicitacoes/${id}?tab=${createStage}`) }}
         />
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto pb-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
         <div className="flex gap-0 pb-2 items-stretch" style={{ minWidth: 'fit-content' }}>
+          {/* Coluna de solicitações sem etapa */}
+          {(byStage['__none__'] ?? []).length > 0 && (
+            <div className="flex flex-col gap-0 mr-4">
+              <div className="flex items-center gap-1.5 px-2 pb-1 mb-1" style={{ borderBottom: '2px solid #9ca3af22' }}>
+                <span className="w-2 h-2 rounded-full shrink-0 bg-gray-400" />
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sem etapa</span>
+              </div>
+              <section className="flex flex-col gap-2 w-44 rounded-xl p-2" style={{ background: '#9ca3af0d', border: '1px solid #9ca3af22' }}>
+                <div className="flex flex-col gap-2">
+                  {(byStage['__none__'] ?? []).map(r => (
+                    <KanbanCard key={r.id} r={r} stageColor="#9ca3af" onClick={() => router.push(`/solicitacoes/${r.id}`)} team={[]} kindKey={null} dragging={false} onDragStart={() => {}} onDragEnd={() => {}} props={props} multiStage={false} />
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
           {SECTORS.map((sector, si) => {
             const sectorStages = STAGE_PILLS.filter(s => s.sectorId === sector.id)
             return (
@@ -1021,7 +1040,7 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
           onCreated={(id) => { setShowCreate(false); router.push(`/solicitacoes/${id}?tab=${stageId}`) }}
         />
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto pb-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
         {/* Botão de adicionar acima do kanban de status */}
         <div className="flex items-center justify-between mb-2">
           <p className="text-[11px] text-gray-400">

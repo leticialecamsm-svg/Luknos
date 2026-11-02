@@ -3120,14 +3120,13 @@ export async function linkCrmMessagesToSolicitationStage(input: {
         .eq('id', input.solicitationId)
         .maybeSingle()
       if (sol) {
-        const { data: newQuote } = await admin.from('quotes').insert({
+        const { data: newQuote, error: quoteErr } = await admin.from('quotes').insert({
           client_id: sol.client_id,
           architect_id: sol.architect_id ?? null,
           solicitation_id: input.solicitationId,
           status: 'queue',
-          created_by: user.id,
         }).select('id').single()
-        if (!newQuote) return { error: 'Erro ao criar orçamento para a etapa' }
+        if (!newQuote) return { error: `Erro ao criar orçamento para a etapa: ${quoteErr?.message ?? 'desconhecido'}` }
       }
     }
   }
