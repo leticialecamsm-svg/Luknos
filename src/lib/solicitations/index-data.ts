@@ -17,6 +17,7 @@ export async function loadSolicitationRows(userId: string): Promise<IndexRow[]> 
   const [sol, quotes, negs, visits, projects, purchases, shipments, installs, postSales, resp, events] = await Promise.all([
     db.from('solicitations')
       .select('id, number, title, created_at, created_by, priority, category, size, client:client_id(name)')
+      .is('deleted_at', null)
       .order('created_at', { ascending: false }).limit(1000),
     db.from('quotes').select('id, solicitation_id, quoted_value, status, deadline, created_at, completed_at, updated_at').not('solicitation_id', 'is', null),
     db.from('negotiations').select('quote_id, solicitation_id, temperature, closed_at, updated_at').not('solicitation_id', 'is', null),

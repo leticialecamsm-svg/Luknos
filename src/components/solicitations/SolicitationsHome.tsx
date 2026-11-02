@@ -10,6 +10,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NewSolicitationButton } from './NewSolicitationButton'
 import { SolicitationsIndex } from './SolicitationsIndex'
+import { TrashButton } from './TrashDrawer'
 import { dueState, localYmd, type IndexRow, type CardPropsConfig } from '@/lib/solicitations/index-types'
 
 type Focus = 'today' | 'overdue' | 'new' | 'changed' | 'stalled' | 'unassigned'
@@ -162,6 +163,7 @@ export function SolicitationsHome({ rows, userName, cardPrefs }: { rows: IndexRo
                 </button>
               ))}
             </div>
+            <TrashButton />
             <NewSolicitationButton />
           </div>
         </div>

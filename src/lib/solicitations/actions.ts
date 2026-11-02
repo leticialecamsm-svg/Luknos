@@ -296,20 +296,12 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     eventRows = []
   }
 
-  // Equipe envolvida: created_by distintos + responsáveis por etapa.
+  // Equipe: apenas responsáveis por etapa. Busca todos os autores de eventos
+  // para mostrar nomes/avatares no histórico, mas o campo `team` fica restrito
+  // aos responsáveis por etapa.
   const stageRespIds = Object.values(stageRespMap).flat().map((u) => u.id)
-  const creatorIds = Array.from(new Set(
-    [
-      (solicitation as any).created_by,
-      ...(visits ?? []).map((r: any) => r.created_by),
-      ...(designProjects ?? []).map((r: any) => r.created_by),
-      ...(purchaseChecklistItems ?? []).map((r: any) => r.created_by),
-      ...(installationTrackings ?? []).map((r: any) => r.created_by),
-      ...(postSaleFollowups ?? []).map((r: any) => r.created_by),
-      ...eventRows.map((r: any) => r.created_by),
-      ...stageRespIds,
-    ].filter(Boolean) as string[]
-  ))
+  const eventAuthorIds = eventRows.map((r: any) => r.created_by).filter(Boolean) as string[]
+  const creatorIds = Array.from(new Set([...stageRespIds, ...eventAuthorIds]))
   const { data: teamUsers } = creatorIds.length
     ? await db.from('users').select('id, name, avatar_color, avatar_url').in('id', creatorIds)
     : { data: [] as any[] }
@@ -356,7 +348,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     postSaleFollowups: postSaleFollowups ?? [],
     suppliers: suppliers ?? [],
     events,
-    team: (teamUsers ?? []).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
+    team: stageRespIds.map(id => userById.get(id)).filter(Boolean).map((u: any) => ({ id: u.id, name: u.name, avatar_color: u.avatar_color ?? null, avatar_url: u.avatar_url ?? null })),
     stageResponsibles: stageRespMap,
     stageLinks,
     crmMessages,
@@ -1346,27 +1338,48 @@ export async function getSolicitationDeleteImpact(solicitationId: string): Promi
 export async function deleteSolicitation(solicitationId: string): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
-  // Recalcula no servidor: não confia no que a tela mostrou.
   const impact = await computeDeleteImpact(solicitationId, user.id)
   if (!impact.canDelete) return { error: impact.blockers[0] ?? 'Não é possível excluir esta solicitação.' }
 
   const db = createAdminClient()
-  // Ordem importa: design_projects.quote_id é NO ACTION, então projetos e
-  // demais registros saem antes dos orçamentos; o orçamento leva negociação,
-  // propostas, anexos e expedição por cascata.
-  for (const table of ['visits', 'design_projects', 'purchase_checklist_items', 'installation_trackings', 'post_sale_followups', 'shipments', 'negotiations', 'quotes']) {
-    const { error } = await db.from(table).delete().eq('solicitation_id', solicitationId)
-    if (error) return { error: `Não foi possível excluir (${table}): ${error.message}` }
-  }
-  const { error } = await db.from('solicitations').delete().eq('id', solicitationId)
+  const { error } = await db.from('solicitations').update({ deleted_at: new Date().toISOString() }).eq('id', solicitationId)
   if (error) return { error: error.message }
 
   revalidatePath('/solicitacoes')
-  revalidatePath('/quotes')
-  revalidatePath('/negotiations')
-  revalidatePath('/shipping')
   revalidatePath('/dashboard')
   return { ok: true }
+}
+
+export async function recoverSolicitation(solicitationId: string): Promise<R> {
+  const user = await requireUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const db = createAdminClient()
+  const { error } = await db.from('solicitations').update({ deleted_at: null }).eq('id', solicitationId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/solicitacoes')
+  return { ok: true }
+}
+
+export async function getDeletedSolicitations(): Promise<{ id: string; number: number; title: string | null; clientName: string | null; deleted_at: string }[]> {
+  const user = await requireUser()
+  if (!user) return []
+
+  const db = createAdminClient()
+  const cutoff = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const { data } = await db.from('solicitations')
+    .select('id, number, title, deleted_at, client:client_id(name)')
+    .not('deleted_at', 'is', null)
+    .gte('deleted_at', cutoff)
+    .order('deleted_at', { ascending: false })
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    number: r.number,
+    title: r.title ?? null,
+    clientName: r.client?.name ?? null,
+    deleted_at: r.deleted_at,
+  }))
 }
 
 // ── Preferências de propriedades do quadro (por usuário e escopo) ───────────

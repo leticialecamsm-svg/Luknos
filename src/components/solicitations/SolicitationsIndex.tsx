@@ -977,6 +977,7 @@ function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardPro
                               props={props}
                               stageColor={st.color}
                               multiStage={r.activeStages > 1}
+                              team={r.teamByStage[st.id] ?? []}
                               onClick={() => router.push(`/solicitacoes/${r.id}?tab=${st.id}`)}
                             />
                           ))}
