@@ -1284,8 +1284,8 @@ export type SolicitationDeleteImpact = {
 
 async function computeDeleteImpact(solicitationId: string, userId: string): Promise<SolicitationDeleteImpact & { number?: number }> {
   const db = createAdminClient()
-  const [sol, quotes, negs, visits, projects, purchases, ships, installs, posts, me] = await Promise.all([
-    db.from('solicitations').select('id, number, created_by').eq('id', solicitationId).maybeSingle(),
+  const [sol, quotes, negs, visits, projects, purchases, ships, installs, posts] = await Promise.all([
+    db.from('solicitations').select('id, number').eq('id', solicitationId).maybeSingle(),
     db.from('quotes').select('id').eq('solicitation_id', solicitationId),
     db.from('negotiations').select('quote_id, temperature').eq('solicitation_id', solicitationId),
     db.from('visits').select('id').eq('solicitation_id', solicitationId),
@@ -1294,7 +1294,6 @@ async function computeDeleteImpact(solicitationId: string, userId: string): Prom
     db.from('shipments').select('id').eq('solicitation_id', solicitationId),
     db.from('installation_trackings').select('id').eq('solicitation_id', solicitationId),
     db.from('post_sale_followups').select('id').eq('solicitation_id', solicitationId),
-    db.from('users').select('role').eq('id', userId).maybeSingle(),
   ])
   const counts = {
     orcamentos: (quotes.data ?? []).length,
@@ -1309,10 +1308,6 @@ async function computeDeleteImpact(solicitationId: string, userId: string): Prom
   const blockers: string[] = []
   if (!sol.data) return { canDelete: false, blockers: ['Solicitação não encontrada.'], counts }
 
-  const isAdmin = me.data?.role === 'admin'
-  if (!isAdmin && sol.data.created_by !== userId) {
-    blockers.push('Só quem criou a solicitação ou um administrador pode excluí-la.')
-  }
   if ((negs.data ?? []).some((n: any) => n.temperature === 'closed')) {
     blockers.push('Há uma venda fechada. Cancele a venda na aba Negociação antes de excluir.')
   }
