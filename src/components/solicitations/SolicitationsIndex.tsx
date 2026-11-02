@@ -896,7 +896,7 @@ function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardPro
               <section className="flex flex-col gap-2 w-44 rounded-xl p-2" style={{ background: '#9ca3af0d', border: '1px solid #9ca3af22' }}>
                 <div className="flex flex-col gap-2">
                   {(byStage['__none__'] ?? []).map(r => (
-                    <KanbanCard key={r.id} r={r} stageColor="#9ca3af" onClick={() => router.push(`/solicitacoes/${r.id}`)} team={[]} kindKey={null} dragging={false} onDragStart={() => {}} onDragEnd={() => {}} props={props} multiStage={false} />
+                    <KanbanCard key={r.id} r={r} href={`/solicitacoes/${r.id}`} stageColor="#9ca3af" onClick={() => router.push(`/solicitacoes/${r.id}`)} team={[]} kindKey={null} dragging={false} onDragStart={() => {}} onDragEnd={() => {}} props={props} multiStage={false} />
                   ))}
                 </div>
               </section>
@@ -975,6 +975,7 @@ function KanbanBoard({ rows, props }: { rows: IndexRow[]; props: ResolvedCardPro
                               key={`${r.id}-${st.id}`}
                               r={r}
                               props={props}
+                              href={`/solicitacoes/${r.id}?tab=${st.id}`}
                               stageColor={st.color}
                               multiStage={r.activeStages > 1}
                               team={r.teamByStage[st.id] ?? []}
@@ -1103,6 +1104,7 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
                   <KanbanCard
                     key={r.id}
                     props={props}
+                    href={`/solicitacoes/${r.id}?tab=${stageId}`}
                     kindKey={stageId === 'projeto' ? r.projectKind : null}
                     dragging={dragId === r.id}
                     onDragStart={(e) => { e.dataTransfer.setData('text/plain', r.id); e.dataTransfer.effectAllowed = 'move'; setDragId(r.id) }}
@@ -1123,8 +1125,8 @@ function StatusKanban({ stageId, rows, onMove, props }: { stageId: string; rows:
   )
 }
 
-function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragStart, onDragEnd, props, multiStage }: {
-  r: IndexRow; stageColor: string; onClick: () => void; team?: TeamUser[]; kindKey?: string | null
+function KanbanCard({ r, stageColor, onClick, href, team, kindKey, dragging, onDragStart, onDragEnd, props, multiStage }: {
+  r: IndexRow; stageColor: string; onClick: () => void; href: string; team?: TeamUser[]; kindKey?: string | null
   dragging?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void
   props: ResolvedCardProp[]; multiStage?: boolean
 }) {
@@ -1190,13 +1192,14 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
   }).filter(Boolean)
 
   return (
-    <article
-      onClick={onClick}
+    <a
+      href={href}
+      onClick={(e) => { e.preventDefault(); onClick() }}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={cn(
-        'group relative bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md transition-shadow',
+        'group relative block bg-white border-l-4 rounded-lg px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:shadow-md transition-shadow no-underline',
         onDragStart ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         dragging && 'opacity-40',
       )}
@@ -1213,7 +1216,7 @@ function KanbanCard({ r, stageColor, onClick, team, kindKey, dragging, onDragSta
       {parts.length > 0 && (
         <div className="mt-1.5 flex items-center gap-x-2 gap-y-1 flex-wrap">{parts}</div>
       )}
-    </article>
+    </a>
   )
 }
 
