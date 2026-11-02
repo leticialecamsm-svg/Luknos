@@ -3078,10 +3078,16 @@ export async function createSolicitationFromCrm(input: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const admin = createAdminClient()
+
+  // Se o contato veio de tráfego pago, preenche a origem automaticamente.
+  const { data: contact } = await admin.from('contacts').select('paid_traffic_type').eq('id', input.contactId).maybeSingle()
+  const origin = contact?.paid_traffic_type ? 'paid_traffic' : 'whatsapp'
+
   const { data, error } = await admin.from('solicitations').insert({
     client_id: input.contactId,
     title: input.title,
     work_stage: input.stage,
+    origin,
     created_by: user.id,
   }).select('id, number').single()
   if (error) return { error: error.message }

@@ -6,7 +6,7 @@ export type UserRole = 'admin' | 'seller' | 'logistics' | 'marketing' | (string 
 export type MarketingPostType = 'story' | 'reels' | 'carousel'
 export type MarketingPostStatus = 'scheduled' | 'posted'
 export type ContactType = 'client' | 'architect' | 'designer' | 'engineer' | 'electrician' | 'plasterer' | 'carpenter' | 'other'
-export type QuoteOrigin = 'visit' | 'whatsapp' | 'store' | 'referral' | 'other'
+export type QuoteOrigin = 'whatsapp' | 'store' | 'referral' | 'partner' | 'paid_traffic'
 export type QuoteCategory = 'lighting' | 'automation' | 'both'
 export type QuoteSize = 'small' | 'medium' | 'large'
 export type WorkStage = 'project' | 'execution' | 'finishing' | 'delivered'
@@ -281,11 +281,11 @@ export const TEMP_DEMOTION_ORDER: Record<string, string> = {
 }
 
 export const ORIGIN_LABEL: Record<QuoteOrigin, string> = {
-  visit:    'Visita',
-  whatsapp: 'WhatsApp',
-  store:    'Loja',
-  referral: 'Indicação',
-  other:    'Outro',
+  whatsapp:    'WhatsApp',
+  store:       'Loja',
+  referral:    'Indicação',
+  partner:     'Parceiro',
+  paid_traffic: 'Tráfego Pago',
 }
 
 export const CATEGORY_LABEL: Record<QuoteCategory, string> = {
