@@ -704,13 +704,14 @@ function SupplierSelect({ value, onChange, suppliers }: {
 
 function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationId: string; suppliers: { id: string; name: string }[]; onClose: () => void }) {
   const [description, setDescription] = useState('')
+  const [quantity, setQuantity] = useState('')
   const [supplier, setSupplier] = useState('')
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('')
   const [pending, startTransition] = useTransition()
   function add() {
     if (!description.trim()) return
     startTransition(async () => {
-      await savePurchaseChecklistItem({ solicitationId, description, supplier, expectedDeliveryDate: expectedDeliveryDate || null })
+      await savePurchaseChecklistItem({ solicitationId, description, quantity: quantity || null, supplier, expectedDeliveryDate: expectedDeliveryDate || null })
       onClose()
     })
   }
@@ -719,6 +720,7 @@ function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationI
       <FormHeading icon={ShoppingCart}>Novo item de compra</FormHeading>
       <div className="flex flex-wrap gap-2">
         <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input flex-1 min-w-[180px]" />
+        <input value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Qtd. (ex: 3, 2un, 5m)" className="input w-32" title="Quantidade" />
         <SupplierSelect value={supplier} onChange={setSupplier} suppliers={suppliers} />
         <input type="date" value={expectedDeliveryDate} onChange={e => setExpectedDeliveryDate(e.target.value)} title="Previsão de entrega informada ao cliente" className="input w-auto" />
         <button type="button" onClick={add} disabled={pending} className="btn-primary px-4 py-1.5 text-sm"><Plus className="w-4 h-4" /> Adicionar</button>
@@ -730,6 +732,7 @@ function AddPurchaseForm({ solicitationId, suppliers, onClose }: { solicitationI
 function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; solicitationId: string; team: Team; suppliers: { id: string; name: string }[] }) {
   const [editing, setEditing] = useState(false)
   const [description, setDescription] = useState(item.description ?? '')
+  const [quantity, setQuantity] = useState(item.quantity ?? '')
   const [supplier, setSupplier] = useState(item.supplier ?? '')
   const [date, setDate] = useState(item.expected_delivery_date ? String(item.expected_delivery_date).slice(0, 10) : '')
   const [pending, startTransition] = useTransition()
@@ -743,7 +746,7 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
   }
   function save() {
     startTransition(async () => {
-      await savePurchaseChecklistItem({ id: item.id, solicitationId, description, supplier, status: item.status, expectedDeliveryDate: date || null })
+      await savePurchaseChecklistItem({ id: item.id, solicitationId, description, quantity: quantity || null, supplier, status: item.status, expectedDeliveryDate: date || null })
       setEditing(false)
     })
   }
@@ -758,8 +761,10 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
           onChange={st => startTransition(async () => { await updatePurchaseChecklistItemStatus(item.id, solicitationId, st as any, item.description) })} />}
         onEdit={() => setEditing(true)} onDelete={handleDelete} pending={pending}
       >
-        {(item.supplier || item.expected_delivery_date) && (
-          <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
+        {(item.quantity || item.supplier || item.expected_delivery_date) && (
+          <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
+            {item.quantity && <span className="font-medium text-gray-700">Qtd: {item.quantity}</span>}
+            {item.quantity && (item.supplier || item.expected_delivery_date) ? <span>·</span> : null}
             {item.supplier && <><SupplierLogo name={item.supplier} size={14} /><span>{item.supplier}</span></>}
             {item.supplier && item.expected_delivery_date ? <span>·</span> : null}
             {item.expected_delivery_date ? <span>Previsão ao cliente: {formatDate(item.expected_delivery_date)}</span> : null}
@@ -767,7 +772,10 @@ function PurchaseRow({ item, solicitationId, team, suppliers }: { item: any; sol
         )}
         {editing && (
           <InlineEdit>
-            <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input" />
+            <div className="flex gap-2">
+              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição do item" className="input flex-1" />
+              <input value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Qtd." className="input w-24" title="Quantidade" />
+            </div>
             <div className="flex flex-wrap gap-2">
               <SupplierSelect value={supplier} onChange={setSupplier}
                 suppliers={[

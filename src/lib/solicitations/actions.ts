@@ -374,6 +374,7 @@ export async function savePurchaseChecklistItem(input: {
   supplier?: string | null
   status?: 'a_pedir' | 'pedido' | 'recebido'
   expectedDeliveryDate?: string | null
+  quantity?: string | null
 }): Promise<R> {
   const user = await requireUser()
   if (!user) return { error: 'Não autenticado' }
@@ -385,6 +386,7 @@ export async function savePurchaseChecklistItem(input: {
       supplier: input.supplier || null,
       status: input.status ?? 'a_pedir',
       expected_delivery_date: input.expectedDeliveryDate || null,
+      quantity: input.quantity || null,
     }).eq('id', input.id)
     if (error) return { error: error.message }
     await logSolicitationEvent(input.solicitationId, 'compra', `Compra editada: ${input.description.trim()}`, user.id)
@@ -397,6 +399,7 @@ export async function savePurchaseChecklistItem(input: {
     supplier: input.supplier || null,
     status: input.status ?? 'a_pedir',
     expected_delivery_date: input.expectedDeliveryDate || null,
+    quantity: input.quantity || null,
     created_by: user.id,
   }).select('id').single()
   if (error) return { error: error.message }
