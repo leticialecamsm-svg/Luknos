@@ -1071,6 +1071,26 @@ export async function createQuoteForSolicitation(
     priority: data.priority ?? 'normal',
   }).select('id').maybeSingle()
   if (error) return { error: error.message }
+
+  // Popula quote_owners a partir do responsável da etapa orçamento
+  if (inserted?.id) {
+    const { data: stageResps } = await db
+      .from('solicitation_stage_responsibles')
+      .select('user_id, stage')
+      .eq('solicitation_id', solicitationId)
+      .in('stage', ['orcamento', 'negociacao'])
+    if (stageResps && stageResps.length > 0) {
+      const orcamentoIds = new Set<string>(stageResps.filter((r: any) => r.stage === 'orcamento').map((r: any) => r.user_id as string))
+      const allIdsList = Array.from(new Set<string>(stageResps.map((r: any) => r.user_id as string)))
+      const owners = allIdsList.map((uid) => ({
+        quote_id: inserted.id,
+        user_id: uid,
+        role: orcamentoIds.has(uid) ? 'primary' : 'collaborator',
+      }))
+      await db.from('quote_owners').insert(owners)
+    }
+  }
+
   await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento criado', user.id)
   refresh(solicitationId)
   return { ok: true, id: inserted?.id, quoteId: inserted?.id }

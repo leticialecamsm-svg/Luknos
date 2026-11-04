@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { formatCurrency, formatDate, getInitials, isOverdue, cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { TEMPERATURE_COLOR, TEMPERATURE_LABEL, QUOTE_STATUS_LABEL } from '@/types'
@@ -39,6 +39,7 @@ export function VendorDashboard({
   goalsFallbackLabel?: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<'meu' | 'geral'>('meu')
   const [showEarningsModal, setShowEarningsModal] = useState(false)
 
@@ -49,7 +50,10 @@ export function VendorDashboard({
 
   function navigateMonth(delta: number) {
     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + delta, 1)
-    router.push(`/dashboard?year=${d.getFullYear()}&month=${d.getMonth() + 1}`, { scroll: false })
+    const viewAs = searchParams.get('viewAs')
+    const params = new URLSearchParams({ year: String(d.getFullYear()), month: String(d.getMonth() + 1) })
+    if (viewAs) params.set('viewAs', viewAs)
+    router.push(`/dashboard?${params.toString()}`, { scroll: false })
   }
 
   // KPIs — abertura/fechamento de negociação é definido pela TEMPERATURA

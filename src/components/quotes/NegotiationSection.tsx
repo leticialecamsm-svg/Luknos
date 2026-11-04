@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import { updateTemperature, markAsLost, cancelSale, getQuoteProposals } from '@/lib/actions'
 import { TEMPERATURE_LABEL, TEMPERATURE_COLOR, LOSS_REASON_LABEL } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Flame, CheckCircle2, XCircle, Pencil, Trash2, Percent } from 'lucide-react'
+import { Flame, CheckCircle2, XCircle, Pencil, Trash2, Percent, AlertTriangle } from 'lucide-react'
 import { CloseSaleForm } from './CloseSaleForm'
 import { DiscountTable } from './DiscountTable'
 import { EditPaymentForm } from './EditPaymentForm'
@@ -19,7 +19,7 @@ import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
 const TEMPS = ['no_forecast', 'cold', 'warm', 'hot', 'closed', 'lost'] as const
 
-export function NegotiationSection({ quote }: { quote: any }) {
+export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quote: any; negociacaoResponsibles?: any[] }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [showCloseSale, setShowCloseSale] = useState(false)
@@ -93,15 +93,31 @@ export function NegotiationSection({ quote }: { quote: any }) {
 
         {/* CTA: fechar ou perder */}
         {quote.temperature !== 'closed' && quote.temperature !== 'lost' && (
-          <div className="flex gap-2">
-            <button onClick={() => setShowCloseSale(true)} className="btn-primary text-xs py-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Fechar venda
-            </button>
-            <button onClick={() => setShowMarkLost(true)} className="btn-secondary text-xs py-1.5">
-              <XCircle className="w-3.5 h-3.5" />
-              Marcar como perdida
-            </button>
+          <div className="space-y-2">
+            {negociacaoResponsibles.length === 0 && (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                <span>Nenhum responsável atribuído à etapa de Negociação. Atribua um responsável antes de fechar para que a venda seja computada corretamente.</span>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setShowCloseSale(true)} className="btn-primary text-xs py-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Fechar venda
+              </button>
+              <button onClick={() => setShowMarkLost(true)} className="btn-secondary text-xs py-1.5">
+                <XCircle className="w-3.5 h-3.5" />
+                Marcar como perdida
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Alerta pós-fechamento: responsável de negociação não definido */}
+        {quote.temperature === 'closed' && negociacaoResponsibles.length === 0 && (
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 mb-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+            <span>Venda fechada sem responsável definido. Atribua o responsável pela Negociação para que a comissão seja calculada corretamente.</span>
           </div>
         )}
 

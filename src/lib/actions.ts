@@ -431,6 +431,31 @@ export async function updateTemperature(quoteId: string, temperature: NegTempera
     .upsert(negUpdate, { onConflict: 'quote_id' })
   if (error) return { error: error.message }
 
+  // Ao fechar, garante que quote_owners está populado a partir dos responsáveis
+  // de etapa (orcamento = primary, negociacao = collaborator).
+  // Se já existirem owners, não altera.
+  if (temperature === 'closed' && quoteRow?.solicitation_id) {
+    const { data: existingOwners } = await admin
+      .from('quote_owners').select('user_id').eq('quote_id', quoteId)
+    if (!existingOwners || existingOwners.length === 0) {
+      const { data: stageResps } = await admin
+        .from('solicitation_stage_responsibles')
+        .select('user_id, stage')
+        .eq('solicitation_id', quoteRow.solicitation_id)
+        .in('stage', ['orcamento', 'negociacao'])
+      if (stageResps && stageResps.length > 0) {
+        const orcamentoIds = new Set<string>(stageResps.filter((r: any) => r.stage === 'orcamento').map((r: any) => r.user_id as string))
+        const allIdsList = Array.from(new Set<string>(stageResps.map((r: any) => r.user_id as string)))
+        const owners = allIdsList.map((uid) => ({
+          quote_id: quoteId,
+          user_id: uid,
+          role: orcamentoIds.has(uid) ? 'primary' : 'collaborator',
+        }))
+        await admin.from('quote_owners').insert(owners).select()
+      }
+    }
+  }
+
   await admin.from('neg_temperature_history').insert({
     quote_id: quoteId,
     from_temp: fromTemp,

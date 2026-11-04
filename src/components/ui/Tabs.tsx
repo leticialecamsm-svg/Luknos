@@ -83,11 +83,11 @@ export function Tabs({
       )}
       {/* Quando a barra está oculta, mostra título estático da aba ativa */}
       {hideTabBar && activeItem && (
-        <div className="flex items-center gap-2 mb-3 px-0.5">
-          {ActiveIcon && <ActiveIcon style={{ width: 14, height: 14, color: '#cba455', flexShrink: 0 }} />}
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#0a1f3b' }}>{activeItem.label}</span>
+        <div className="flex items-center gap-2.5 mb-4 px-0.5">
+          {ActiveIcon && <ActiveIcon style={{ width: 18, height: 18, color: '#cba455', flexShrink: 0 }} />}
+          <span style={{ fontSize: 18, fontWeight: 700, color: '#0a1f3b', letterSpacing: '-0.01em' }}>{activeItem.label}</span>
           {typeof activeItem.badge === 'number' && activeItem.badge > 0 && (
-            <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 999, background: 'rgba(10,31,59,.07)', color: '#0a1f3b' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(10,31,59,.07)', color: '#0a1f3b' }}>
               {activeItem.badge}
             </span>
           )}

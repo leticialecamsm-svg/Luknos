@@ -376,7 +376,10 @@ export function SolicitationDetail({
             />
           </div>
           {primaryQuote ? (
-            <NegotiationSection quote={primaryQuote} />
+            <NegotiationSection
+              quote={primaryQuote}
+              negociacaoResponsibles={solicitation.stageResponsibles['negociacao'] ?? []}
+            />
           ) : (
             <Empty>Nenhuma negociação vinculada a esta solicitação.</Empty>
           )}
