@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useDashboardPending } from './ValuesMask'
 
@@ -14,6 +14,7 @@ const label = (y: number, m: number) => {
 // enquanto os dados do novo mês carregam.
 export function MonthNavigator({ year, month }: { year: number; month: number }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const [target, setTarget] = useState({ year, month })
   const setPending = useDashboardPending()
@@ -25,7 +26,10 @@ export function MonthNavigator({ year, month }: { year: number; month: number })
     const d = new Date(target.year, target.month - 1 + delta, 1)
     const next = { year: d.getFullYear(), month: d.getMonth() + 1 }
     setTarget(next)
-    startTransition(() => router.push(`/dashboard?year=${next.year}&month=${next.month}`, { scroll: false }))
+    const params = new URLSearchParams({ year: String(next.year), month: String(next.month) })
+    const viewAs = searchParams.get('viewAs')
+    if (viewAs) params.set('viewAs', viewAs)
+    startTransition(() => router.push(`/dashboard?${params.toString()}`, { scroll: false }))
   }
 
   const btn = 'w-8 h-full flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-surface-secondary transition-colors'
