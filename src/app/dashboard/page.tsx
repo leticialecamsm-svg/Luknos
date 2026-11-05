@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 
 // Colaboradores que o admin pode visualizar como se fosse eles (modo "ver como").
 // Por enquanto uma lista fixa, combinada no pedido — não é geral pra todo mundo ainda.
-const VIEW_AS_ALLOWED_NAMES = ['Jennifer', 'Dalisson', 'Isabelle Medeiros', 'Gabriel']
+const VIEW_AS_ALLOWED_NAMES = ['Jennifer', 'Dalisson', 'Isabelle Medeiros', 'Gabriel', 'Luana Jurema', 'Paulo Ricardo', 'Pedro Henrique']
 
 // Busca metas para o mês; se vazio, faz fallback para o mês mais recente com metas cadastradas
 async function getGoalsWithFallback(year: number, month: number) {
