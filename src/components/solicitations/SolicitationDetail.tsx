@@ -9,7 +9,7 @@
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight, CheckSquare, CalendarClock } from 'lucide-react'
+import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight, CheckSquare, CalendarClock, BookOpen } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { NegotiationSection } from '@/components/quotes/NegotiationSection'
@@ -33,6 +33,7 @@ import {
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
 import { SolicitationTasksTab } from '@/components/solicitations/SolicitationTasksTab'
 import { SolicitationSchedules } from '@/components/solicitations/SolicitationSchedules'
+import { SolicitationDocumentsTab } from '@/components/solicitations/SolicitationDocumentsTab'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { isStageDone, splitPlannedDone } from '@/lib/solicitations/stages'
 import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/components/solicitations/SolicitationOverview'
@@ -469,6 +470,14 @@ export function SolicitationDetail({
           solicitationId={sid}
           solicitationLabel={solicitation.title ?? `Solicitação #${solicitation.number}`}
         />
+      ),
+    },
+    {
+      id: 'documentos',
+      label: 'Documentos',
+      icon: BookOpen,
+      content: (
+        <SolicitationDocumentsTab solicitationId={sid} />
       ),
     },
   ]
