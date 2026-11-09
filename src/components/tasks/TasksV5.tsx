@@ -34,6 +34,8 @@ interface Task {
   assigned_by?: { name: string; avatar_color: string; avatar_url?: string | null } | null
   quote?: { number: number; client_name: string } | null
   quote_id?: string | null
+  solicitation_id?: string | null
+  solicitation?: { number: number; title?: string | null } | null
   checklist?: { text: string; done: boolean }[]
   subtasks?: { id: string; title?: string; text?: string; done: boolean; completed?: boolean }[]
 }

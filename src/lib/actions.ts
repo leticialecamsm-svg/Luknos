@@ -1540,6 +1540,7 @@ interface ScheduleInput {
   scheduled_time?: string | null
   location?: string | null
   team_members: string[]
+  solicitation_id?: string | null
 }
 
 // Enriquece agendamentos com participantes, criador, parceiro e orçamento.
@@ -1591,6 +1592,7 @@ export async function createSchedule(data: ScheduleInput) {
     title: data.title,
     type: data.type,
     quote_id: data.quote_id || null,
+    solicitation_id: data.solicitation_id || null,
     partner_id: data.partner_id || null,
     scheduled_date: data.scheduled_date,
     scheduled_time: data.scheduled_time || null,
@@ -1614,6 +1616,7 @@ export async function updateSchedule(id: string, data: Partial<ScheduleInput>) {
   if (data.title !== undefined) updates.title = data.title
   if (data.type !== undefined) updates.type = data.type
   if (data.quote_id !== undefined) updates.quote_id = data.quote_id || null
+  if (data.solicitation_id !== undefined) updates.solicitation_id = data.solicitation_id || null
   if (data.partner_id !== undefined) updates.partner_id = data.partner_id || null
   if (data.scheduled_date !== undefined) updates.scheduled_date = data.scheduled_date
   if (data.scheduled_time !== undefined) updates.scheduled_time = data.scheduled_time || null
@@ -1667,6 +1670,17 @@ export async function getSchedulesByQuote(quoteId: string) {
     .from('schedules')
     .select('*')
     .eq('quote_id', quoteId)
+    .order('scheduled_date', { ascending: true })
+    .order('scheduled_time', { ascending: true })
+  return enrichSchedules(filterFollowups(data ?? [], user?.id))
+}
+
+export async function getSchedulesBySolicitation(solicitationId: string) {
+  const { data: { user } } = await createClient().auth.getUser()
+  const { data } = await createAdminClient()
+    .from('schedules')
+    .select('*')
+    .eq('solicitation_id', solicitationId)
     .order('scheduled_date', { ascending: true })
     .order('scheduled_time', { ascending: true })
   return enrichSchedules(filterFollowups(data ?? [], user?.id))
@@ -1888,6 +1902,24 @@ export async function getQuotesList() {
   return data ?? []
 }
 
+export async function getTasksBySolicitation(solicitationId: string) {
+  const supabase = createClient()
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('tasks')
+    .select('*, subtasks(id, title, done)')
+    .eq('solicitation_id', solicitationId)
+    .order('created_at', { ascending: false })
+  if (error || !data || data.length === 0) return []
+  const userIds = Array.from(new Set(data.map((t: any) => t.user_id).filter(Boolean)))
+  let usersMap: Record<string, any> = {}
+  if (userIds.length > 0) {
+    const { data: users } = await supabase.from('users').select('id, name, avatar_color, avatar_url').in('id', userIds)
+    if (users) usersMap = Object.fromEntries(users.map((u: any) => [u.id, u]))
+  }
+  return data.map((t: any) => ({ ...t, users: t.user_id ? (usersMap[t.user_id] ?? null) : null }))
+}
+
 export async function getTasksByQuote(quoteId: string) {
   const supabase = createClient()
   const { data, error } = await supabase
@@ -1915,6 +1947,7 @@ export async function createTask(formData: {
   due_date?: string
   checklist?: { text: string; done: boolean }[]
   quote_id?: string | null
+  solicitation_id?: string | null
   assignee_id?: string | null
 }) {
   const supabase = createClient()
@@ -1943,6 +1976,7 @@ export async function createTask(formData: {
     due_date: formData.due_date,
     checklist: formData.checklist || [],
     quote_id: formData.quote_id || null,
+    solicitation_id: formData.solicitation_id || null,
   }).select().single()
 
   if (error) return { error: error.message }
@@ -2035,6 +2069,7 @@ export async function updateTask(id: string, formData: {
   due_date?: string | null
   checklist?: { text: string; done: boolean }[]
   quote_id?: string | null
+  solicitation_id?: string | null
   pinned_to_today?: boolean
 }) {
   const db = await getDbClient(id)

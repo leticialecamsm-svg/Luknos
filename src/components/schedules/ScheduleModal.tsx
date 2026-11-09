@@ -18,12 +18,13 @@ interface ScheduleModalProps {
   schedule?: any           // se presente → modo edição
   defaultDate?: string     // data pré-preenchida (criação inline a partir de um dia)
   defaultQuote?: { id: string; label: string }  // pré-vincular orçamento (a partir da página de orçamento)
+  defaultSolicitation?: { id: string; label: string }  // pré-vincular solicitação
   allowedTypes?: string[]  // restringe os tipos de agendamento disponíveis
   onClose: () => void
   onSuccess: (saved?: any) => void
 }
 
-export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedTypes, onClose, onSuccess }: ScheduleModalProps) {
+export function ScheduleModal({ schedule, defaultDate, defaultQuote, defaultSolicitation, allowedTypes, onClose, onSuccess }: ScheduleModalProps) {
   const toast = useToast()
   const isEdit = !!schedule
   const [saving, setSaving] = useState(false)
@@ -46,7 +47,11 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedType
   const [partnerOpen, setPartnerOpen] = useState(false)
   const partnerRef = useRef<HTMLDivElement>(null)
 
-  // Orçamento (typeahead)
+  // Solicitação (pré-fixada quando vem de SolicitationDetail)
+  const fixedSolicitation = defaultSolicitation ?? (schedule?.solicitation_id ? { id: schedule.solicitation_id, label: 'Solicitação' } : null)
+  const [solicitationId] = useState<string | null>(schedule?.solicitation_id ?? defaultSolicitation?.id ?? null)
+
+  // Orçamento (typeahead) — só exibido quando não há solicitação fixada
   const [quotes, setQuotes] = useState<any[]>([])
   const [quoteId, setQuoteId] = useState<string | null>(schedule?.quote_id ?? defaultQuote?.id ?? null)
   const [quoteLabel, setQuoteLabel] = useState<string>(
@@ -101,6 +106,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedType
       title: title.trim(),
       type: type as any,
       quote_id: quoteId,
+      solicitation_id: solicitationId,
       partner_id: partnerId,
       scheduled_date: date,
       scheduled_time: time || null,
@@ -226,8 +232,18 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedType
               placeholder="Ex: Rua das Flores, 123" className="input mt-1" />
           </div>
 
-          {/* Orçamento relacionado */}
-          <div ref={quoteRef}>
+          {/* Solicitação relacionada (badge fixo, não editável) */}
+          {fixedSolicitation && (
+            <div>
+              <label className="label">Solicitação</label>
+              <div className="flex items-center gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 mt-1">
+                <span className="text-sm text-brand-700 flex-1">{fixedSolicitation.label}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Orçamento relacionado (só se não houver solicitação fixada) */}
+          {!fixedSolicitation && <div ref={quoteRef}>
             <label className="label">Orçamento relacionado</label>
             {quoteId ? (
               <div className="flex items-center gap-2 bg-surface-secondary border border-surface-border rounded-lg px-3 py-2 mt-1">
@@ -255,7 +271,7 @@ export function ScheduleModal({ schedule, defaultDate, defaultQuote, allowedType
                 )}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Ações */}
           <div className="flex gap-3 pt-2">
