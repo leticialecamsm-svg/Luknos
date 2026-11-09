@@ -9,7 +9,7 @@
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight } from 'lucide-react'
+import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight, CheckSquare, CalendarClock } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, type TabItem } from '@/components/ui/Tabs'
 import { NegotiationSection } from '@/components/quotes/NegotiationSection'
@@ -31,6 +31,8 @@ import {
   deleteShipmentForSolicitation, createShipmentForSolicitation, updateShipmentAddressDate,
 } from '@/lib/solicitations/actions'
 import { RichTextEditor, RichTextView } from '@/components/solicitations/RichTextEditor'
+import { SolicitationTasksTab } from '@/components/solicitations/SolicitationTasksTab'
+import { SolicitationSchedules } from '@/components/solicitations/SolicitationSchedules'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { isStageDone, splitPlannedDone } from '@/lib/solicitations/stages'
 import { SolicitationHero, StagePipeline, SolicitationSidebar } from '@/components/solicitations/SolicitationOverview'
@@ -449,6 +451,25 @@ export function SolicitationDetail({
           renderAddForm={close => <AddPostSaleForm solicitationId={sid} onClose={close} />}
         />
       )),
+    },
+    {
+      id: 'tarefas',
+      label: 'Tarefas',
+      icon: CheckSquare,
+      content: (
+        <SolicitationTasksTab solicitationId={sid} />
+      ),
+    },
+    {
+      id: 'agenda',
+      label: 'Agenda',
+      icon: CalendarClock,
+      content: (
+        <SolicitationSchedules
+          solicitationId={sid}
+          solicitationLabel={solicitation.title ?? `Solicitação #${solicitation.number}`}
+        />
+      ),
     },
   ]
 

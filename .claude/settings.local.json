@@ -81,7 +81,9 @@
       "Bash(python3 -c ' *)",
       "Bash(python3 template_luknos.py)",
       "mcp__53ad7dfc-b221-4ade-8033-45c0aa06b148__whoami",
-      "mcp__53ad7dfc-b221-4ade-8033-45c0aa06b148__get_figma_skill"
+      "mcp__53ad7dfc-b221-4ade-8033-45c0aa06b148__get_figma_skill",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__browser_batch"
     ]
   }
 }

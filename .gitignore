@@ -12,3 +12,5 @@ build/
 supabase/functions/.env
 supabase/.temp/
 supabase/.branches/
+.vercel
+.env*
