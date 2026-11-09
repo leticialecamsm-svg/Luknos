@@ -10,6 +10,7 @@ export type DocumentSummary = {
   solicitation_id: string | null
   solicitation_number: number | null
   solicitation_title: string | null
+  stage: string | null
   created_by: string | null
   creator_name: string | null
   updated_by: string | null
@@ -20,6 +21,30 @@ export type DocumentSummary = {
 
 export type DocumentFull = DocumentSummary & {
   content: any
+}
+
+export type SolicitationOption = {
+  id: string
+  number: number
+  title: string | null
+  client_name: string | null
+}
+
+export async function getSolicitationsList(): Promise<SolicitationOption[]> {
+  const auth = await guard()
+  if ('error' in auth) return []
+  const db = createAdminClient()
+  const { data } = await db
+    .from('solicitations')
+    .select('id, number, title, client_name')
+    .order('number', { ascending: false })
+    .limit(300)
+  return (data ?? []).map((s: any) => ({
+    id: s.id,
+    number: s.number,
+    title: s.title ?? null,
+    client_name: s.client_name ?? null,
+  }))
 }
 
 async function guard(): Promise<{ user: NonNullable<Awaited<ReturnType<ReturnType<typeof createClient>['auth']['getUser']>>['data']['user']> } | { error: string }> {
@@ -35,7 +60,7 @@ export async function getDocuments(solicitationId?: string): Promise<DocumentSum
 
   let query = db
     .from('documents')
-    .select('id, title, solicitation_id, created_by, updated_by, created_at, updated_at')
+    .select('id, title, solicitation_id, stage, created_by, updated_by, created_at, updated_at')
     .order('updated_at', { ascending: false })
     .limit(200)
 
@@ -65,6 +90,7 @@ export async function getDocuments(solicitationId?: string): Promise<DocumentSum
     solicitation_id: d.solicitation_id ?? null,
     solicitation_number: d.solicitation_id ? (solsMap[d.solicitation_id]?.number ?? null) : null,
     solicitation_title: d.solicitation_id ? (solsMap[d.solicitation_id]?.title ?? null) : null,
+    stage: d.stage ?? null,
     created_by: d.created_by ?? null,
     creator_name: d.created_by ? (usersMap[d.created_by] ?? null) : null,
     updated_by: d.updated_by ?? null,
@@ -104,6 +130,7 @@ export async function getDocument(id: string): Promise<DocumentFull | null> {
     solicitation_id: data.solicitation_id ?? null,
     solicitation_number,
     solicitation_title,
+    stage: data.stage ?? null,
     created_by: data.created_by ?? null,
     creator_name: data.created_by ? (usersMap[data.created_by] ?? null) : null,
     updated_by: data.updated_by ?? null,
@@ -117,6 +144,7 @@ export async function createDocument(input: {
   title?: string
   content?: any
   solicitation_id?: string | null
+  stage?: string | null
 }): Promise<{ ok: true; id: string } | { error: string }> {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
@@ -126,6 +154,7 @@ export async function createDocument(input: {
     title: input.title || 'Sem título',
     content: input.content ?? null,
     solicitation_id: input.solicitation_id ?? null,
+    stage: input.stage ?? null,
     created_by: auth.user.id,
     updated_by: auth.user.id,
   }).select('id').single()
@@ -138,6 +167,8 @@ export async function createDocument(input: {
 export async function updateDocument(id: string, input: {
   title?: string
   content?: any
+  solicitation_id?: string | null
+  stage?: string | null
 }): Promise<{ ok: true } | { error: string }> {
   const auth = await guard()
   if ('error' in auth) return { error: auth.error }
@@ -146,6 +177,8 @@ export async function updateDocument(id: string, input: {
   const updates: Record<string, any> = { updated_by: auth.user.id, updated_at: new Date().toISOString() }
   if (input.title !== undefined) updates.title = input.title
   if (input.content !== undefined) updates.content = input.content
+  if ('solicitation_id' in input) updates.solicitation_id = input.solicitation_id ?? null
+  if ('stage' in input) updates.stage = input.stage ?? null
 
   const { error } = await db.from('documents').update(updates).eq('id', id)
   if (error) return { error: error.message }

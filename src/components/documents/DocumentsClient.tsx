@@ -1,14 +1,25 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Plus, Trash2, Clock, User, ExternalLink, Search, Loader2 } from 'lucide-react'
+import { FileText, Plus, Trash2, Clock, User, ExternalLink, Search, Loader2, Link as LinkIcon } from 'lucide-react'
 import { createDocument, deleteDocument, type DocumentSummary } from '@/lib/documents/actions'
 import { formatDate, cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ui/useConfirm'
 import Link from 'next/link'
 
-function DocCard({ doc, onDelete }: { doc: DocumentSummary; onDelete: () => void }) {
+const STAGE_LABELS: Record<string, string> = {
+  visita: 'Visita',
+  projeto: 'Projeto',
+  orcamento: 'Orçamento',
+  negociacao: 'Negociação',
+  compra: 'Compra',
+  expedicao: 'Expedição',
+  instalacao: 'Instalação',
+  posVenda: 'Pós-venda',
+}
+
+function DocRow({ doc, onDelete }: { doc: DocumentSummary; onDelete: () => void }) {
   const { confirm, ConfirmDialog } = useConfirm()
 
   async function handleDelete(e: React.MouseEvent) {
@@ -29,33 +40,37 @@ function DocCard({ doc, onDelete }: { doc: DocumentSummary; onDelete: () => void
     <>
       <Link
         href={`/documentos/${doc.id}`}
-        className="group flex items-start gap-3 p-4 rounded-xl border border-gray-100 bg-white hover:border-brand-200 hover:shadow-sm transition-all"
+        className="group flex items-center gap-4 px-4 py-3 rounded-xl border border-transparent hover:border-gray-100 hover:bg-gray-50 transition-all"
       >
-        <div className="shrink-0 w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center">
-          <FileText className="w-4 h-4 text-brand-600" />
+        <div className="shrink-0 w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center">
+          <FileText className="w-3.5 h-3.5 text-brand-500" />
         </div>
+
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-800 truncate">{doc.title || 'Sem título'}</p>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+          <p className="text-sm font-medium text-gray-800 truncate">{doc.title || 'Sem título'}</p>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             {doc.solicitation_number && (
-              <span className="text-brand-600 font-medium">
-                Sol. #{doc.solicitation_number}{doc.solicitation_title ? ` · ${doc.solicitation_title}` : ''}
+              <span className="text-xs text-brand-600 font-medium flex items-center gap-1">
+                <LinkIcon className="w-2.5 h-2.5" />
+                Sol. #{doc.solicitation_number}
+                {doc.stage && <span className="text-brand-400">· {STAGE_LABELS[doc.stage] ?? doc.stage}</span>}
               </span>
             )}
-            <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" /> {timeLabel}
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" /> {timeLabel}
             </span>
             {doc.updater_name && (
-              <span className="flex items-center gap-1">
-                <User className="w-3 h-3" /> {doc.updater_name.split(' ')[0]}
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <User className="w-2.5 h-2.5" /> {doc.updater_name.split(' ')[0]}
               </span>
             )}
           </div>
         </div>
+
         <button
           type="button"
           onClick={handleDelete}
-          className="shrink-0 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+          className="shrink-0 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -87,36 +102,54 @@ export function DocumentsClient({ initialDocs }: { initialDocs: DocumentSummary[
       )
     : docs
 
+  // Group by date
+  const today = new Date().toDateString()
+  const yesterday = new Date(Date.now() - 86400000).toDateString()
+
+  function getGroup(doc: DocumentSummary) {
+    const d = new Date(doc.updated_at).toDateString()
+    if (d === today) return 'Hoje'
+    if (d === yesterday) return 'Ontem'
+    return formatDate(doc.updated_at)
+  }
+
+  const groups: { label: string; docs: DocumentSummary[] }[] = []
+  for (const doc of filtered) {
+    const label = search.trim() ? 'Resultados' : getGroup(doc)
+    const last = groups[groups.length - 1]
+    if (last && last.label === label) last.docs.push(doc)
+    else groups.push({ label, docs: [doc] })
+  }
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Documentos</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Notas, anotações e documentos internos</p>
-        </div>
+        <h1 className="text-lg font-semibold text-gray-900">Documentos</h1>
         <button
           onClick={handleNew}
           disabled={creating}
-          className="btn-primary flex items-center gap-2 px-4 py-2 text-sm"
+          className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm"
         >
-          {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Novo documento
+          {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+          Novo
         </button>
       </div>
 
-      <div className="relative mb-5">
-        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+      {/* Busca */}
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por título ou solicitação..."
-          className="input w-full pl-9"
+          placeholder="Buscar documentos…"
+          className="input w-full pl-9 text-sm py-2"
         />
       </div>
 
       {filtered.length === 0 ? (
         <div className="text-center py-16">
-          <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+          <FileText className="w-8 h-8 text-gray-200 mx-auto mb-3" />
           <p className="text-gray-400 text-sm">
             {search ? 'Nenhum documento encontrado' : 'Nenhum documento ainda'}
           </p>
@@ -127,13 +160,20 @@ export function DocumentsClient({ initialDocs }: { initialDocs: DocumentSummary[
           )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map(doc => (
-            <DocCard
-              key={doc.id}
-              doc={doc}
-              onDelete={() => setDocs(ds => ds.filter(d => d.id !== doc.id))}
-            />
+        <div className="space-y-5">
+          {groups.map(group => (
+            <div key={group.label}>
+              <p className="text-xs font-medium text-gray-400 px-4 mb-1">{group.label}</p>
+              <div>
+                {group.docs.map(doc => (
+                  <DocRow
+                    key={doc.id}
+                    doc={doc}
+                    onDelete={() => setDocs(ds => ds.filter(d => d.id !== doc.id))}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
