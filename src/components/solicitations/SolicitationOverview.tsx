@@ -764,11 +764,12 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Cliente</label>
                 <div className="relative">
                   <input
-                    value={clientQuery || clientLabel}
+                    value={clientOpen ? clientQuery : clientLabel}
                     placeholder="Buscar cliente…"
                     className="input w-full text-xs"
-                    onChange={e => { setClientQuery(e.target.value); setClientLabel(e.target.value); setClientOpen(true) }}
-                    onFocus={() => setClientOpen(true)}
+                    onChange={e => { setClientQuery(e.target.value); setClientOpen(true) }}
+                    onFocus={() => { setClientQuery(''); setClientOpen(true) }}
+                    onBlur={() => { setTimeout(() => setClientOpen(false), 150) }}
                   />
                   {clientOpen && clientResults.length > 0 && (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
