@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone, Globe, FileSpreadsheet, Activity } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, ChevronRight, ChevronLeft, Users2, TrendingUp, CheckSquare, Package, Wallet, UserCog, ShoppingBag, Megaphone, GraduationCap, Inbox, Award, Bot, ScanSearch, BarChart3, Sparkles, FileBox, Calculator, FileCheck2, Receipt, ClipboardList, MessagesSquare, Smartphone, Globe, FileSpreadsheet, Activity, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCrmAwaiting } from '@/lib/use-crm-awaiting'
 import type { User } from '@/types'
@@ -15,6 +15,7 @@ const NAV = [
   // 'Projetos' (/design-projects) e 'Contatos do Site' (/site-leads) saíram do menu:
   // as rotas continuam existindo, só não aparecem na navegação.
   { href: '/solicitacoes',    label: 'Solicitações', icon: ClipboardList },
+  { href: '/documentos',      label: 'Documentos',   icon: BookOpen },
   { href: '/dashboard/project-reading', label: 'Leitura de Projeto', icon: ScanSearch },
   { href: '/crm',             label: 'CRM WhatsApp', icon: MessagesSquare },
   { href: '/shipping',        label: 'Expedição',   icon: Package },
