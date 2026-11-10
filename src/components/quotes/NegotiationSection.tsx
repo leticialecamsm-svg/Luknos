@@ -13,7 +13,7 @@ import { TEMPERATURE_LABEL, TEMPERATURE_COLOR, LOSS_REASON_LABEL } from '@/types
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { Flame, CheckCircle2, XCircle, Pencil, Trash2, Percent, AlertTriangle } from 'lucide-react'
 import { CloseSaleForm } from './CloseSaleForm'
-import { DiscountTable } from './DiscountTable'
+import { NegotiationSimulator } from './NegotiationSimulator'
 import { EditPaymentForm } from './EditPaymentForm'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
@@ -249,7 +249,7 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
       {/* Tabela de descontos */}
       <div className="card p-4">
         <button onClick={() => setShowDiscounts(v => !v)} className="w-full flex items-center justify-between text-sm font-semibold text-gray-700">
-          <span className="flex items-center gap-2"><Percent className="w-4 h-4" /> Tabela de descontos</span>
+          <span className="flex items-center gap-2"><Percent className="w-4 h-4" /> Simulador de viabilidade</span>
           <span className="text-xs text-gray-400">{showDiscounts ? 'Ocultar' : 'Ver'}</span>
         </button>
         {showDiscounts && (
@@ -282,8 +282,8 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
                 ))}
               </div>
             )}
-            <DiscountTable
-              quotedValue={
+            <NegotiationSimulator
+              baseValue={
                 selectedProposalId
                   ? (proposals.find(p => p.id === selectedProposalId)?.value ?? quote.quoted_value ?? quote.final_value ?? null)
                   : (quote.quoted_value ?? quote.final_value ?? null)
