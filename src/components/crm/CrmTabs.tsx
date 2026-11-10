@@ -10,6 +10,7 @@ const TABS = [
   { href: '/crm', label: 'Quadro' },
   { href: '/crm/conversas', label: 'Conversas' },
   { href: '/crm/metricas-trafego', label: 'Métricas do tráfego', adminOnly: true },
+  { href: '/crm/conexoes', label: 'Conexões', adminOnly: true },
 ]
 
 export function CrmTabs() {

@@ -3326,3 +3326,92 @@ export async function getConversationHistory(conversationId: string): Promise<{ 
   ].sort((a, b) => b.at.localeCompare(a.at))
   return { items }
 }
+
+// ─── Conexões dos números (tela Conexões, só administradores) ───────────────
+// Estado de cada WhatsApp (escrito pelo monitor crm-health-check) + últimas mensagens + log de acontecimentos.
+
+export interface ConnectionRow {
+  id: string
+  label: string
+  phone: string | null
+  instance_name: string
+  is_active: boolean
+  status: 'ok' | 'warn' | 'down' | 'unknown'
+  detail: string | null
+  reason: string | null
+  since: string | null
+  checked_at: string | null
+  state: string | null // open / close / connecting
+  silent: boolean // conectado, mas sem receber mensagens (sessão travada)
+  last_inbound_at: string | null
+  last_outbound_at: string | null
+  webhook: { enabled: boolean | null; events: string[] | null } | null
+}
+
+export interface ConnectionEvent {
+  id: number
+  at: string
+  kind: string
+  component: string
+  who: string // nome do número/servidor
+  instance_id: string | null
+  message: string
+}
+
+export async function getCrmConnections(): Promise<{ rows: ConnectionRow[]; events: ConnectionEvent[]; server: { status: string; detail: string | null; since: string | null } | null } | { error: string }> {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error ?? 'Sem permissão' }
+  const admin = createAdminClient()
+  const [{ data: insts }, { data: health }, { data: evs }, { data: act }] = await Promise.all([
+    admin.from('crm_instances').select('id, label, phone_e164, instance_name, is_active').order('label'),
+    admin.from('crm_health').select('component, status, detail, reason, since, checked_at, meta'),
+    admin.from('crm_health_events').select('id, component, kind, message, at').order('at', { ascending: false }).limit(300),
+    admin.rpc('crm_instance_activity'),
+  ])
+  const healthBy = new Map((health ?? []).map((h: any) => [h.component as string, h]))
+  const actBy = new Map(((act ?? []) as any[]).map((a) => [a.instance_id as string, a]))
+  const rows: ConnectionRow[] = (insts ?? []).map((i: any) => {
+    const h: any = healthBy.get(`instance:${i.id}`)
+    const a: any = actBy.get(i.id)
+    return {
+      id: i.id, label: i.label, phone: i.phone_e164 ?? null, instance_name: i.instance_name, is_active: !!i.is_active,
+      status: (h?.status ?? 'unknown') as ConnectionRow['status'],
+      detail: h?.detail ?? null, reason: h?.reason ?? null, since: h?.since ?? null, checked_at: h?.checked_at ?? null,
+      state: h?.meta?.state ?? null, silent: h?.meta?.silent === true,
+      last_inbound_at: a?.last_inbound_at ?? null, last_outbound_at: a?.last_outbound_at ?? null,
+      webhook: h?.meta?.webhook ? { enabled: h.meta.webhook.enabled ?? null, events: h.meta.webhook.events ?? null } : null,
+    }
+  })
+  const labelOf = new Map((insts ?? []).map((i: any) => [i.id as string, i.label as string]))
+  const whoOf = (component: string): { who: string; instance_id: string | null } => {
+    if (component.startsWith('instance:')) { const id = component.slice(9); return { who: labelOf.get(id) ?? 'Número removido', instance_id: id } }
+    if (component === 'evolution') return { who: 'Servidor do WhatsApp', instance_id: null }
+    if (component === 'vps') return { who: 'Máquina na Hostinger', instance_id: null }
+    if (component === 'envio') return { who: 'Envio de mensagem', instance_id: null }
+    return { who: component, instance_id: null }
+  }
+  const events: ConnectionEvent[] = (evs ?? []).map((e: any) => ({
+    id: e.id, at: e.at, kind: e.kind, component: e.component, message: e.message, ...whoOf(e.component),
+  }))
+  const evo: any = healthBy.get('evolution')
+  return { rows, events, server: evo ? { status: evo.status, detail: evo.detail ?? null, since: evo.since ?? null } : null }
+}
+
+// Reinicia a conexão de um número na Evolution (para o "conectado mas mudo") e deixa no log quem pediu.
+export async function restartCrmInstance(instanceId: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: inst } = await admin.from('crm_instances').select('id, label, instance_name').eq('id', instanceId).maybeSingle()
+  if (!inst) return { error: 'Número não encontrado' }
+  const r = await callEvolutionSetup({ action: 'restart', instance_name: inst.instance_name })
+  const who = auth.actedBy?.name ?? auth.name
+  await admin.from('crm_health_events').insert({
+    component: `instance:${inst.id}`,
+    kind: r.error ? 'restart_failed' : 'restart_manual',
+    message: r.error ? `${who} pediu para reiniciar a conexão de ${inst.label}, mas falhou: ${r.error}` : `${who} reiniciou a conexão de ${inst.label}.`,
+    meta: { by: auth.actedBy?.id ?? auth.userId },
+  })
+  if (r.error) return { error: r.error as string }
+  return { ok: true }
+}

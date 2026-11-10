@@ -9,6 +9,8 @@
 //  - monitor   : batimento (a tela avisa se o próprio monitor parar)
 // Religa sozinho: máquina parada → "start"; máquina ligada mas sem resposta há 10+ min → "restart"
 // (com intervalo mínimo e no máximo 3 reinícios em 24 h; não reinicia no meio de manutenção da Hostinger).
+// Número "conectado mas mudo": aparece como open na Evolution, mas não entrega nenhuma mensagem recebida
+// há horas em horário comercial enquanto os outros números recebem (sessão travada). Conferido a cada 5 min.
 // Cada queda/volta vira registro em crm_health_events e um aviso por push para a equipe.
 //
 // Segredos: EVOLUTION_API_URL, EVOLUTION_API_KEY (já existem); HOSTINGER_API_TOKEN (opcional, liga o
@@ -34,6 +36,25 @@ async function cronSecret(): Promise<string | null> {
   const { data } = await db.from('internal_cron_secrets').select('secret').eq('name', 'crm-health').maybeSingle()
   return (data?.secret as string | undefined) ?? null
 }
+
+// Horário comercial (Maceió, UTC-3): seg–sex 8–18h, sáb 8–12h.
+function inBusinessHours(ms: number) {
+  const d = new Date(ms - 3 * 3600_000) // campos UTC = hora local
+  const dow = d.getUTCDay()
+  const h = d.getUTCHours()
+  if (dow === 0) return false
+  if (dow === 6) return h >= 8 && h < 12
+  return h >= 8 && h < 18
+}
+function businessMinutes(fromMs: number, toMs: number) {
+  let m = 0
+  for (let t = fromMs; t < toMs; t += 300_000) if (inBusinessHours(t)) m += 5
+  return m
+}
+const SILENT_AFTER_MIN = 120 // minutos de horário comercial sem receber nada
+const MIN_INBOUND_7D = 300 // só vigia número movimentado (senão silêncio é normal)
+const DEEP_EVERY_MS = 4.5 * 60_000
+const fmtWhen = (iso: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Maceio', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)).replace(',', ' às')
 
 const fmtTime = (iso: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 function fmtDur(ms: number) {
@@ -176,6 +197,15 @@ Deno.serve(async (req) => {
   }
 
   // 3) Números de WhatsApp (só dá para saber com o servidor no ar)
+  // A cada ~5 min: atividade de cada número (para achar "conectado mas mudo") e a configuração do webhook.
+  const deepAt = prev.get('monitor')?.meta?.deepAt as string | undefined
+  const deepDue = !deepAt || now.getTime() - Date.parse(deepAt) >= DEEP_EVERY_MS
+  const nowMs = now.getTime()
+  const activity = new Map<string, { last_inbound_at: string | null; inbound_7d: number }>()
+  if (evo.up && deepDue) {
+    const { data: act } = await db.rpc('crm_instance_activity')
+    for (const a of (act ?? []) as any[]) activity.set(a.instance_id as string, { last_inbound_at: a.last_inbound_at ?? null, inbound_7d: a.inbound_7d ?? 0 })
+  }
   if (evo.up) {
     const { data: insts } = await db.from('crm_instances').select('id, instance_name, label').eq('is_active', true)
     await Promise.all((insts ?? []).map(async (i) => {
@@ -188,9 +218,44 @@ Deno.serve(async (req) => {
       } catch { /* sem resposta: tratado como desconhecido */ }
       if (state === null) return // não deu para saber; mantém o último estado
       const open = state === 'open'
-      settle(`instance:${i.id}`, `WhatsApp ${label}`, open,
-        `O WhatsApp "${label}" está desconectado (${state}). Mensagens desse número não chegam nem saem. Reconecte lendo o QR code na Evolution.`,
-        `Conectado.`, `estado: ${state}`, { instance: i.instance_name, state })
+      const p = prev.get(`instance:${i.id}`)
+
+      // "conectado mas mudo": sem receber nada há horas em horário comercial, com os outros números recebendo
+      let silent = p?.meta?.silent === true
+      let lastIn = (p?.meta?.lastInbound as string | null | undefined) ?? null
+      let hook = (p?.meta?.webhook as Record<string, unknown> | null | undefined) ?? null
+      if (open && deepDue) {
+        const a = activity.get(i.id as string)
+        const before = lastIn
+        lastIn = a?.last_inbound_at ?? null
+        if (a && a.inbound_7d >= MIN_INBOUND_7D && lastIn) {
+          const stillSame = silent && lastIn === before
+          if (inBusinessHours(nowMs)) {
+            const gap = businessMinutes(Date.parse(lastIn), nowMs)
+            const othersAlive = [...activity].some(([id, o]) => id !== i.id && o.last_inbound_at && nowMs - Date.parse(o.last_inbound_at) < 30 * 60_000)
+            silent = gap >= SILENT_AFTER_MIN && (othersAlive || stillSame)
+          } else {
+            silent = stillSame // fora do expediente não há como comparar: mantém até chegar mensagem
+          }
+        } else silent = false
+        try {
+          const r = await get(`${base}/webhook/find/${i.instance_name}`, { headers: { apikey: evoKey } })
+          const cur = r.ok ? await r.json().catch(() => null) : null
+          const w = cur?.webhook ?? cur ?? {}
+          hook = { enabled: w.enabled ?? null, path: typeof w.url === 'string' ? w.url.replace(/^https?:\/\/[^/]+/, '') : null, events: Array.isArray(w.events) ? w.events : null }
+        } catch { /* sem leitura: mantém o último */ }
+      } else if (!open) {
+        silent = false
+      }
+
+      const hookNote = hook?.enabled === false ? ' O webhook deste número está desligado na Evolution.'
+        : Array.isArray(hook?.events) && !(hook!.events as string[]).includes('MESSAGES_UPSERT') ? ' O evento de mensagens não está ligado no webhook.' : ''
+      const detailDown = open
+        ? `O WhatsApp "${label}" aparece conectado, mas não recebe mensagens desde ${lastIn ? fmtWhen(lastIn) : '—'} (os outros números estão recebendo). O que chega ou é enviado pelo celular pode não estar aparecendo no CRM. Reinicie a conexão na tela Conexões ou leia o QR code de novo.`
+        : `O WhatsApp "${label}" está desconectado (${state}). Mensagens desse número não chegam nem saem. Reconecte lendo o QR code na Evolution.`
+      settle(`instance:${i.id}`, `WhatsApp ${label}`, open && !silent, detailDown,
+        `Conectado.`, open ? `sem receber desde ${lastIn ? fmtWhen(lastIn) : '—'}.${hookNote}` : `estado: ${state}`,
+        { instance: i.instance_name, state, silent, lastInbound: lastIn, webhook: hook })
     }))
   } else {
     // servidor fora do ar: os números ficam como estavam (a faixa principal já explica tudo)
@@ -237,7 +302,7 @@ Deno.serve(async (req) => {
   }
 
   // monitor (batimento)
-  next.set('monitor', { component: 'monitor', label: 'Monitoramento', status: 'ok', detail: null, reason: null, since: prev.get('monitor')?.since ?? nowIso, last_ok_at: nowIso, checked_at: nowIso, meta: { recovery } })
+  next.set('monitor', { component: 'monitor', label: 'Monitoramento', status: 'ok', detail: null, reason: null, since: prev.get('monitor')?.since ?? nowIso, last_ok_at: nowIso, checked_at: nowIso, meta: { recovery, deepAt: deepDue ? nowIso : (prev.get('monitor')?.meta?.deepAt ?? nowIso) } })
 
   await db.from('crm_health').upsert([...next.values()], { onConflict: 'component' })
   for (const a of announce) await notify(a.title, a.body)
