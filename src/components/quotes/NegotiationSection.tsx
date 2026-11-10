@@ -24,6 +24,7 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
   const [pending, startTransition] = useTransition()
   const [showCloseSale, setShowCloseSale] = useState(false)
   const [showMarkLost, setShowMarkLost] = useState(false)
+  const [applied, setApplied] = useState<{ finalValue: number; splits: any[] } | undefined>()
   const [showEditPayment, setShowEditPayment] = useState(false)
   const [showDiscounts, setShowDiscounts] = useState(true)
   const [lossReason, setLossReason] = useState('price')
@@ -220,6 +221,7 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
             quoteId={quote.id}
             quotedValue={quote.quoted_value ?? null}
             proposals={proposals}
+            initial={applied}
             onConfirm={() => { setShowCloseSale(false); router.refresh() }}
             onCancel={() => setShowCloseSale(false)}
           />
@@ -283,6 +285,8 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
               </div>
             )}
             <NegotiationSimulator
+              canApply={quote.temperature !== 'closed' && quote.temperature !== 'lost'}
+              onApply={(v: { finalValue: number; splits: any[] }) => { setApplied(v); setShowCloseSale(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
               baseValue={
                 selectedProposalId
                   ? (proposals.find(p => p.id === selectedProposalId)?.value ?? quote.quoted_value ?? quote.final_value ?? null)

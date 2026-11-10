@@ -11,16 +11,17 @@ interface Props {
   quoteId: string
   quotedValue: number | null
   proposals?: any[]
+  initial?: { finalValue: number; splits: PaymentSplit[] }
   onConfirm: () => void
   onCancel: () => void
 }
 
-export function CloseSaleForm({ quoteId, quotedValue, proposals, onConfirm, onCancel }: Props) {
+export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConfirm, onCancel }: Props) {
   const [rates, setRates] = useState<PaymentRate[]>(DEFAULT_PAYMENT_RATES)
-  const [finalValue, setFinalValue] = useState(quotedValue ? String(quotedValue) : '')
+  const [finalValue, setFinalValue] = useState(initial ? String(initial.finalValue) : quotedValue ? String(quotedValue) : '')
   // baseValue = valor de referência para desconto (muda ao selecionar proposta)
   const [baseValue, setBaseValue] = useState<number | null>(quotedValue)
-  const [splits, setSplits] = useState<PaymentSplit[]>([{ method_key: 'pix', amount: 0, status: 'paid', date: todayISO() }])
+  const [splits, setSplits] = useState<PaymentSplit[]>(initial?.splits ?? [{ method_key: 'pix', amount: 0, status: 'paid', date: todayISO() }])
   const [closedDate, setClosedDate] = useState(todayISO())
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

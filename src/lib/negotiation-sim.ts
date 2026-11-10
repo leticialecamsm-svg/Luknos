@@ -22,7 +22,8 @@ export type SimInput = {
   discountPct: number        // desconto em %
   specifierPct: number       // comissão do especificador em %
   includeSeller?: boolean    // só admin pode desligar (venda feita por Letícia/João)
-  fee: { machine: string; brand: string; kind: 'debit' | 'credit' | 'pix'; installments: number } | null
+  // formas de pagamento (pagamento misto): sharePct = % do valor final naquela forma
+  lines: { machine: string; brand: string; kind: 'debit' | 'credit' | 'pix'; installments: number; sharePct: number }[]
 }
 
 function profitOf(discount: number, feePct: number, commPct: number) {
@@ -37,8 +38,12 @@ async function whoAmI() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data } = await supabase.from('users').select('role').eq('id', user.id).single()
-  return { isAdmin: data?.role === 'admin' }
+  const { data } = await supabase.from('users').select('role, extra_pages').eq('id', user.id).single()
+  if (data?.role === 'admin') return { isAdmin: true }
+  // Quem tem acesso completo a Cotação e Preços (ex.: Jennifer) também vê o percentual real.
+  const { data: role } = await createAdminClient().from('roles').select('allowed_pages').eq('name', data?.role ?? '').maybeSingle()
+  const pages: string[] = [...(role?.allowed_pages ?? []), ...((data?.extra_pages as string[] | null) ?? [])]
+  return { isAdmin: pages.some(p => p === '/pricing') }
 }
 
 export async function getSimulatorBootstrap() {
@@ -58,12 +63,14 @@ export async function simulateScenario(input: SimInput) {
   const includeSeller = me.isAdmin ? input.includeSeller !== false : true
   const comm = Math.max(0, input.specifierPct) + (includeSeller ? SELLER_COMM * 100 : 0)
 
+  const { data: all } = await createAdminClient().from('payment_machine_rates').select('machine,brand,kind,installments,fee_pct')
+  const lines = input.lines?.length ? input.lines : [{ machine: '', brand: '', kind: 'pix' as const, installments: 1, sharePct: 100 }]
+  const totalShare = lines.reduce((a, l) => a + l.sharePct, 0) || 100
   let feePct = 0
-  if (input.fee && input.fee.kind !== 'pix') {
-    const { data } = await createAdminClient().from('payment_machine_rates').select('fee_pct')
-      .eq('machine', input.fee.machine).eq('brand', input.fee.brand)
-      .eq('kind', input.fee.kind).eq('installments', input.fee.installments).maybeSingle()
-    feePct = Number(data?.fee_pct ?? 0)
+  for (const l of lines) {
+    if (l.kind === 'pix') continue
+    const r = (all ?? []).find(x => x.machine === l.machine && x.brand === l.brand && x.kind === l.kind && x.installments === l.installments)
+    feePct += Number(r?.fee_pct ?? 0) * (l.sharePct / totalShare)
   }
   const profit = profitOf(disc, feePct, comm)
   const maxD = maxDiscount(feePct, comm)
