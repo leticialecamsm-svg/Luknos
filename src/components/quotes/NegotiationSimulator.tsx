@@ -186,7 +186,7 @@ export function NegotiationSimulator({ baseValue, canApply, onApply }: { baseVal
       {/* Matriz */}
       {matrix && !matrix.error && (
         <div className="overflow-x-auto">
-          <p className="text-[11px] text-gray-500 mb-1">Desconto máximo mantendo a meta · verde = o desconto atual ({pct(discountPct)}) cabe</p>
+          <p className="text-[11px] text-gray-500 mb-1">Taxa da parcela (em destaque) e desconto máximo mantendo a meta · verde = o desconto atual ({pct(discountPct)}) cabe</p>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-surface-border">
@@ -208,9 +208,10 @@ export function NegotiationSimulator({ baseValue, canApply, onApply }: { baseVal
                     const c = matrix.rows.find((r: any) => r.machine === g.machine && r.brand === g.brand && `${r.kind}-${r.installments}` === f.key)
                     if (!c) return <td key={g.machine + g.brand} className="py-1.5 px-2 text-right text-gray-300">—</td>
                     return (
-                      <td key={g.machine + g.brand} className={cn('py-1.5 px-2 text-right font-semibold', c.ok ? 'text-green-700 bg-green-50/60' : 'text-red-600 bg-red-50/60')}
-                        title={`Taxa ${pct(c.fee)}${c.profitPct != null ? ` · lucro ${pct(c.profitPct)}` : ''}`}>
-                        {pct(c.maxDiscountPct)}
+                      <td key={g.machine + g.brand} className={cn('py-1.5 px-2 text-right', c.ok ? 'bg-green-50/60' : 'bg-red-50/60')}
+                        title={c.profitPct != null ? `Lucro ${pct(c.profitPct)}` : undefined}>
+                        <span className="font-semibold text-gray-800">{pct(c.fee)}</span>
+                        <span className={cn('block text-[10px]', c.ok ? 'text-green-700' : 'text-red-600')}>até {pct(c.maxDiscountPct)}</span>
                       </td>
                     )
                   })}

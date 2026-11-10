@@ -15,6 +15,7 @@ import { Flame, CheckCircle2, XCircle, Pencil, Trash2, Percent, AlertTriangle } 
 import { CloseSaleForm } from './CloseSaleForm'
 import { NegotiationSimulator } from './NegotiationSimulator'
 import { EditPaymentForm } from './EditPaymentForm'
+import { getSaleBadge } from '@/lib/negotiation-sim'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 
 const TEMPS = ['no_forecast', 'cold', 'warm', 'hot', 'closed', 'lost'] as const
@@ -24,6 +25,7 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
   const [pending, startTransition] = useTransition()
   const [showCloseSale, setShowCloseSale] = useState(false)
   const [showMarkLost, setShowMarkLost] = useState(false)
+  const [badge, setBadge] = useState<{ level: 'otima' | 'boa' | 'atencao'; profitPct?: number } | null>(null)
   const [applied, setApplied] = useState<{ finalValue: number; splits: any[] } | undefined>()
   const [showEditPayment, setShowEditPayment] = useState(false)
   const [showDiscounts, setShowDiscounts] = useState(true)
@@ -36,6 +38,10 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
   useEffect(() => {
     getQuoteProposals(quote.id).then(setProposals)
   }, [quote.id])
+
+  useEffect(() => {
+    if (quote.temperature === 'closed') getSaleBadge(quote.id).then(setBadge)
+  }, [quote.id, quote.temperature, localFinalValue, localSplits])
 
   function act(fn: () => Promise<any>) {
     startTransition(async () => { await fn(); router.refresh() })
@@ -129,7 +135,17 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-green-800">Venda fechada</p>
+                  <p className="text-sm font-semibold text-green-800 flex items-center gap-2 flex-wrap">Venda fechada
+                    {badge && (
+                      <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full border',
+                        badge.level === 'otima' ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : badge.level === 'boa' ? 'bg-amber-50 text-amber-800 border-amber-300'
+                        : 'bg-red-50 text-red-700 border-red-300')}>
+                        {badge.level === 'otima' ? '★ Ótima negociação' : badge.level === 'boa' ? 'Boa negociação' : 'Margem apertada'}
+                        {badge.profitPct != null && ` · ${badge.profitPct.toFixed(1).replace('.', ',')}%`}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-green-700">
                     {formatCurrency(localFinalValue ?? quote.final_value)}
                     {' · '}{formatDate(quote.closed_at)}

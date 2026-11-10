@@ -131,3 +131,34 @@ export async function listMachineRates() {
     .select('id,machine,brand,kind,installments,fee_pct').order('machine').order('brand').order('kind').order('installments')
   return (data ?? []).map(r => ({ ...r, fee_pct: Number(r.fee_pct) }))
 }
+
+// Selo da venda fechada. Estimativa: máquina padrão PowerPay Visa/Master, comissão padrão de 12,5%.
+export async function getSaleBadge(quoteId: string) {
+  const me = await whoAmI()
+  if (!me) return null
+  const admin = createAdminClient()
+  const [{ data: q }, { data: n }, { data: rates }] = await Promise.all([
+    admin.from('quotes').select('quoted_value').eq('id', quoteId).maybeSingle(),
+    admin.from('negotiations').select('final_value,payment_splits,temperature').eq('quote_id', quoteId).maybeSingle(),
+    admin.from('payment_machine_rates').select('kind,installments,fee_pct').eq('machine', 'powerpay').eq('brand', 'visa_master'),
+  ])
+  const base = Number(q?.quoted_value ?? 0)
+  const fv = Number(n?.final_value ?? 0)
+  if (!base || !fv || n?.temperature !== 'closed') return null
+  const splits: { method_key: string; amount: number }[] = (n?.payment_splits as any) ?? []
+  const total = splits.reduce((a, s) => a + Number(s.amount || 0), 0)
+  let feePct = 0
+  for (const s of splits) {
+    const w = total > 0 ? Number(s.amount || 0) / total : 0
+    let f = 0
+    if (s.method_key === 'debit') f = Number(rates?.find(r => r.kind === 'debit')?.fee_pct ?? 0)
+    else if (s.method_key.startsWith('credit_')) {
+      const k = parseInt(s.method_key.slice(7), 10)
+      f = Number(rates?.find(r => r.kind === 'credit' && r.installments === k)?.fee_pct ?? 0)
+    }
+    feePct += f * w
+  }
+  const profit = profitOf(1 - fv / base, feePct, BASE_COMM * 100)
+  const level = profit >= TARGET - 0.0005 ? 'otima' : profit >= 0.30 ? 'boa' : 'atencao'
+  return { level, ...(me.isAdmin ? { profitPct: profit * 100 } : {}) } as { level: 'otima' | 'boa' | 'atencao'; profitPct?: number }
+}
