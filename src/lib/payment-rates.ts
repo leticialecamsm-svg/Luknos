@@ -46,6 +46,12 @@ export const CREDIT_INSTALLMENTS = [
   { value: 'credit_4x', label: '4x' },
   { value: 'credit_5x', label: '5x' },
   { value: 'credit_6x', label: '6x' },
+  { value: 'credit_7x', label: '7x' },
+  { value: 'credit_8x', label: '8x' },
+  { value: 'credit_9x', label: '9x' },
+  { value: 'credit_10x', label: '10x' },
+  { value: 'credit_11x', label: '11x' },
+  { value: 'credit_12x', label: '12x' },
 ]
 
 /** Convert method_key to primary type for UI */
@@ -75,6 +81,12 @@ export const DEFAULT_PAYMENT_RATES: PaymentRate[] = [
   { method_key: 'credit_4x',  label: '4x',              machine_fee_pct: 5.67, max_discount_pct: 1.28,  sort_order: 7  },
   { method_key: 'credit_5x',  label: '5x',              machine_fee_pct: 6.26, max_discount_pct: 0,     sort_order: 8  },
   { method_key: 'credit_6x',  label: '6x',              machine_fee_pct: 6.85, max_discount_pct: 0,     sort_order: 9  },
+  { method_key: 'credit_7x', label: '7x', machine_fee_pct: 6.06, max_discount_pct: 0, sort_order: 10 },
+  { method_key: 'credit_8x', label: '8x', machine_fee_pct: 6.74, max_discount_pct: 0, sort_order: 11 },
+  { method_key: 'credit_9x', label: '9x', machine_fee_pct: 7.43, max_discount_pct: 0, sort_order: 12 },
+  { method_key: 'credit_10x', label: '10x', machine_fee_pct: 8.11, max_discount_pct: 0, sort_order: 13 },
+  { method_key: 'credit_11x', label: '11x', machine_fee_pct: 8.8, max_discount_pct: 0, sort_order: 14 },
+  { method_key: 'credit_12x', label: '12x', machine_fee_pct: 9.48, max_discount_pct: 0, sort_order: 15 },
 ]
 
 /** Weighted max discount for a mixed-payment scenario */

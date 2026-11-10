@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, getInitials } from '@/lib/utils'
 import { Loader2, UserPlus, Plus, Trash2, Search, Pencil, Check, X as XIcon, KeyRound, Camera, Target } from 'lucide-react'
 import { searchContacts, createContact, updateUser, updateUserPassword, deleteUser, createUserAdmin, getPaymentRates, updatePaymentRate } from '@/lib/actions'
+import { listMachineRates, updateMachineRate } from '@/lib/negotiation-sim'
 import { DEFAULT_PAYMENT_RATES } from '@/lib/payment-rates'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
@@ -293,7 +294,7 @@ export function AdminPanel({ users, goals }: Props) {
         </div>
       )}
       {/* ── ABA: TAXAS ─────────────────────────────────────── */}
-      {activeTab === 'rates' && <PaymentRatesPanel />}
+      {activeTab === 'rates' && <><MachineRatesPanel /><PaymentRatesPanel /></>}
     </div>
   )
 }
@@ -447,6 +448,44 @@ function UserRow({ user: u }: { user: User }) {
   )
 }
 
+function MachineRatesPanel() {
+  const [rates, setRates] = useState<any[]>([])
+  const [group, setGroup] = useState('powerpay|visa_master')
+  const toast = useToast()
+  useEffect(() => { listMachineRates().then(setRates) }, [])
+  const NAMES: Record<string, string> = { 'powerpay|visa_master': 'PowerPay · Visa/Master', 'powerpay|elo': 'PowerPay · Elo', 'cielo|visa_master': 'Cielo · Visa/Master', 'cielo|elo_amex': 'Cielo · Elo/Amex/outras' }
+  const rows = rates.filter(r => `${r.machine}|${r.brand}` === group)
+    .sort((a, b) => (a.kind === 'debit' ? 0 : a.installments) - (b.kind === 'debit' ? 0 : b.installments))
+  const save = async (r: any, v: number) => {
+    const res: any = await updateMachineRate(r.id, v)
+    if (res?.error) { toast.error('ERRO', res.error); return }
+    setRates(prev => prev.map(x => x.id === r.id ? { ...x, fee_pct: v } : x))
+    toast.success('TUDO CERTO!', 'Taxa atualizada.')
+  }
+  return (
+    <div className="card p-4 mb-4">
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">Taxas por máquina e bandeira (simulador de negociação)</h2>
+      <p className="text-xs text-gray-400 mb-3">Clique no valor para editar. Vale na hora para o simulador.</p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {Object.entries(NAMES).map(([k, v]) => (
+          <button key={k} onClick={() => setGroup(k)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border ${group === k ? 'bg-brand-50 text-brand-700 border-brand-300' : 'bg-white text-gray-500 border-surface-border'}`}>{v}</button>
+        ))}
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id} className="border-b border-surface-border last:border-0">
+              <td className="py-1.5 pr-4 text-gray-800 font-medium">{r.kind === 'debit' ? 'Débito' : r.installments === 1 ? 'Crédito à vista' : `Crédito ${r.installments}x`}</td>
+              <td className="py-1.5 text-right"><RateInput value={r.fee_pct} suffix="%" onSave={v => save(r, v)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function PaymentRatesPanel() {
   const [rates, setRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -472,7 +511,7 @@ function PaymentRatesPanel() {
 
   return (
     <div className="card p-4">
-      <h2 className="text-sm font-semibold text-gray-700 mb-1">Taxas da maquininha</h2>
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">Taxas antigas (fechamento de venda)</h2>
       <p className="text-xs text-gray-400 mb-4">Edite as taxas e o desconto máximo por forma de pagamento. Clique no valor para editar.</p>
       <table className="w-full text-sm">
         <thead>

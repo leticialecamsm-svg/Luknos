@@ -113,3 +113,21 @@ export async function simulateMatrix(input: { baseValue: number; discountPct: nu
     rows: (data ?? []).map(r => ({ machine: r.machine, brand: r.brand, kind: r.kind as 'debit' | 'credit', installments: r.installments, ...mk(Number(r.fee_pct)) })),
   }
 }
+
+export async function updateMachineRate(id: string, feePct: number) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const { data } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (data?.role !== 'admin') return { error: 'Apenas administradores' }
+  if (!(feePct >= 0 && feePct <= 100)) return { error: 'Taxa inválida' }
+  const { error } = await createAdminClient().from('payment_machine_rates')
+    .update({ fee_pct: feePct, updated_at: new Date().toISOString() }).eq('id', id)
+  return error ? { error: error.message } : { ok: true }
+}
+
+export async function listMachineRates() {
+  const { data } = await createAdminClient().from('payment_machine_rates')
+    .select('id,machine,brand,kind,installments,fee_pct').order('machine').order('brand').order('kind').order('installments')
+  return (data ?? []).map(r => ({ ...r, fee_pct: Number(r.fee_pct) }))
+}

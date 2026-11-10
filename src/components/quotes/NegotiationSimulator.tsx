@@ -44,7 +44,7 @@ function LineRow({ line, rates, onChange, onRemove, single }: { line: Line; rate
 function splitKey(kind: string, n: number) {
   if (kind === 'pix') return 'pix'
   if (kind === 'debit') return 'debit'
-  return `credit_${Math.min(n, 6)}x`
+  return `credit_${Math.min(n, 12)}x`
 }
 
 export function NegotiationSimulator({ baseValue, canApply, onApply }: { baseValue: number | null; canApply?: boolean; onApply?: (v: { finalValue: number; splits: any[] }) => void }) {
