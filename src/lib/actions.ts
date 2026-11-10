@@ -2763,7 +2763,13 @@ export async function createFinanceEntriesFromInvoice(data: {
   if ('error' in auth) return { error: auth.error }
   const admin = createAdminClient()
 
-  const rows = data.duplicatas.map((dup, i) => ({
+  // não repete parcela que já virou conta (evita duplicar se o modal for aberto duas vezes)
+  const { data: existing } = await admin.from('finance_entries').select('numero_duplicata').eq('purchase_invoice_id', data.invoiceId)
+  const done = new Set((existing ?? []).map((e: any) => String(e.numero_duplicata ?? '')))
+  const pendentes = data.duplicatas.filter(d => !done.has(String(d.nDup ?? '')) || !d.nDup)
+  if (!pendentes.length) return { ok: true, count: 0 }
+
+  const rows = pendentes.map(dup => ({
     description: data.descriptionPrefix,
     type: 'payable',
     counterparty: data.fornecedorNome,
@@ -2773,7 +2779,7 @@ export async function createFinanceEntriesFromInvoice(data: {
     purchase_invoice_id: data.invoiceId,
     numero_duplicata: dup.nDup,
     group_id: data.duplicatas.length > 1 ? data.invoiceId : null,
-    installment_number: data.duplicatas.length > 1 ? i + 1 : null,
+    installment_number: data.duplicatas.length > 1 ? data.duplicatas.indexOf(dup) + 1 : null,
     installments_total: data.duplicatas.length > 1 ? data.duplicatas.length : null,
     created_by: auth.userId,
   }))
@@ -2782,6 +2788,30 @@ export async function createFinanceEntriesFromInvoice(data: {
   if (error) return { error: error.message }
   revalidatePath('/finance')
   return { ok: true, count: rows.length }
+}
+
+// Boletos (duplicatas) de uma nota de entrada já salva, lidos do XML guardado no radar de NFs recebidas.
+// Serve para gerar as contas a pagar de uma nota cujo modal de boletos não chegou a ser concluído.
+export async function getInvoiceBoletos(invoiceId: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: inv } = await admin.from('purchase_invoices').select('chave_nfe, numero_nota, fornecedor_nome').eq('id', invoiceId).maybeSingle()
+  if (!inv) return { error: 'Nota não encontrada' }
+  const [{ data: nfe }, { data: entries }] = await Promise.all([
+    admin.from('nfe_received').select('xml_nfe').eq('chave_nfe', inv.chave_nfe).maybeSingle(),
+    admin.from('finance_entries').select('numero_duplicata').eq('purchase_invoice_id', invoiceId),
+  ])
+  if (!nfe?.xml_nfe) return { error: 'O XML desta nota não está guardado. Abra-a em "NFs Recebidas" e busque o XML antes.' }
+  const tag = (b: string, t: string) => b.match(new RegExp(`<${t}>([^<]*)</${t}>`))?.[1] ?? ''
+  const duplicatas = (String(nfe.xml_nfe).match(/<dup>[\s\S]*?<\/dup>/g) ?? [])
+    .map(d => ({ nDup: tag(d, 'nDup'), dVenc: tag(d, 'dVenc').slice(0, 10), vDup: parseFloat(tag(d, 'vDup')) || 0 }))
+    .filter(d => d.dVenc && d.vDup > 0)
+  const done = new Set((entries ?? []).map((e: any) => String(e.numero_duplicata ?? '')))
+  return {
+    numeroNota: inv.numero_nota ?? '', fornecedorNome: inv.fornecedor_nome ?? '',
+    duplicatas: duplicatas.filter(d => !done.has(d.nDup)), total: duplicatas.length, geradas: duplicatas.length - duplicatas.filter(d => !done.has(d.nDup)).length,
+  }
 }
 
 // ── Saldos de contas ──

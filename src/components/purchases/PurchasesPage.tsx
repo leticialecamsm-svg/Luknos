@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Plus, Search, Trash2, ChevronRight, AlertCircle, FileText, Loader2, Upload, RefreshCw, PackageSearch, CheckCircle2, Truck, FileSearch } from 'lucide-react'
-import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice, createFinanceEntriesFromInvoice } from '@/lib/actions'
+import { upsertPurchaseInvoice, savePurchaseInvoiceItems, deletePurchaseInvoice, createFinanceEntriesFromInvoice, getInvoiceBoletos } from '@/lib/actions'
 
 // ── Constantes de cálculo ──────────────────────────────────────────────────────
 
@@ -160,7 +160,12 @@ function fmtDate(d: string | null) {
 
 // ── Modal Nova Nota ────────────────────────────────────────────────────────────
 
-function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => void; onSaved: () => void; initialChave?: string }) {
+// Boletos da NF-e que ainda vão virar contas a pagar. Fica no nível da página (e no sessionStorage) para o
+// modal não depender da janela "Nova Nota" nem de a tela ser recarregada logo depois de salvar.
+type ContasPending = { invoiceId: string; fornecedorNome: string; numeroNota: string; duplicatas: NFeDuplicata[] }
+const CONTAS_KEY = 'luknos:contas-pendentes'
+
+function NewInvoiceModal({ onClose, onSaved, onContas, initialChave }: { onClose: () => void; onSaved: () => void; onContas: (c: ContasPending) => void; initialChave?: string }) {
   const [step, setStep] = useState<'key' | 'fill'>('key')
   const [chave, setChave] = useState(initialChave ?? '')
   const [loading, setLoading] = useState(false)
@@ -179,8 +184,6 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
 
   // Duplicatas extraídas da NF-e para geração de contas a pagar
   const [duplicatas, setDuplicatas] = useState<NFeDuplicata[]>([])
-  const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
-  const [showContasModal, setShowContasModal] = useState(false)
 
   async function handleFetch() {
     const clean = chave.replace(/\D/g, '')
@@ -321,14 +324,13 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       const itemsResult = await savePurchaseInvoiceItems(invoiceId, itemsPayload)
       if (itemsResult && 'error' in itemsResult) { setError(itemsResult.error ?? 'Erro ao salvar itens'); return }
 
-      // Se há duplicatas (boletos) na NF-e, oferecer geração de contas a pagar
+      // A nota já está salva: atualiza a lista e fecha esta janela. Se a NF-e tem boletos, a página
+      // abre o modal de contas a pagar por conta própria.
+      onSaved()
       if (duplicatas.length > 0) {
-        setSavedInvoiceId(invoiceId)
-        setShowContasModal(true)
-      } else {
-        onSaved()
-        onClose()
+        onContas({ invoiceId, fornecedorNome, numeroNota: meta?.numeroNota ?? '', duplicatas })
       }
+      onClose()
     } catch (e: any) {
       setError(e.message ?? 'Erro inesperado')
     } finally {
@@ -588,16 +590,6 @@ function NewInvoiceModal({ onClose, onSaved, initialChave }: { onClose: () => vo
       </div>
     </div>
 
-    {showContasModal && savedInvoiceId && typeof document !== 'undefined' && createPortal(
-      <GerarContasModal
-        invoiceId={savedInvoiceId}
-        fornecedorNome={fornecedorNome}
-        numeroNota={meta?.numeroNota ?? ''}
-        duplicatas={duplicatas}
-        onDone={() => { setShowContasModal(false); onSaved(); onClose() }}
-      />,
-      document.body
-    )}
   </>
   )
 }
@@ -697,8 +689,21 @@ function GerarContasModal({ invoiceId, fornecedorNome, numeroNota, duplicatas, o
 
 // ── Detalhe de nota ────────────────────────────────────────────────────────────
 
-function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
+function InvoiceDetailModal({ invoice, onClose, onContas }: { invoice: any; onClose: () => void; onContas: (c: ContasPending) => void }) {
   const items: any[] = invoice.purchase_invoice_items ?? []
+  const [boletoBusy, setBoletoBusy] = useState(false)
+  const [boletoMsg, setBoletoMsg] = useState<string | null>(null)
+
+  // reabre o modal de contas a pagar desta nota (quando o original não foi concluído)
+  async function gerarContas() {
+    setBoletoBusy(true); setBoletoMsg(null)
+    const r = await getInvoiceBoletos(invoice.id)
+    setBoletoBusy(false)
+    if ('error' in r) { setBoletoMsg(r.error ?? 'Erro'); return }
+    if (!r.duplicatas.length) { setBoletoMsg(r.total ? 'Todos os boletos desta nota já viraram contas a pagar.' : 'Esta nota não tem boletos no XML.'); return }
+    onContas({ invoiceId: invoice.id, fornecedorNome: r.fornecedorNome, numeroNota: r.numeroNota, duplicatas: r.duplicatas })
+    onClose()
+  }
 
   return (
     <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
@@ -710,7 +715,13 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
             </h2>
             <p className="text-sm text-gray-500">{fmtDate(invoice.data_emissao)} · {items.length} produtos</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <div className="flex items-center gap-4">
+            {boletoMsg && <span className="text-xs text-amber-700 max-w-xs text-right">{boletoMsg}</span>}
+            <button onClick={gerarContas} disabled={boletoBusy} className="btn-secondary text-sm px-3 py-1.5 disabled:opacity-50">
+              {boletoBusy ? 'Lendo boletos…' : 'Gerar contas a pagar'}
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto p-6">
@@ -996,6 +1007,7 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
   const [, startTransition] = useTransition()
   const [tab, setTab] = useState<'notas' | 'recebidas'>('notas')
   const [showNew, setShowNew] = useState(false)
+  const [contas, setContas] = useState<ContasPending | null>(null)
   const [detail, setDetail] = useState<any | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const invoices = initial
@@ -1021,6 +1033,23 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
     }
   }
   useEffect(() => { loadQuota() }, [])
+
+  // retoma o modal de contas a pagar se a página foi recarregada antes de o usuário decidir
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(CONTAS_KEY)
+      if (raw) setContas(JSON.parse(raw))
+    } catch { /* sem storage: segue sem retomar */ }
+  }, [])
+  function openContas(c: ContasPending) {
+    try { sessionStorage.setItem(CONTAS_KEY, JSON.stringify(c)) } catch { /* ok */ }
+    setContas(c)
+  }
+  function closeContas() {
+    try { sessionStorage.removeItem(CONTAS_KEY) } catch { /* ok */ }
+    setContas(null)
+    startTransition(() => router.refresh())
+  }
 
   async function loadNfesRecebidas() {
     setLoadingNfes(true)
@@ -1390,14 +1419,27 @@ export function PurchasesPage({ invoices: initial }: { invoices: InvoiceRow[] })
               setAddingChave(null)
             }
           }}
+          onContas={openContas}
           initialChave={addingChave ?? undefined}
         />
+      )}
+
+      {contas && typeof document !== 'undefined' && createPortal(
+        <GerarContasModal
+          invoiceId={contas.invoiceId}
+          fornecedorNome={contas.fornecedorNome}
+          numeroNota={contas.numeroNota}
+          duplicatas={contas.duplicatas}
+          onDone={closeContas}
+        />,
+        document.body
       )}
 
       {detail && (
         <InvoiceDetailModal
           invoice={detail}
           onClose={() => setDetail(null)}
+          onContas={openContas}
         />
       )}
 
