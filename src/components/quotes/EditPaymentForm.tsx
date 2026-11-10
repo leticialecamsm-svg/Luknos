@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { updateSalePayment, getPaymentRates } from '@/lib/actions'
-import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct, todayISO, round2 } from '@/lib/payment-rates'
+import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, formatPct, todayISO, round2 } from '@/lib/payment-rates'
 import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
@@ -43,8 +43,6 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, cur
   const fv = round2(parseFloat(finalValue) || 0)
   const totalSplits = round2(splits.reduce((s, p) => s + (p.amount || 0), 0))
   const splitsValid = splits.length === 1 || Math.abs(totalSplits - fv) < 0.01
-  const maxDisc = calcWeightedMaxDiscount(splits.filter(s => s.amount > 0), rates)
-  const minPrice = fv > 0 ? fv * (1 - maxDisc / 100) : null
 
   const addSplit = () => {
     const remaining = round2(Math.max(0, fv - totalSplits))
@@ -151,13 +149,6 @@ export function EditPaymentForm({ quoteId, currentFinalValue, currentSplits, cur
           </p>
         )}
       </div>
-
-      {fv > 0 && (
-        <div className="bg-white border border-blue-200 rounded-lg px-3 py-2 text-xs text-gray-600">
-          Desconto máximo: <strong>{formatPct(maxDisc)}</strong>
-          {minPrice !== null && <> · Preço mínimo: <strong>R$ {minPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></>}
-        </div>
-      )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
 

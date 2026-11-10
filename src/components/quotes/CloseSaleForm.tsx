@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { closeSale, getPaymentRates } from '@/lib/actions'
-import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, calcWeightedMaxDiscount, formatPct, todayISO, round2 } from '@/lib/payment-rates'
-import { Plus, Trash2, Loader2, AlertTriangle } from 'lucide-react'
+import { DEFAULT_PAYMENT_RATES, PaymentRate, PaymentSplit, formatPct, todayISO, round2 } from '@/lib/payment-rates'
+import { Plus, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PaymentMethodPicker } from './PaymentMethodPicker'
 
@@ -42,10 +42,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConf
   const totalSplits = round2(splits.reduce((s, p) => s + (p.amount || 0), 0))
   const fv = round2(parseFloat(finalValue) || 0)
   const splitsValid = splits.length === 1 || Math.abs(totalSplits - fv) < 0.01
-  const maxDisc = calcWeightedMaxDiscount(splits.filter(s => s.amount > 0), rates)
-  const minPrice = baseValue && fv > 0 ? baseValue * (1 - maxDisc / 100) : null
   const actualDiscount = baseValue && fv > 0 ? ((baseValue - fv) / baseValue) * 100 : null
-  const overDiscount = actualDiscount !== null && actualDiscount > maxDisc + 0.001
 
   const addSplit = () => {
     const remaining = round2(Math.max(0, fv - totalSplits))
@@ -147,13 +144,12 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConf
           placeholder="0,00"
         />
         {baseValue && fv > 0 && (
-          <p className={cn('text-xs mt-1', overDiscount ? 'text-red-600 font-semibold' : 'text-gray-400')}>
+          <p className={cn('text-xs mt-1', 'text-gray-400')}>
             {actualDiscount !== null && actualDiscount > 0
               ? `${formatPct(actualDiscount)} de desconto sobre a proposta`
               : actualDiscount !== null && actualDiscount < 0
               ? `${formatPct(Math.abs(actualDiscount))} acima da proposta`
               : 'Sem desconto'}
-            {overDiscount && ' · ⚠️ acima do máximo permitido'}
           </p>
         )}
       </div>
@@ -221,53 +217,6 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConf
           </div>
         )}
       </div>
-
-      {/* Desconto máximo permitido */}
-      {fv > 0 && splits.some(s => s.amount > 0) && (
-        <div className={cn('rounded-lg px-3 py-2.5 space-y-2',
-          overDiscount ? 'bg-red-50 border border-red-200' : 'bg-white border border-green-200')}>
-
-          {/* Breakdown por método (só quando há mais de 1) */}
-          {splits.filter(s => s.amount > 0).length > 1 && (
-            <div className="space-y-1 pb-2 border-b border-surface-border">
-              {splits.filter(s => s.amount > 0).map((split, i) => {
-                const rate = rates.find(r => r.method_key === split.method_key)
-                if (!rate) return null
-                const minForMethod = split.amount * (1 - rate.max_discount_pct / 100)
-                return (
-                  <div key={i} className="flex items-center justify-between text-xs text-gray-500">
-                    <span>{rate.label} <span className="text-gray-400">(R$ {split.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span></span>
-                    <span>
-                      desc. máx. <strong className="text-gray-700">{formatPct(rate.max_discount_pct)}</strong>
-                      {' · '}mín. <strong className="text-gray-700">R$ {minForMethod.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Totais */}
-          <div className="flex items-start gap-2">
-            {overDiscount && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
-            <div className="text-xs space-y-0.5">
-              {baseValue && (
-                <p className="text-gray-500">
-                  Preço sugerido: <strong>R$ {baseValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                </p>
-              )}
-              <p className={overDiscount ? 'text-red-700 font-semibold' : 'text-gray-700'}>
-                Desconto máximo {splits.filter(s => s.amount > 0).length > 1 ? 'ponderado' : 'permitido'}: <strong>{formatPct(maxDisc)}</strong>
-              </p>
-              {minPrice !== null && (
-                <p className="text-gray-500">
-                  Preço mínimo aceitável: <strong>R$ {minPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
 
