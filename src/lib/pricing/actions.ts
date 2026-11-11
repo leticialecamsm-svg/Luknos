@@ -271,6 +271,15 @@ export async function getSupplierQuotes(supplierId: string, limit = 5) {
   return { quotes: await shapeQuotes(data ?? [], auth.restricted) }
 }
 
+export async function getQuoteById(id: string) {
+  const auth = await guard()
+  if ('error' in auth) return { error: auth.error }
+  const { data } = await createAdminClient().from('pricing_quotes').select('*').eq('id', id).maybeSingle()
+  if (!data) return { error: 'Cotação não encontrada' }
+  const [quote] = await shapeQuotes([data], auth.restricted)
+  return { quote }
+}
+
 export type SupplierOverview = { id: string; name: string; default_uf: string | null; notas: number; itens: number; last_date: string | null }
 
 export async function getSuppliersOverview() {

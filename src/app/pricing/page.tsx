@@ -12,6 +12,6 @@ export default async function Page() {
   if ('error' in data) return <p className="text-sm text-red-600">{data.error}</p>
   if ('error' in access) return <p className="text-sm text-red-600">{access.error}</p>
   return (
-    <PrecosClient suppliers={data.suppliers} restricted={access.restricted} nav={<PricingNav restricted={access.restricted} />} />
+    <PrecosClient suppliers={data.suppliers} restricted={access.restricted} currentUserId={access.userId} nav={<PricingNav restricted={access.restricted} />} />
   )
 }

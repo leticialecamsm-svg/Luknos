@@ -33,12 +33,13 @@ type Props = {
   productTypes: PricingProductType[]
   restricted?: boolean      // acesso comercial: preço sem margens, sem o passo 3
   currentUserId?: string
+  editQuote?: SavedQuote   // vindo de /pricing/cotar?edit=<id>: já abre em modo edição
 }
 
 // resultado que o modo comercial recebe do servidor: só custo com impostos e preços
 type Calc = { costUnit: number; priceCredit: number | null; priceCash: number | null; error?: string }
 
-export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes, restricted = false, currentUserId }: Props) {
+export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetrics, productTypes, restricted = false, currentUserId, editQuote }: Props) {
   const toast = useToast()
   const { confirm, ConfirmDialog } = useConfirm()
   const [pending, startTransition] = useTransition()
@@ -310,6 +311,8 @@ export function CotarClient({ suppliers: initialSuppliers, metrics: defaultMetri
     setEditingId(q.id); setEditingNumber(q.number)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  useEffect(() => { if (editQuote) reopen(editQuote) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const remove = async (q: SavedQuote) => {
     if (!(await confirm(`Excluir a cotação #${q.number}? Isso não pode ser desfeito.`, 'Excluir'))) return

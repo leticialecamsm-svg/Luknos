@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { Search, Loader2, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { brl, pct } from '@/lib/pricing/engine'
 import { SupplierLogo } from './SupplierLogo'
@@ -10,18 +10,22 @@ import { ItemSimulatorModal } from './ItemSimulatorModal'
 import { ProductThumb, CatalogPickerModal } from './ProductPhoto'
 import { catalogSourceFor, AUTO_SYNC_SOURCES, type CatalogEntry } from '@/lib/catalog/match'
 import {
-  getSupplierSheet, getSupplierQuotes, getSupplierCatalog, getSupplierPurchaseItems,
+  getSupplierSheet, getSupplierQuotes, deleteQuote, getSupplierCatalog, getSupplierPurchaseItems,
   type SupplierOverview, type SheetInvoice, type SheetItem, type SavedQuote, type SupplierPurchaseItem,
 } from '@/lib/pricing/actions'
 import Link from 'next/link'
 import { Avatar } from '@/components/ui/Avatar'
+import { useConfirm } from '@/components/ui/useConfirm'
+import { useToast } from '@/components/ui/Toast'
 
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 'sem data')
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 const Logo = SupplierLogo
 
-export function PrecosClient({ suppliers, nav, restricted = false }: { suppliers: SupplierOverview[]; nav?: React.ReactNode; restricted?: boolean }) {
+export function PrecosClient({ suppliers, nav, restricted = false, currentUserId }: { suppliers: SupplierOverview[]; nav?: React.ReactNode; restricted?: boolean; currentUserId?: string }) {
+  const { confirm, ConfirmDialog } = useConfirm()
+  const toast = useToast()
   // abre no fornecedor com compra mais recente
   const initial = useMemo(() => [...suppliers].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? ''))[0]?.id ?? '', [suppliers])
   const [supplierId, setSupplierId] = useState(initial)
@@ -66,6 +70,15 @@ export function PrecosClient({ suppliers, nav, restricted = false }: { suppliers
       .map(inv => ({ ...inv, items: inv.items.filter(i => norm(i.descricao).includes(q) || (i.ncm ?? '').includes(q) || (inv.numero_nota ?? '').includes(q)) }))
       .filter(inv => inv.items.length > 0)
   }, [invoices, search])
+
+  const canTouchQuote = (q: SavedQuote) => !restricted || (!!currentUserId && q.created_by === currentUserId)
+  async function removeQuote(q: SavedQuote) {
+    if (!(await confirm(`Excluir a cotação #${q.number}? Isso não pode ser desfeito.`, 'Excluir'))) return
+    const res = await deleteQuote(q.id)
+    if ('error' in res) return toast.error('Não foi possível excluir', res.error)
+    setQuotes(prev => prev && prev.filter(x => x.id !== q.id))
+    toast.success(`Cotação #${q.number} excluída`)
+  }
 
   const toggle = (id: string) => setClosed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
@@ -196,6 +209,8 @@ export function PrecosClient({ suppliers, nav, restricted = false }: { suppliers
           onChanged={u => { replaceItem(u); setPicking(u) }} />
       )}
 
+      {ConfirmDialog}
+
       {view === 'cotacoes' && (
         <div className="card overflow-hidden">
           {quotes === null ? (
@@ -207,7 +222,7 @@ export function PrecosClient({ suppliers, nav, restricted = false }: { suppliers
               <table className="w-full text-sm">
                 <thead><tr className="bg-surface-secondary text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                   <th className="px-4 py-2.5">Nº</th><th className="px-4 py-2.5">Data</th><th className="px-4 py-2.5">Por</th><th className="px-4 py-2.5">Produto</th><th className="px-4 py-2.5">NCM</th>
-                  <th className="px-4 py-2.5 text-right">Compra</th><th className="px-4 py-2.5 text-right">Custo</th><th className="px-4 py-2.5 text-right">Venda</th><th className="px-4 py-2.5 text-right">À vista</th>
+                  <th className="px-4 py-2.5 text-right">Compra</th><th className="px-4 py-2.5 text-right">Custo</th><th className="px-4 py-2.5 text-right">Venda</th><th className="px-4 py-2.5 text-right">À vista</th><th className="px-4 py-2.5" />
                 </tr></thead>
                 <tbody>
                   {quotes.map(q => (
@@ -221,6 +236,14 @@ export function PrecosClient({ suppliers, nav, restricted = false }: { suppliers
                       <td className="px-4 py-2.5 text-right tabular-nums">{brl(q.cost_unit)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{brl(q.price_credit)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">{brl(q.price_cash)}</td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        {canTouchQuote(q) && (
+                          <>
+                            <Link href={`/pricing/cotar?edit=${q.id}`} className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium mr-3"><Pencil className="w-3 h-3" /> Editar</Link>
+                            <button onClick={() => removeQuote(q)} title="Excluir" className="text-gray-300 hover:text-red-500 align-middle"><Trash2 className="w-4 h-4" /></button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
