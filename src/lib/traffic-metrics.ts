@@ -12,7 +12,8 @@ export interface TrafficLead {
   conversation_id: string
   entry_at: string
   source: TrafficSource
-  campaign: string // chave do anúncio (mesma imagem = mesmo anúncio)
+  campaign: string // chave do anúncio: ID do anúncio na Meta (ou a imagem, quando o WhatsApp não manda o ID)
+  ad_id: string | null // ID do anúncio na Meta (source_id do WhatsApp)
   title: string | null
   url: string | null
   instance_id: string
@@ -31,7 +32,7 @@ export interface TrafficLead {
   last_inbound_at: string | null
 }
 
-export interface TrafficCampaign { key: string; title: string; thumb: string | null; url: string | null }
+export interface TrafficCampaign { key: string; ad_id: string | null; title: string; thumb: string | null; url: string | null }
 
 export interface TrafficMetricsData {
   from: string
@@ -86,33 +87,43 @@ export async function loadTrafficMetrics(from: string, to: string): Promise<Traf
   if (error) throw new Error(error.message)
   const list = (rows ?? []) as Row[]
 
-  // um anúncio = mesma imagem; o nome é o título mais usado (o WhatsApp às vezes manda sem título)
-  const byKey = new Map<string, { titles: Map<string, number>; msgId: string; url: string | null }>()
+  // um anúncio = o ID que a Meta manda no clique; sem ID, vale a mesma imagem. Dois anúncios com a mesma imagem
+  // têm IDs diferentes, e antes apareciam como um só. O nome é o título mais usado (o WhatsApp às vezes manda sem título).
+  const entry = new Map<string, { thumb: string | null; adId: string | null }>()
+  const entryIds = Array.from(new Set(list.filter((r) => r.source !== 'google').map((r) => r.entry_message_id)))
+  for (let i = 0; i < entryIds.length; i += 100) {
+    const { data } = await admin
+      .from('crm_messages')
+      .select('id, thumb:ad_context->>thumb, adId:ad_context->>source_id')
+      .in('id', entryIds.slice(i, i + 100))
+    for (const m of (data ?? []) as { id: string; thumb: string | null; adId: string | null }[]) entry.set(m.id, { thumb: m.thumb, adId: m.adId })
+  }
+  const keyOf = (r: Row) => entry.get(r.entry_message_id)?.adId || r.thumb_hash
+  const adIdOf = (r: Row) => entry.get(r.entry_message_id)?.adId || null
+
+  const byKey = new Map<string, { titles: Map<string, number>; msgId: string; url: string | null; adId: string | null }>()
   for (const r of list) {
     if (r.source === 'google') continue
-    const c = byKey.get(r.thumb_hash) ?? { titles: new Map(), msgId: r.entry_message_id, url: r.url }
+    const k = keyOf(r)
+    const c = byKey.get(k) ?? { titles: new Map(), msgId: r.entry_message_id, url: r.url, adId: adIdOf(r) }
     if (r.title && r.title !== 'Anúncio no Status') c.titles.set(r.title, (c.titles.get(r.title) ?? 0) + 1)
-    byKey.set(r.thumb_hash, c)
-  }
-  const msgIds = Array.from(byKey.values()).map((c) => c.msgId)
-  const thumbs = new Map<string, string | null>()
-  if (msgIds.length) {
-    const { data } = await admin.from('crm_messages').select('id, thumb:ad_context->>thumb').in('id', msgIds)
-    for (const m of (data ?? []) as { id: string; thumb: string | null }[]) thumbs.set(m.id, m.thumb)
+    byKey.set(k, c)
   }
   const campaigns: TrafficCampaign[] = Array.from(byKey.entries()).map(([key, c], i) => ({
     key,
+    ad_id: c.adId,
     title: Array.from(c.titles.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? `Anúncio sem título ${i + 1}`,
-    thumb: thumbs.get(c.msgId) ?? null,
+    thumb: entry.get(c.msgId)?.thumb ?? null,
     url: c.url,
   }))
-  if (list.some((r) => r.source === 'google')) campaigns.push({ key: 'google', title: 'Google (“vim pelo google”)', thumb: null, url: null })
+  if (list.some((r) => r.source === 'google')) campaigns.push({ key: 'google', ad_id: null, title: 'Google (“vim pelo google”)', thumb: null, url: null })
 
   const leads: TrafficLead[] = list.map((r) => ({
     conversation_id: r.conversation_id,
     entry_at: r.entry_at,
     source: (SOURCES.includes(r.source as TrafficSource) ? r.source : 'facebook') as TrafficSource,
-    campaign: r.thumb_hash,
+    campaign: r.source === 'google' ? r.thumb_hash : keyOf(r),
+    ad_id: adIdOf(r),
     title: r.title,
     url: r.url,
     instance_id: r.instance_id,

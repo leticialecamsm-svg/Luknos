@@ -247,9 +247,9 @@ export function TrafficMetrics({ data }: { data: TrafficMetricsData }) {
 
   // ── exportar ──
   const exportCsv = () => {
-    const head = ['Data', 'Contato', 'Telefone', 'Canal', 'Anúncio', 'WhatsApp', 'Atendente', '1ª resposta (min)', 'Respondeu à equipe', 'Msgs do cliente depois da resposta', 'Msgs do cliente', 'Msgs nossas', 'Etapa', 'Valor', 'Solicitação', 'Já era contato']
+    const head = ['Data', 'Contato', 'Telefone', 'Canal', 'Anúncio', 'ID do anúncio', 'WhatsApp', 'Atendente', '1ª resposta (min)', 'Respondeu à equipe', 'Msgs do cliente depois da resposta', 'Msgs do cliente', 'Msgs nossas', 'Etapa', 'Valor', 'Solicitação', 'Já era contato']
     const rows = listed.map((l) => [
-      dateTime(l.entry_at), l.contact_name ?? '', l.phone ?? '', SOURCE[l.source].label, campOf.get(l.campaign)?.title ?? '',
+      dateTime(l.entry_at), l.contact_name ?? '', l.phone ?? '', SOURCE[l.source].label, campOf.get(l.campaign)?.title ?? '', l.ad_id ?? '',
       instOf.get(l.instance_id) ?? '', userOf.get(l.first_reply_user ?? l.assigned_user_id ?? '')?.name ?? '',
       replyMin(l) != null ? String(Math.round(replyMin(l)!)) : 'sem resposta',
       !l.first_reply_at ? '' : l.inbound_after_reply ? 'sim' : 'não', l.first_reply_at ? l.inbound_after_reply : '', l.inbound_count, l.outbound_count,
