@@ -1843,6 +1843,100 @@ export async function createContactFromConversation(
   return { ok: true, contactId: created.id as string }
 }
 
+// Cadastra (ou atualiza) o parceiro a partir da mensagem "CADASTRO DE PARCEIRO" preenchida na conversa.
+// Não duplica: se a conversa já tem contato (ou existe um com o mesmo telefone), atualiza esse e vincula.
+export async function registerPartnerFromConversation(conversationId: string, input: {
+  name: string; type: string; phone?: string; email?: string; company?: string
+  assigned_to?: string; new_prospection?: boolean; commission_rate?: number | null; linked_user_id?: string | null
+  cpf?: string; pix_key?: string; birth_date?: string; address?: string
+}) {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const acc = await convAccess(admin, auth, conversationId)
+  if (!acc.ok) return { error: acc.error }
+
+  const name = (input.name ?? '').replace(/\s+/g, ' ').trim()
+  if (!name) return { error: 'Informe o nome do parceiro' }
+  if (name.length > 120) return { error: 'Nome muito longo (máximo 120 caracteres)' }
+  if (!isContactType(input.type)) return { error: 'Escolha o tipo do parceiro' }
+  const email = input.email?.trim() || null
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'E-mail inválido' }
+  if (input.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(input.birth_date)) return { error: 'Data de nascimento inválida' }
+
+  const { data: conv } = await admin.from('crm_conversations').select('remote_jid, contact_id, is_group').eq('id', conversationId).single()
+  if (!conv || conv.is_group) return { error: 'O cadastro vale só para conversas individuais' }
+  const convDigits = onlyDigits(conv.remote_jid.split('@')[0])
+  const phone = formatPhoneForContact(onlyDigits(input.phone) || convDigits)
+
+  // já existe? o contato da conversa, ou outro com o mesmo telefone
+  let existingId: string | null = conv.contact_id ?? null
+  if (!existingId) {
+    const { data: withPhone } = await admin.from('contacts').select('id, phone').not('phone', 'is', null)
+    existingId = (withPhone ?? []).find((k) => samePhone(k.phone, convDigits))?.id ?? null
+  }
+
+  let contactId: string
+  let existed = false
+  let canWriteSensitive = true
+  if (existingId) {
+    existed = true
+    contactId = existingId
+    const { data: cur } = await admin.from('contacts').select('assigned_to, created_by, phone').eq('id', existingId).single()
+    canWriteSensitive = auth.viewAsAdmin || cur?.assigned_to === auth.userId || cur?.created_by === auth.userId
+    const updates: Record<string, unknown> = { name, type: input.type }
+    if (email) updates.email = email
+    if (input.company?.trim()) updates.company = input.company.trim()
+    if (!cur?.phone) updates.phone = phone
+    if (auth.viewAsAdmin) {
+      if (input.assigned_to) updates.assigned_to = input.assigned_to
+      if (input.commission_rate !== undefined) updates.commission_rate = input.commission_rate
+      if (input.linked_user_id !== undefined) updates.linked_user_id = input.linked_user_id
+    }
+    const { error } = await admin.from('contacts').update(updates).eq('id', existingId)
+    if (error) return { error: error.message }
+  } else {
+    const rate = auth.viewAsAdmin && input.commission_rate != null ? input.commission_rate : (input.type === 'client' ? null : DEFAULT_COMMISSION_BY_TYPE[input.type] ?? null)
+    const { data: created, error } = await admin.from('contacts').insert({
+      name, phone, email, type: input.type, company: input.company?.trim() || null,
+      created_by: auth.userId,
+      assigned_to: input.assigned_to || auth.userId,
+      new_prospection: !!input.new_prospection,
+      prospection_date: input.new_prospection ? new Date().toISOString() : null,
+      commission_rate: rate,
+      linked_user_id: auth.viewAsAdmin ? input.linked_user_id ?? null : null,
+    }).select('id').single()
+    if (error || !created) return { error: error?.message ?? 'Não foi possível cadastrar' }
+    contactId = created.id as string
+  }
+
+  const { error: linkErr } = await admin.from('crm_conversations').update({ contact_id: contactId, contact_name_cache: null, contact_link_source: 'manual' }).eq('id', conversationId)
+  if (linkErr) return { error: linkErr.message }
+
+  // CPF, PIX, nascimento e endereço (tabela à parte; só grava o que veio preenchido)
+  let sensitiveSaved = false
+  let sensitiveWarning: string | null = null
+  const sens: Record<string, string> = {}
+  if (input.cpf?.trim()) sens.cpf = input.cpf.trim()
+  if (input.pix_key?.trim()) sens.pix_key = input.pix_key.trim()
+  if (input.birth_date) sens.birth_date = input.birth_date
+  if (input.address?.trim()) sens.address = input.address.trim()
+  if (Object.keys(sens).length) {
+    if (!canWriteSensitive) sensitiveWarning = 'O parceiro foi atualizado, mas CPF, PIX e endereço só podem ser alterados pelo responsável ou por um administrador.'
+    else {
+      const { error: sErr } = await admin.from('contact_sensitive').upsert(
+        { contact_id: contactId, ...sens, updated_at: new Date().toISOString(), updated_by: auth.actedBy?.id ?? auth.userId },
+        { onConflict: 'contact_id' },
+      )
+      if (sErr) sensitiveWarning = 'O parceiro foi cadastrado, mas não consegui salvar CPF, PIX e endereço. Tente editar o parceiro em Parceiros.'
+      else sensitiveSaved = true
+    }
+  }
+
+  revalidatePath('/partners')
+  return { ok: true as const, contactId, existed, sensitiveSaved, warning: sensitiveWarning }
+}
+
 export async function setContactCategory(conversationId: string, contactId: string, type: string) {
   const auth = await ensureStaff()
   if ('error' in auth) return { error: auth.error }

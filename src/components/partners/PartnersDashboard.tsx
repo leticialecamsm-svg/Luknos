@@ -1,6 +1,8 @@
 'use client'
 
-import { TrendingUp, Handshake, CircleDollarSign, Trophy } from 'lucide-react'
+import { useState } from 'react'
+import { TrendingUp, Handshake, CircleDollarSign, Trophy, ChevronDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/utils'
 
 export interface PartnerStats {
@@ -18,6 +20,7 @@ export function statsFor(contact: any, stats?: PartnerStats) {
 const BAR_COLORS = ['#111827', '#CBA455', '#0E7C66', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#65A30D']
 
 export function PartnersDashboard({ contacts, stats }: { contacts: any[]; stats?: PartnerStats }) {
+  const [rankOpen, setRankOpen] = useState(false)
   const ranked = contacts
     .map(c => ({ contact: c, s: statsFor(c, stats) }))
     .filter(x => x.s.openValue > 0)
@@ -51,34 +54,45 @@ export function PartnersDashboard({ contacts, stats }: { contacts: any[]; stats?
         </div>
       </div>
 
-      {/* Ranking */}
-      <div className="rounded-xl shadow-card border border-surface-border bg-white p-4">
-        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
-          <Trophy className="w-4 h-4 text-amber-500" /> Maiores parceiros em negociação
-        </h3>
-        {top.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">Nenhum parceiro com orçamento em negociação</p>
-        ) : (
-          <div className="space-y-3">
-            {top.map((x, i) => {
-              const pct = Math.max(4, (x.s.openValue / maxVal) * 100)
-              const color = BAR_COLORS[i % BAR_COLORS.length]
-              return (
-                <div key={x.contact.id} className="flex items-center gap-3">
-                  <span className="w-5 text-xs font-bold text-gray-400 shrink-0 text-right">{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-medium text-gray-800 truncate">{x.contact.name}</span>
-                      <span className="text-sm font-bold shrink-0" style={{ color }}>{formatCurrency(x.s.openValue)}</span>
+      {/* Ranking (recolhido: a lista de parceiros é o foco da tela) */}
+      <div className="rounded-xl shadow-card border border-surface-border bg-white">
+        <button type="button" onClick={() => setRankOpen((o) => !o)} aria-expanded={rankOpen} className="w-full flex items-center gap-2 px-4 py-3 text-left">
+          <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
+          <span className="text-sm font-semibold text-gray-900">Maiores parceiros em negociação</span>
+          {!rankOpen && top.length > 0 && (
+            <span className="hidden sm:block min-w-0 flex-1 truncate text-xs text-gray-400 ml-1">
+              {top.slice(0, 3).map((x) => `${x.contact.name.split(' ').slice(0, 2).join(' ')} (${formatCurrency(x.s.openValue)})`).join(' · ')}
+            </span>
+          )}
+          <ChevronDown className={cn('w-4 h-4 text-gray-400 ml-auto shrink-0 transition-transform', rankOpen && 'rotate-180')} />
+        </button>
+        {rankOpen && (
+          <div className="px-4 pb-4">
+            {top.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">Nenhum parceiro com orçamento em negociação</p>
+            ) : (
+              <div className="space-y-3">
+                {top.map((x, i) => {
+                  const pct = Math.max(4, (x.s.openValue / maxVal) * 100)
+                  const color = BAR_COLORS[i % BAR_COLORS.length]
+                  return (
+                    <div key={x.contact.id} className="flex items-center gap-3">
+                      <span className="w-5 text-xs font-bold text-gray-400 shrink-0 text-right">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-sm font-medium text-gray-800 truncate">{x.contact.name}</span>
+                          <span className="text-sm font-bold shrink-0" style={{ color }}>{formatCurrency(x.s.openValue)}</span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-0.5">{x.s.openCount} orçamento{x.s.openCount !== 1 ? 's' : ''} em negociação</p>
+                      </div>
                     </div>
-                    <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-0.5">{x.s.openCount} orçamento{x.s.openCount !== 1 ? 's' : ''} em negociação</p>
-                  </div>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

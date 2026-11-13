@@ -1178,6 +1178,53 @@ export async function getProspectionsThisMonth(userId?: string, year?: number, m
   return count ?? 0
 }
 
+// ── Dados de cadastro do parceiro (CPF, PIX, nascimento, endereço) ──────────────
+// Ficam em contact_sensitive (sem policy: só o servidor acessa). Quem vê/edita: administradores e o
+// responsável (ou quem criou) pelo parceiro.
+export interface PartnerSensitive { cpf: string; pix_key: string; birth_date: string; address: string }
+const SENSITIVE_EMPTY: PartnerSensitive = { cpf: '', pix_key: '', birth_date: '', address: '' }
+
+async function sensitiveAccess(contactId: string) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false as const, error: 'Não autenticado' }
+  const admin = createAdminClient()
+  const [{ data: profile }, { data: contact }] = await Promise.all([
+    admin.from('users').select('role').eq('id', user.id).maybeSingle(),
+    admin.from('contacts').select('assigned_to, created_by').eq('id', contactId).maybeSingle(),
+  ])
+  if (!contact) return { ok: false as const, error: 'Parceiro não encontrado' }
+  const ok = profile?.role === 'admin' || contact.assigned_to === user.id || contact.created_by === user.id
+  return ok ? { ok: true as const, userId: user.id, admin } : { ok: false as const, error: 'Sem permissão para ver estes dados' }
+}
+
+export async function getPartnerSensitive(contactId: string): Promise<{ data: PartnerSensitive } | { error: string }> {
+  const acc = await sensitiveAccess(contactId)
+  if (!acc.ok) return { error: acc.error }
+  const { data, error } = await acc.admin.from('contact_sensitive').select('cpf, pix_key, birth_date, address').eq('contact_id', contactId).maybeSingle()
+  if (error) return { error: error.message }
+  return { data: { ...SENSITIVE_EMPTY, ...Object.fromEntries(Object.entries(data ?? {}).map(([k, v]) => [k, v ?? ''])) } as PartnerSensitive }
+}
+
+// Grava só o que veio preenchido (campo vazio não apaga o que já existe), a não ser que `replace` seja true.
+export async function savePartnerSensitive(contactId: string, input: Partial<PartnerSensitive>, replace = false): Promise<{ ok: true } | { error: string }> {
+  const acc = await sensitiveAccess(contactId)
+  if (!acc.ok) return { error: acc.error }
+  const row: Record<string, unknown> = {}
+  for (const k of ['cpf', 'pix_key', 'birth_date', 'address'] as const) {
+    const v = (input[k] ?? '').toString().trim()
+    if (v || replace) row[k] = v || null
+  }
+  if (!Object.keys(row).length) return { ok: true }
+  if (row.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.birth_date))) return { error: 'Data de nascimento inválida' }
+  const { error } = await acc.admin.from('contact_sensitive').upsert(
+    { contact_id: contactId, ...row, updated_at: new Date().toISOString(), updated_by: acc.userId },
+    { onConflict: 'contact_id' },
+  )
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
 export async function deleteContact(id: string) {
   const { error } = await createAdminClient().from('contacts').delete().eq('id', id)
   if (error) return { error: error.message }

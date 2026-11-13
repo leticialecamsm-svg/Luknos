@@ -58,8 +58,12 @@ import {
   syncCrmContactInfo,
   getCrmConversationRow,
   type ConversationRow,
+  registerPartnerFromConversation,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
+import { parsePartnerRegistration, isFilledRegistration, type PartnerRegistration } from '@/lib/partner-registration'
+import { formatPhoneForContact } from '@/lib/crm-panel'
+import { PartnerFormModal } from '@/components/partners/PartnerFormModal'
 import { fetchCrmMessages, fetchCrmSnapshot, postCrmSend, postCrmForward, postCrmReact } from '@/lib/crm-fetch'
 import { ConversationListSkeleton, ThreadSkeleton, LuknosSpinner, LoadError } from '@/components/ui/LuknosLoader'
 import { useToast } from '@/components/ui/Toast'
@@ -87,7 +91,7 @@ import { ReactionPicker } from './ReactionPicker'
 import { useReactionFavorites } from './useReactionFavorites'
 import {
   Send, Paperclip, Loader2, UserCog, Smartphone, Hash, ArrowRightLeft, Link2, Search, ExternalLink, Phone, List, MessageSquareText, Inbox, Users as UsersIcon, X,
-  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap, History, ShieldOff,
+  Mic, Trash2, Square, RefreshCw, Info, Play as PlayIcon, CheckCheck, Reply, ChevronDown, CalendarClock, Lock, MailOpen, ContactRound, Sticker as StickerIcon, Pin, PinOff, PenLine, Pencil, MoreVertical, Download, Image as ImageIcon, Forward, Plus, Clock, AlertCircle, Smile, Archive, ArchiveRestore, ChevronLeft, Folder, Zap, History, ShieldOff, UserPlus,
 } from 'lucide-react'
 
 type ScopeTab = 'mine' | 'unassigned' | 'all' | 'groups'
@@ -286,6 +290,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   const [showLinkContact, setShowLinkContact] = useState(false)
   const [showOtherNumber, setShowOtherNumber] = useState(false)
   const [showSolicitation, setShowSolicitation] = useState(false)
+  const [registeringPartner, setRegisteringPartner] = useState<PartnerRegistration | null>(null)
   const [solicitacaoSelectMode, setSolicitacaoSelectMode] = useState<{
     solicitationId: string; solicitationNumber: number; stage: string; stageLabel: string
     selected: Map<string, 'file' | 'observation' | 'location' | 'contact'>
@@ -1739,6 +1744,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                   onOpenAttachment={openAttachment}
                   contact={{ id: selected.id, name: selected.contact_name ?? selected.remote_jid.split('@')[0], photo: selected.contact_photo_url }}
                   onOpenContact={(phone) => openContactConversation(phone)}
+                  onRegisterPartner={!solicitacaoSelectMode && !selectedIsGroup ? (reg) => setRegisteringPartner(reg) : undefined}
                   isGroup={selected.is_group}
                   parent={m.reply_to_provider_id ? messages.find((x) => x.provider_message_id === m.reply_to_provider_id) ?? null : null}
                   onReply={() => { if (!solicitacaoSelectMode) { setReplyTo(m); textareaRef.current?.focus() } }}
@@ -2213,6 +2219,47 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
         />
       )}
 
+      {registeringPartner && selected && !selected.is_group && (
+        <PartnerFormModal
+          title="Cadastrar parceiro"
+          subtitle="Dados lidos da mensagem — confira antes de salvar"
+          initial={{
+            name: registeringPartner.name,
+            type: 'architect',
+            phone: formatPhoneForContact(selected.remote_jid.split('@')[0]),
+            email: registeringPartner.email,
+            company: registeringPartner.company,
+            cpf: registeringPartner.cpf,
+            pix_key: registeringPartner.pixKey,
+            birth_date: registeringPartner.birthDate,
+            address: registeringPartner.address,
+            assigned_to: currentUserId,
+          }}
+          users={users}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          submitLabel="Cadastrar parceiro"
+          notice={selected.contact_id
+            ? <>Esta conversa já está ligada ao contato <b>{selected.contact_name ?? 'existente'}</b>. Os dados abaixo vão <b>atualizar esse cadastro</b>, sem criar outro.</>
+            : undefined}
+          onSave={async (v) => {
+            const r = await registerPartnerFromConversation(selected.id, {
+              name: v.name, type: v.type, phone: v.phone, email: v.email, company: v.company,
+              assigned_to: v.assigned_to, new_prospection: v.new_prospection,
+              commission_rate: v.commission_rate, linked_user_id: v.linked_user_id,
+              cpf: v.sensitiveVisible ? v.cpf : undefined, pix_key: v.sensitiveVisible ? v.pix_key : undefined,
+              birth_date: v.sensitiveVisible ? v.birth_date : undefined, address: v.sensitiveVisible ? v.address : undefined,
+            })
+            if ('error' in r && r.error) return { error: r.error }
+            toast.success('TUDO CERTO!', r.existed ? `${v.name} atualizado(a) em Parceiros.` : `${v.name} cadastrado(a) em Parceiros.`)
+            if (r.warning) toast.error('ATENÇÃO', r.warning)
+            setRegisteringPartner(null)
+            refreshList(true)
+          }}
+          onClose={() => setRegisteringPartner(null)}
+        />
+      )}
+
       {showSolicitation && selected && (
         <CrmSolicitationModal
           contactId={selected.is_group ? null : selected.contact_id}
@@ -2241,7 +2288,7 @@ function speakerColor(key: string): string {
 }
 
 function MessageBubble({
-  msg, first, currentUserId, hideSignature, participantPhoto, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRetry, onDiscard,
+  msg, first, currentUserId, hideSignature, participantPhoto, url, onDownload, onOpenMedia, onOpenAttachment, contact, isGroup, parent, onReply, onReact, onSaveSticker, mentionNames, canDelete, onDelete, canEdit, onEdit, canForward, onForward, onOpenContact, onRegisterPartner, onRetry, onDiscard,
 }: {
   msg: Msg
   first: boolean
@@ -2266,6 +2313,7 @@ function MessageBubble({
   canForward: boolean
   onForward: () => void
   onOpenContact?: (phone: string) => void
+  onRegisterPartner?: (reg: PartnerRegistration) => void
   onRetry?: () => void
   onDiscard?: () => void
 }) {
@@ -2344,6 +2392,8 @@ function MessageBubble({
   const tailCorner = first ? (isOutbound ? 'rounded-tr-none' : 'rounded-tl-none') : ''
 
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
+  // "CADASTRO DE PARCEIRO" devolvido preenchido pelo arquiteto: oferece cadastrar com os dados já lidos
+  const partnerReg = msg.message_type === 'text' && !msg.deleted_at && !isGroup ? (() => { const r = parsePartnerRegistration(msg.body); return isFilledRegistration(r) ? r : null })() : null
   const hasFile = !!(msg.storage_path || msg.drive_file_id || msg.local_url)
   // foto, áudio, vídeo ou documento que ainda não foi baixado: mostra o botão "Baixar"
   const isTempMsg = msg.id.startsWith('temp-')
@@ -2522,6 +2572,13 @@ function MessageBubble({
 
         {msg.message_type === 'text' && firstUrl(msg.body) && <LinkPreviewCard url={firstUrl(msg.body)!} />}
         {msg.message_type === 'text' && msg.body && <WaText text={mentionNames ? renderMentions(msg.body, mentionNames) : msg.body} tail={tail} />}
+        {partnerReg && onRegisterPartner && (
+          <div className="mt-2 -mx-2.5 -mb-1 pt-1 border-t border-black/10">
+            <button type="button" onClick={() => onRegisterPartner(partnerReg)} className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-black/5 rounded-b-lg">
+              <UserPlus className="w-4 h-4" /> Cadastrar parceiro
+            </button>
+          </div>
+        )}
 
         {needsDownload && <DownloadCard msg={msg} onDownload={onDownload} />}
         {pendingFile && (

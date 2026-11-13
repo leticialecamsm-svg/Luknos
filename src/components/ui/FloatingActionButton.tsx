@@ -5,13 +5,16 @@ import { useRouter } from 'next/navigation'
 import { Plus, FileText, Users, CheckSquare, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TasksModal } from '@/components/tasks/TasksModal'
-import { NewPartnerModal } from '@/components/partners/NewPartnerModal'
+import { PartnerFormModal } from '@/components/partners/PartnerFormModal'
+import { createPartner } from '@/components/partners/partner-save'
+import { useToast } from '@/components/ui/Toast'
 import { NewQuoteModal } from '@/components/quotes/NewQuoteModal'
 
 export function FloatingActionButton({ currentUserId }: { currentUserId: string }) {
   const [open, setOpen] = useState(false)
   const [modal, setModal] = useState<'task' | 'partner' | 'quote' | null>(null)
   const router = useRouter()
+  const toast = useToast()
 
   function openModal(m: 'task' | 'partner' | 'quote') {
     setOpen(false)
@@ -77,8 +80,19 @@ export function FloatingActionButton({ currentUserId }: { currentUserId: string 
       )}
 
       {modal === 'partner' && (
-        <NewPartnerModal
+        <PartnerFormModal
+          title="Novo parceiro"
+          initial={{ assigned_to: currentUserId }}
           currentUserId={currentUserId}
+          submitLabel="Cadastrar parceiro"
+          onSave={async (v) => {
+            const r = await createPartner(v)
+            if ('error' in r) { toast.error('OCORREU UM ERRO', r.error); return { error: r.error } }
+            toast.success('TUDO CERTO!', `${v.name} adicionado(a) com sucesso!`)
+            if (r.warning) toast.error('ATENÇÃO', r.warning)
+            setModal(null)
+            router.refresh()
+          }}
           onClose={() => setModal(null)}
         />
       )}
