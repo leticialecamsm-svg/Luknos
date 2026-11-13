@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { QuoteStatus, NegTemperature } from '@/types'
 import { DEFAULT_PAYMENT_RATES, round2 } from '@/lib/payment-rates'
 import { PAGE_CATALOG } from '@/lib/pages-catalog'
+import { findExistingContact } from '@/lib/contact-dedup-server'
 import { trashFile, listFolderFiles, folderIdFromLink, syncQuoteFilesToDrive, isDriveConnected } from '@/lib/google-drive'
 
 // Injeta avatar_url nos owners e payment_splits (a view quotes_full não traz esses campos)
@@ -1128,6 +1129,9 @@ export async function createContact(data: {
   const prospection_date = data.new_prospection ? new Date().toISOString() : null
   const assigned_to = data.assigned_to ?? user.id
   const commission_rate = data.commission_rate ?? (data.type !== 'client' ? DEFAULT_COMMISSION_RATE_BY_TYPE[data.type] ?? null : null)
+  // trava: não cria contato que já existe (mesmo e-mail, ou mesmo nome ignorando acentos — salvo homônimo com outro telefone)
+  const dup = await findExistingContact(admin, { name: data.name, phone: data.phone, email: data.email }, null, { phone: false })
+  if (dup) return { error: dup.message, duplicateOf: dup.contact }
   const { data: contact, error } = await admin
     .from('contacts')
     .insert({ ...data, commission_rate, created_by: user.id, prospection_date, assigned_to })
@@ -1141,6 +1145,17 @@ export async function updateContact(id: string, data: {
   name?: string; phone?: string; email?: string; type?: string; company?: string; new_prospection?: boolean; assigned_to?: string; commission_rate?: number | null; linked_user_id?: string | null
 }) {
   const admin = createAdminClient()
+  if (data.name !== undefined || data.phone || data.email) {
+    // só checa o que mudou (duplicados antigos não travam a edição de outros campos)
+    const { data: cur } = await admin.from('contacts').select('name, phone, email').eq('id', id).single()
+    const changed = {
+      name: data.name !== undefined && data.name.trim() !== (cur?.name ?? '').trim() ? data.name : null,
+      phone: data.phone && data.phone.replace(/\D/g, '') !== (cur?.phone ?? '').replace(/\D/g, '') ? data.phone : null,
+      email: data.email && data.email.trim().toLowerCase() !== (cur?.email ?? '').trim().toLowerCase() ? data.email : null,
+    }
+    const dup = (changed.name || changed.phone || changed.email) ? await findExistingContact(admin, { ...changed, phone: changed.name ? (data.phone ?? cur?.phone) : changed.phone }, id, { phone: false }) : null
+    if (dup) return { error: dup.message.replace('Use o cadastro existente em vez de criar outro.', 'Ajuste os dados ou use o cadastro existente.') }
+  }
   const updates: Record<string, unknown> = { ...data }
   if ('new_prospection' in data) {
     updates.prospection_date = data.new_prospection ? new Date().toISOString() : null

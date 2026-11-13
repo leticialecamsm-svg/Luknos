@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { findExistingContact } from '@/lib/contact-dedup-server'
 
 // POST /api/external/quotes — gravação de orçamento pelo Robô de Orçamentos
 // WhatsApp (Edge Function submit-quote). Única via de escrita no banco de
@@ -109,6 +110,12 @@ export async function POST(req: NextRequest) {
   if (!clientId) {
     const name = body.client?.name?.trim()
     if (!name) return NextResponse.json({ error: 'client_required' }, { status: 422 })
+    // já existe (mesmo nome ignorando acentos, sem telefone diferente)? usa esse em vez de duplicar
+    const existing = await findExistingContact(db, { name, phone: body.client?.phone }, null, { phone: false })
+    if (existing) clientId = existing.contact.id
+  }
+  if (!clientId) {
+    const name = body.client!.name!.trim()
     const { data: created, error } = await db
       .from('contacts')
       .insert({
@@ -125,6 +132,10 @@ export async function POST(req: NextRequest) {
 
   // ── contato: parceiro/especificador (opcional) ─────────────────────────
   let architectId: string | null = body.partner?.system_contact_id ?? null
+  if (!architectId && body.partner?.name?.trim()) {
+    const existing = await findExistingContact(db, { name: body.partner.name.trim(), phone: body.partner.phone }, null, { phone: false })
+    if (existing) architectId = existing.contact.id
+  }
   if (!architectId && body.partner?.name?.trim()) {
     const ptype = body.partner.type && CONTACT_TYPES.has(body.partner.type) ? body.partner.type : 'architect'
     const { data: created, error } = await db

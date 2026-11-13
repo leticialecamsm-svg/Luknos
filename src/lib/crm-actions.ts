@@ -1,5 +1,6 @@
 'use server'
 
+import { findExistingContact } from '@/lib/contact-dedup-server'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
@@ -1816,10 +1817,9 @@ export async function createContactFromConversation(
   const { data: conv } = await admin.from('crm_conversations').select('remote_jid').eq('id', conversationId).single()
   const digits = onlyDigits(conv?.remote_jid.split('@')[0])
 
-  // não duplica: se já existe contato com esse telefone, é para vincular
-  const { data: withPhone } = await admin.from('contacts').select('id, name, phone').not('phone', 'is', null)
-  const dup = (withPhone ?? []).find((k) => samePhone(k.phone, digits))
-  if (dup) return { error: `Já existe o contato "${dup.name}" com este telefone. Vincule-o em vez de criar outro.` }
+  // não duplica: mesmo telefone/e-mail, ou mesmo nome ignorando acentos → é para vincular
+  const dup = await findExistingContact(admin, { name, phone: digits, email })
+  if (dup) return { error: dup.message.replace('Use o cadastro existente em vez de criar outro.', 'Vincule-o em vez de criar outro.') }
 
   const { data: created, error } = await admin
     .from('contacts')
@@ -1872,8 +1872,8 @@ export async function registerPartnerFromConversation(conversationId: string, in
   // já existe? o contato da conversa, ou outro com o mesmo telefone
   let existingId: string | null = conv.contact_id ?? null
   if (!existingId) {
-    const { data: withPhone } = await admin.from('contacts').select('id, phone').not('phone', 'is', null)
-    existingId = (withPhone ?? []).find((k) => samePhone(k.phone, convDigits))?.id ?? null
+    // mesmo telefone/e-mail, ou mesmo nome ignorando acentos (sem telefone diferente) → atualiza esse
+    existingId = (await findExistingContact(admin, { name, phone: convDigits, email }))?.contact.id ?? null
   }
 
   let contactId: string
