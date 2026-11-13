@@ -38,6 +38,7 @@ export function ContactSearch({
   const [contactType, setContactType] = useState(type ?? 'client')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const toast = useToast()
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -69,6 +70,19 @@ export function ContactSearch({
       type: contactType
     })
     setCreating(false)
+    // já existia (mesmo nome sem acento, telefone ou e-mail): usa o cadastro existente
+    if ('duplicateOf' in res && res.duplicateOf) {
+      setSelected(res.duplicateOf)
+      onSelect(res.duplicateOf)
+      setSearch('')
+      setPhone('')
+      setResults([])
+      setCreatingMode(false)
+      setOpen(false)
+      toast.info('CONTATO JÁ EXISTE', `Usei o cadastro existente: ${res.duplicateOf.name}.`)
+      return
+    }
+    if (res.error) { toast.error('OCORREU UM ERRO', res.error); return }
     if (res.data) {
       setSelected(res.data)
       onSelect(res.data)
