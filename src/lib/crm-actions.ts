@@ -1864,8 +1864,8 @@ export async function registerPartnerFromConversation(conversationId: string, in
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'E-mail inválido' }
   if (input.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(input.birth_date)) return { error: 'Data de nascimento inválida' }
 
-  const { data: conv } = await admin.from('crm_conversations').select('remote_jid, contact_id, is_group').eq('id', conversationId).single()
-  if (!conv || conv.is_group) return { error: 'O cadastro vale só para conversas individuais' }
+  const { data: conv } = await admin.from('crm_conversations').select('remote_jid, contact_id').eq('id', conversationId).single()
+  if (!conv || isGroupJid(conv.remote_jid)) return { error: 'O cadastro vale só para conversas individuais' }
   const convDigits = onlyDigits(conv.remote_jid.split('@')[0])
   const phone = formatPhoneForContact(onlyDigits(input.phone) || convDigits)
 
