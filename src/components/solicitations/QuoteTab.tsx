@@ -2,17 +2,20 @@
 
 import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarDays, AlertCircle, ChevronDown, ChevronRight, FileUp, Sparkles } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarDays, AlertCircle, ChevronDown, ChevronRight, FileUp, Sparkles, Download, Eye } from 'lucide-react'
 import { cn, formatCurrency, formatDate, isOverdue } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
   getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal,
+  getQuoteAttachments, deleteQuoteAttachment, getQuoteAttachmentUrl,
 } from '@/lib/actions'
 import {
   createQuoteForSolicitation, deleteQuoteFromSolicitation,
   updateQuoteStatusWithCompletion, updateQuoteDeadline,
 } from '@/lib/solicitations/actions'
 import type { SolicitationView } from '@/lib/solicitations/actions'
+import { uploadQuoteFile } from '@/lib/quote-upload'
+import { extractQuoteValueFromPdf } from '@/lib/extract-quote-pdf'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { QuoteSchedules } from '@/components/quotes/QuoteSchedules'
 import { StageFilesColumn } from '@/components/solicitations/StageFiles'
@@ -170,10 +173,57 @@ function DeadlineRow({ quote, solicitationId }: { quote: any; solicitationId: st
   )
 }
 
+// ── Arquivos do orçamento ─────────────────────────────────────────────────────
+
+function QuoteFileRow({ file, onDelete }: { file: any; onDelete: () => void }) {
+  const { confirm, ConfirmDialog } = useConfirm()
+  const [opening, setOpening] = useState(false)
+
+  async function open(mode: 'view' | 'download') {
+    setOpening(true)
+    const res = await getQuoteAttachmentUrl(file.id, 'manual', mode)
+    setOpening(false)
+    if (res.url) window.open(res.url, '_blank')
+  }
+
+  async function handleDelete() {
+    const yes = await confirm(`Remover "${file.file_name}"?`, 'Remover')
+    if (!yes) return
+    await deleteQuoteAttachment(file.id, file.quoteId, 'manual')
+    onDelete()
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+      <FileText className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+      <span className="text-xs text-gray-700 truncate flex-1">{file.file_name}</span>
+      {opening && <Loader2 className="w-3 h-3 animate-spin text-gray-400 shrink-0" />}
+      {!opening && (
+        <div className="flex items-center gap-1 shrink-0">
+          <button type="button" onClick={() => open('view')}
+            className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-brand-600 transition-colors" title="Visualizar">
+            <Eye className="w-3 h-3" />
+          </button>
+          <button type="button" onClick={() => open('download')}
+            className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-brand-600 transition-colors" title="Baixar">
+            <Download className="w-3 h-3" />
+          </button>
+          <button type="button" onClick={handleDelete}
+            className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors" title="Remover">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+      {ConfirmDialog}
+    </div>
+  )
+}
+
 // ── Propostas ────────────────────────────────────────────────────────────────
 
 function ProposalList({ quoteId }: { quoteId: string }) {
   const [proposals, setProposals] = useState<any[]>([])
+  const [files, setFiles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [value, setValue] = useState('')
@@ -185,37 +235,54 @@ function ProposalList({ quoteId }: { quoteId: string }) {
   const [editDate, setEditDate] = useState('')
   const [editInfo, setEditInfo] = useState('')
   const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
   const [extractedFile, setExtractedFile] = useState<string | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const { confirm, ConfirmDialog } = useConfirm()
 
+  async function loadFiles() {
+    const result = await getQuoteAttachments(quoteId)
+    // Apenas arquivos manuais (storage) com mime pdf
+    const manual = (result?.manual ?? []).filter((f: any) => f.mime_type === 'application/pdf' || f.file_name?.endsWith('.pdf'))
+    setFiles(manual.map((f: any) => ({ ...f, quoteId })))
+  }
+
+  async function load() {
+    setLoading(true)
+    await Promise.all([
+      getQuoteProposals(quoteId).then(setProposals),
+      loadFiles(),
+    ])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [quoteId])
+
   async function handlePdfExtract(file: File) {
     setExtracting(true)
+    setExtractError(null)
     setExtractedFile(null)
     try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/quotes/extract-pdf', { method: 'POST', body: form })
-      const data = await res.json()
-      if (data.value) {
-        const formatted = data.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      // Extrai valor client-side
+      const extracted = await extractQuoteValueFromPdf(file)
+      if (extracted) {
+        const formatted = extracted.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         setValue(formatted)
         if (!date) setDate(new Date().toISOString().slice(0, 10))
         setExtractedFile(file.name)
         setShowForm(true)
+      } else {
+        setExtractError('Valor não encontrado no PDF. Verifique se é um orçamento do Master Lojista.')
       }
+      // Upload do arquivo independentemente da extração
+      await uploadQuoteFile(quoteId, file)
+      await loadFiles()
+    } catch (e: any) {
+      setExtractError(e?.message ?? 'Erro ao ler o PDF')
     } finally {
       setExtracting(false)
       if (pdfInputRef.current) pdfInputRef.current.value = ''
     }
   }
-
-  async function load() {
-    setLoading(true)
-    setProposals(await getQuoteProposals(quoteId))
-    setLoading(false)
-  }
-  useEffect(() => { load() }, [quoteId])
 
   async function handleCreate() {
     const v = parseFloat(value.replace(/\./g, '').replace(',', '.'))
@@ -253,7 +320,6 @@ function ProposalList({ quoteId }: { quoteId: string }) {
 
   if (loading) return <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-gray-300" /></div>
 
-  // Proposta mais recente = destaque
   const latest = proposals[0]
 
   return (
@@ -341,13 +407,30 @@ function ProposalList({ quoteId }: { quoteId: string }) {
         </div>
       )}
 
+      {/* Arquivos de orçamento enviados */}
+      {files.length > 0 && (
+        <div className="space-y-1.5 mb-3">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Arquivos do orçamento</p>
+          {files.map(f => (
+            <QuoteFileRow key={f.id} file={f} onDelete={loadFiles} />
+          ))}
+        </div>
+      )}
+
+      {/* Erro de extração */}
+      {extractError && (
+        <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5 mb-2">
+          <AlertCircle className="w-3 h-3 shrink-0" /> {extractError}
+        </div>
+      )}
+
       {/* Formulário nova proposta */}
       {showForm ? (
         <div className="rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-3 space-y-2">
           {extractedFile && (
             <div className="flex items-center gap-1.5 text-[11px] text-brand-700 bg-brand-100 rounded-lg px-2.5 py-1.5">
               <Sparkles className="w-3 h-3 shrink-0" />
-              Valor extraído de <span className="font-medium truncate">{extractedFile}</span>
+              Valor extraído de <span className="font-medium truncate ml-1">{extractedFile}</span>
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -363,14 +446,14 @@ function ProposalList({ quoteId }: { quoteId: string }) {
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button type="button" onClick={() => setShowForm(true)}
             className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
             <Plus className="w-3.5 h-3.5" />
             {proposals.length === 0 ? 'Registrar valor proposto' : 'Nova versão do valor'}
           </button>
           <span className="text-gray-200">·</span>
-          <button type="button" onClick={() => pdfInputRef.current?.click()}
+          <button type="button" onClick={() => { setExtractError(null); pdfInputRef.current?.click() }}
             disabled={extracting}
             className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-brand-600 font-medium transition-colors disabled:opacity-50">
             {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
