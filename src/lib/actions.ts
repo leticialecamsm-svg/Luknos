@@ -4065,6 +4065,28 @@ export async function deleteQuoteAttachment(
   return { ok: true }
 }
 
+// Todos os anexos manuais de um orçamento (incluindo os já sincronizados pro Drive).
+// Usado na aba de proposta de valor para exibir, visualizar e excluir PDFs enviados.
+export async function getAllQuoteAttachments(quoteId: string) {
+  const { data: { user } } = await createClient().auth.getUser()
+  if (!user) return []
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('quote_attachments')
+    .select('id, file_name, mime_type, size_bytes, drive_file_id, storage_path, created_at')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: false })
+  return (data ?? []).map((f: any) => ({
+    id: f.id,
+    file_name: f.file_name,
+    mime_type: f.mime_type,
+    size_bytes: f.size_bytes,
+    drive_file_id: f.drive_file_id,
+    storage_path: f.storage_path,
+    source: f.drive_file_id ? 'drive' as const : 'manual' as const,
+  }))
+}
+
 // URL assinada (5 min) pra um anexo — manual (quote-attachments) ou do robô
 // (wa-attachments). mode 'view' abre no navegador (PDF/imagem renderizam);
 // mode 'download' força baixar.

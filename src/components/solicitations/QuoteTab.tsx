@@ -7,7 +7,7 @@ import { cn, formatCurrency, formatDate, isOverdue } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
   getQuoteProposals, createQuoteProposal, updateQuoteProposal, deleteQuoteProposal,
-  getQuoteAttachments, deleteQuoteAttachment, getQuoteAttachmentUrl,
+  getAllQuoteAttachments, deleteQuoteAttachment, getQuoteAttachmentUrl,
 } from '@/lib/actions'
 import {
   createQuoteForSolicitation, deleteQuoteFromSolicitation,
@@ -179,9 +179,13 @@ function QuoteFileRow({ file, onDelete }: { file: any; onDelete: () => void }) {
   const { confirm, ConfirmDialog } = useConfirm()
   const [opening, setOpening] = useState(false)
 
+  const src = file.source as 'manual' | 'drive'
+
   async function open(mode: 'view' | 'download') {
     setOpening(true)
-    const res = await getQuoteAttachmentUrl(file.id, 'manual', mode)
+    // Para arquivos no Drive, getQuoteAttachmentUrl com source='drive' usa o drive_file_id
+    const lookupId = src === 'drive' ? file.drive_file_id : file.id
+    const res = await getQuoteAttachmentUrl(lookupId, src, mode)
     setOpening(false)
     if (res.url) window.open(res.url, '_blank')
   }
@@ -189,7 +193,7 @@ function QuoteFileRow({ file, onDelete }: { file: any; onDelete: () => void }) {
   async function handleDelete() {
     const yes = await confirm(`Remover "${file.file_name}"?`, 'Remover')
     if (!yes) return
-    await deleteQuoteAttachment(file.id, file.quoteId, 'manual')
+    await deleteQuoteAttachment(file.id, file.quoteId, src)
     onDelete()
   }
 
@@ -241,8 +245,8 @@ function ProposalList({ quoteId }: { quoteId: string }) {
   const { confirm, ConfirmDialog } = useConfirm()
 
   async function loadFiles() {
-    const result = await getQuoteAttachments(quoteId)
-    setFiles((result?.manual ?? []).map((f: any) => ({ ...f, quoteId })))
+    const result = await getAllQuoteAttachments(quoteId)
+    setFiles(result.map((f: any) => ({ ...f, quoteId })))
   }
 
   async function load() {
