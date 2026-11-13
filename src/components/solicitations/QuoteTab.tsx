@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarDays, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, FileText, Loader2, CalendarDays, AlertCircle, ChevronDown, ChevronRight, FileUp, Sparkles } from 'lucide-react'
 import { cn, formatCurrency, formatDate, isOverdue } from '@/lib/utils'
 import { QUOTE_STATUS_LABEL, QUOTE_STATUS_HINT, STATUS_COLOR } from '@/types'
 import {
@@ -184,7 +184,31 @@ function ProposalList({ quoteId }: { quoteId: string }) {
   const [editValue, setEditValue] = useState('')
   const [editDate, setEditDate] = useState('')
   const [editInfo, setEditInfo] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extractedFile, setExtractedFile] = useState<string | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const { confirm, ConfirmDialog } = useConfirm()
+
+  async function handlePdfExtract(file: File) {
+    setExtracting(true)
+    setExtractedFile(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/quotes/extract-pdf', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.value) {
+        const formatted = data.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        setValue(formatted)
+        if (!date) setDate(new Date().toISOString().slice(0, 10))
+        setExtractedFile(file.name)
+        setShowForm(true)
+      }
+    } finally {
+      setExtracting(false)
+      if (pdfInputRef.current) pdfInputRef.current.value = ''
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -320,8 +344,14 @@ function ProposalList({ quoteId }: { quoteId: string }) {
       {/* Formulário nova proposta */}
       {showForm ? (
         <div className="rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-3 space-y-2">
+          {extractedFile && (
+            <div className="flex items-center gap-1.5 text-[11px] text-brand-700 bg-brand-100 rounded-lg px-2.5 py-1.5">
+              <Sparkles className="w-3 h-3 shrink-0" />
+              Valor extraído de <span className="font-medium truncate">{extractedFile}</span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <input value={value} onChange={e => setValue(e.target.value)} placeholder="Valor (R$)" className="input w-32" autoFocus />
+            <input value={value} onChange={e => { setValue(e.target.value); setExtractedFile(null) }} placeholder="Valor (R$)" className="input w-32" autoFocus />
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input w-auto" />
             <input value={info} onChange={e => setInfo(e.target.value)} placeholder="Informações (opcional)" className="input flex-1 min-w-[160px]" />
           </div>
@@ -329,15 +359,31 @@ function ProposalList({ quoteId }: { quoteId: string }) {
             <button type="button" onClick={handleCreate} disabled={saving || !value.trim()} className="btn-primary px-3 py-1 text-xs">
               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Adicionar
             </button>
-            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary px-3 py-1 text-xs">Cancelar</button>
+            <button type="button" onClick={() => { setShowForm(false); setExtractedFile(null) }} className="btn-secondary px-3 py-1 text-xs">Cancelar</button>
           </div>
         </div>
       ) : (
-        <button type="button" onClick={() => setShowForm(true)}
-          className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
-          <Plus className="w-3.5 h-3.5" />
-          {proposals.length === 0 ? 'Registrar valor proposto' : 'Nova versão do valor'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setShowForm(true)}
+            className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
+            <Plus className="w-3.5 h-3.5" />
+            {proposals.length === 0 ? 'Registrar valor proposto' : 'Nova versão do valor'}
+          </button>
+          <span className="text-gray-200">·</span>
+          <button type="button" onClick={() => pdfInputRef.current?.click()}
+            disabled={extracting}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-brand-600 font-medium transition-colors disabled:opacity-50">
+            {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
+            {extracting ? 'Lendo PDF…' : 'Importar do PDF'}
+          </button>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfExtract(f) }}
+          />
+        </div>
       )}
       {ConfirmDialog}
     </div>
