@@ -242,9 +242,7 @@ function ProposalList({ quoteId }: { quoteId: string }) {
 
   async function loadFiles() {
     const result = await getQuoteAttachments(quoteId)
-    // Apenas arquivos manuais (storage) com mime pdf
-    const manual = (result?.manual ?? []).filter((f: any) => f.mime_type === 'application/pdf' || f.file_name?.endsWith('.pdf'))
-    setFiles(manual.map((f: any) => ({ ...f, quoteId })))
+    setFiles((result?.manual ?? []).map((f: any) => ({ ...f, quoteId })))
   }
 
   async function load() {
@@ -262,6 +260,14 @@ function ProposalList({ quoteId }: { quoteId: string }) {
     setExtractError(null)
     setExtractedFile(null)
     try {
+      // Upload primeiro (independente da extração)
+      const uploadResult = await uploadQuoteFile(quoteId, file)
+      if (uploadResult.error) {
+        setExtractError(`Falha no upload: ${uploadResult.error}`)
+        return
+      }
+      await loadFiles()
+
       // Extrai valor client-side
       const extracted = await extractQuoteValueFromPdf(file)
       if (extracted) {
@@ -271,11 +277,9 @@ function ProposalList({ quoteId }: { quoteId: string }) {
         setExtractedFile(file.name)
         setShowForm(true)
       } else {
-        setExtractError('Valor não encontrado no PDF. Verifique se é um orçamento do Master Lojista.')
+        setExtractError('Valor não encontrado no PDF. O arquivo foi salvo, mas preencha o valor manualmente.')
+        setShowForm(true)
       }
-      // Upload do arquivo independentemente da extração
-      await uploadQuoteFile(quoteId, file)
-      await loadFiles()
     } catch (e: any) {
       setExtractError(e?.message ?? 'Erro ao ler o PDF')
     } finally {
@@ -424,6 +428,15 @@ function ProposalList({ quoteId }: { quoteId: string }) {
         </div>
       )}
 
+      {/* Input de PDF sempre montado */}
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfExtract(f) }}
+      />
+
       {/* Formulário nova proposta */}
       {showForm ? (
         <div className="rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-3 space-y-2">
@@ -438,11 +451,17 @@ function ProposalList({ quoteId }: { quoteId: string }) {
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input w-auto" />
             <input value={info} onChange={e => setInfo(e.target.value)} placeholder="Informações (opcional)" className="input flex-1 min-w-[160px]" />
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button type="button" onClick={handleCreate} disabled={saving || !value.trim()} className="btn-primary px-3 py-1 text-xs">
               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Adicionar
             </button>
             <button type="button" onClick={() => { setShowForm(false); setExtractedFile(null) }} className="btn-secondary px-3 py-1 text-xs">Cancelar</button>
+            <button type="button" onClick={() => { setExtractError(null); pdfInputRef.current?.click() }}
+              disabled={extracting}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-brand-600 transition-colors disabled:opacity-50 ml-auto">
+              {extracting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileUp className="w-3 h-3" />}
+              {extracting ? 'Lendo…' : 'Trocar PDF'}
+            </button>
           </div>
         </div>
       ) : (
@@ -459,13 +478,6 @@ function ProposalList({ quoteId }: { quoteId: string }) {
             {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
             {extracting ? 'Lendo PDF…' : 'Importar do PDF'}
           </button>
-          <input
-            ref={pdfInputRef}
-            type="file"
-            accept=".pdf,application/pdf"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfExtract(f) }}
-          />
         </div>
       )}
       {ConfirmDialog}
