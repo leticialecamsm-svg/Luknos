@@ -160,6 +160,14 @@ export function PartnerFormModal({
                 <div>
                   <label className="label" htmlFor="pf-pix">Chave PIX</label>
                   <input id="pf-pix" value={pix} onChange={(e) => setPix(e.target.value)} placeholder="CPF, e-mail, telefone ou chave aleatória" className="input" />
+                  {(cpf.trim() || email.trim() || phone.trim()) && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <span className="text-xs text-gray-400">Usar como PIX:</span>
+                      {cpf.trim() && <button type="button" onClick={() => setPix(cpf.trim())} className="text-xs px-2 py-0.5 rounded-full border border-surface-border text-gray-600 hover:border-brand-300 hover:text-brand-600">CPF</button>}
+                      {email.trim() && <button type="button" onClick={() => setPix(email.trim())} className="text-xs px-2 py-0.5 rounded-full border border-surface-border text-gray-600 hover:border-brand-300 hover:text-brand-600">E-mail</button>}
+                      {phone.trim() && <button type="button" onClick={() => setPix(phone.trim())} className="text-xs px-2 py-0.5 rounded-full border border-surface-border text-gray-600 hover:border-brand-300 hover:text-brand-600">Telefone</button>}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="label" htmlFor="pf-address">Endereço</label>
