@@ -61,7 +61,7 @@ import {
   registerPartnerFromConversation,
 } from '@/lib/crm-actions'
 import { uploadCrmFile } from '@/lib/crm-upload'
-import { parsePartnerRegistration, isFilledRegistration, type PartnerRegistration } from '@/lib/partner-registration'
+import { parsePartnerRegistration, isFilledRegistration, PARTNER_TEMPLATE_RE, type PartnerRegistration } from '@/lib/partner-registration'
 import { formatPhoneForContact } from '@/lib/crm-panel'
 import { PartnerFormModal } from '@/components/partners/PartnerFormModal'
 import { fetchCrmMessages, fetchCrmSnapshot, postCrmSend, postCrmForward, postCrmReact } from '@/lib/crm-fetch'
@@ -2393,7 +2393,7 @@ function MessageBubble({
 
   const card = msg.message_type === 'other' ? parseContactCard(msg.body) : null
   // "CADASTRO DE PARCEIRO" devolvido preenchido pelo arquiteto: oferece cadastrar com os dados já lidos
-  const partnerReg = msg.message_type === 'text' && !msg.deleted_at && !isGroup ? (() => { const r = parsePartnerRegistration(msg.body); return isFilledRegistration(r) ? r : null })() : null
+  const partnerReg = msg.message_type === 'text' && !msg.deleted_at && !isGroup ? (() => { const r = parsePartnerRegistration(msg.body, PARTNER_TEMPLATE_RE.test(`${parent?.body ?? ''} ${msg.reply_to_preview ?? ''}`)); return isFilledRegistration(r) ? r : null })() : null
   const hasFile = !!(msg.storage_path || msg.drive_file_id || msg.local_url)
   // foto, áudio, vídeo ou documento que ainda não foi baixado: mostra o botão "Baixar"
   const isTempMsg = msg.id.startsWith('temp-')

@@ -49,8 +49,53 @@ export function parseBirthDate(raw: string): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-export function parsePartnerRegistration(text: string | null | undefined): PartnerRegistration | null {
-  if (!text || !PARTNER_TEMPLATE_RE.test(text)) return null
+
+function validCpf(raw: string): boolean {
+  const d = raw.replace(/\D/g, '')
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false
+  const dv = (len: number) => {
+    let sum = 0
+    for (let i = 0; i < len; i++) sum += Number(d[i]) * (len + 1 - i)
+    const r = (sum * 10) % 11
+    return r === 10 ? 0 : r
+  }
+  return dv(9) === Number(d[9]) && dv(10) === Number(d[10])
+}
+
+// Dados soltos, sem rótulo ("Maria Silva / 040.432.404-57 / maria@x.com / 82 98201-7686 / 23.09.1981 / Rua …"):
+// cada linha é reconhecida pelo formato.
+function parseLoose(text: string): PartnerRegistration {
+  const out: PartnerRegistration = { name: '', cpf: '', email: '', pixKey: '', birthDate: '', address: '', phone: '', company: '' }
+  const rest: string[] = []
+  for (const lineRaw of text.split(/\r?\n/)) {
+    const line = lineRaw.replace(/^[\s•·▪●\-–—*>]+/, '').replace(/[*_~]/g, '').trim()
+    if (!line || PARTNER_TEMPLATE_RE.test(line)) continue
+    const digits = line.replace(/\D/g, '')
+    const email = line.match(/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/)?.[0]
+    if (email && !out.email) { out.email = email.toLowerCase(); continue }
+    if (/^\d{1,2}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{2,4}$/.test(line) && !out.birthDate) { out.birthDate = parseBirthDate(line); if (out.birthDate) continue }
+    if (/^[\d.\-\s]+$/.test(line) && digits.length === 11 && !out.cpf && (/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/.test(line) || validCpf(line))) { out.cpf = formatCpf(line); continue }
+    if (/^[\d()+\-\s.]+$/.test(line) && digits.length >= 10 && digits.length <= 13 && !out.phone) { out.phone = line; continue }
+    rest.push(line)
+  }
+  // sobra: nome (linha só com letras) e endereço (linha com números, rua/avenida/CEP…)
+  for (const line of rest) {
+    const hasDigit = /\d/.test(line)
+    if (!hasDigit && !out.name && /[A-Za-zÀ-ÿ]/.test(line) && line.split(/\s+/).length >= 2 && line.length <= 80) out.name = line.replace(/\s+/g, ' ')
+    else if ((hasDigit || /\b(rua|r\.|av|avenida|travessa|alameda|rodovia|bairro|cep)\b/i.test(line)) && line.length >= 10) out.address = [out.address, line].filter(Boolean).join(' ').replace(/\s+/g, ' ')
+  }
+  return out
+}
+
+// `replyToTemplate`: a mensagem responde ao nosso modelo "CADASTRO DE PARCEIRO" (o cliente citou o modelo).
+export function parsePartnerRegistration(text: string | null | undefined, replyToTemplate = false): PartnerRegistration | null {
+  if (!text) return null
+  if (!PARTNER_TEMPLATE_RE.test(text)) {
+    const r = parseLoose(text)
+    // resposta ao modelo: basta nome + mais um dado; fora disso, só com CPF e e-mail juntos (sinal forte de cadastro)
+    const extras = [r.cpf, r.email, r.phone, r.birthDate].filter(Boolean).length
+    return (replyToTemplate && r.name && extras >= 1) || (r.cpf && r.email && r.name) ? r : null
+  }
   const out: PartnerRegistration = { name: '', cpf: '', email: '', pixKey: '', birthDate: '', address: '', phone: '', company: '' }
   let current: Key | null = null
   const raw: Partial<Record<Key, string>> = {}
