@@ -54,8 +54,8 @@ function businessMinutes(fromMs: number, toMs: number) {
   return m
 }
 const SILENT_AFTER_MIN = 120 // minutos de horário comercial sem receber nada (número de movimento médio)
-const HEAVY_INBOUND_7D = 1800 // número de movimento muito alto: silêncio de 60 min úteis já é anormal
-const SILENT_AFTER_HEAVY_MIN = 60
+const HEAVY_INBOUND_7D = 1800 // (sem diferença de limite entre números: 60 min dava alarme falso no fim da tarde)
+const SILENT_AFTER_HEAVY_MIN = 120
 const SILENT_CLEAR_MIN = 30 // em alarme, só volta ao normal quando as mensagens voltam a chegar em tempo real
 const RESTART_MIN_GAP_MIN = 20 // religamento automático: intervalo mínimo por número
 const RESTART_MAX_24H = 5
