@@ -32,6 +32,7 @@ const KIND: Record<string, { label: string; cls: string; Icon: typeof CheckCircl
   recovery_restart: { label: 'Reinício automático', cls: 'text-blue-700 bg-blue-50', Icon: Wrench },
   recovery_failed: { label: 'Falha ao religar', cls: 'text-red-600 bg-red-50', Icon: XCircle },
   restart_manual: { label: 'Reinício pedido', cls: 'text-blue-700 bg-blue-50', Icon: RotateCcw },
+  restart_auto: { label: 'Reinício automático', cls: 'text-blue-700 bg-blue-50', Icon: RotateCcw },
   restart_failed: { label: 'Reinício falhou', cls: 'text-red-600 bg-red-50', Icon: XCircle },
   send_failed: { label: 'Envio falhou', cls: 'text-gray-700 bg-gray-100', Icon: WifiOff },
 }

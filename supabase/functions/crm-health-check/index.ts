@@ -11,6 +11,8 @@
 // (com intervalo mínimo e no máximo 3 reinícios em 24 h; não reinicia no meio de manutenção da Hostinger).
 // Número "conectado mas mudo": aparece como open na Evolution, mas não entrega nenhuma mensagem recebida
 // há horas em horário comercial enquanto os outros números recebem (sessão travada). Conferido a cada 5 min.
+// Quando um número fica "conectado mas mudo", o monitor reinicia a conexão dele sozinho (no máximo 1x a cada 20 min,
+// 5x em 24 h por número) e guarda o motivo da última desconexão que a Evolution informa (meta.evo).
 // Cada queda/volta vira registro em crm_health_events e um aviso por push para a equipe.
 //
 // Segredos: EVOLUTION_API_URL, EVOLUTION_API_KEY (já existem); HOSTINGER_API_TOKEN (opcional, liga o
@@ -51,7 +53,12 @@ function businessMinutes(fromMs: number, toMs: number) {
   for (let t = fromMs; t < toMs; t += 300_000) if (inBusinessHours(t)) m += 5
   return m
 }
-const SILENT_AFTER_MIN = 120 // minutos de horário comercial sem receber nada
+const SILENT_AFTER_MIN = 120 // minutos de horário comercial sem receber nada (número de movimento médio)
+const HEAVY_INBOUND_7D = 1800 // número de movimento muito alto: silêncio de 60 min úteis já é anormal
+const SILENT_AFTER_HEAVY_MIN = 60
+const SILENT_CLEAR_MIN = 30 // em alarme, só volta ao normal quando as mensagens voltam a chegar em tempo real
+const RESTART_MIN_GAP_MIN = 20 // religamento automático: intervalo mínimo por número
+const RESTART_MAX_24H = 5
 const MIN_INBOUND_7D = 300 // só vigia número movimentado (senão silêncio é normal)
 const DEEP_EVERY_MS = 4.5 * 60_000
 const fmtWhen = (iso: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Maceio', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)).replace(',', ' às')
@@ -118,6 +125,16 @@ async function vpsAction(token: string, vmId: string, action: 'start' | 'restart
     const t = (await r.text().catch(() => '')).slice(0, 200)
     return { ok: r.ok, info: `HTTP ${r.status} ${t}` }
   } catch (e) { return { ok: false, info: String((e as Error)?.message ?? e).slice(0, 200) } }
+}
+
+// Reinicia a conexão de um número na Evolution (religa a sessão do WhatsApp sem pedir QR code).
+async function evoRestart(base: string, key: string, name: string): Promise<{ ok: boolean; info: string }> {
+  try {
+    let r = await get(`${base}/instance/restart/${name}`, { method: 'PUT', headers: { apikey: key } }, 20000)
+    if (r.status === 404 || r.status === 405) r = await get(`${base}/instance/restart/${name}`, { method: 'POST', headers: { apikey: key } }, 20000)
+    const t = (await r.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160)
+    return { ok: r.ok, info: `HTTP ${r.status} ${t}`.trim() }
+  } catch (e) { return { ok: false, info: String((e as Error)?.message ?? e).slice(0, 160) } }
 }
 
 Deno.serve(async (req) => {
@@ -206,6 +223,12 @@ Deno.serve(async (req) => {
     const { data: act } = await db.rpc('crm_instance_activity')
     for (const a of (act ?? []) as any[]) activity.set(a.instance_id as string, { last_inbound_at: a.last_inbound_at ?? null, inbound_7d: a.inbound_7d ?? 0 })
   }
+  // histórico de religamentos automáticos (24 h) para respeitar o intervalo e o limite por número
+  const restartsBy = new Map<string, string[]>()
+  if (evo.up && deepDue) {
+    const { data: rs } = await db.from('crm_health_events').select('component, at').in('kind', ['restart_auto', 'restart_failed']).gte('at', new Date(now.getTime() - 24 * 3600_000).toISOString()).order('at', { ascending: false })
+    for (const r of (rs ?? []) as any[]) restartsBy.set(r.component, [...(restartsBy.get(r.component) ?? []), r.at])
+  }
   if (evo.up) {
     const { data: insts } = await db.from('crm_instances').select('id, instance_name, label').eq('is_active', true)
     await Promise.all((insts ?? []).map(async (i) => {
@@ -224,19 +247,19 @@ Deno.serve(async (req) => {
       let silent = p?.meta?.silent === true
       let lastIn = (p?.meta?.lastInbound as string | null | undefined) ?? null
       let hook = (p?.meta?.webhook as Record<string, unknown> | null | undefined) ?? null
+      let evoInfo = (p?.meta?.evo as Record<string, unknown> | null | undefined) ?? null
       if (open && deepDue) {
         const a = activity.get(i.id as string)
-        const before = lastIn
         lastIn = a?.last_inbound_at ?? null
         if (a && a.inbound_7d >= MIN_INBOUND_7D && lastIn) {
-          const stillSame = silent && lastIn === before
           if (inBusinessHours(nowMs)) {
             const gap = businessMinutes(Date.parse(lastIn), nowMs)
+            const limit = a.inbound_7d >= HEAVY_INBOUND_7D ? SILENT_AFTER_HEAVY_MIN : SILENT_AFTER_MIN
             const othersAlive = [...activity].some(([id, o]) => id !== i.id && o.last_inbound_at && nowMs - Date.parse(o.last_inbound_at) < 30 * 60_000)
-            silent = gap >= SILENT_AFTER_MIN && (othersAlive || stillSame)
-          } else {
-            silent = stillSame // fora do expediente não há como comparar: mantém até chegar mensagem
-          }
+            // já em alarme: continua até as mensagens voltarem em tempo real. Mensagens antigas chegando aos poucos
+            // (atraso de horas) não contam como recuperação — era isso que fazia o alarme cair e voltar várias vezes.
+            silent = silent ? gap >= SILENT_CLEAR_MIN : (gap >= limit && othersAlive)
+          } else if (nowMs - Date.parse(lastIn) < 30 * 60_000) silent = false // fora do expediente: só sai do alarme se chegou mensagem agora
         } else silent = false
         try {
           const r = await get(`${base}/webhook/find/${i.instance_name}`, { headers: { apikey: evoKey } })
@@ -244,18 +267,41 @@ Deno.serve(async (req) => {
           const w = cur?.webhook ?? cur ?? {}
           hook = { enabled: w.enabled ?? null, path: typeof w.url === 'string' ? w.url.replace(/^https?:\/\/[^/]+/, '') : null, events: Array.isArray(w.events) ? w.events : null }
         } catch { /* sem leitura: mantém o último */ }
+        // o que a própria Evolution diz sobre a última desconexão (ajuda a achar a causa)
+        try {
+          const r = await get(`${base}/instance/fetchInstances?instanceName=${i.instance_name}`, { headers: { apikey: evoKey } })
+          const d: any = r.ok ? await r.json().catch(() => null) : null
+          const x: any = Array.isArray(d) ? d[0] : d
+          if (x) evoInfo = {
+            status: x.connectionStatus ?? x.instance?.status ?? null,
+            discAt: x.disconnectionAt ?? null, discCode: x.disconnectionReasonCode ?? null,
+            discObj: x.disconnectionObject ? String(typeof x.disconnectionObject === 'string' ? x.disconnectionObject : JSON.stringify(x.disconnectionObject)).slice(0, 240) : null,
+            updatedAt: x.updatedAt ?? null, msgs: x._count?.Message ?? null, contacts: x._count?.Contact ?? null, chats: x._count?.Chat ?? null,
+          }
+        } catch { /* sem leitura */ }
+        // número mudo: religa a conexão sozinho (não espera ninguém abrir a tela Conexões)
+        if (silent) {
+          const hist = restartsBy.get(`instance:${i.id}`) ?? []
+          if (hist.length < RESTART_MAX_24H && (!hist[0] || nowMs - Date.parse(hist[0]) >= RESTART_MIN_GAP_MIN * 60_000)) {
+            const res = await evoRestart(base, evoKey, i.instance_name as string)
+            await logEvent(`instance:${i.id}`, res.ok ? 'restart_auto' : 'restart_failed',
+              res.ok ? `Número sem receber desde ${lastIn ? fmtWhen(lastIn) : '—'}: reiniciei a conexão automaticamente (tentativa ${hist.length + 1}).` : `Tentei reiniciar a conexão automaticamente e falhou (${res.info}).`, { info: res.info })
+            restartsBy.set(`instance:${i.id}`, [nowIso, ...hist])
+          }
+        }
       } else if (!open) {
         silent = false
       }
 
       const hookNote = hook?.enabled === false ? ' O webhook deste número está desligado na Evolution.'
         : Array.isArray(hook?.events) && !(hook!.events as string[]).includes('MESSAGES_UPSERT') ? ' O evento de mensagens não está ligado no webhook.' : ''
+      const autoTries = (restartsBy.get(`instance:${i.id}`) ?? []).length
       const detailDown = open
-        ? `O WhatsApp "${label}" aparece conectado, mas não recebe mensagens desde ${lastIn ? fmtWhen(lastIn) : '—'} (os outros números estão recebendo). O que chega ou é enviado pelo celular pode não estar aparecendo no CRM. Reinicie a conexão na tela Conexões ou leia o QR code de novo.`
+        ? `O WhatsApp "${label}" aparece conectado, mas não recebe mensagens desde ${lastIn ? fmtWhen(lastIn) : '—'} (os outros números estão recebendo). O que chega ou é enviado pelo celular pode não estar aparecendo no CRM. ${autoTries ? `O sistema já tentou religar sozinho ${autoTries}x nas últimas 24 h. ` : ''}Se não voltar, reinicie a conexão na tela Conexões ou leia o QR code de novo.`
         : `O WhatsApp "${label}" está desconectado (${state}). Mensagens desse número não chegam nem saem. Reconecte lendo o QR code na Evolution.`
       settle(`instance:${i.id}`, `WhatsApp ${label}`, open && !silent, detailDown,
         `Conectado.`, open ? `sem receber desde ${lastIn ? fmtWhen(lastIn) : '—'}.${hookNote}` : `estado: ${state}`,
-        { instance: i.instance_name, state, silent, lastInbound: lastIn, webhook: hook })
+        { instance: i.instance_name, state, silent, lastInbound: lastIn, webhook: hook, evo: evoInfo })
     }))
   } else {
     // servidor fora do ar: os números ficam como estavam (a faixa principal já explica tudo)
