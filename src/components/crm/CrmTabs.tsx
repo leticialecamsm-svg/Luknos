@@ -39,6 +39,8 @@ export function CrmTabs() {
       <div className="ml-auto flex items-center gap-2 pb-1 min-w-0">
         {/* Quadro e Conversas põem aqui o filtro de etiquetas */}
         <div id="crm-tabs-slot" className="contents" />
+        {/* botão de avisos de conexão (CrmHealthBanner) */}
+        <div id="crm-health-slot" className="contents" />
         <ActingAsSelect ctx={acting} />
         <FollowupNotifier />
       </div>
