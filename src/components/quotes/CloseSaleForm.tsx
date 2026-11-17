@@ -91,17 +91,6 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConf
         <div>
           <label className="label text-[10px] mb-1.5 block">Usar valor de</label>
           <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => { setFinalValue(quotedValue ? String(quotedValue) : ''); setBaseValue(quotedValue) }}
-              className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                baseValue === quotedValue
-                  ? 'bg-green-100 text-green-800 border-green-300'
-                  : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
-              )}
-            >
-              Proposta 1 (orçado) {quotedValue ? `· R$ ${Number(quotedValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
-            </button>
             {proposals!.map((p: any, i: number) => (
               <button
                 key={p.id}
@@ -114,7 +103,7 @@ export function CloseSaleForm({ quoteId, quotedValue, proposals, initial, onConf
                 )}
                 title={p.info ?? undefined}
               >
-                Proposta {i + 2} · R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                Proposta {String(i + 1).padStart(2, '0')} · R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </button>
             ))}
           </div>

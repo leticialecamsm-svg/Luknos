@@ -274,28 +274,19 @@ export function NegotiationSection({ quote, negociacaoResponsibles = [] }: { quo
           <div className="mt-3 space-y-3">
             {proposals.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => setSelectedProposalId(null)}
-                  className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                    selectedProposalId === null
-                      ? 'bg-brand-50 text-brand-700 border-brand-300'
-                      : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
-                  )}
-                >
-                  Proposta 1 (orçado) · {formatCurrency(quote.quoted_value)}
-                </button>
+                {/* Proposta 01 = a primeira cadastrada em Proposta de valor */}
                 {proposals.map((p, i) => (
                   <button
                     key={p.id}
-                    onClick={() => setSelectedProposalId(p.id)}
+                    onClick={() => setSelectedProposalId(i === 0 ? null : p.id)}
                     className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                      selectedProposalId === p.id
+                      (selectedProposalId === p.id || (i === 0 && selectedProposalId === null))
                         ? 'bg-brand-50 text-brand-700 border-brand-300'
                         : 'bg-white text-gray-500 border-surface-border hover:border-gray-300'
                     )}
                     title={p.info ?? undefined}
                   >
-                    Proposta {i + 2} · {formatCurrency(p.value)}
+                    Proposta {String(i + 1).padStart(2, '0')} · {formatCurrency(p.value)}
                   </button>
                 ))}
               </div>

@@ -21,9 +21,29 @@ export async function extractQuoteValueFromPdf(file: File): Promise<number | nul
     fullText += content.items.map((item: any) => item.str).join(' ') + '\n'
   }
 
-  const match = fullText.match(/Total\s+do\s+Or[cç]amento[:\s]+R\$\s*([\d.,]+)/i)
-  if (!match) return null
+  return parseQuoteTotal(fullText)
+}
 
-  const numeric = parseFloat(match[1].replace(/\./g, '').replace(',', '.'))
-  return isNaN(numeric) || numeric <= 0 ? null : numeric
+function toNumber(raw: string): number | null {
+  const n = parseFloat(raw.replace(/\./g, '').replace(',', '.'))
+  return Number.isNaN(n) || n <= 0 ? null : n
+}
+
+// Procura o total do PDF. Vale o ÚLTIMO "Total do Orçamento" (o de cada ambiente
+// vem antes); depois tenta variações comuns de rótulo.
+export function parseQuoteTotal(text: string): number | null {
+  const flat = text.replace(/\s+/g, ' ')
+  const patterns = [
+    /Total\s+do\s+Or[cç]amento\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/gi,
+    /Total\s+Geral\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/gi,
+    /Valor\s+Total\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/gi,
+  ]
+  for (const re of patterns) {
+    const all = Array.from(flat.matchAll(re))
+    if (all.length) {
+      const v = toNumber(all[all.length - 1][1])
+      if (v != null) return v
+    }
+  }
+  return null
 }

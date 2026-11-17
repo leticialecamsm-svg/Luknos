@@ -228,7 +228,6 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
         priority:         fd.get('priority') as string,
         deadline:         fd.get('deadline') as string || null,
         quote_date:       fd.get('quote_date') as string || null,
-        quoted_value:     fd.get('quoted_value') ? Number(fd.get('quoted_value')) : null,
         notes:            fd.get('notes') as string || null,
         drive_link:       fd.get('drive_link') as string || null,
         primary_owner_id: primaryOwner,
@@ -284,11 +283,7 @@ export function EditQuoteForm({ quote, users, currentUserId }: any) {
               className="input" />
           </div>
         </div>
-        <div>
-          <label className="label">Valor orçado (R$)</label>
-          <input type="number" name="quoted_value" step="0.01" min="0"
-            defaultValue={quote.quoted_value ?? ''} className="input" />
-        </div>
+        <p className="text-xs text-gray-400">O valor do orçamento é definido na aba <strong>Proposta de valor</strong> (Proposta 01 = a primeira cadastrada).</p>
         <div>
           <label className="label">Observações</label>
           <textarea name="notes" rows={2} defaultValue={quote.notes ?? ''} className="input resize-none" />

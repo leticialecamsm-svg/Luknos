@@ -223,11 +223,14 @@ export async function isDriveConnected(): Promise<boolean> {
 // (anexos do robô e anexos manuais). Cria a pasta (nome do cliente, dentro de
 // ORÇAMENTOS) se o orçamento ainda não tem uma. A cópia do Supabase só é apagada
 // depois do upload confirmado.
+// Mesmo nome da subpasta da etapa Orçamento em solicitations/actions (STAGE_FOLDER_NAME.orcamento).
+export const ORCAMENTO_SUBFOLDER = 'Orçamento'
+
 export async function syncQuoteFilesToDrive(quoteId: string) {
   const db = createAdminClient()
   const { data: quote } = await db
     .from('quotes')
-    .select('id, number, drive_link, client_id')
+    .select('id, number, drive_link, client_id, solicitation_id')
     .eq('id', quoteId)
     .maybeSingle()
   if (!quote) return { ok: true, synced: 0, failed: 0, skipped: true }
@@ -266,6 +269,12 @@ export async function syncQuoteFilesToDrive(quoteId: string) {
       .eq('id', quote.id)
   }
 
+  // Orçamento ligado a uma solicitação: os anexos ficam na subpasta "Orçamento" da
+  // solicitação (a mesma que aparece no card Arquivos da etapa), não soltos na pasta do cliente.
+  const uploadFolderId = quote.solicitation_id
+    ? (await findOrCreateFolder(ORCAMENTO_SUBFOLDER, folderId)).id
+    : folderId
+
   let synced = 0
   let failed = 0
   for (const f of jobs) {
@@ -273,7 +282,7 @@ export async function syncQuoteFilesToDrive(quoteId: string) {
       const { data: blob, error } = await db.storage.from(f.bucket).download(f.storage_path)
       if (error || !blob) throw new Error(error?.message ?? 'arquivo não encontrado no storage')
       const up = await uploadFile({
-        folderId,
+        folderId: uploadFolderId,
         name: f.file_name,
         mimeType: f.mime_type || 'application/octet-stream',
         data: new Uint8Array(await blob.arrayBuffer()),
@@ -295,7 +304,7 @@ export async function syncQuoteFilesToDrive(quoteId: string) {
       await db.from(f.table).update({ drive_error: String(e?.message ?? e).slice(0, 500) }).eq('id', f.id)
     }
   }
-  return { ok: failed === 0, synced, failed, folder_id: folderId }
+  return { ok: failed === 0, synced, failed, folder_id: uploadFolderId }
 }
 
 export async function syncQuoteAttachmentsToDrive(quoteNumber: number) {
@@ -363,4 +372,56 @@ export async function driveUpdateMeta(fileId: string, meta: { name?: string; mim
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(meta),
   })
+}
+
+
+// ── Mover anexos de orçamento já enviados para a subpasta "Orçamento" ──────────
+// Antes, os anexos iam soltos para a pasta do cliente; agora ficam na subpasta
+// "Orçamento" da solicitação. Esta rotina leva os antigos para lá.
+// `execute=false` só lista (não cria pasta nem move nada).
+export interface MoveItem { quote: number; file: string; driveId: string; status: 'a_mover' | 'movido' | 'ja_na_subpasta' | 'em_outro_lugar' | 'nao_encontrado' | 'erro'; detail?: string }
+
+export async function moveQuoteFilesToOrcamento(execute: boolean): Promise<{ items: MoveItem[]; summary: Record<string, number> }> {
+  const db = createAdminClient()
+  const { data: quotes } = await db.from('quotes').select('id, number, drive_link').not('solicitation_id', 'is', null).not('drive_link', 'is', null)
+  const items: MoveItem[] = []
+
+  for (const q of (quotes ?? []) as any[]) {
+    const rootId = folderIdFromLink(q.drive_link)
+    if (!rootId) continue
+    const [{ data: manual }, { data: robot }] = await Promise.all([
+      db.from('quote_attachments').select('file_name, drive_file_id').eq('quote_id', q.id).not('drive_file_id', 'is', null),
+      db.from('wa_attachments').select('file_name, drive_file_id').eq('system_quote_id', String(q.number)).not('drive_file_id', 'is', null),
+    ])
+    const files = [...(manual ?? []), ...(robot ?? [])] as { file_name: string; drive_file_id: string }[]
+    if (!files.length) continue
+    let targetId: string | null = null
+    for (const f of files) {
+      const item: MoveItem = { quote: q.number, file: f.file_name, driveId: f.drive_file_id, status: 'em_outro_lugar' }
+      try {
+        const res = await gfetch(`${DRIVE}/files/${encodeURIComponent(f.drive_file_id)}?fields=parents,trashed&supportsAllDrives=true`).catch((e: any) => e)
+        if (res instanceof Error) { item.status = /404/.test(res.message) ? 'nao_encontrado' : 'erro'; item.detail = res.message.slice(0, 120); items.push(item); continue }
+        const meta = await res.json()
+        const parents: string[] = meta.parents ?? []
+        if (meta.trashed) { item.status = 'nao_encontrado'; item.detail = 'na lixeira' }
+        else if (parents.includes(rootId)) {
+          item.status = 'a_mover'
+          if (execute) {
+            targetId ??= (await findOrCreateFolder(ORCAMENTO_SUBFOLDER, rootId)).id
+            await gfetch(`${DRIVE}/files/${encodeURIComponent(f.drive_file_id)}?addParents=${targetId}&removeParents=${rootId}&supportsAllDrives=true&fields=id`, { method: 'PATCH' })
+            item.status = 'movido'
+          }
+        } else if (parents.length) {
+          // já está numa subpasta (ex.: já na "Orçamento") ou em outro lugar: não mexe
+          item.status = 'ja_na_subpasta'
+        }
+      } catch (e: any) {
+        item.status = 'erro'; item.detail = String(e?.message ?? e).slice(0, 120)
+      }
+      items.push(item)
+    }
+  }
+  const summary: Record<string, number> = {}
+  for (const i of items) summary[i.status] = (summary[i.status] ?? 0) + 1
+  return { items, summary }
 }

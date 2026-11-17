@@ -67,7 +67,7 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
       priority:         fd.get('priority') as string,
       deadline:         (fd.get('deadline') as string) || null,
       quote_date:       (fd.get('quote_date') as string) || null,
-      quoted_value:     fd.get('quoted_value') ? Number(fd.get('quoted_value')) : null,
+      quoted_value:     !isEdit && fd.get('quoted_value') ? Number(fd.get('quoted_value')) : undefined,
       notes:            (fd.get('notes') as string) || null,
       drive_link:       (fd.get('drive_link') as string) || null,
       primary_owner_id: primaryOwner,
@@ -185,10 +185,12 @@ export function QuoteForm({ quote, users, currentUserId, inModal, onCancel, onSu
                   <label className="label">Prazo</label>
                   <input type="date" name="deadline" defaultValue={quote?.deadline ?? ''} className="input mt-1" />
                 </div>
-                <div>
-                  <label className="label">Valor orçado (R$)</label>
-                  <input type="number" name="quoted_value" step="0.01" min="0" defaultValue={quote?.quoted_value ?? ''} className="input mt-1" placeholder="0,00" />
-                </div>
+                {!isEdit && (
+                  <div>
+                    <label className="label">Valor da Proposta 01 (R$)</label>
+                    <input type="number" name="quoted_value" step="0.01" min="0" className="input mt-1" placeholder="0,00" />
+                  </div>
+                )}
               </div>
               {/* Campos extras (não exibidos na visualização) */}
               <div className="grid grid-cols-2 gap-4 items-start">

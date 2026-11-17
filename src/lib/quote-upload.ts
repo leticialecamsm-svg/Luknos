@@ -11,7 +11,7 @@ import { createQuoteAttachmentUpload, confirmQuoteAttachment } from '@/lib/actio
  * falha vira `{ error }`, nunca uma exceção solta (era isso que derrubava a
  * página inteira com "Application error").
  */
-export async function uploadQuoteFile(quoteId: string, file: File): Promise<{ error?: string }> {
+export async function uploadQuoteFile(quoteId: string, file: File): Promise<{ error?: string; attachmentId?: string }> {
   try {
     const prep = await createQuoteAttachmentUpload({
       quoteId,
@@ -38,7 +38,7 @@ export async function uploadQuoteFile(quoteId: string, file: File): Promise<{ er
     })
     if (done.error) return { error: done.error }
 
-    return {}
+    return { attachmentId: done.id }
   } catch (e: any) {
     return { error: e?.message ?? 'Falha no envio do arquivo' }
   }

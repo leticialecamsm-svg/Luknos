@@ -236,7 +236,7 @@ export function QuoteDetail({ quote, activities, onFlagChange, showNegotiation =
             <p className="text-sm font-medium mt-0.5">{formatDate(quote.deadline)}</p>
           </div>
           <div>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Valor orçado</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Proposta 01</p>
             <p className="text-sm font-medium mt-0.5">{formatCurrency(quote.quoted_value)}</p>
           </div>
         </div>
@@ -264,14 +264,6 @@ export function QuoteDetail({ quote, activities, onFlagChange, showNegotiation =
             </button>
           </div>
 
-          {/* Proposta 1 = valor orçado */}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-secondary border border-surface-border">
-            <div className="flex-1 min-w-0">
-              <span className="text-xs font-bold text-gray-700">Proposta 1</span>
-              <span className="text-xs text-gray-500"> (valor orçado) · {formatCurrency(quote.quoted_value)}</span>
-            </div>
-          </div>
-
           {/* Propostas adicionais */}
           {proposals.map((p, i) => {
             const fmtDate = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : null
@@ -286,7 +278,7 @@ export function QuoteDetail({ quote, activities, onFlagChange, showNegotiation =
                     onClick={() => setExpandedProposalId(isExpanded ? null : p.id)}
                     className="flex-1 text-left min-w-0"
                   >
-                    <span className="text-xs font-bold text-brand-700">Proposta {i + 2}</span>
+                    <span className="text-xs font-bold text-brand-700">Proposta {String(i + 1).padStart(2, '0')}</span>
                     <span className="text-xs text-brand-600"> · {formatCurrency(p.value)}</span>
                     {fmtDate && <span className="text-xs text-brand-400"> · {fmtDate}</span>}
                     {p.info && <span className="text-xs text-brand-400"> · {isExpanded ? '▲' : '▼'}</span>}
@@ -309,7 +301,7 @@ export function QuoteDetail({ quote, activities, onFlagChange, showNegotiation =
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!confirm(`Excluir Proposta ${i + 2}?`)) return
+                      if (!confirm(`Excluir Proposta ${String(i + 1).padStart(2, '0')}?`)) return
                       await deleteQuoteProposal(p.id, quote.id)
                       setProposals(await getQuoteProposals(quote.id))
                     }}

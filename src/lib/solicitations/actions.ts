@@ -808,6 +808,8 @@ async function copyCrmLinksToStageFolder(
     .eq('solicitation_id', solicitationId)
     .eq('stage', stage)
     .is('stage_drive_file_id', null)
+  const existingNames = new Map<string, string>()
+  try { for (const f of await listFolderFiles(folderId)) if (!existingNames.has(f.name)) existingNames.set(f.name, f.id) } catch { /* segue sem a checagem */ }
   for (const l of (links ?? []) as any[]) {
     const m = l.crm_messages
     if (!m || m.deleted_at || !['image', 'video', 'audio', 'ptt', 'document'].includes(m.message_type)) continue
@@ -821,15 +823,20 @@ async function copyCrmLinksToStageFolder(
       }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(':', 'h')
       const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type}`
       let copied: { id: string }
+      // mesma mensagem vinculada de novo (ou arquivo já enviado com esse nome): reaproveita, não duplica
+      const already = existingNames.get(name)
       // mídia que ninguém baixou ainda na conversa: busca no WhatsApp primeiro
-      if (!m.drive_file_id && !m.storage_path) m.drive_file_id = await fetchCrmMediaToDrive(m)
-      if (m.drive_file_id) {
+      if (!already && !m.drive_file_id && !m.storage_path) m.drive_file_id = await fetchCrmMediaToDrive(m)
+      if (already) {
+        copied = { id: already }
+      } else if (m.drive_file_id) {
         copied = await copyFile(m.drive_file_id, { folderId, name })
       } else {
         const { data: blob, error } = await db.storage.from('crm-attachments').download(m.storage_path)
         if (error || !blob) throw error ?? new Error('arquivo não encontrado')
         copied = await uploadFile({ folderId, name, mimeType: m.mime_type ?? 'application/octet-stream', data: new Uint8Array(await blob.arrayBuffer()) })
       }
+      existingNames.set(name, copied.id)
       await db.from('crm_solicitation_links').update({ stage_drive_file_id: copied.id }).eq('id', l.id)
     } catch (e) {
       console.error('[copyCrmLinksToStageFolder] falha ao copiar mídia do WhatsApp:', e)
@@ -943,6 +950,10 @@ export async function deleteStageFileForSolicitation(
   if (!user) return { error: 'Não autenticado' }
   try {
     await trashFile(fileId)
+    // se o arquivo era anexo de orçamento, tira o registro também (senão fica apontando para a lixeira)
+    const adm = createAdminClient()
+    await adm.from('quote_attachments').delete().eq('drive_file_id', fileId)
+    await adm.from('wa_attachments').delete().eq('drive_file_id', fileId)
     await logSolicitationEvent(
       solicitationId, stage,
       `Arquivo removido${fileName ? `: ${fileName}` : ''}`,

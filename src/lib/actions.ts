@@ -317,13 +317,20 @@ export async function createQuote(formData: {
       priority: formData.priority || 'normal',
       deadline: formData.deadline || null,
       quote_date: formData.quote_date || new Date().toISOString().split('T')[0],
-      quoted_value: formData.quoted_value || null,
       notes: formData.notes || null,
       drive_link: formData.drive_link || null,
       status: 'queue',
     })
 
   if (quoteError) return { error: quoteError.message }
+
+  // O valor informado na criação é a Proposta 01 (quoted_value espelha a primeira proposta).
+  if (formData.quoted_value && formData.quoted_value > 0) {
+    await supabase.from('quote_proposals').insert({
+      quote_id: quoteId, value: formData.quoted_value,
+      date: formData.quote_date || new Date().toISOString().split('T')[0],
+    })
+  }
 
   // Cria solicitation automática para que o orçamento apareça em /solicitacoes
   const admin = createAdminClient()
@@ -1357,7 +1364,8 @@ export async function updateQuote(quoteId: string, data: {
   if (!current) return { error: 'Orçamento não encontrado' }
 
   // Separa owner data dos dados da quote
-  const { primary_owner_id, collaborator_ids, ...quoteData } = data
+  // quoted_value não é mais editado aqui: espelha a Proposta 01 (aba Proposta de valor).
+  const { primary_owner_id, collaborator_ids, quoted_value: _ignored, ...quoteData } = data
 
   const { error } = await supabase.from('quotes').update(quoteData).eq('id', quoteId)
   if (error) return { error: error.message }
@@ -3170,31 +3178,54 @@ export async function deletePayrollEntry(year: number, month: number, userId: st
   return { ok: true }
 }
 
+export type ProposalFile = { id: string; proposal_id: string; attachment_id: string | null; file_name: string; value: number }
+
+// Propostas do orçamento em ordem de cadastro (Proposta 01 = a primeira), cada uma com seus arquivos.
 export async function getQuoteProposals(quoteId: string) {
   const supabase = createAdminClient()
   const { data } = await supabase
     .from('quote_proposals')
-    .select('*')
+    .select('*, files:quote_proposal_files(id, proposal_id, attachment_id, file_name, value, created_at)')
     .eq('quote_id', quoteId)
     .order('created_at', { ascending: true })
-  return data ?? []
+    .order('id', { ascending: true })
+  return (data ?? []).map((p: any) => ({
+    ...p,
+    files: [...(p.files ?? [])].sort((x: any, y: any) => String(x.created_at).localeCompare(String(y.created_at))),
+  }))
 }
 
-export async function createQuoteProposal(quoteId: string, proposal: { value: number; date?: string; info?: string }) {
+type ProposalFileInput = { attachmentId?: string | null; fileName: string; value: number }
+
+// Com arquivos, o valor da proposta é a soma deles (o banco recalcula também).
+export async function createQuoteProposal(quoteId: string, proposal: { value?: number; date?: string; info?: string; files?: ProposalFileInput[] }) {
   const supabase = createClient()
+  const files = proposal.files ?? []
+  const value = files.length ? files.reduce((s, f) => s + (Number(f.value) || 0), 0) : proposal.value
+  if (!value || value <= 0) return { error: 'Informe o valor da proposta' }
   const { data, error } = await supabase
     .from('quote_proposals')
-    .insert({ quote_id: quoteId, ...proposal })
+    .insert({ quote_id: quoteId, value, date: proposal.date || null, info: proposal.info || null })
     .select()
     .single()
   if (error) return { error: error.message }
+  if (files.length) {
+    const { error: fErr } = await supabase.from('quote_proposal_files').insert(
+      files.map(f => ({ proposal_id: data.id, attachment_id: f.attachmentId ?? null, file_name: f.fileName, value: f.value || 0 })),
+    )
+    if (fErr) return { error: fErr.message }
+  }
   revalidatePath(`/quotes/${quoteId}`)
   return { data }
 }
 
-export async function updateQuoteProposal(id: string, quoteId: string, proposal: { value: number; date?: string; info?: string }) {
+export async function updateQuoteProposal(id: string, quoteId: string, proposal: { value?: number; date?: string; info?: string }) {
   const supabase = createClient()
-  const { error } = await supabase.from('quote_proposals').update(proposal).eq('id', id)
+  const patch: Record<string, unknown> = { date: proposal.date || null, info: proposal.info || null }
+  // proposta com arquivos: o valor é a soma deles e não é editado direto
+  const { count } = await supabase.from('quote_proposal_files').select('id', { count: 'exact', head: true }).eq('proposal_id', id)
+  if (!count && proposal.value != null) patch.value = proposal.value
+  const { error } = await supabase.from('quote_proposals').update(patch).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath(`/quotes/${quoteId}`)
   return {}
@@ -3203,6 +3234,34 @@ export async function updateQuoteProposal(id: string, quoteId: string, proposal:
 export async function deleteQuoteProposal(id: string, quoteId: string) {
   const supabase = createClient()
   const { error } = await supabase.from('quote_proposals').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
+}
+
+// Adiciona um PDF (com o valor dele) a uma proposta existente; o total vira a soma.
+export async function addProposalFile(proposalId: string, quoteId: string, file: ProposalFileInput) {
+  const supabase = createClient()
+  const { error } = await supabase.from('quote_proposal_files').insert({
+    proposal_id: proposalId, attachment_id: file.attachmentId ?? null, file_name: file.fileName, value: file.value || 0,
+  })
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
+}
+
+export async function updateProposalFileValue(fileId: string, quoteId: string, value: number) {
+  const supabase = createClient()
+  const { error } = await supabase.from('quote_proposal_files').update({ value }).eq('id', fileId)
+  if (error) return { error: error.message }
+  revalidatePath(`/quotes/${quoteId}`)
+  return {}
+}
+
+// Tira o arquivo da proposta (o valor dele sai da soma). Não apaga o PDF em si.
+export async function removeProposalFile(fileId: string, quoteId: string) {
+  const supabase = createClient()
+  const { error } = await supabase.from('quote_proposal_files').delete().eq('id', fileId)
   if (error) return { error: error.message }
   revalidatePath(`/quotes/${quoteId}`)
   return {}
@@ -3981,19 +4040,19 @@ export async function confirmQuoteAttachment(input: {
   fileName: string
   mimeType?: string | null
   sizeBytes: number
-}): Promise<{ error?: string; ok?: boolean }> {
+}): Promise<{ error?: string; ok?: boolean; id?: string }> {
   const { data: { user } } = await createClient().auth.getUser()
   if (!user) return { error: 'Não autenticado' }
 
   const admin = createAdminClient()
-  const { error } = await admin.from('quote_attachments').insert({
+  const { data: inserted, error } = await admin.from('quote_attachments').insert({
     quote_id: input.quoteId,
     file_name: input.fileName,
     storage_path: input.storagePath,
     mime_type: input.mimeType || null,
     size_bytes: input.sizeBytes,
     uploaded_by: user.id,
-  })
+  }).select('id').single()
   if (error) {
     // não deixa arquivo órfão no bucket se a linha não entrou
     await admin.storage.from('quote-attachments').remove([input.storagePath])
@@ -4007,7 +4066,7 @@ export async function confirmQuoteAttachment(input: {
   }
 
   revalidatePath(`/quotes/${input.quoteId}`)
-  return { ok: true }
+  return { ok: true, id: inserted?.id as string | undefined }
 }
 
 export async function deleteQuoteAttachment(
@@ -4021,13 +4080,20 @@ export async function deleteQuoteAttachment(
   const admin = createAdminClient()
 
   if (source === 'drive') {
+    // `id` pode ser o id do registro (lista da proposta) ou o id do arquivo no Drive.
+    const [{ data: qa }, { data: wa }] = await Promise.all([
+      admin.from('quote_attachments').select('drive_file_id').eq('id', id).maybeSingle(),
+      admin.from('wa_attachments').select('drive_file_id').eq('id', id).maybeSingle(),
+    ])
+    const driveId = qa?.drive_file_id ?? wa?.drive_file_id ?? id
     try {
-      await trashFile(id)
+      await trashFile(driveId)
     } catch (e: any) {
-      return { error: String(e?.message ?? e) }
+      // arquivo que já não existe no Drive não deve impedir a remoção do registro
+      if (!/\b404\b|not found|notFound/i.test(String(e?.message ?? e))) return { error: 'Não foi possível remover o arquivo do Drive. Tente de novo.' }
     }
-    await admin.from('wa_attachments').delete().eq('drive_file_id', id)
-    await admin.from('quote_attachments').delete().eq('drive_file_id', id)
+    await admin.from('wa_attachments').delete().eq('drive_file_id', driveId)
+    await admin.from('quote_attachments').delete().eq('drive_file_id', driveId)
     revalidatePath(`/quotes/${quoteId}`)
     return { ok: true }
   }
