@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip, Trash2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded,
+  uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded, stageFileExists,
   deleteStageFileForSolicitation,
   checkDriveConnected, listStageFilesForSolicitation, type StageFileStage,
 } from '@/lib/solicitations/actions'
@@ -76,7 +76,7 @@ async function queryCommitted(uploadUrl: string, total: number): Promise<number 
   return null
 }
 
-async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void): Promise<void> {
+async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void, alreadyUploaded?: () => Promise<boolean>): Promise<void> {
   const total = file.size
   let offset = 0
   const t0 = Date.now()
@@ -100,6 +100,11 @@ async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stat
         break
       } catch (e) {
         attempt++
+        // Último pedaço: se o Drive já concluiu (só a resposta não chegou), vale como enviado.
+        if (end === total && attempt >= 2 && alreadyUploaded && await alreadyUploaded().catch(() => false)) {
+          onProgress({ loaded: total, total, speedBps, etaSec: 0 })
+          return
+        }
         if (attempt >= MAX_ATTEMPTS) {
           throw new Error('A conexão com a internet falhou durante o envio. Verifique o wifi e tente enviar de novo.')
         }
@@ -195,7 +200,7 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
           if (session.error || !session.uploadUrl) throw new Error(session.error ?? 'Falha ao iniciar upload')
           await putDirectToDrive(session.uploadUrl, file, stats => {
             setProgress(p => p ? { ...p, currentStats: stats } : p)
-          })
+          }, () => stageFileExists(solicitationId, stage, file.name))
           // Avisa o servidor que o upload concluiu — só agora loga + revalida.
           await confirmStageFileUploaded(solicitationId, stage, file.name)
           okNames.push(file.name)

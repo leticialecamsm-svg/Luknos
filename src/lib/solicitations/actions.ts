@@ -13,6 +13,7 @@
 // migration 20260929_solicitations_core.sql, não um card único.
 
 import { revalidatePath } from 'next/cache'
+import { headers } from 'next/headers'
 import { fetchCrmMediaToDrive } from '@/lib/crm-media'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -859,6 +860,32 @@ export async function checkDriveConnected(): Promise<boolean> {
   return isDriveConnected()
 }
 
+// Origem (https://site) de quem chamou a action — usada para liberar CORS no upload direto ao Drive.
+function requestOrigin(): string | null {
+  try {
+    const h = headers()
+    const o = h.get('origin')
+    if (o) return o
+    const host = h.get('x-forwarded-host') ?? h.get('host')
+    if (!host) return null
+    const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
+    return `${proto}://${host}`
+  } catch { return null }
+}
+
+// Confere se um arquivo recém-enviado já está na pasta da etapa (o Drive pode ter
+// concluído o upload mesmo que o navegador não tenha recebido a resposta final).
+export async function stageFileExists(solicitationId: string, stage: StageFileStage, fileName: string): Promise<boolean> {
+  const user = await requireUser()
+  if (!user) return false
+  try {
+    const folderId = await resolveStageFolderId(createAdminClient(), solicitationId, stage)
+    const files = await listFolderFiles(folderId)
+    const since = Date.now() - 20 * 60_000
+    return files.some(f => f.name === fileName && new Date(f.createdTime).getTime() >= since)
+  } catch { return false }
+}
+
 // Prepara sessão de upload resumable: cliente faz PUT direto na URL
 // retornada, contornando o limite de 4,5 MB das Vercel Functions.
 // IMPORTANTE: não loga nem revalida aqui — só prepara a sessão. O arquivo
@@ -880,6 +907,7 @@ export async function createStageFileUploadSession(
       folderId,
       name: fileName,
       mimeType: mimeType || 'application/octet-stream',
+      origin: requestOrigin(),
     })
     return { uploadUrl: session.uploadUrl }
   } catch (e: any) {

@@ -150,6 +150,9 @@ export async function createResumableUploadSession(opts: {
   folderId: string
   name: string
   mimeType: string
+  // Site de onde o navegador vai enviar: o Drive só libera (CORS) a resposta
+  // final do upload para a origem informada ao criar a sessão.
+  origin?: string | null
 }): Promise<{ uploadUrl: string }> {
   const token = await getAccessToken()
   const meta = JSON.stringify({ name: opts.name, parents: [opts.folderId] })
@@ -159,6 +162,7 @@ export async function createResumableUploadSession(opts: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json; charset=UTF-8',
       'X-Upload-Content-Type': opts.mimeType,
+      ...(opts.origin ? { Origin: opts.origin } : {}),
     },
     body: meta,
   })
