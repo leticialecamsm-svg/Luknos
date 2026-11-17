@@ -284,7 +284,7 @@ export function SolicitationHero({
         >
           {doneCount} de {startedCount} etapas concluídas
         </span>
-        {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-xs font-medium">Arq. {s.architectName}</span>}
+        {s.architectName && <span className="px-2 py-0.5 rounded-full bg-violet-100 border border-violet-200 text-violet-800 text-xs font-semibold inline-flex items-center gap-1"><Compass className="w-3 h-3" />Especificador: {s.architectName}</span>}
         {heroDeadline && (
           <button
             type="button"
@@ -715,10 +715,10 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
   return (
     <NotchCard title="Detalhes" icon={User} tint="#fdf1cf" borderColor="#f3e0ae" bodyBg="linear-gradient(160deg,#fdf1cf 0%,#fffaf0 70%)" textColor="#7a5a14" actions={detailActions}>
       <div className="space-y-2" data-details-card>
-        <Field icon={User} label="Nome" value={s.clientName ?? '—'} />
+        <Field icon={User} label="Cliente" value={s.clientName ?? '—'} />
         {s.clientPhone && <Field icon={Phone} label="Telefone" value={s.clientPhone} />}
         {s.clientEmail && <Field icon={Mail} label="E-mail" value={s.clientEmail} />}
-        {s.architectName && <Field icon={Pencil} label="Arquiteto(a)" value={s.architectName} />}
+        {s.architectName && <Field icon={Compass} label="Especificador" value={s.architectName} />}
 
         {/* Campos de caracterização — sempre visíveis se preenchidos */}
         {s.category && !editing && <Field icon={Tag} label="Categoria" value={CATEGORY_LABEL[s.category as keyof typeof CATEGORY_LABEL] ?? s.category} />}
@@ -785,7 +785,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                 </div>
               </div>
               <div className="col-span-2" ref={archRef}>
-                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Arquiteto(a)</label>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold block mb-1">Especificador</label>
                 <div className="relative">
                   <input
                     value={archQuery || architectLabel}

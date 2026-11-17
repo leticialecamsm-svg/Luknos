@@ -3163,8 +3163,33 @@ export async function searchSolicitationsForCrm(query: string): Promise<CrmSolic
   return (data ?? []).map(toCrmSolicitation)
 }
 
+// Contato que representa um grupo do WhatsApp (ex.: "Expresso Decora"): o grupo
+// não tem telefone, então o contato é identificado pelo nome do grupo.
+async function findContactByExactName(admin: ReturnType<typeof createAdminClient>, name: string) {
+  const clean = name.replace(/[%_\\]/g, ' ').trim()
+  if (!clean) return null
+  const { data } = await admin.from('contacts').select('id, name, type').ilike('name', clean).limit(1).maybeSingle()
+  return data as { id: string; name: string; type: string } | null
+}
+
+export async function findGroupContact(groupName: string): Promise<{ id: string; name: string; type: string } | null> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return null
+  return findContactByExactName(createAdminClient(), groupName)
+}
+
+const PLACEHOLDER_CLIENT = 'Cliente a definir'
+
+// Cria a solicitação a partir de uma conversa. `role` diz quem é o contato da
+// conversa (ou do grupo): 'client' vira o cliente; 'specifier' vira o
+// especificador (architect_id) e o cliente é o informado (clientId/clientName)
+// ou, se ainda não se sabe, o contato genérico "Cliente a definir".
 export async function createSolicitationFromCrm(input: {
-  contactId: string
+  contactId: string | null
+  groupName?: string
+  role: 'client' | 'specifier'
+  clientId?: string | null
+  clientName?: string
   title: string
   stage: string
 }): Promise<{ id: string; number: number } | { error: string }> {
@@ -3173,12 +3198,48 @@ export async function createSolicitationFromCrm(input: {
   if (!user) return { error: 'Não autenticado' }
   const admin = createAdminClient()
 
+  async function ensureContact(name: string, type: string): Promise<string | { error: string }> {
+    const found = await findContactByExactName(admin, name)
+    if (found) return found.id
+    const { data, error } = await admin.from('contacts').insert({
+      name: name.trim(), type, created_by: user!.id, assigned_to: user!.id,
+      commission_rate: type === 'client' ? null : DEFAULT_COMMISSION_BY_TYPE[type] ?? null,
+    }).select('id').single()
+    if (error || !data) return { error: error?.message ?? 'Falha ao criar contato' }
+    return data.id as string
+  }
+
+  // 1) contato da conversa (ou do grupo)
+  let personId = input.contactId
+  if (!personId) {
+    if (!input.groupName?.trim()) return { error: 'Conversa sem contato' }
+    const r = await ensureContact(input.groupName, input.role === 'client' ? 'client' : 'architect')
+    if (typeof r !== 'string') return r
+    personId = r
+  }
+
+  // 2) cliente e especificador
+  let clientId: string
+  let architectId: string | null = null
+  if (input.role === 'client') {
+    clientId = personId
+  } else {
+    architectId = personId
+    if (input.clientId) clientId = input.clientId
+    else {
+      const r = await ensureContact(input.clientName?.trim() || PLACEHOLDER_CLIENT, 'client')
+      if (typeof r !== 'string') return r
+      clientId = r
+    }
+  }
+
   // Se o contato veio de tráfego pago, preenche a origem automaticamente.
-  const { data: contact } = await admin.from('contacts').select('paid_traffic_type').eq('id', input.contactId).maybeSingle()
+  const { data: contact } = await admin.from('contacts').select('paid_traffic_type').eq('id', clientId).maybeSingle()
   const origin = contact?.paid_traffic_type ? 'paid_traffic' : 'whatsapp'
 
   const { data, error } = await admin.from('solicitations').insert({
-    client_id: input.contactId,
+    client_id: clientId,
+    architect_id: architectId,
     title: input.title,
     work_stage: input.stage,
     origin,

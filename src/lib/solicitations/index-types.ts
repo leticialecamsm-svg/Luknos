@@ -7,6 +7,7 @@ export type IndexRow = {
   number: number
   title: string | null
   clientName: string | null
+  architectName: string | null
   createdAt: string
   priority: string
   category: string | null
@@ -66,13 +67,14 @@ export function dueState(r: Pick<IndexRow, 'nextDue'>, todayYmd: string): 'overd
 // ── Propriedades dos cartões (o que aparece e em que ordem) ─────────────────
 
 export type CardPropKey =
-  | 'number' | 'client' | 'priority' | 'value' | 'team' | 'days' | 'due' | 'kind' | 'category' | 'size'
+  | 'number' | 'client' | 'architect' | 'priority' | 'value' | 'team' | 'days' | 'due' | 'kind' | 'category' | 'size'
 
 export type CardPropDef = { key: CardPropKey; label: string; stageOnly?: string; defaultHidden?: boolean }
 
 export const CARD_PROPS: CardPropDef[] = [
   { key: 'number',   label: 'Número' },
   { key: 'client',   label: 'Cliente' },
+  { key: 'architect', label: 'Especificador' },
   { key: 'priority', label: 'Prioridade' },
   { key: 'value',    label: 'Valor' },
   { key: 'team',     label: 'Responsáveis' },

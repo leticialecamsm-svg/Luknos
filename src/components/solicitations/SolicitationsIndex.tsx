@@ -7,7 +7,7 @@
 
 import { useMemo, useState, useEffect, useRef, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock, SlidersHorizontal, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown, Plus, GitFork, Loader2, UserPlus } from 'lucide-react'
+import { Search, X, FileSearch, Check, LayoutList, LayoutGrid, Users, ChevronLeft, ChevronRight, MapPin, Ruler, FileText, HandCoins, ShoppingCart, Package, Wrench, HeartPulse, AlertTriangle, CalendarClock, SlidersHorizontal, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown, Plus, GitFork, Loader2, UserPlus, User, Compass } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import { PRIORITY_LABEL, PRIORITY_COLOR, CATEGORY_LABEL, SIZE_LABEL } from '@/types'
 import { daysInPipeline } from '@/lib/solicitations/stages'
@@ -444,7 +444,12 @@ function ListTable({ rows, stageId, props }: { rows: IndexRow[]; stageId: string
               >
                 <td className="px-5 py-3">
                   <div className="text-sm font-medium text-navy">{r.title || r.clientName || '—'}</div>
-                  {showClient && r.title && r.clientName && <div className="text-xs text-gray-400 truncate max-w-[280px]">{r.clientName}</div>}
+                  {showClient && r.title && r.clientName && (
+                    <div className="text-xs text-emerald-700 truncate max-w-[280px] flex items-center gap-1"><User className="w-3 h-3 shrink-0" />{r.clientName}</div>
+                  )}
+                  {r.architectName && (
+                    <div className="text-xs text-violet-700 font-medium truncate max-w-[280px] flex items-center gap-1"><Compass className="w-3 h-3 shrink-0" />{r.architectName}</div>
+                  )}
                 </td>
                 <td className="px-5 py-3">
                   {stageId ? (() => {
@@ -1142,7 +1147,15 @@ function KanbanCard({ r, stageColor, onClick, href, team, kindKey, dragging, onD
         return <span key="number" className="text-[10px] font-mono text-gray-400">#{r.number}</span>
       case 'client':
         return r.title && r.clientName
-          ? <span key="client" className="text-xs text-gray-500 truncate max-w-full">{r.clientName}</span>
+          ? <span key="client" className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-px rounded bg-emerald-50 text-emerald-800 max-w-full" title={`Cliente: ${r.clientName}`}>
+              <User className="w-3 h-3 shrink-0" /><span className="truncate">{r.clientName}</span>
+            </span>
+          : null
+      case 'architect':
+        return r.architectName
+          ? <span key="architect" className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-px rounded bg-violet-100 text-violet-800 border border-violet-200 max-w-full" title={`Especificador: ${r.architectName}`}>
+              <Compass className="w-3 h-3 shrink-0" /><span className="truncate">{r.architectName}</span>
+            </span>
           : null
       case 'priority':
         return r.priority !== 'normal' && priorityC

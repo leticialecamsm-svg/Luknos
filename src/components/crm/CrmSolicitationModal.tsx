@@ -1,19 +1,21 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Loader2, Plus, ChevronRight, ChevronLeft, Folder, Search } from 'lucide-react'
+import { X, Loader2, Plus, ChevronRight, ChevronLeft, Folder, Search, User, Compass, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import {
   listSolicitationsForCrmContact,
   searchSolicitationsForCrm,
   createSolicitationFromCrm,
+  findGroupContact,
   type CrmSolicitation,
 } from '@/lib/crm-actions'
+import { searchContacts } from '@/lib/actions'
 
 function SolicRow({ s, contactId, onPick }: { s: CrmSolicitation; contactId: string | null; onPick: (s: CrmSolicitation) => void }) {
   const stageObj = SOLIC_STAGES.find((st) => st.id === s.work_stage)
-  const relation = !contactId ? null : s.client_id === contactId ? 'Cliente' : s.architect_id === contactId ? 'Arquiteto(a)' : null
+  const relation = !contactId ? null : s.client_id === contactId ? 'Cliente' : s.architect_id === contactId ? 'Especificador' : null
   return (
     <button onClick={() => onPick(s)}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left">
@@ -24,7 +26,7 @@ function SolicRow({ s, contactId, onPick }: { s: CrmSolicitation; contactId: str
         <span className="block font-medium text-gray-900 truncate">{s.title || `Solicitação #${s.number}`}</span>
         <span className="block text-xs text-gray-500 truncate">
           {s.client_name ? `Cliente: ${s.client_name}` : 'Sem cliente'}
-          {s.architect_name ? ` · Arq.: ${s.architect_name}` : ''}
+          {s.architect_name ? ` · Especificador: ${s.architect_name}` : ''}
         </span>
         <span className="flex items-center gap-1 mt-0.5">
           {stageObj && (
@@ -67,12 +69,25 @@ export interface SolicSelection {
 interface Props {
   contactId: string | null
   contactName: string
+  contactType?: string | null
+  isGroup?: boolean
   onClose: () => void
   onStartSelecting: (sel: SolicSelection) => void
 }
 
-export function CrmSolicitationModal({ contactId, contactName, onClose, onStartSelecting }: Props) {
+export function CrmSolicitationModal({ contactId: contactIdProp, contactName, contactType, isGroup, onClose, onStartSelecting }: Props) {
   const toast = useToast()
+
+  // Grupo não tem contato próprio: procuramos um contato com o nome do grupo.
+  const [groupContactId, setGroupContactId] = useState<string | null>(null)
+  const [groupResolved, setGroupResolved] = useState(!isGroup)
+  const contactId = isGroup ? groupContactId : contactIdProp
+  // Quem é este contato na solicitação: cliente ou especificador (arquiteto,
+  // designer, loja decoradora…). Contatos que não são "cliente" começam como especificador.
+  const [role, setRole] = useState<'client' | 'specifier'>(contactType && contactType !== 'client' ? 'specifier' : 'client')
+  const [clientQuery, setClientQuery] = useState('')
+  const [clientPick, setClientPick] = useState<{ id: string; name: string } | null>(null)
+  const [clientHits, setClientHits] = useState<{ id: string; name: string }[]>([])
 
   const [step, setStep] = useState<'solicitation' | 'stage'>('solicitation')
   const [solicitations, setSolicitations] = useState<CrmSolicitation[] | null>(null)
@@ -85,8 +100,27 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
   const [results, setResults] = useState<CrmSolicitation[] | null>(null)
   const [searching, setSearching] = useState(false)
 
+  useEffect(() => {
+    if (!isGroup) return
+    let alive = true
+    findGroupContact(contactName)
+      .then((c) => { if (!alive) return; setGroupContactId(c?.id ?? null); if (c && c.type !== 'client') setRole('specifier'); setGroupResolved(true) })
+      .catch(() => { if (alive) setGroupResolved(true) })
+    return () => { alive = false }
+  }, [isGroup, contactName])
+
+  useEffect(() => {
+    const q = clientQuery.trim()
+    if (clientPick || q.length < 2) { setClientHits([]); return }
+    let alive = true
+    const t = setTimeout(() => {
+      searchContacts(q, 'client').then((r) => { if (alive) setClientHits(r.map((c: any) => ({ id: c.id, name: c.name }))) }).catch(() => {})
+    }, 250)
+    return () => { alive = false; clearTimeout(t) }
+  }, [clientQuery, clientPick])
+
   function loadSolics() {
-    if (loadedOnce) return
+    if (loadedOnce || !groupResolved) return
     if (!contactId) { setLoadedOnce(true); setSolicitations([]); return }
     setLoadingSolics(true)
     setLoadedOnce(true)
@@ -112,9 +146,17 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
   }, [search])
 
   async function handleCreateNew() {
-    if (!newTitle.trim() || !contactId) return
+    if (!newTitle.trim() || (!contactId && !isGroup)) return
     setCreating(true)
-    const r = await createSolicitationFromCrm({ contactId, title: newTitle.trim(), stage: 'visita' })
+    const r = await createSolicitationFromCrm({
+      contactId: isGroup ? null : contactIdProp,
+      groupName: isGroup ? contactName : undefined,
+      role,
+      clientId: role === 'specifier' ? clientPick?.id ?? null : null,
+      clientName: role === 'specifier' && !clientPick ? clientQuery : undefined,
+      title: newTitle.trim(),
+      stage: 'visita',
+    })
     setCreating(false)
     if ('error' in r) { toast.error('ERRO', r.error); return }
     setChosenSolic({ id: r.id, number: r.number })
@@ -167,10 +209,53 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
           {/* ── Step 1: Solicitation ── */}
           {step === 'solicitation' && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-500">Contato: <span className="font-medium text-gray-800">{contactName}</span></p>
+              <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                {isGroup ? <Users className="w-4 h-4 text-gray-400" /> : null}
+                {isGroup ? 'Grupo' : 'Contato'}: <span className="font-medium text-gray-800">{contactName}</span>
+              </p>
 
-              {contactId && <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+              {(contactIdProp || isGroup) && <div className="border border-gray-200 rounded-xl p-3 space-y-2.5">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nova solicitação</p>
+
+                <div>
+                  <p className="text-xs text-gray-600 mb-1.5">{isGroup ? 'Este grupo é o…' : 'Este contato é o…'}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setRole('client')}
+                      className={cn('flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium text-left',
+                        role === 'client' ? 'border-emerald-400 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-300' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                      <User className="w-4 h-4 shrink-0" /> Cliente
+                    </button>
+                    <button type="button" onClick={() => setRole('specifier')}
+                      className={cn('flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium text-left',
+                        role === 'specifier' ? 'border-violet-400 bg-violet-50 text-violet-800 ring-1 ring-violet-300' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                      <Compass className="w-4 h-4 shrink-0" /> Especificador
+                    </button>
+                  </div>
+                </div>
+
+                {role === 'specifier' && (
+                  <div className="relative">
+                    <p className="text-xs text-gray-600 mb-1">Cliente final <span className="text-gray-400">(opcional — se não souber, fica “Cliente a definir”)</span></p>
+                    <input
+                      value={clientPick ? clientPick.name : clientQuery}
+                      onChange={(e) => { setClientPick(null); setClientQuery(e.target.value) }}
+                      placeholder="Nome do cliente"
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                    {!clientPick && clientHits.length > 0 && (
+                      <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {clientHits.map((c) => (
+                          <button key={c.id} type="button" onClick={() => { setClientPick(c); setClientHits([]) }}
+                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">{c.name}</button>
+                        ))}
+                      </div>
+                    )}
+                    {!clientPick && clientQuery.trim().length >= 2 && (
+                      <p className="text-[11px] text-gray-400 mt-1">Se não escolher da lista, será criado um cliente novo com esse nome.</p>
+                    )}
+                  </div>
+                )}
+
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
@@ -193,7 +278,7 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar outra solicitação: nº, título, cliente ou arquiteto"
+                  placeholder="Buscar outra solicitação: nº, título, cliente ou especificador"
                   className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 />
               </div>
@@ -213,7 +298,7 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
                 </div>
               ) : (
                 <>
-                  {loadingSolics && (
+                  {(loadingSolics || !groupResolved) && (
                     <div className="flex items-center justify-center py-6 text-gray-400">
                       <Loader2 className="w-4 h-4 animate-spin mr-2" /> Carregando…
                     </div>
@@ -225,7 +310,7 @@ export function CrmSolicitationModal({ contactId, contactName, onClose, onStartS
                     </div>
                   )}
                   {solicitations && solicitations.length === 0 && (
-                    <p className="text-sm text-gray-400 text-center py-4">{contactId ? 'Este contato não é cliente nem arquiteto de nenhuma solicitação. Use a busca acima para registrar em outra.' : 'Busque acima a solicitação onde registrar estas mensagens.'}</p>
+                    <p className="text-sm text-gray-400 text-center py-4">{contactId ? 'Este contato não é cliente nem especificador de nenhuma solicitação. Use a busca acima para registrar em outra.' : 'Busque acima a solicitação onde registrar estas mensagens.'}</p>
                   )}
                 </>
               )}

@@ -23,26 +23,57 @@ type UploadStats = { loaded: number; total: number; speedBps: number; etaSec: nu
 
 // Resumable upload do Drive em chunks com retry — bem mais robusto que
 // um único PUT para arquivos grandes em conexões instáveis:
-// - Chunks de 8 MB (múltiplo de 256 KB, exigido pelo Drive).
+// - Chunks de 2 MB (múltiplo de 256 KB, exigido pelo Drive): em upload lento
+//   ou wifi ruim, chunks de 8 MB estouravam (erro "Falha de rede no chunk").
 // - Status 308 "Resume Incomplete" para chunks intermediários; 200/201 no fim.
-// - Em erro de rede, tenta de novo o mesmo chunk até 4 vezes com backoff.
-// - Progresso é calculado por byte real enviado (incluindo retries).
-const CHUNK_SIZE = 8 * 1024 * 1024
+// - Em erro de rede/5xx, espera (backoff até 20s), pergunta ao Drive quanto ele
+//   já recebeu e retoma dali, até 8 tentativas por chunk.
+// - Se a internet estiver offline, aguarda voltar antes de tentar de novo.
+const CHUNK_SIZE = 2 * 1024 * 1024
+const MAX_ATTEMPTS = 8
 
 function sleep(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
 
-function sendChunk(uploadUrl: string, chunk: Blob, start: number, totalSize: number): Promise<{ status: number }> {
+async function waitOnline() {
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) return
+  await new Promise<void>(resolve => {
+    const done = () => { window.removeEventListener('online', done); resolve() }
+    window.addEventListener('online', done)
+    setTimeout(done, 60_000)
+  })
+}
+
+type ChunkResult = { status: number; range: string | null }
+
+function putToDrive(uploadUrl: string, body: Blob | null, contentRange: string): Promise<ChunkResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl, true)
-    const end = start + chunk.size - 1
-    xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`)
-    xhr.onload = () => resolve({ status: xhr.status })
+    xhr.setRequestHeader('Content-Range', contentRange)
+    xhr.onload = () => {
+      let range: string | null = null
+      try { range = xhr.getResponseHeader('Range') } catch { /* header não exposto */ }
+      resolve({ status: xhr.status, range })
+    }
     xhr.onerror = () => reject(new Error('network'))
     xhr.ontimeout = () => reject(new Error('timeout'))
-    xhr.timeout = 10 * 60 * 1000 // 10 min por chunk
-    xhr.send(chunk)
+    xhr.timeout = 5 * 60 * 1000 // 5 min por chunk
+    xhr.send(body)
   })
+}
+
+// Pergunta ao Drive até onde ele já recebeu (bytes */total). Retorna o próximo
+// offset, 'done' se o arquivo já está completo, ou null se não deu pra saber.
+async function queryCommitted(uploadUrl: string, total: number): Promise<number | 'done' | null> {
+  try {
+    const r = await putToDrive(uploadUrl, null, `bytes */${total}`)
+    if (r.status === 200 || r.status === 201) return 'done'
+    if (r.status === 308) {
+      const m = r.range ? /bytes=0-(\d+)/.exec(r.range) : null
+      return m ? Number(m[1]) + 1 : r.range === null ? null : 0
+    }
+  } catch { /* ignora */ }
+  return null
 }
 
 async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void): Promise<void> {
@@ -57,19 +88,37 @@ async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stat
     const end = Math.min(offset + CHUNK_SIZE, total)
     const chunk = file.slice(offset, end)
 
-    // Retry por chunk — backoff 1s/2s/4s.
     let attempt = 0
     let status = 0
+    let resumedTo: number | null = null
     while (true) {
       try {
-        const r = await sendChunk(uploadUrl, chunk, offset, total)
+        await waitOnline()
+        const r = await putToDrive(uploadUrl, chunk, `bytes ${offset}-${end - 1}/${total}`)
+        if (r.status >= 500 || r.status === 429) throw new Error(`http ${r.status}`)
         status = r.status
         break
       } catch (e) {
         attempt++
-        if (attempt >= 4) throw new Error(`Falha de rede após ${attempt} tentativas no chunk ${offset}`)
-        await sleep(1000 * Math.pow(2, attempt - 1))
+        if (attempt >= MAX_ATTEMPTS) {
+          throw new Error('A conexão com a internet falhou durante o envio. Verifique o wifi e tente enviar de novo.')
+        }
+        await sleep(Math.min(20_000, 1000 * Math.pow(2, attempt - 1)))
+        // O Drive pode ter recebido parte do chunk: retoma de onde ele parou.
+        await waitOnline()
+        const committed = await queryCommitted(uploadUrl, total)
+        if (committed === 'done') { onProgress({ loaded: total, total, speedBps, etaSec: 0 }); return }
+        if (typeof committed === 'number' && committed > offset && committed <= end) {
+          resumedTo = committed
+          break
+        }
       }
+    }
+
+    if (resumedTo !== null) {
+      offset = resumedTo
+      onProgress({ loaded: offset, total, speedBps, etaSec: 0 })
+      continue
     }
 
     if (status === 308 || status === 200 || status === 201) {
@@ -83,6 +132,8 @@ async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stat
       const etaSec = speedBps > 0 ? Math.round(remaining / speedBps) : 0
       onProgress({ loaded: offset, total, speedBps, etaSec })
       if (status === 200 || status === 201) return
+    } else if (status === 404) {
+      throw new Error('A sessão de envio expirou. Tente enviar o arquivo de novo.')
     } else {
       throw new Error(`Drive respondeu ${status} no chunk ${offset}`)
     }
