@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Loader2, Plus, ChevronRight, ChevronLeft, Folder, Search, User, Compass, Users } from 'lucide-react'
+import { X, Loader2, Plus, ChevronRight, ChevronLeft, Folder, Search, User, Compass, Users, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import {
@@ -9,6 +9,7 @@ import {
   searchSolicitationsForCrm,
   createSolicitationFromCrm,
   findGroupContact,
+  renameGroupContact,
   type CrmSolicitation,
 } from '@/lib/crm-actions'
 import { searchContacts } from '@/lib/actions'
@@ -71,17 +72,23 @@ interface Props {
   contactName: string
   contactType?: string | null
   isGroup?: boolean
+  groupJid?: string | null
   conversationId?: string | null
   onClose: () => void
   onStartSelecting: (sel: SolicSelection) => void
 }
 
-export function CrmSolicitationModal({ contactId: contactIdProp, contactName, contactType, isGroup, conversationId, onClose, onStartSelecting }: Props) {
+export function CrmSolicitationModal({ contactId: contactIdProp, contactName, contactType, isGroup, groupJid, conversationId, onClose, onStartSelecting }: Props) {
   const toast = useToast()
 
   // Grupo não tem contato próprio: procuramos um contato com o nome do grupo.
   const [groupContactId, setGroupContactId] = useState<string | null>(null)
   const [groupResolved, setGroupResolved] = useState(!isGroup)
+  // Nome com que o grupo aparece nas solicitações (editável).
+  const [displayName, setDisplayName] = useState(contactName)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [savingName, setSavingName] = useState(false)
   const contactId = isGroup ? groupContactId : contactIdProp
   // Quem é este contato na solicitação: cliente ou especificador (arquiteto,
   // designer, loja decoradora…). Contatos que não são "cliente" começam como especificador.
@@ -104,11 +111,11 @@ export function CrmSolicitationModal({ contactId: contactIdProp, contactName, co
   useEffect(() => {
     if (!isGroup) return
     let alive = true
-    findGroupContact(contactName)
-      .then((c) => { if (!alive) return; setGroupContactId(c?.id ?? null); if (c && c.type !== 'client') setRole('specifier'); setGroupResolved(true) })
+    findGroupContact(groupJid ?? '', contactName)
+      .then((c) => { if (!alive) return; setGroupContactId(c?.id ?? null); if (c) setDisplayName(c.name); if (c && c.type !== 'client') setRole('specifier'); setGroupResolved(true) })
       .catch(() => { if (alive) setGroupResolved(true) })
     return () => { alive = false }
-  }, [isGroup, contactName])
+  }, [isGroup, contactName, groupJid])
 
   useEffect(() => {
     const q = clientQuery.trim()
@@ -146,12 +153,24 @@ export function CrmSolicitationModal({ contactId: contactIdProp, contactName, co
     return () => { alive = false; clearTimeout(t) }
   }, [search])
 
+  async function saveName() {
+    const n = nameDraft.trim()
+    if (!n) return
+    setSavingName(true)
+    const r = await renameGroupContact(groupJid ?? '', contactName, n)
+    setSavingName(false)
+    if ('error' in r) { toast.error('ERRO', r.error); return }
+    setDisplayName(n)
+    setEditingName(false)
+  }
+
   async function handleCreateNew() {
     if (!newTitle.trim() || (!contactId && !isGroup)) return
     setCreating(true)
     const r = await createSolicitationFromCrm({
       contactId: isGroup ? null : contactIdProp,
-      groupName: isGroup ? contactName : undefined,
+      groupName: isGroup ? displayName : undefined,
+      groupJid: isGroup ? groupJid : undefined,
       conversationId,
       role,
       clientId: role === 'specifier' ? clientPick?.id ?? null : null,
@@ -213,8 +232,27 @@ export function CrmSolicitationModal({ contactId: contactIdProp, contactName, co
             <div className="space-y-3">
               <p className="text-sm text-gray-500 flex items-center gap-1.5">
                 {isGroup ? <Users className="w-4 h-4 text-gray-400" /> : null}
-                {isGroup ? 'Grupo' : 'Contato'}: <span className="font-medium text-gray-800">{contactName}</span>
+                {isGroup ? 'Grupo' : 'Contato'}:
+                {isGroup && editingName ? (
+                  <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false) }}
+                      className="flex-1 min-w-0 px-2 py-1 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    <button type="button" onClick={saveName} disabled={savingName || !nameDraft.trim()} className="px-2 py-1 text-xs rounded-lg bg-indigo-600 text-white disabled:opacity-40">{savingName ? '…' : 'OK'}</button>
+                    <button type="button" onClick={() => setEditingName(false)} className="px-2 py-1 text-xs rounded-lg border border-gray-200 text-gray-600">Cancelar</button>
+                  </span>
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-800 truncate">{isGroup ? displayName : contactName}</span>
+                    {isGroup && (
+                      <button type="button" title="Editar o nome que aparece nas solicitações" aria-label="Editar nome do grupo"
+                        onClick={() => { setNameDraft(displayName); setEditingName(true) }}
+                        className="p-1 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-gray-100 shrink-0"><Pencil className="w-3.5 h-3.5" /></button>
+                    )}
+                  </>
+                )}
               </p>
+              {isGroup && <p className="text-[11px] text-gray-400 -mt-2">Este é o nome que aparece nas solicitações deste grupo. O nome do grupo no WhatsApp não muda.</p>}
 
               {(contactIdProp || isGroup) && <div className="border border-gray-200 rounded-xl p-3 space-y-2.5">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nova solicitação</p>

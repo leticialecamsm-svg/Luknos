@@ -3129,6 +3129,7 @@ export async function listSolicitationsForCrmContact(contactId: string): Promise
   const { data } = await createAdminClient()
     .from('solicitations')
     .select(CRM_SOLIC_COLS)
+    .is('deleted_at', null)
     .or(`client_id.eq.${contactId},architect_id.eq.${contactId}`)
     .order('created_at', { ascending: false })
     .limit(20)
@@ -3144,7 +3145,7 @@ export async function searchSolicitationsForCrm(query: string): Promise<CrmSolic
   if (!raw) return []
   const num = /^#?\s*(\d+)$/.exec(raw)
   if (num) {
-    const { data } = await admin.from('solicitations').select(CRM_SOLIC_COLS).eq('number', Number(num[1])).limit(5)
+    const { data } = await admin.from('solicitations').select(CRM_SOLIC_COLS).is('deleted_at', null).eq('number', Number(num[1])).limit(5)
     return (data ?? []).map(toCrmSolicitation)
   }
   // vírgula, parênteses e curingas quebram o filtro .or() do PostgREST
@@ -3157,6 +3158,7 @@ export async function searchSolicitationsForCrm(query: string): Promise<CrmSolic
   const { data } = await admin
     .from('solicitations')
     .select(CRM_SOLIC_COLS)
+    .is('deleted_at', null)
     .or(ors.join(','))
     .order('created_at', { ascending: false })
     .limit(20)
@@ -3172,10 +3174,38 @@ async function findContactByExactName(admin: ReturnType<typeof createAdminClient
   return data as { id: string; name: string; type: string } | null
 }
 
-export async function findGroupContact(groupName: string): Promise<{ id: string; name: string; type: string } | null> {
+async function groupContactFor(admin: ReturnType<typeof createAdminClient>, groupJid: string | null | undefined, groupName: string) {
+  if (groupJid) {
+    const { data: link } = await admin.from('crm_group_contacts').select('contact_id').eq('remote_jid', groupJid).maybeSingle()
+    if (link?.contact_id) {
+      const { data: c } = await admin.from('contacts').select('id, name, type').eq('id', link.contact_id).maybeSingle()
+      if (c) return c as { id: string; name: string; type: string }
+    }
+  }
+  return findContactByExactName(admin, groupName)
+}
+
+export async function findGroupContact(groupJid: string, groupName: string): Promise<{ id: string; name: string; type: string } | null> {
   const auth = await ensureStaff()
   if ('error' in auth) return null
-  return findContactByExactName(createAdminClient(), groupName)
+  return groupContactFor(createAdminClient(), groupJid, groupName)
+}
+
+// Renomeia o contato que representa o grupo (é o nome que aparece nas solicitações).
+export async function renameGroupContact(groupJid: string, groupName: string, newName: string): Promise<{ ok: true; id: string | null } | { error: string }> {
+  const auth = await ensureStaff()
+  if ('error' in auth) return { error: 'Não autorizado' }
+  const name = newName.trim()
+  if (!name) return { error: 'Informe um nome' }
+  const admin = createAdminClient()
+  const c = await groupContactFor(admin, groupJid, groupName)
+  if (!c) return { ok: true, id: null } // ainda não existe: o nome vale na criação
+  if (c.name !== name) {
+    const { error } = await admin.from('contacts').update({ name }).eq('id', c.id)
+    if (error) return { error: error.message }
+  }
+  await admin.from('crm_group_contacts').upsert({ remote_jid: groupJid, contact_id: c.id, updated_at: new Date().toISOString() })
+  return { ok: true, id: c.id }
 }
 
 const PLACEHOLDER_CLIENT = 'Cliente a definir'
@@ -3187,6 +3217,7 @@ const PLACEHOLDER_CLIENT = 'Cliente a definir'
 export async function createSolicitationFromCrm(input: {
   contactId: string | null
   groupName?: string
+  groupJid?: string | null
   conversationId?: string | null
   role: 'client' | 'specifier'
   clientId?: string | null
@@ -3214,9 +3245,16 @@ export async function createSolicitationFromCrm(input: {
   let personId = input.contactId
   if (!personId) {
     if (!input.groupName?.trim()) return { error: 'Conversa sem contato' }
-    const r = await ensureContact(input.groupName, input.role === 'client' ? 'client' : 'architect')
-    if (typeof r !== 'string') return r
-    personId = r
+    const existing = await groupContactFor(admin, input.groupJid, input.groupName)
+    if (existing) {
+      personId = existing.id
+      if (existing.name !== input.groupName.trim()) await admin.from('contacts').update({ name: input.groupName.trim() }).eq('id', existing.id)
+    } else {
+      const r = await ensureContact(input.groupName, input.role === 'client' ? 'client' : 'architect')
+      if (typeof r !== 'string') return r
+      personId = r
+    }
+    if (input.groupJid) await admin.from('crm_group_contacts').upsert({ remote_jid: input.groupJid, contact_id: personId, updated_at: new Date().toISOString() })
   }
 
   // 2) cliente e especificador

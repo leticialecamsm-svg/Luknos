@@ -2266,6 +2266,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
           contactName={selected.contact_name ?? selected.remote_jid.split('@')[0]}
           isGroup={!!selected.is_group}
           conversationId={selected.id}
+          groupJid={selected.is_group ? selected.remote_jid : null}
           contactType={selected.contact_type ?? null}
           onClose={() => setShowSolicitation(false)}
           onStartSelecting={(sel: SolicSelection) => {
