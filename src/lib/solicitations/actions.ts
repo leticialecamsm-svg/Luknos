@@ -1033,7 +1033,18 @@ export async function listStageFilesForSolicitation(
   try {
     const db = createAdminClient()
     const stageFolderId = await resolveStageFolderId(db, solicitationId, stage)
-    await copyCrmLinksToStageFolder(db, solicitationId, stage, stageFolderId)
+    // Verifica se há links pendentes; se sim, copia em background (não bloqueia a listagem)
+    const { count: pending } = await db
+      .from('crm_solicitation_links')
+      .select('id', { count: 'exact', head: true })
+      .eq('solicitation_id', solicitationId)
+      .eq('stage', stage)
+      .is('stage_drive_file_id', null)
+    if ((pending ?? 0) > 0) {
+      copyCrmLinksToStageFolder(db, solicitationId, stage, stageFolderId).catch(e =>
+        console.error('[listStageFilesForSolicitation] background copy failed:', e)
+      )
+    }
     const files = await listFolderFiles(stageFolderId)
     return { files }
   } catch (e: any) {
