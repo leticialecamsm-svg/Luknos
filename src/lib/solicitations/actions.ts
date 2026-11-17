@@ -819,12 +819,15 @@ async function copyCrmLinksToStageFolder(
     if (!claimed?.length) continue
     try {
       const when = new Intl.DateTimeFormat('pt-BR', {
-        timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-      }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(':', 'h')
-      const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type}`
+        timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(/:/g, 'h', ).replace(/h(\d{2})$/, 'm$1')
+      // inclui os primeiros 6 chars do message id para garantir unicidade mesmo com mesmo nome+segundo
+      const msgSuffix = (m.id as string).slice(0, 6)
+      const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type} [${msgSuffix}]`
       let copied: { id: string }
-      // mesma mensagem vinculada de novo (ou arquivo já enviado com esse nome): reaproveita, não duplica
-      const already = existingNames.get(name)
+      // mesma mensagem vinculada de novo: reaproveita pelo id do link (key = message id), não pelo nome
+      const alreadyByMsg = existingNames.get(m.id as string)
+      const already = alreadyByMsg ?? existingNames.get(name)
       // mídia que ninguém baixou ainda na conversa: busca no WhatsApp primeiro
       if (!already && !m.drive_file_id && !m.storage_path) m.drive_file_id = await fetchCrmMediaToDrive(m)
       if (already) {
@@ -836,6 +839,7 @@ async function copyCrmLinksToStageFolder(
         if (error || !blob) throw error ?? new Error('arquivo não encontrado')
         copied = await uploadFile({ folderId, name, mimeType: m.mime_type ?? 'application/octet-stream', data: new Uint8Array(await blob.arrayBuffer()) })
       }
+      existingNames.set(m.id as string, copied.id)
       existingNames.set(name, copied.id)
       await db.from('crm_solicitation_links').update({ stage_drive_file_id: copied.id }).eq('id', l.id)
     } catch (e) {
