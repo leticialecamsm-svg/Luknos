@@ -838,7 +838,7 @@ async function copyCrmLinksToStageFolder(
 }
 
 // Chamado logo após vincular mensagens do CRM a uma etapa.
-export async function copyCrmLinksToStageFiles(solicitationId: string, stage: string): Promise<void> {
+export async function copyCrmLinksToStageFiles(solicitationId: string, stage: string, opts: { revalidate?: boolean } = {}): Promise<void> {
   const user = await requireUser()
   if (!user || !STAGE_FILE_STAGES.includes(stage as StageFileStage)) return
   if (!(await isDriveConnected())) return
@@ -846,7 +846,7 @@ export async function copyCrmLinksToStageFiles(solicitationId: string, stage: st
     const db = createAdminClient()
     const folderId = await resolveStageFolderId(db, solicitationId, stage as StageFileStage)
     await copyCrmLinksToStageFolder(db, solicitationId, stage as StageFileStage, folderId)
-    refresh(solicitationId)
+    if (opts.revalidate !== false) refresh(solicitationId)
   } catch (e) {
     console.error('[copyCrmLinksToStageFiles]', e)
   }

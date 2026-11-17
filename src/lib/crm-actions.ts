@@ -1756,10 +1756,24 @@ export async function getContactPanel(conversationId: string): Promise<ContactPa
   }
 
   // Solicitações do contato
+  // (individual: como cliente ou especificador; grupo: pelo contato do grupo
+  // ou pelas conversas do grupo de onde a solicitação foi criada)
   let solicitations: ContactPanelData['solicitations'] = []
-  if (contact?.id) {
-    const { data: sRows } = await admin.from('solicitations').select('id, number, title, work_stage, created_at').eq('client_id', contact.id).order('created_at', { ascending: false }).limit(10)
-    solicitations = (sRows ?? []) as typeof solicitations
+  {
+    const ors: string[] = []
+    if (contact?.id) ors.push(`client_id.eq.${contact.id}`, `architect_id.eq.${contact.id}`)
+    if (isGroup) {
+      const gc = await groupContactFor(admin, conv.remote_jid, conv.contact_name_cache ?? '')
+      if (gc) ors.push(`client_id.eq.${gc.id}`, `architect_id.eq.${gc.id}`)
+      const { data: gconvs } = await admin.from('crm_conversations').select('id').eq('remote_jid', conv.remote_jid)
+      const ids = (gconvs ?? []).map((g: any) => g.id)
+      if (ids.length) ors.push(`crm_conversation_id.in.(${ids.join(',')})`)
+    }
+    if (ors.length) {
+      const { data: sRows } = await admin.from('solicitations').select('id, number, title, work_stage, created_at')
+        .is('deleted_at', null).or(ors.join(',')).order('created_at', { ascending: false }).limit(10)
+      solicitations = (sRows ?? []) as typeof solicitations
+    }
   }
 
   const st = conv.stage_id ? stageRows.find((x) => x.id === conv.stage_id) : stageRows[0]
@@ -3366,7 +3380,8 @@ export async function linkCrmMessagesToSolicitationStage(input: {
     })
   } catch { /* best-effort */ }
 
-  await copyCrmLinksToStageFiles(input.solicitationId, input.stage)
+  // sem revalidatePath: vem do CRM e não pode recarregar a conversa aberta
+  await copyCrmLinksToStageFiles(input.solicitationId, input.stage, { revalidate: false })
 
   return { ok: true }
 }

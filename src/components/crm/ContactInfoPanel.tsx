@@ -181,9 +181,9 @@ export function ContactInfoPanel({
 
             {/* orçamentos */}
             <QuotesSection data={data} />
-            {/* solicitações */}
-            <SolicitacoesSection data={data} />
             </>}
+            {/* solicitações (também para grupos) */}
+            <SolicitacoesSection data={data} />
 
             {/* histórico */}
             <section className="p-4 space-y-2">
@@ -526,7 +526,7 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 function SolicitacoesSection({ data }: { data: ContactPanelData }) {
-  if (!data.contact) return null
+  if (!data.contact && !data.is_group) return null
   return (
     <section className="p-4 space-y-2 border-t border-gray-100">
       <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">

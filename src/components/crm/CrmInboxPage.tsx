@@ -467,6 +467,16 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   useEffect(() => { setOpenConversationId(selectedId); return () => setOpenConversationId(null) }, [selectedId])
 
   // Esc fecha a conversa (como no WhatsApp Web) — antes fecha o painel de dados, se estiver aberto.
+  // Guarda a conversa aberta na URL (sem recarregar): se a página for
+  // atualizada por qualquer motivo, volta para a mesma conversa.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      if (selectedId) url.searchParams.set('c', selectedId); else url.searchParams.delete('c')
+      window.history.replaceState(window.history.state, '', url.toString())
+    } catch { /* ignora */ }
+  }, [selectedId])
+
   // Com janela, menu ou lista de sugestões abertos, o Esc é deles.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

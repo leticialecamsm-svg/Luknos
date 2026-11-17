@@ -84,7 +84,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
             <a
               href={toast.action.href}
               onClick={onClose}
-              className="inline-block mt-1.5 text-xs font-semibold text-brand-300 hover:text-brand-200 underline underline-offset-2"
+              className="inline-block mt-1.5 text-xs font-semibold !text-[#f3d98b] hover:!text-white underline underline-offset-2"
             >
               {toast.action.label} →
             </a>
