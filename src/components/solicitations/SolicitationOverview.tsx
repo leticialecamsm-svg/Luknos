@@ -26,7 +26,7 @@ import {
 import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils'
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationsForClient, getSolicitationDeleteImpact, deleteSolicitation, type CrmConversationOption, type SolicitationView } from '@/lib/solicitations/actions'
-import { searchContacts } from '@/lib/actions'
+import { searchContacts, createContact, updateContact } from '@/lib/actions'
 import { Portal } from '@/components/ui/Portal'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
@@ -678,6 +678,33 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
     return () => { active = false }
   }, [archQuery])
 
+  const [archBusy, setArchBusy] = useState(false)
+  const [archRenaming, setArchRenaming] = useState(false)
+  const [archNewName, setArchNewName] = useState('')
+  const [archErr, setArchErr] = useState('')
+
+  async function createArchitect() {
+    const name = archQuery.trim()
+    if (!name) return
+    setArchBusy(true); setArchErr('')
+    const r: any = await createContact({ name, type: 'architect' })
+    setArchBusy(false)
+    const c = r?.data ?? r?.duplicateOf
+    if (!c) { setArchErr(r?.error ?? 'Não foi possível criar'); return }
+    setArchitectId(c.id); setArchitectLabel(c.name); setArchQuery(''); setArchOpen(false)
+  }
+
+  async function renameArchitect() {
+    const name = archNewName.trim()
+    if (!architectId || !name) return
+    setArchBusy(true); setArchErr('')
+    const r: any = await updateContact(architectId, { name })
+    setArchBusy(false)
+    if (r?.error) { setArchErr(r.error); return }
+    setArchitectLabel(name); setArchRenaming(false)
+    router.refresh()
+  }
+
   useEffect(() => {
     function handle(e: MouseEvent) {
       if (clientRef.current && !clientRef.current.contains(e.target as Node)) setClientOpen(false)
@@ -789,7 +816,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                 <div className="relative">
                   <input
                     value={archQuery || architectLabel}
-                    placeholder="Buscar arquiteto…"
+                    placeholder="Buscar ou criar especificador…"
                     className="input w-full text-xs"
                     onChange={e => { setArchQuery(e.target.value); setArchitectLabel(e.target.value); setArchOpen(true) }}
                     onFocus={() => setArchOpen(true)}
@@ -798,8 +825,8 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                     <button type="button" onClick={() => { setArchitectId(null); setArchitectLabel(''); setArchQuery('') }}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">✕</button>
                   )}
-                  {archOpen && archResults.length > 0 && (
-                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                  {archOpen && archQuery.trim().length >= 2 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                       {archResults.map((c: any) => (
                         <button key={c.id} type="button"
                           className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
@@ -807,9 +834,25 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
                           {c.name}
                         </button>
                       ))}
+                      <button type="button" disabled={archBusy} onClick={createArchitect}
+                        className="w-full text-left px-3 py-2 text-xs text-violet-700 font-medium hover:bg-violet-50 border-t border-gray-100">
+                        + Criar especificador “{archQuery.trim()}”
+                      </button>
                     </div>
                   )}
                 </div>
+                {architectId && !archRenaming && (
+                  <button type="button" onClick={() => { setArchNewName(architectLabel); setArchRenaming(true); setArchErr('') }}
+                    className="mt-1 text-[11px] text-violet-700 hover:underline">Renomear este especificador</button>
+                )}
+                {architectId && archRenaming && (
+                  <div className="mt-1.5 flex gap-1.5">
+                    <input value={archNewName} onChange={e => setArchNewName(e.target.value)} className="input flex-1 text-xs" placeholder="Novo nome" />
+                    <button type="button" disabled={archBusy || !archNewName.trim()} onClick={renameArchitect} className="btn-primary px-2.5 py-1 text-xs">{archBusy ? '…' : 'OK'}</button>
+                    <button type="button" onClick={() => setArchRenaming(false)} className="btn-secondary px-2.5 py-1 text-xs">Cancelar</button>
+                  </div>
+                )}
+                {archErr && <p className="mt-1 text-[11px] text-red-600">{archErr}</p>}
               </div>
             </div>
             <div className="flex gap-2 pt-1">
