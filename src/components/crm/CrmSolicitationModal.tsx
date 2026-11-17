@@ -256,6 +256,7 @@ export function CrmSolicitationModal({ contactId: contactIdProp, contactName, co
                   </div>
                 )}
 
+                <p className="text-xs text-gray-600 -mb-1">Título da solicitação <span className="text-gray-400">(o ambiente ou a obra)</span></p>
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
