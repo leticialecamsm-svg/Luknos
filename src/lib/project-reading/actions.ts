@@ -54,30 +54,38 @@ export async function listPlans() {
   return data ?? []
 }
 
-export async function uploadPlan(formData: FormData) {
+// O PDF NÃO passa pelo servidor: server action/função da Vercel recusa corpo
+// acima de ~4,5 MB (plantas costumam ter 5–30 MB) e a tela ficava presa em
+// "Processando PDF...". O servidor só assina a URL de upload; o navegador
+// manda o arquivo direto pro Storage e depois chama finalizePlan.
+const MAX_PLAN_BYTES = 100 * 1024 * 1024
+
+export async function createPlanUpload(input: { fileName: string; sizeBytes: number }) {
   const userId = await requireUserId()
   if (!userId) return { error: 'Não autenticado' }
+  if (!input.sizeBytes) return { error: 'Arquivo vazio' }
+  if (input.sizeBytes > MAX_PLAN_BYTES) return { error: 'Arquivo acima de 100 MB' }
+  const safe = input.fileName.replace(/[^\w.\-]/g, '_')
+  const path = `${userId}/${Date.now()}_${safe}`
+  const { data, error } = await createAdminClient().storage.from('project-plans').createSignedUploadUrl(path)
+  if (error || !data) return { error: error?.message ?? 'Não foi possível preparar o envio' }
+  return { path: data.path, token: data.token }
+}
 
-  const file = formData.get('file') as File | null
-  const name = String(formData.get('name') ?? '').trim()
-  const numPages = Number(formData.get('numPages') ?? 1) || 1
-  if (!file) return { error: 'Nenhum arquivo enviado' }
-  if (file.type !== 'application/pdf') return { error: 'O arquivo precisa ser um PDF' }
-
+export async function finalizePlan(input: { storagePath: string; fileName: string; name: string; numPages: number }) {
+  const userId = await requireUserId()
+  if (!userId) return { error: 'Não autenticado' }
+  // o caminho precisa ser do próprio usuário (gerado por createPlanUpload)
+  if (!input.storagePath.startsWith(`${userId}/`)) return { error: 'Caminho de arquivo inválido' }
   const admin = createAdminClient()
-  const storagePath = `${userId}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`
-  const { error: uploadError } = await admin.storage.from('project-plans').upload(storagePath, file)
-  if (uploadError) return { error: uploadError.message }
-
   const { data, error } = await admin.from('project_plans').insert({
-    name: name || file.name.replace(/\.pdf$/i, ''),
-    original_filename: file.name,
-    storage_path: storagePath,
-    num_pages: numPages,
+    name: input.name.trim() || input.fileName.replace(/\.pdf$/i, ''),
+    original_filename: input.fileName,
+    storage_path: input.storagePath,
+    num_pages: input.numPages || 1,
     status: 'ready',
     created_by: userId,
   }).select().single()
-
   if (error) return { error: error.message }
   revalidatePath(BASE_PATH)
   return { ok: true, plan: data }

@@ -3,7 +3,8 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { uploadPlan, deletePlan } from '@/lib/project-reading/actions'
+import { createPlanUpload, finalizePlan, deletePlan } from '@/lib/project-reading/actions'
+import { createClient } from '@/lib/supabase/client'
 import { FileText, Upload, Loader2, Trash2, FolderOpen } from 'lucide-react'
 
 interface PlanRow {
@@ -15,6 +16,7 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
   const router = useRouter()
   const [plans, setPlans] = useState(initialPlans)
   const [uploading, setUploading] = useState(false)
+  const [etapa, setEtapa] = useState('')
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -25,23 +27,30 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
     try {
       // Descobre a quantidade de páginas no navegador antes de subir, pra já
       // salvar certo (evita ter que corrigir depois).
+      setEtapa('Lendo o PDF...')
       const pdfjsLib = await import('pdfjs-dist')
       pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
       const buf = await file.arrayBuffer()
       const doc = await pdfjsLib.getDocument({ data: buf }).promise
       const numPages = doc.numPages
 
-      const formData = new FormData()
-      formData.set('file', file)
-      formData.set('name', file.name.replace(/\.pdf$/i, ''))
-      formData.set('numPages', String(numPages))
-      const res = await uploadPlan(formData)
-      if (res?.error) { setError(res.error); setUploading(false); return }
+      setEtapa('Enviando arquivo...')
+      const prep = await createPlanUpload({ fileName: file.name, sizeBytes: file.size })
+      if (prep.error) { setError(prep.error); return }
+      if (!prep.path || !prep.token) { setError('Não foi possível preparar o envio'); return }
+      const { error: upErr } = await createClient().storage.from('project-plans')
+        .uploadToSignedUrl(prep.path, prep.token, file, { contentType: 'application/pdf' })
+      if (upErr) { setError(`Falha no envio: ${upErr.message}`); return }
+
+      setEtapa('Salvando planta...')
+      const res = await finalizePlan({ storagePath: prep.path, fileName: file.name, name: file.name.replace(/\.pdf$/i, ''), numPages })
+      if (res?.error) { setError(res.error); return }
       if (res?.plan) router.push(`/dashboard/project-reading/${res.plan.id}`)
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível processar o PDF.')
     } finally {
       setUploading(false)
+      setEtapa('')
     }
   }
 
@@ -66,7 +75,7 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
         <input ref={inputRef} type="file" accept="application/pdf" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
         {uploading ? <Loader2 className="w-8 h-8 text-brand-500 animate-spin" /> : <Upload className="w-8 h-8 text-navy-muted/50" />}
-        <p className="text-sm font-medium text-navy-muted">{uploading ? 'Processando PDF...' : 'Clique ou arraste um PDF aqui'}</p>
+        <p className="text-sm font-medium text-navy-muted">{uploading ? (etapa || 'Processando PDF...') : 'Clique ou arraste um PDF aqui'}</p>
       </label>
       {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
 
