@@ -1545,7 +1545,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               </button>
             )
           })}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 flex-wrap justify-end min-w-0">
             <button onClick={undo} disabled={undoStack.length === 0} title="Desfazer (Cmd+Z)"
               className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary disabled:opacity-30 disabled:hover:bg-transparent">
               <Undo2 className="w-4 h-4" />
