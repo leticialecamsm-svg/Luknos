@@ -4052,11 +4052,15 @@ export async function deleteQuoteAttachment(
 
   const { data: row } = await admin
     .from('quote_attachments')
-    .select('storage_path')
+    .select('storage_path, drive_file_id')
     .eq('id', id)
     .maybeSingle()
   if (row?.storage_path) {
     await admin.storage.from('quote-attachments').remove([row.storage_path])
+  }
+  // Já sincronizado: a cópia do Drive também sai (senão fica órfã e duplica ao reenviar).
+  if (row?.drive_file_id) {
+    await trashFile(row.drive_file_id).catch((e) => console.error('drive trash falhou', e))
   }
   const { error } = await admin.from('quote_attachments').delete().eq('id', id)
   if (error) return { error: error.message }

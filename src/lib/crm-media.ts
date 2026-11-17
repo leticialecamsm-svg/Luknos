@@ -37,6 +37,13 @@ export async function storeCrmMediaInDrive(bytes: Uint8Array, opts: { mimeType: 
     { sha256, drive_file_id: up.id, web_view_link: up.webViewLink ?? null, mime_type: opts.mimeType, size: bytes.length },
     { onConflict: 'sha256', ignoreDuplicates: true },
   )
+  // Dois uploads do mesmo conteúdo ao mesmo tempo: fica o que entrou primeiro na tabela,
+  // e a cópia sobressalente vai para a lixeira.
+  const { data: winner } = await admin.from('crm_media_blobs').select('drive_file_id, web_view_link, size').eq('sha256', sha256).maybeSingle()
+  if (winner && winner.drive_file_id !== up.id) {
+    await trashFile(up.id).catch(() => {})
+    return { driveFileId: winner.drive_file_id, webViewLink: winner.web_view_link, size: Number(winner.size ?? bytes.length) }
+  }
   return { driveFileId: up.id, webViewLink: up.webViewLink ?? null, size: bytes.length }
 }
 

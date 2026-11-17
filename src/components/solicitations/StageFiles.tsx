@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip, Trash2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded, stageFileExists,
+  uploadStageFileForSolicitation, createStageFileUploadSession, confirmStageFileUploaded, stageFileExists, findDuplicateStageFiles,
   deleteStageFileForSolicitation,
   checkDriveConnected, listStageFilesForSolicitation, type StageFileStage,
 } from '@/lib/solicitations/actions'
@@ -162,6 +162,7 @@ function formatEta(sec: number): string {
 }
 
 export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicitationId: string; stage: StageFileStage; onUploaded?: () => void }) {
+  const { confirm, ConfirmDialog } = useConfirm()
   const [connected, setConnected] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
   // Progresso agregado ("3 de 5 enviados") em vez de um único resultado —
@@ -180,8 +181,18 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
   }, [])
 
   async function handleFiles(fileList: FileList | File[] | undefined) {
-    const files = Array.from(fileList ?? [])
+    let files = Array.from(fileList ?? [])
     if (files.length === 0) return
+    // Evita duplicar: avisa se o mesmo arquivo (nome e tamanho) já está na pasta da etapa.
+    const dups = await findDuplicateStageFiles(solicitationId, stage, files.map(f => ({ name: f.name, size: f.size }))).catch(() => [] as string[])
+    if (dups.length > 0) {
+      const send = await confirm(
+        `${dups.length === 1 ? `"${dups[0]}" já está` : `${dups.length} arquivos já estão`} nesta etapa. Enviar mesmo assim? (Isso cria uma cópia.)`,
+        'Enviar mesmo assim',
+      )
+      if (!send) files = files.filter(f => !dups.includes(f.name))
+      if (files.length === 0) return
+    }
     setUploading(true)
     setErrors([])
     setLastOkNames([])
@@ -237,6 +248,7 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
 
   return (
     <div className="flex flex-col gap-1.5">
+      {ConfirmDialog}
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn('btn-secondary text-sm cursor-pointer', (uploading || connected === null) && 'opacity-60 pointer-events-none')}>
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}

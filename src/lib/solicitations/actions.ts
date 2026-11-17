@@ -886,6 +886,20 @@ export async function stageFileExists(solicitationId: string, stage: StageFileSt
   } catch { return false }
 }
 
+// Nomes (com tamanho) que já estão na pasta da etapa — o navegador usa para avisar
+// antes de enviar o mesmo arquivo duas vezes.
+export async function findDuplicateStageFiles(solicitationId: string, stage: StageFileStage, files: { name: string; size: number }[]): Promise<string[]> {
+  const user = await requireUser()
+  if (!user || !files.length) return []
+  try {
+    const folderId = await resolveStageFolderId(createAdminClient(), solicitationId, stage)
+    const existing = await listFolderFiles(folderId)
+    return files
+      .filter(f => existing.some(e => e.name === f.name && (e.size == null || Number(e.size) === f.size)))
+      .map(f => f.name)
+  } catch { return [] }
+}
+
 // Prepara sessão de upload resumable: cliente faz PUT direto na URL
 // retornada, contornando o limite de 4,5 MB das Vercel Functions.
 // IMPORTANTE: não loga nem revalida aqui — só prepara a sessão. O arquivo
