@@ -510,16 +510,16 @@ const WORK_STAGE_OPTIONS = [
 // mais de um WhatsApp da empresa, mostra as opções (com a última interação de
 // cada uma) para a pessoa identificar de onde está sendo o atendimento.
 // Sem conversa no CRM, cai no wa.me como antes.
-function WhatsAppCrmButton({ clientId, phone }: { clientId: string; phone: string | null }) {
+function WhatsAppCrmButton({ clientId, phone, extraConvIds }: { clientId: string; phone: string | null; extraConvIds?: string[] }) {
   const router = useRouter()
   const [convs, setConvs] = useState<CrmConversationOption[] | null>(null)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
-    getCrmConversationsForClient(clientId).then(r => { if (alive) setConvs(r) }).catch(() => { if (alive) setConvs([]) })
+    getCrmConversationsForClient(clientId, extraConvIds ?? []).then(r => { if (alive) setConvs(r) }).catch(() => { if (alive) setConvs([]) })
     return () => { alive = false }
-  }, [clientId])
+  }, [clientId, (extraConvIds ?? []).join(',')])
 
   if (!phone && !(convs && convs.length)) return null
 
@@ -871,7 +871,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
           </div>
         )}
         <div className="flex items-center gap-2 pt-1 flex-wrap">
-          <WhatsAppCrmButton clientId={s.clientId} phone={s.clientPhone} />
+          <WhatsAppCrmButton clientId={s.clientId} phone={s.clientPhone} extraConvIds={s.crmConversationIds} />
           {s.clientPhone && <RoundAction href={`tel:${s.clientPhone.replace(/[^\d+]/g, '')}`} title="Ligar" icon={Phone} />}
           {s.clientEmail && <RoundAction href={`mailto:${s.clientEmail}`} title="Enviar e-mail" icon={Mail} />}
           <DriveFolderButton solicitationId={s.id} />

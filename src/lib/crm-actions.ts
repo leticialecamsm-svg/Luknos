@@ -3187,6 +3187,7 @@ const PLACEHOLDER_CLIENT = 'Cliente a definir'
 export async function createSolicitationFromCrm(input: {
   contactId: string | null
   groupName?: string
+  conversationId?: string | null
   role: 'client' | 'specifier'
   clientId?: string | null
   clientName?: string
@@ -3240,6 +3241,7 @@ export async function createSolicitationFromCrm(input: {
   const { data, error } = await admin.from('solicitations').insert({
     client_id: clientId,
     architect_id: architectId,
+    crm_conversation_id: input.conversationId ?? null,
     title: input.title,
     work_stage: input.stage,
     origin,

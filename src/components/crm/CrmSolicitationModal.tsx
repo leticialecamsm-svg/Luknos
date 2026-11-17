@@ -71,11 +71,12 @@ interface Props {
   contactName: string
   contactType?: string | null
   isGroup?: boolean
+  conversationId?: string | null
   onClose: () => void
   onStartSelecting: (sel: SolicSelection) => void
 }
 
-export function CrmSolicitationModal({ contactId: contactIdProp, contactName, contactType, isGroup, onClose, onStartSelecting }: Props) {
+export function CrmSolicitationModal({ contactId: contactIdProp, contactName, contactType, isGroup, conversationId, onClose, onStartSelecting }: Props) {
   const toast = useToast()
 
   // Grupo não tem contato próprio: procuramos um contato com o nome do grupo.
@@ -151,6 +152,7 @@ export function CrmSolicitationModal({ contactId: contactIdProp, contactName, co
     const r = await createSolicitationFromCrm({
       contactId: isGroup ? null : contactIdProp,
       groupName: isGroup ? contactName : undefined,
+      conversationId,
       role,
       clientId: role === 'specifier' ? clientPick?.id ?? null : null,
       clientName: role === 'specifier' && !clientPick ? clientQuery : undefined,

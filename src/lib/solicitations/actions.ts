@@ -123,6 +123,8 @@ export type SolicitationView = {
   clientId: string
   clientName: string | null
   clientPhone: string | null
+  // conversas do CRM ligadas à solicitação (origem + conversas das mensagens vinculadas)
+  crmConversationIds: string[]
   clientEmail: string | null
   architectId: string | null
   architectName: string | null
@@ -171,7 +173,7 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
 
   const { data: solicitation } = await db
     .from('solicitations')
-    .select('id, number, title, client_id, architect_id, created_by, created_at, category, size, origin, work_stage, priority, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
+    .select('id, number, title, client_id, architect_id, created_by, created_at, category, size, origin, work_stage, priority, crm_conversation_id, client:client_id(id, name, phone, email), architect:architect_id(id, name)')
     .eq('id', id)
     .maybeSingle()
   if (!solicitation) return null
@@ -329,6 +331,10 @@ export async function getSolicitation(id: string): Promise<SolicitationView | nu
     clientId: solicitation.client_id,
     clientName: (solicitation as any).client?.name ?? null,
     clientPhone: (solicitation as any).client?.phone ?? null,
+    crmConversationIds: Array.from(new Set([
+      (solicitation as any).crm_conversation_id,
+      ...Object.values(crmMessages).flat().map((m) => m.conversationId),
+    ].filter((x): x is string => !!x))),
     clientEmail: (solicitation as any).client?.email ?? null,
     architectId: solicitation.architect_id,
     architectName: (solicitation as any).architect?.name ?? null,
@@ -1164,6 +1170,7 @@ export async function updateQuoteStatusWithCompletion(
 // (crm_can_see_conversation) já escondem conversas privadas e restritas.
 
 function jidPhone(jid: string | null): string | null {
+  if ((jid ?? '').endsWith('@g.us')) return null // grupo: o "número" é só um id
   const d = (jid ?? '').split('@')[0].replace(/\D/g, '')
   return d ? `+${d}` : null
 }
@@ -1226,10 +1233,18 @@ async function conversationOptions(convs: any[]): Promise<CrmConversationOption[
 
 // Conversas do cliente em todos os WhatsApps da empresa que o usuário enxerga.
 // Casa pelo contato vinculado e, quando não há vínculo, pelo final do telefone.
-export async function getCrmConversationsForClient(clientId: string): Promise<CrmConversationOption[]> {
+export async function getCrmConversationsForClient(clientId: string, extraConversationIds: string[] = []): Promise<CrmConversationOption[]> {
   const user = await requireUser()
   if (!user) return []
   try {
+    // Conversas de origem (inclui grupos, que não têm contato vinculado).
+    // Vão pelo client do usuário, então só aparecem as que ele pode ver.
+    const extraIds = extraConversationIds.filter(Boolean).slice(0, 10)
+    const extra = extraIds.length
+      ? ((await createClient().from('crm_conversations')
+          .select('id, instance_id, remote_jid, contact_name_cache, assigned_user_id, last_message_at')
+          .in('id', extraIds)).data ?? []) as any[]
+      : []
     const { data: client } = await createAdminClient().from('contacts').select('phone').eq('id', clientId).maybeSingle()
     const digits = String(client?.phone ?? '').replace(/\D/g, '')
     const tail = digits.length >= 8 ? digits.slice(-8) : null
@@ -1238,7 +1253,8 @@ export async function getCrmConversationsForClient(clientId: string): Promise<Cr
       .select('id, instance_id, remote_jid, contact_name_cache, assigned_user_id, last_message_at')
     q = tail ? q.or(`contact_id.eq.${clientId},remote_jid.ilike.%${tail}@%`) : q.eq('contact_id', clientId)
     const { data } = await q.order('last_message_at', { ascending: false }).limit(10)
-    return await conversationOptions((data ?? []) as any[])
+    const merged = [...extra, ...((data ?? []) as any[]).filter((r) => !extra.some((x) => x.id === r.id))]
+    return await conversationOptions(merged)
   } catch (e) {
     console.error('[getCrmConversationsForClient]', e)
     return []
