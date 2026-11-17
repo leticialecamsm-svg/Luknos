@@ -62,11 +62,33 @@ const FIELD_COLOR: Record<string, string> = {
   contact: 'bg-purple-50 text-purple-700 border-purple-200',
 }
 
+// Transforma URLs do texto em links clicáveis (abre em nova aba).
+function LinkifiedText({ text }: { text: string }) {
+  const parts = text.split(/((?:https?:\/\/|www\.)[^\s<>"]+)/gi)
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part
+        const m = /[.,;:!?)\]]+$/.exec(part)
+        const url = m ? part.slice(0, part.length - m[0].length) : part
+        const tail = m ? m[0] : ''
+        const href = /^www\./i.test(url) ? `https://${url}` : url
+        return (
+          <span key={i}>
+            <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline hover:text-indigo-800 break-all">{url}</a>
+            {tail}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
   if (!msgs?.length) return null
 
   const title = (m: CrmMsg) => {
-    if (m.messageType === 'text' || m.messageType === 'extended_text') return m.body?.slice(0, 120) ?? '…'
+    if (m.messageType === 'text' || m.messageType === 'extended_text') return m.body?.slice(0, 400) ?? '…'
     if (m.messageType === 'image') return m.fileName ?? 'Imagem'
     if (m.messageType === 'video') return m.fileName ?? 'Vídeo'
     if (m.messageType === 'audio' || m.messageType === 'ptt') return m.fileName ?? 'Áudio'
@@ -126,6 +148,8 @@ function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; 
             )}
             {m.mediaUrl && m.messageType !== 'image' ? (
               <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline line-clamp-2 break-words leading-snug">{title(m)}</a>
+            ) : (m.messageType === 'text' || m.messageType === 'extended_text') ? (
+              <p className="text-gray-700 line-clamp-4 break-words whitespace-pre-line leading-snug"><LinkifiedText text={title(m)} /></p>
             ) : (
               <p className="text-gray-700 line-clamp-2 break-words leading-snug">{title(m)}</p>
             )}
