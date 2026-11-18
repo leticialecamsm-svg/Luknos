@@ -1,14 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadCadFile, computeRegions, type CadModel } from '@/lib/project-reading/cad'
+import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
+import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 type M6 = [number, number, number, number, number, number]
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
@@ -29,7 +30,7 @@ const rotAbout = (deg: number, cx: number, cy: number): M6 => {
 }
 
 // ── Estado editável (imutável, pra desfazer/refazer) ────────────────────────
-interface Shape { id: number; kind: 'line' | 'rect' | 'circle'; pts: number[]; stroke: string; fill: string | null }
+interface Shape { id: number; kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow'; pts: number[]; stroke: string; fill: string | null; text?: string; h?: number; rot?: number }
 interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
 interface Cp { id: number; src: number; xf: M6 }
 interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
@@ -69,6 +70,17 @@ function dimGeom(d: Dim) {
   const nx = -dy / len, ny = dx / len
   return { len, nx, ny, p1: [d.ax + nx * d.off, d.ay + ny * d.off] as [number, number], p2: [d.bx + nx * d.off, d.by + ny * d.off] as [number, number] }
 }
+// caixa (polígono) do texto de uma forma 'text' (ancorado no ponto) ou 'arrow' (texto na cauda, do lado oposto à ponta)
+function textPoly(s: Shape): number[] {
+  const h = s.h ?? 0.1, w = Math.max(1, (s.text ?? '').length) * h * 0.55
+  if (s.kind === 'text') {
+    const r = s.rot ?? 0, c = Math.cos(r), sn = Math.sin(r), x = s.pts[0], y = s.pts[1]
+    return [[0, -0.3 * h], [w, -0.3 * h], [w, 1.1 * h], [0, 1.1 * h]].flatMap(([a, b]) => [x + a * c - b * sn, y + a * sn + b * c])
+  }
+  const left = s.pts[0] < s.pts[2], gap = h * 0.3
+  const x0 = left ? s.pts[0] - gap - w : s.pts[0] + gap, x1 = x0 + w, y = s.pts[1]
+  return [x0, y - 0.6 * h, x1, y - 0.6 * h, x1, y + 0.6 * h, x0, y + 0.6 * h]
+}
 const fmtM = (v: number) => v.toFixed(2).replace('.', ',') + ' m'
 
 export function CadLab() {
@@ -101,6 +113,20 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  const [textH, setTextH] = useState('0.15') // altura do texto em metros
+  const [textEdit, setTextEdit] = useState<null | { kind: 'text' | 'arrow'; x: number; y: number; tip?: number[]; id?: number; value: string }>(null)
+  const textEditRef = useRef(textEdit); textEditRef.current = textEdit
+  // biblioteca
+  const [lib, setLib] = useState<{ id: string; name: string; data: LibBlock }[]>([])
+  const [libMsg, setLibMsg] = useState<string | null>(null)
+  const [libFilter, setLibFilter] = useState('')
+  const [cand, setCand] = useState<LibBlock[] | null>(null)
+  const [candSel, setCandSel] = useState<Set<string>>(new Set())
+  const [libBusy, setLibBusy] = useState(false)
+  const [placing, setPlacing] = useState<null | { name: string; obj: number; s: number }>(null)
+  const libObj = useRef(new Map<string, number>())
+  const modelRef = useRef<CadModel | null>(null); modelRef.current = model
+  const needFit = useRef(false)
 
   const baseRef = useRef<null | { sig: string; layerVis: boolean[]; model: CadModel; cv: HTMLCanvasElement }>(null)
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
@@ -149,6 +175,11 @@ export function CadLab() {
     }
     if (k === 's') {
       const s = e.shapes.find(s => s.id === id); if (!s) return null
+      if (s.kind === 'text' || s.kind === 'arrow') {
+        const q = [...textPoly(s), ...(s.kind === 'arrow' ? s.pts : [])]
+        const xs = q.filter((_, i) => i % 2 === 0), ys = q.filter((_, i) => i % 2 === 1)
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+      }
       if (s.kind === 'circle') return [s.pts[0] - s.pts[2], s.pts[1] - s.pts[2], s.pts[0] + s.pts[2], s.pts[1] + s.pts[2]]
       const xs = s.pts.filter((_, i) => i % 2 === 0), ys = s.pts.filter((_, i) => i % 2 === 1)
       return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
@@ -170,7 +201,7 @@ export function CadLab() {
     if (s.kind === 'circle') { const [x, y] = ap6(T, s.pts[0], s.pts[1]); return { ...s, pts: [x, y, s.pts[2]] } }
     const out: number[] = []
     for (let i = 0; i < s.pts.length; i += 2) out.push(...ap6(T, s.pts[i], s.pts[i + 1]))
-    return { ...s, pts: out }
+    return { ...s, pts: out, rot: s.kind === 'text' ? (s.rot ?? 0) + Math.atan2(T[1], T[0]) : s.rot }
   }
   const xfDim = (d: Dim, T: M6): Dim => {
     const [ax, ay] = ap6(T, d.ax, d.ay), [bx, by] = ap6(T, d.bx, d.by)
@@ -359,7 +390,11 @@ export function CadLab() {
     }
     for (const s of e.shapes) {
       let d = Infinity
-      if (s.kind === 'line') d = distSeg(wx, wy, s.pts[0], s.pts[1], s.pts[2], s.pts[3])
+      if (s.kind === 'text' || s.kind === 'arrow') {
+        const poly = textPoly(s)
+        d = inRings([Float64Array.from(poly)], wx, wy) ? 0 : Math.min(...[0, 2, 4, 6].map(i => distSeg(wx, wy, poly[i], poly[i + 1], poly[(i + 2) % 8], poly[(i + 3) % 8])))
+        if (s.kind === 'arrow') d = Math.min(d, distSeg(wx, wy, s.pts[0], s.pts[1], s.pts[2], s.pts[3]))
+      } else if (s.kind === 'line') d = distSeg(wx, wy, s.pts[0], s.pts[1], s.pts[2], s.pts[3])
       else if (s.kind === 'circle') { const r = Math.hypot(wx - s.pts[0], wy - s.pts[1]); d = s.fill && r < s.pts[2] ? 0 : Math.abs(r - s.pts[2]) }
       else {
         for (let i = 0; i < 8; i += 2) d = Math.min(d, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[(i + 2) % 8], s.pts[(i + 3) % 8]))
@@ -386,6 +421,8 @@ export function CadLab() {
       const m = await loadCadFile(await file.arrayBuffer())
       setTempo(Math.round(performance.now() - t0))
       setLayerVis(m.layers.map(l => l.visible))
+      libObj.current = new Map(); setPlacing(null)
+      needFit.current = true
       setModel(m)
     } catch (e: any) {
       setError(e?.message ?? 'Falha ao ler o arquivo.')
@@ -420,7 +457,7 @@ export function CadLab() {
     const half = 1.5 / model.unitToMeters
     fitBox(b.x - half, b.y - half, b.x + half, b.y + half)
   }
-  useEffect(() => { if (model && regioes.length) fit(0) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [model, regioes])
+  useEffect(() => { if (model && regioes.length && needFit.current) { needFit.current = false; fit(0) } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [model, regioes])
 
   // ── Desenho ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -545,6 +582,25 @@ export function CadLab() {
     }
     for (const s of ed.shapes) {
       const on = selSet.has('s' + s.id)
+      if (s.kind === 'text' || s.kind === 'arrow') {
+        const color = on ? SEL : s.stroke
+        const px = (s.h ?? 0.1) * scale
+        if (s.kind === 'text') { const [x, y] = toScreen(s.pts[0], s.pts[1], w, h); drawText(s.text ?? '', x, y, px, s.rot ?? 0, color); continue }
+        const [tx, ty] = toScreen(s.pts[0], s.pts[1], w, h), [ax, ay] = toScreen(s.pts[2], s.pts[3], w, h)
+        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = on ? 2.5 : 1.5
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(ax, ay); ctx.stroke()
+        const ang = Math.atan2(ay - ty, ax - tx), L = Math.max(7, px * 0.9)
+        ctx.beginPath(); ctx.moveTo(ax, ay)
+        ctx.lineTo(ax - L * Math.cos(ang - 0.35), ay - L * Math.sin(ang - 0.35)); ctx.lineTo(ax - L * Math.cos(ang + 0.35), ay - L * Math.sin(ang + 0.35)); ctx.closePath(); ctx.fill()
+        if (s.text) {
+          const left = s.pts[0] < s.pts[2], gap = px * 0.3
+          ctx.save(); ctx.translate(tx + (left ? -gap : gap), ty)
+          if (px < 4) { ctx.globalAlpha = 0.55; const bw = Math.max(2, s.text.length * px * 0.55); ctx.fillRect(left ? -bw : 0, -Math.max(1, px * 0.4), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
+          else { ctx.font = `${px}px sans-serif`; ctx.textAlign = left ? 'right' : 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s.text, 0, 0) }
+          ctx.restore()
+        }
+        continue
+      }
       shapePath(s)
       if (s.fill && s.kind !== 'line') { ctx.fillStyle = s.fill; ctx.fill() }
       ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
@@ -586,6 +642,7 @@ export function CadLab() {
     const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
     if (cur && draft.length) {
       if (tool === 'linha') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
+      if (tool === 'seta') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
       if (tool === 'retangulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1) })
       if (tool === 'circulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h); ctx.beginPath(); ctx.arc(x1, y1, Math.hypot(cur[0] - draft[0][0], cur[1] - draft[0][1]) * scale, 0, Math.PI * 2); ctx.stroke() })
       if (tool === 'medir') {
@@ -597,6 +654,11 @@ export function CadLab() {
           drawDim(dd, '#fbbf24', 1.25)
         }
       }
+    }
+    if (tool === 'inserir' && placing && cur) {
+      ctx.globalAlpha = 0.65
+      drawInst(placing.obj, [placing.s, 0, 0, placing.s, cur[0], cur[1]], false)
+      ctx.globalAlpha = 1
     }
     if (box) { ctx.strokeStyle = SEL; ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.lineWidth = 1; ctx.setLineDash(box.x1 < box.x0 ? [5, 4] : []); ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.setLineDash([]) }
     if (selBlock) {
@@ -736,10 +798,22 @@ export function CadLab() {
   }
   function onClick(e: React.MouseEvent) {
     if (tool === 'select' || tool === 'pan') return
+    if (textEditRef.current) return // o campo de texto está aberto (o blur confirma)
     const { p: raw } = point(e)
     const last = draft[draft.length - 1]
     const p = last && tool !== 'medir' ? ortho(raw, last, e.shiftKey) : raw
     const e0 = edRef.current
+    if (tool === 'texto') { setTextEdit({ kind: 'text', x: p[0], y: p[1], value: '' }); return }
+    if (tool === 'seta') {
+      if (!draft.length) { setDraft([p]); return }
+      if (Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return
+      setTextEdit({ kind: 'arrow', x: p[0], y: p[1], tip: draft[0], value: '' }); setDraft([]); return
+    }
+    if (tool === 'inserir') {
+      if (!placing) return
+      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [placing.s, 0, 0, placing.s, p[0], p[1]] }], next: e0.next + 1 })
+      setSel(['c' + e0.next]); return
+    }
     if (tool === 'linha') {
       if (!draft.length) { setDraft([p]); return }
       if (Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return
@@ -767,7 +841,84 @@ export function CadLab() {
     }
   }
 
-  useEffect(() => { setDraft([]) }, [tool])
+  useEffect(() => {
+    setDraft([]); if (tool !== 'inserir') setPlacing(null)
+    // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
+    if ((tool === 'texto' || tool === 'seta') && model) setTextH(String(Number(((14 / view.current.scale) * model.unitToMeters).toPrecision(2))))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool])
+
+  function onDbl(e: React.MouseEvent) {
+    if (tool !== 'select') { setDraft([]); return }
+    const { px, py, w, h } = pos(e)
+    const hit = hitTest(...toWorld(px, py, w, h))
+    if (!hit || hit[0] !== 's') return
+    const sh = edRef.current.shapes.find(x => x.id === Number(hit.slice(1)))
+    if (!sh || (sh.kind !== 'text' && sh.kind !== 'arrow')) return
+    setTextEdit({ kind: sh.kind, id: sh.id, x: sh.pts[0], y: sh.pts[1], value: sh.text ?? '' })
+  }
+  function commitText(cancel = false) {
+    const te = textEditRef.current
+    if (!te) return
+    setTextEdit(null); textEditRef.current = null
+    if (cancel) return
+    const value = te.value.trim()
+    const e0 = edRef.current
+    const h = (parseFloat(textH.replace(',', '.')) || 0.15) / u2m
+    if (te.id !== undefined) {
+      if (!value && te.kind === 'text') { commit(deleteKeys(e0, ['s' + te.id])); setSel([]); return }
+      commit({ ...e0, shapes: e0.shapes.map(x => (x.id === te.id ? { ...x, text: value } : x)) }); return
+    }
+    if (te.kind === 'text') {
+      if (!value) return
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'text', pts: [te.x, te.y], text: value, h, rot: 0, stroke, fill: null }], next: e0.next + 1 })
+    } else {
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'arrow', pts: [te.x, te.y, te.tip![0], te.tip![1]], text: value, h, stroke, fill: null }], next: e0.next + 1 })
+    }
+  }
+
+  // ── Biblioteca ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    listCadLibrary().then(r => { if (r.rows) setLib(r.rows); else if (r.error) setLibMsg(r.error) }).catch(() => {})
+  }, [])
+  function startPlace(b: LibBlock) {
+    const m = modelRef.current
+    if (!m) return
+    let obj = libObj.current.get(b.name)
+    if (obj === undefined) {
+      const r = appendLibBlock(m, b)
+      modelRef.current = r.model; setModel(r.model)
+      if (r.layerAdded) setLayerVis(v => [...v, true])
+      obj = r.obj; libObj.current.set(b.name, obj)
+    }
+    setPlacing({ name: b.name, obj, s: b.unitToMeters / m.unitToMeters }); setTool('inserir')
+  }
+  async function onLibFile(file: File) {
+    setLibMsg('Lendo o arquivo de biblioteca...'); setCand(null)
+    try {
+      const blocks = await loadCadLibraryFile(await file.arrayBuffer())
+      if (!blocks.length) { setLibMsg('Nenhum bloco encontrado nesse arquivo.'); return }
+      setCand(blocks); setCandSel(new Set(blocks.map(b => b.name))); setLibMsg(null)
+    } catch (err: any) { setLibMsg(err?.message ?? 'Falha ao ler o arquivo.') }
+  }
+  async function saveCand() {
+    if (!cand) return
+    setLibBusy(true); let ok = 0; const fails: string[] = []
+    for (const b of cand) {
+      if (!candSel.has(b.name)) continue
+      const r = await saveCadLibraryBlock(b)
+      if (r.error) fails.push(`${b.name}: ${r.error}`); else ok++
+    }
+    const r = await listCadLibrary(); if (r.rows) setLib(r.rows)
+    setLibBusy(false)
+    if (fails.length) setLibMsg(`${ok} salvo(s). Falhas: ${fails.slice(0, 3).join(' · ')}`); else { setLibMsg(`${ok} bloco(s) salvo(s) na biblioteca.`); setCand(null) }
+  }
+  async function removeLib(id: string, name: string) {
+    if (!window.confirm(`Remover "${name}" da biblioteca?`)) return
+    const r = await deleteCadLibraryBlock(id)
+    if (r.error) { setLibMsg(r.error); return }
+    setLib(l => l.filter(x => x.id !== id))
+  }
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return
@@ -787,6 +938,8 @@ export function CadLab() {
       else if (k === 'l') setTool('linha')
       else if (k === 'r') setTool('retangulo')
       else if (k === 'c') setTool('circulo')
+      else if (k === 't') setTool('texto')
+      else if (k === 'a') setTool('seta')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -840,6 +993,8 @@ export function CadLab() {
               <TB id="linha" icon={<Minus className="w-3.5 h-3.5 -rotate-45" />} label="Linha" k="L" />
               <TB id="retangulo" icon={<Square className="w-3.5 h-3.5" />} label="Retângulo" k="R" />
               <TB id="circulo" icon={<CircleIcon className="w-3.5 h-3.5" />} label="Círculo" k="C" />
+              <TB id="texto" icon={<TypeIcon className="w-3.5 h-3.5" />} label="Texto" k="T" />
+              <TB id="seta" icon={<ArrowUpRight className="w-3.5 h-3.5" />} label="Seta" k="A" />
               <span className="w-px h-5 bg-gray-200 mx-1" />
               <button onClick={() => fit(0)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary"><Maximize className="w-3.5 h-3.5" /> Ajustar</button>
               <span className="ml-auto text-[11px] text-gray-400">
@@ -862,7 +1017,10 @@ export function CadLab() {
               <AB onClick={() => actMirror(false)} icon={<FlipVertical className="w-3.5 h-3.5" />} label="Espelhar ↕" disabled={!sel.length} />
               <AB onClick={actDelete} icon={<Trash2 className="w-3.5 h-3.5" />} label="Apagar" disabled={!sel.length} />
               <span className="w-px h-5 bg-gray-200 mx-1" />
-              <label className="flex items-center gap-1 text-[11px] text-navy-muted">Contorno
+              <label className="flex items-center gap-1 text-[11px] text-navy-muted" title="Altura das letras em metros">Texto
+                <input value={textH} onChange={e => { setTextH(e.target.value); const v = parseFloat(e.target.value.replace(',', '.')); if (v > 0) { const ids = new Set(selRef.current.filter(k => k[0] === 's').map(k => Number(k.slice(1)))); if (ids.size) commit({ ...edRef.current, shapes: edRef.current.shapes.map(x => (ids.has(x.id) && (x.kind === 'text' || x.kind === 'arrow') ? { ...x, h: v / u2m } : x)) }) } }}
+                  className="w-12 text-xs border border-gray-200 rounded px-1.5 py-1 text-center" />m</label>
+              <label className="flex items-center gap-1 text-[11px] text-navy-muted ml-1">Contorno
                 <input type="color" value={selShapes[0]?.stroke ?? stroke} onChange={e => { setStroke(e.target.value); setShapeStyle({ stroke: e.target.value }) }} className="w-6 h-6 p-0 border border-gray-200 rounded cursor-pointer" /></label>
               <label className="flex items-center gap-1 text-[11px] text-navy-muted ml-1">
                 <input type="checkbox" checked={selShapes.length ? !!selShapes[0].fill : useFill} onChange={e => { setUseFill(e.target.checked); setShapeStyle({ fill: e.target.checked ? fill : null }) }} /> Preencher
@@ -870,14 +1028,29 @@ export function CadLab() {
             </div>
             <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '66vh', cursor: gesture.current?.type === 'pan' ? 'grabbing' : cursorCss }}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}
-              onDoubleClick={() => setDraft([])} onContextMenu={e => { e.preventDefault(); setDraft([]) }}>
+              onDoubleClick={onDbl} onContextMenu={e => { e.preventDefault(); setDraft([]) }}>
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
+              {textEdit && (() => {
+                const el = wrapRef.current
+                const [sx, sy] = toScreen(textEdit.x, textEdit.y, el?.clientWidth ?? 0, el?.clientHeight ?? 0)
+                return (
+                  <input autoFocus value={textEdit.value} onChange={e => setTextEdit(t => (t ? { ...t, value: e.target.value } : t))}
+                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') commitText(); else if (e.key === 'Escape') commitText(true) }}
+                    onBlur={() => commitText()} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
+                    placeholder={textEdit.kind === 'arrow' ? 'texto da seta (opcional)' : 'digite o texto'}
+                    style={{ position: 'absolute', left: sx, top: sy - 12, minWidth: 140 }}
+                    className="text-xs px-2 py-1 rounded border border-amber-400 bg-white text-gray-800 shadow-lg z-10" />
+                )
+              })()}
               {hover && <div className="absolute left-2 bottom-2 text-[11px] bg-white/90 border border-gray-200 rounded px-2 py-0.5 text-green-700 font-medium">snap: {hover.kind}</div>}
               {tool !== 'select' && tool !== 'pan' && (
                 <div className="absolute left-2 top-2 text-[11px] bg-amber-50 border border-amber-200 rounded px-2 py-0.5 text-amber-700">
                   {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
                   {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
+                  {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
+                  {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
+                  {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
                 </div>
               )}
@@ -901,6 +1074,52 @@ export function CadLab() {
                 </div>
               ))}
               {ed.dims.length > 0 && <div className="flex justify-between text-xs border-t border-gray-100 mt-1 pt-1"><span className="text-gray-500">Total</span><b>{fmtM(totalCotas)}</b></div>}
+            </section>
+
+            <section className="border border-gray-200 rounded-xl bg-white p-3">
+              <div className="flex items-center gap-1 mb-1">
+                <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Boxes className="w-3.5 h-3.5" /> Biblioteca Luknos ({lib.length})</p>
+                <label className="ml-auto text-[10px] text-brand-600 underline cursor-pointer">
+                  importar arquivo
+                  <input type="file" accept=".dwg,.dxf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onLibFile(f); e.target.value = '' }} />
+                </label>
+              </div>
+              <p className="text-[10px] text-gray-400 mb-1">Seus blocos padrão, em qualquer desenho que você abrir. Clique num bloco e depois no desenho pra colocar (Esc termina).</p>
+              {libMsg && <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 mb-1">{libMsg}</p>}
+              {cand && (
+                <div className="border border-sky-200 bg-sky-50/50 rounded-lg p-2 mb-2">
+                  <p className="text-[11px] font-medium text-sky-800 mb-1">{cand.length} bloco(s) encontrados no arquivo — marque o que entra na biblioteca:</p>
+                  <div className="flex gap-2 text-[10px] mb-1">
+                    <button onClick={() => setCandSel(new Set(cand.map(b => b.name)))} className="text-brand-600 underline">todos</button>
+                    <button onClick={() => setCandSel(new Set())} className="text-brand-600 underline">nenhum</button>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto space-y-0.5">
+                    {cand.map(b => (
+                      <div key={b.name} className="flex items-center gap-1.5 text-xs">
+                        <input type="checkbox" checked={candSel.has(b.name)} onChange={() => setCandSel(prev => { const n = new Set(prev); if (n.has(b.name)) n.delete(b.name); else n.add(b.name); return n })} />
+                        <button onClick={() => startPlace(b)} title="Colocar no desenho (pra testar)" className="shrink-0"><BlockThumb b={b} /></button>
+                        <span className="truncate flex-1">{b.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={saveCand} disabled={libBusy || candSel.size === 0} className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-1.5 disabled:opacity-40">{libBusy ? 'Salvando...' : `Salvar ${candSel.size} na biblioteca`}</button>
+                    <button onClick={() => setCand(null)} className="text-xs text-gray-500 px-2">cancelar</button>
+                  </div>
+                </div>
+              )}
+              {lib.length > 6 && <input value={libFilter} onChange={e => setLibFilter(e.target.value)} placeholder="buscar bloco..." className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 mb-1" />}
+              {lib.length === 0 && !cand && <p className="text-xs text-gray-400">Ainda vazia. Use "importar arquivo" com o seu DWG/DXF de blocos padrão.</p>}
+              <div className="max-h-60 overflow-y-auto grid grid-cols-3 gap-1.5">
+                {lib.filter(r => r.name.toLowerCase().includes(libFilter.toLowerCase())).map(r => (
+                  <div key={r.id} className={cn('relative group border rounded-lg p-1 text-center cursor-pointer hover:border-brand-400', placing?.name === r.name && tool === 'inserir' ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}
+                    onClick={() => startPlace(r.data)} title={r.name}>
+                    <div className="flex justify-center"><BlockThumb b={r.data} /></div>
+                    <p className="text-[10px] text-gray-600 truncate mt-0.5">{r.name}</p>
+                    <button onClick={ev => { ev.stopPropagation(); removeLib(r.id, r.name) }} className="absolute top-0.5 right-0.5 hidden group-hover:block text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
             </section>
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
@@ -951,4 +1170,35 @@ export function CadLab() {
       )}
     </div>
   )
+}
+
+// Miniatura de um bloco da biblioteca (fundo escuro, igual ao desenho)
+function BlockThumb({ b }: { b: LibBlock }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return
+    const dpr = window.devicePixelRatio || 1, S = 48
+    cv.width = S * dpr; cv.height = S * dpr
+    const ctx = cv.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, S, S)
+    const [x0, y0, x1, y1] = b.bbox
+    const w = Math.max(1e-6, x1 - x0), h = Math.max(1e-6, y1 - y0)
+    const k = (S - 8) / Math.max(w, h)
+    const P = (x: number, y: number): [number, number] => [(x - x0) * k + (S - w * k) / 2, S - ((y - y0) * k + (S - h * k) / 2)]
+    for (const f of b.fills) {
+      ctx.beginPath()
+      for (const r of f.rings) { for (let i = 0; i < r.length; i += 2) { const [x, y] = P(r[i], r[i + 1]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath() }
+      ctx.globalAlpha = f.a; ctx.fillStyle = cor(b.cols[f.c] ?? '#e5e7eb'); ctx.fill('evenodd'); ctx.globalAlpha = 1
+    }
+    const by = new Map<number, number[]>()
+    for (let i = 0; i < b.segC.length; i++) { const a = by.get(b.segC[i]); if (a) a.push(i); else by.set(b.segC[i], [i]) }
+    ctx.lineWidth = 1
+    by.forEach((idx, c) => {
+      ctx.strokeStyle = cor(b.cols[c] ?? '#e5e7eb'); ctx.beginPath()
+      for (const i of idx) { const [a, bb] = P(b.segs[i * 4], b.segs[i * 4 + 1]), [c2, d] = P(b.segs[i * 4 + 2], b.segs[i * 4 + 3]); ctx.moveTo(a, bb); ctx.lineTo(c2, d) }
+      ctx.stroke()
+    })
+  }, [b])
+  return <canvas ref={ref} style={{ width: 48, height: 48 }} className="rounded border border-gray-700" />
 }

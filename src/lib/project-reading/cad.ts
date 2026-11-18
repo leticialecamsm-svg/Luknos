@@ -52,7 +52,7 @@ const mul = (p: M, q: M): M => [
 ]
 const ap = (m: M, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
 
-export function buildCadModel(db: any): CadModel {
+export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: number; y: number } }): CadModel {
   const blocks = new Map<string, { base: { x: number; y: number }; entities: any[] }>()
   let model: any[] = []
   for (const b of db.tables?.BLOCK_RECORD?.entries ?? []) {
@@ -287,7 +287,7 @@ export function buildCadModel(db: any): CadModel {
       curCol = 0
     }
   }
-  walk(model, ID, 0, null, true)
+  walk(opts?.entities ?? model, opts?.base ? [1, 0, 0, 1, -opts.base.x, -opts.base.y] : ID, 0, null, true)
 
   const code = Number(db.header?.INSUNITS ?? 0)
   const u = UNITS[code]
@@ -461,4 +461,87 @@ export function makeCadPdfAdapter(model: CadModel, meta: CadMeta, getHidden: () 
       }
     },
   }
+}
+
+
+// ── Biblioteca de blocos (reutilizável em qualquer desenho) ─────────────────
+/** Bloco da biblioteca: geometria já "achatada", com a base do bloco em (0,0). */
+export interface LibBlock {
+  name: string
+  unitToMeters: number
+  cols: string[] // cores usadas
+  segs: number[] // x1,y1,x2,y2 …
+  segC: number[] // índice em cols por segmento
+  texts: { x: number; y: number; h: number; rot: number; text: string; c: number }[]
+  fills: { rings: number[][]; c: number; a: number }[]
+  bbox: [number, number, number, number]
+}
+const r5 = (v: number) => Math.round(v * 1e5) / 1e5
+
+/** Lê TODAS as definições de bloco de um arquivo (não só as que estão inseridas no desenho). */
+export function extractLibraryBlocks(db: any): LibBlock[] {
+  const out: LibBlock[] = []
+  const code = Number(db.header?.INSUNITS ?? 0)
+  const unit = UNITS[code]?.[1] ?? 1
+  for (const b of db.tables?.BLOCK_RECORD?.entries ?? []) {
+    const name = String(b.name ?? '')
+    if (!name || name.startsWith('*') || !b.entities?.length) continue
+    const m = buildCadModel(db, { entities: b.entities, base: b.basePoint ?? { x: 0, y: 0 } })
+    if (m.segLayer.length === 0 && m.fills.length === 0 && m.texts.length === 0) continue
+    if (m.segLayer.length > 20000) continue
+    const cols: string[] = []
+    const ci = new Map<string, number>()
+    const colIdx = (c: string) => { let i = ci.get(c); if (i === undefined) { i = cols.length; cols.push(c); ci.set(c, i) } return i }
+    const resolve = (col: number, layer: number) => (col ? m.palette[col] : m.layers[layer].color)
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    const ext = (x: number, y: number) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+    const segs: number[] = [], segC: number[] = []
+    for (let i = 0; i < m.segLayer.length; i++) {
+      const q = [m.segs[i * 4], m.segs[i * 4 + 1], m.segs[i * 4 + 2], m.segs[i * 4 + 3]]
+      ext(q[0], q[1]); ext(q[2], q[3])
+      segs.push(r5(q[0]), r5(q[1]), r5(q[2]), r5(q[3])); segC.push(colIdx(resolve(m.segCol[i], m.segLayer[i])))
+    }
+    const texts = m.texts.map(t => { ext(t.x, t.y); return { x: r5(t.x), y: r5(t.y), h: r5(t.h), rot: r5(t.rot), text: t.text, c: colIdx(resolve(t.col, t.layer)) } })
+    const fills = m.fills.map(f => ({
+      rings: f.rings.map(r => { const a = Array.from(r, r5); for (let k = 0; k < r.length; k += 2) ext(r[k], r[k + 1]); return a }),
+      c: colIdx(resolve(f.col, f.layer)), a: f.alpha,
+    }))
+    out.push({ name, unitToMeters: unit, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1] })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+}
+
+export async function loadCadLibraryFile(buf: ArrayBuffer): Promise<LibBlock[]> {
+  const { LibreDwg, Dwg_File_Type } = await import('@mlightcad/libredwg-web')
+  const lib = await LibreDwg.create('/libredwg/')
+  const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, 6))
+  const data = lib.dwg_read_data(buf, /^AC10/.test(head) ? Dwg_File_Type.DWG : Dwg_File_Type.DXF)
+  if (!data) throw new Error('Não foi possível ler o arquivo (DWG/DXF inválido ou versão não suportada).')
+  const db = lib.convert(data)
+  const blocks = extractLibraryBlocks(db)
+  try { lib.dwg_free(data) } catch { /* não crítico */ }
+  return blocks
+}
+
+/** Acrescenta um bloco da biblioteca ao modelo aberto (vira um objeto editável). Devolve o novo modelo e o índice do objeto. */
+export function appendLibBlock(model: CadModel, b: LibBlock): { model: CadModel; obj: number; layerAdded: boolean } {
+  const LAYER = 'Biblioteca Luknos'
+  let layers = model.layers
+  let li = layers.findIndex(l => l.name === LAYER)
+  let layerAdded = false
+  if (li < 0) { layers = [...layers, { name: LAYER, color: '#e5e7eb', visible: true, segs: 0, texts: 0 }]; li = layers.length - 1; layerAdded = true }
+  const palette = [...model.palette]
+  const colMap = b.cols.map(c => { let i = palette.indexOf(c); if (i < 0) { palette.push(c); i = palette.length - 1 } return i })
+  const obj = model.objs.length
+  const n = b.segs.length / 4
+  const s0 = model.segLayer.length
+  const segs = new Float64Array(model.segs.length + b.segs.length); segs.set(model.segs); segs.set(b.segs, model.segs.length)
+  const segLayer = new Uint16Array(s0 + n); segLayer.set(model.segLayer); segLayer.fill(li, s0)
+  const segObj = new Uint32Array(s0 + n); segObj.set(model.segObj); segObj.fill(obj, s0)
+  const segCol = new Uint16Array(s0 + n); segCol.set(model.segCol); for (let i = 0; i < n; i++) segCol[s0 + i] = colMap[b.segC[i]]
+  const t0 = model.texts.length, f0 = model.fills.length
+  const texts = [...model.texts, ...b.texts.map(t => ({ x: t.x, y: t.y, h: t.h, rot: t.rot, text: t.text, layer: li, col: colMap[t.c], obj }))]
+  const fills = [...model.fills, ...b.fills.map(f => ({ rings: f.rings.map(r => Float64Array.from(r)), col: colMap[f.c], layer: li, alpha: f.a, obj }))]
+  const objs = [...model.objs, { kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox }]
+  return { model: { ...model, layers, palette, segs, segLayer, segObj, segCol, texts, fills, objs }, obj, layerAdded }
 }
