@@ -7,7 +7,9 @@ export interface CadText { x: number; y: number; h: number; rot: number; text: s
 /** Preenchimento (HATCH): anéis (contorno + furos) em coordenadas do desenho. */
 export interface CadFill { rings: Float64Array[]; col: number; layer: number; alpha: number; obj: number }
 /** Objeto de nível superior do espaço-modelo (linha, bloco, hachura...) — a unidade que se seleciona/edita. */
-export interface CadObj { kind: string; name: string; layer: number; s0: number; s1: number; t0: number; t1: number; f0: number; f1: number; bbox: [number, number, number, number] }
+/** Campo de atributo de um bloco (ATTDEF): texto editável por bloco colocado. */
+export interface LibAttdef { tag: string; prompt: string; def: string; x: number; y: number; h: number; rot: number; ha: number; va: number; hidden: boolean; constant: boolean; col: string }
+export interface CadObj { kind: string; name: string; layer: number; s0: number; s1: number; t0: number; t1: number; f0: number; f1: number; bbox: [number, number, number, number]; attdefs?: LibAttdef[] }
 export interface CadInsert { name: string; x: number; y: number; layer: number }
 export interface CadModel {
   layers: CadLayer[]
@@ -267,6 +269,15 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
           break
         }
         case 'INSERT': {
+          for (const a of e.attribs ?? []) { // valores dos atributos deste bloco inserido (não fazem parte da definição)
+            const t = a.text
+            if (!t?.text || (a.flags ?? 0) & 1 || a.isVisible === false) continue
+            const al = (t.halign || t.valign) && a.alignmentPoint ? a.alignmentPoint : t.startPoint
+            const [x, y] = ap(m, al.x, al.y)
+            const ali = layerOf(a.layer === '0' && inherited ? inherited : a.layer ?? '0')
+            texts.push({ x, y, h: (t.textHeight ?? 0.1) * Math.hypot(m[0], m[1]), rot: (t.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(t.text), layer: ali, col: entCol(a, eCol), obj: objs.length })
+            layers[ali].texts++
+          }
           const b = blocks.get(e.name)
           if (top && !String(e.name).startsWith('*')) inserts.push({ name: e.name, x: e.insertionPoint.x, y: e.insertionPoint.y, layer: li })
           if (!b || depth >= 8) break
@@ -481,8 +492,10 @@ export interface LibBlock {
   texts: { x: number; y: number; h: number; rot: number; text: string; c: number }[]
   fills: { rings: number[][]; c: number; a: number }[]
   bbox: [number, number, number, number]
+  attdefs?: LibAttdef[]
 }
 const r5 = (v: number) => Math.round(v * 1e5) / 1e5
+const cleanTextLib = (t: string) => String(t ?? '').replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').trim()
 
 /** Lê TODAS as definições de bloco de um arquivo (não só as que estão inseridas no desenho). */
 export function extractLibraryBlocks(db: any): LibBlock[] {
@@ -513,8 +526,23 @@ export function extractLibraryBlocks(db: any): LibBlock[] {
       c: colIdx(resolve(f.col, f.layer)), a: f.alpha,
     }))
     // cada bloco pode ter sua própria unidade de inserção (mm, cm, m...); se não tiver, vale a do arquivo
+    const bx = b.basePoint?.x ?? 0, by = b.basePoint?.y ?? 0
+    const attdefs: LibAttdef[] = []
+    for (const e of b.entities) {
+      if (e.type !== 'ATTDEF') continue
+      const t = e.text ?? {}
+      const al = (t.halign || t.valign) && e.alignmentPoint ? e.alignmentPoint : t.startPoint
+      if (!al) continue
+      const ci = Math.abs(e.colorIndex ?? 7)
+      attdefs.push({
+        tag: String(e.tag ?? ''), prompt: String(e.prompt ?? ''), def: cleanTextLib(t.text ?? e.defaultValue ?? ''),
+        x: r5(al.x - bx), y: r5(al.y - by), h: r5(t.textHeight ?? 0.1), rot: r5(t.rotation ?? 0), ha: t.halign ?? 0, va: t.valign ?? 0,
+        hidden: !!((e.flags ?? 0) & 1), constant: !!((e.flags ?? 0) & 2),
+        col: typeof e.color === 'number' && e.color > 0 && ci !== 256 ? '#' + e.color.toString(16).padStart(6, '0') : ci > 0 && ci < 256 ? aciToColor(ci) : '#e5e7eb',
+      })
+    }
     const bu = UNITS[Number(b.insertionUnits ?? 0)]?.[1] ?? unit
-    out.push({ name, unitToMeters: bu, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1] })
+    out.push({ name, unitToMeters: bu, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1], attdefs: attdefs.length ? attdefs : undefined })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
@@ -550,6 +578,6 @@ export function appendLibBlock(model: CadModel, b: LibBlock): { model: CadModel;
   const t0 = model.texts.length, f0 = model.fills.length
   const texts = [...model.texts, ...b.texts.map(t => ({ x: t.x, y: t.y, h: t.h, rot: t.rot, text: t.text, layer: li, col: colMap[t.c], obj }))]
   const fills = [...model.fills, ...b.fills.map(f => ({ rings: f.rings.map(r => Float64Array.from(r)), col: colMap[f.c], layer: li, alpha: f.a, obj }))]
-  const objs = [...model.objs, { kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox }]
+  const objs = [...model.objs, { kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox, attdefs: b.attdefs }]
   return { model: { ...model, layers, palette, segs, segLayer, segObj, segCol, texts, fills, objs }, obj, layerAdded }
 }

@@ -32,7 +32,7 @@ const rotAbout = (deg: number, cx: number, cy: number): M6 => {
 // ── Estado editável (imutável, pra desfazer/refazer) ────────────────────────
 interface Shape { id: number; kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow'; pts: number[]; stroke: string; fill: string | null; text?: string; h?: number; rot?: number }
 interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
-interface Cp { id: number; src: number; xf: M6 }
+interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string> }
 interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
 const EMPTY: Edits = { ov: {}, cp: [], shapes: [], dims: [], next: 1 }
 
@@ -231,7 +231,7 @@ export function CadLab() {
     for (const k of keys) {
       const id = Number(k.slice(1))
       if (k[0] === 'o') { const v = from.ov[id]; if (v === null) continue; cp.push({ id: next, src: id, xf: mul6(T, v ?? ID6) }); nk.push('c' + next++) }
-      else if (k[0] === 'c') { const c = from.cp.find(c => c.id === id); if (!c) continue; cp.push({ id: next, src: c.src, xf: mul6(T, c.xf) }); nk.push('c' + next++) }
+      else if (k[0] === 'c') { const c = from.cp.find(c => c.id === id); if (!c) continue; cp.push({ id: next, src: c.src, xf: mul6(T, c.xf), attrs: c.attrs }); nk.push('c' + next++) }
       else if (k[0] === 's') { const s = from.shapes.find(s => s.id === id); if (!s) continue; shapes.push({ ...xfShape(s, T), id: next }); nk.push('s' + next++) }
       else { const d = from.dims.find(d => d.id === id); if (!d) continue; dims.push({ ...xfDim(d, T), id: next }); nk.push('d' + next++) }
     }
@@ -579,6 +579,31 @@ export function CadLab() {
     // 4) movidos e cópias
     for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) drawInst(Number(k), v, selSet.has('o' + k)) }
     for (const c of ed.cp) drawInst(c.src, c.xf, selSet.has('c' + c.id))
+    // atributos dos blocos da biblioteca (texto de cada campo, no valor preenchido ou padrão)
+    for (const c of ed.cp) {
+      const defs = model.objs[c.src]?.attdefs
+      if (!defs || !layerVis[model.objs[c.src].layer]) continue
+      const sc = Math.hypot(c.xf[0], c.xf[1]), rot0 = Math.atan2(c.xf[1], c.xf[0])
+      for (const d of defs) {
+        const text = d.constant ? d.def : (c.attrs?.[d.tag] ?? d.def)
+        if (d.hidden || !text) continue
+        const [wx, wy] = ap6(c.xf, d.x, d.y)
+        const [x, y] = toScreen(wx, wy, w, h)
+        const px = d.h * sc * scale
+        if (px < 0.4 || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100) continue
+        ctx.save(); ctx.translate(x, y); ctx.rotate(-(d.rot + rot0))
+        const color = selSet.has('c' + c.id) ? SEL : cor(d.col)
+        ctx.fillStyle = color
+        if (px < 4) { ctx.globalAlpha = 0.55; const bw = Math.max(2, text.length * px * 0.55); ctx.fillRect(d.ha === 1 || d.ha === 4 ? -bw / 2 : d.ha === 2 ? -bw : 0, -Math.max(1, px * 0.8), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
+        else {
+          ctx.font = `${px}px sans-serif`
+          ctx.textAlign = d.ha === 1 || d.ha === 4 ? 'center' : d.ha === 2 ? 'right' : 'left'
+          ctx.textBaseline = d.ha === 4 || d.va === 2 ? 'middle' : d.va === 3 ? 'top' : d.va === 1 ? 'bottom' : 'alphabetic'
+          ctx.fillText(text, 0, 0)
+        }
+        ctx.restore()
+      }
+    }
     // seleção de objetos ainda no lugar
     for (const k of sel) if (k[0] === 'o' && !dirty(Number(k.slice(1)))) drawInst(Number(k.slice(1)), ID6, true)
 
@@ -866,6 +891,9 @@ export function CadLab() {
     if (tool !== 'select') { setDraft([]); return }
     const { px, py, w, h } = pos(e)
     const hit = hitTest(...toWorld(px, py, w, h))
+    if (hit && hit[0] === 'c' && edRef.current.cp.some(c => c.id === Number(hit.slice(1)) && modelRef.current?.objs[c.src]?.attdefs?.some(d => !d.constant))) {
+      setSel([hit]); setTimeout(() => document.getElementById('attr-0')?.focus(), 60); return
+    }
     if (!hit || hit[0] !== 's') return
     const sh = edRef.current.shapes.find(x => x.id === Number(hit.slice(1)))
     if (!sh || (sh.kind !== 'text' && sh.kind !== 'arrow')) return
@@ -1024,6 +1052,12 @@ export function CadLab() {
     return Array.from(c.entries()).filter(([n]) => !n.startsWith('*')).sort((a, b) => b[1] - a[1])
   }, [model])
 
+  // bloco selecionado (um só) que tem atributos editáveis
+  const attrCp = (() => {
+    if (!model || sel.length !== 1 || sel[0][0] !== 'c') return null
+    const c = ed.cp.find(c => c.id === Number(sel[0].slice(1)))
+    return c && model.objs[c.src]?.attdefs?.some(d => !d.constant) ? c : null
+  })()
   const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
   const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
   const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
@@ -1160,6 +1194,32 @@ export function CadLab() {
           </div>
 
           <div className="w-72 shrink-0 space-y-3 max-h-[80vh] overflow-y-auto">
+            {attrCp && (
+              <section className="border border-sky-200 rounded-xl bg-sky-50/40 p-3">
+                <p className="text-xs font-bold text-sky-800 uppercase mb-1">Atributos — {model.objs[attrCp.src].name}</p>
+                <p className="text-[10px] text-gray-500 mb-2">Preencha os campos deste bloco. Enter ou sair do campo confirma.</p>
+                <div className="space-y-1.5">
+                  {(model.objs[attrCp.src].attdefs ?? []).filter(d => !d.constant).map((d, i) => {
+                    const cur = attrCp.attrs?.[d.tag] ?? d.def
+                    return (
+                      <label key={`${attrCp.id}:${d.tag}:${i}:${cur}`} className="block">
+                        <span className="text-[10px] text-gray-500">{d.prompt || d.tag}{d.hidden && ' (oculto)'}</span>
+                        <input id={`attr-${i}`} defaultValue={cur}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          onBlur={e => {
+                            const v = e.target.value
+                            if (v === cur) return
+                            const e0 = edRef.current
+                            commit({ ...e0, cp: e0.cp.map(c => (c.id === attrCp.id ? { ...c, attrs: { ...(c.attrs ?? {}), [d.tag]: v } } : c)) })
+                          }}
+                          className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white" />
+                      </label>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
             <section className="border border-gray-200 rounded-xl bg-white p-3">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Cotas</p>
               {ed.dims.length === 0 && <p className="text-xs text-gray-400">Use "Cota": 2 pontos e depois clique onde ela deve ficar. Selecione e arraste a cota pra afastá-la da linha, ou ajuste a distância abaixo.</p>}
