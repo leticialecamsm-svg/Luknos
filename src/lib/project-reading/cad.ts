@@ -3,7 +3,11 @@
 // textos e pontos de inserção de bloco, tudo em coordenadas do desenho.
 
 export interface CadLayer { name: string; color: string; visible: boolean; segs: number; texts: number }
-export interface CadText { x: number; y: number; h: number; rot: number; text: string; layer: number }
+export interface CadText { x: number; y: number; h: number; rot: number; text: string; layer: number; col: number; obj: number }
+/** Preenchimento (HATCH): anéis (contorno + furos) em coordenadas do desenho. */
+export interface CadFill { rings: Float64Array[]; col: number; layer: number; alpha: number; obj: number }
+/** Objeto de nível superior do espaço-modelo (linha, bloco, hachura...) — a unidade que se seleciona/edita. */
+export interface CadObj { kind: string; name: string; layer: number; s0: number; s1: number; t0: number; t1: number; f0: number; f1: number; bbox: [number, number, number, number] }
 export interface CadInsert { name: string; x: number; y: number; layer: number }
 export interface CadModel {
   layers: CadLayer[]
@@ -11,6 +15,11 @@ export interface CadModel {
   segLayer: Uint16Array
   texts: CadText[]
   inserts: CadInsert[] // só os blocos colocados direto no espaço-modelo
+  fills: CadFill[]
+  objs: CadObj[]
+  segObj: Uint32Array // objeto dono de cada segmento
+  segCol: Uint16Array // índice em `palette` (0 = cor da camada)
+  palette: string[]
   unitName: string
   unitToMeters: number
   unitKnown: boolean
@@ -60,7 +69,7 @@ export function buildCadModel(db: any): CadModel {
       const info = layerInfo.get(name)
       const hidden = !!info && (info.off || info.frozen)
       i = layers.length
-      layers.push({ name, color: aciToColor(Math.abs(info?.colorIndex ?? 7)), visible: !hidden && name.toUpperCase() !== 'DEFPOINTS', segs: 0, texts: 0 })
+      layers.push({ name, color: aciToColor(Math.abs(info?.colorIndex ?? 7)), visible: !hidden, segs: 0, texts: 0 })
       layerIndex.set(name, i)
     }
     return i
@@ -70,10 +79,49 @@ export function buildCadModel(db: any): CadModel {
   const segLayer: number[] = []
   const texts: CadText[] = []
   const inserts: CadInsert[] = []
+  const fills: CadFill[] = []
+  const objs: CadObj[] = []
+  const segObjA: number[] = []
+  const segColA: number[] = []
+  const palette: string[] = ['']
+  const palMap = new Map<string, number>()
+  const palIdx = (c: string) => { let i = palMap.get(c); if (i === undefined) { i = palette.length; palette.push(c); palMap.set(c, i) } return i }
+  let curCol = 0 // cor do objeto em desenho (0 = da camada)
+  const entCol = (e: any, inh: number): number => {
+    const ci = e.colorIndex
+    if (ci === undefined || ci === 256) return 0
+    if (ci === 0) return inh // PORBLOCO
+    const c = typeof e.color === 'number' && e.color > 0 ? '#' + e.color.toString(16).padStart(6, '0') : aciToColor(Math.abs(ci))
+    return palIdx(c)
+  }
 
   const seg = (m: M, x1: number, y1: number, x2: number, y2: number, layer: number) => {
     const [a, b] = ap(m, x1, y1), [c, d] = ap(m, x2, y2)
-    segs.push(a, b, c, d); segLayer.push(layer); layers[layer].segs++
+    segs.push(a, b, c, d); segLayer.push(layer); segObjA.push(objs.length); segColA.push(curCol); layers[layer].segs++
+  }
+  const deBoor = (p: number, kn: number[], cps: any[], t: number): [number, number] => {
+    let sp = p
+    while (sp < cps.length - 1 && t >= kn[sp + 1]) sp++
+    const d: [number, number][] = []
+    for (let j = 0; j <= p; j++) d.push([cps[j + sp - p].x, cps[j + sp - p].y])
+    for (let r = 1; r <= p; r++) for (let j = p; j >= r; j--) {
+      const den = kn[j + 1 + sp - r] - kn[j + sp - p]
+      const a = den === 0 ? 0 : (t - kn[j + sp - p]) / den
+      d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1]]
+    }
+    return d[p]
+  }
+  const splinePts = (e: any): [number, number][] => {
+    const cps = e.controlPoints ?? [], kn = e.knots ?? [], deg = e.degree ?? 3
+    if (cps.length >= deg + 1 && kn.length === cps.length + deg + 1) {
+      const t0 = kn[deg], t1 = kn[cps.length]
+      const n = Math.max(16, cps.length * 6)
+      const out: [number, number][] = []
+      for (let i = 0; i <= n; i++) out.push(deBoor(deg, kn, cps, Math.min(t1 - 1e-9, t0 + ((t1 - t0) * i) / n)))
+      out.push([cps[cps.length - 1].x, cps[cps.length - 1].y])
+      return out
+    }
+    return (e.fitPoints?.length ? e.fitPoints : cps).map((q: any) => [q.x, q.y] as [number, number])
   }
   const poly = (m: M, pts: [number, number][], closed: boolean, layer: number) => {
     for (let i = 0; i < pts.length - 1; i++) seg(m, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], layer)
@@ -110,11 +158,14 @@ export function buildCadModel(db: any): CadModel {
   const cleanText = (t: string) => String(t ?? '')
     .replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\\\/g, '\\').trim()
 
-  function walk(entities: any[], m: M, depth: number, inherited: string | null, top: boolean) {
+  function walk(entities: any[], m: M, depth: number, inherited: string | null, top: boolean, inhCol = 0) {
     for (const e of entities) {
       if (e.isVisible === false) continue
       const lname = e.layer === '0' && inherited ? inherited : e.layer ?? '0'
       const li = layerOf(lname)
+      curCol = entCol(e, inhCol)
+      const eCol = curCol
+      const s0 = segs.length / 4, t0 = texts.length, f0 = fills.length
       switch (e.type) {
         case 'LINE':
           seg(m, e.startPoint.x, e.startPoint.y, e.endPoint.x, e.endPoint.y, li); break
@@ -132,6 +183,56 @@ export function buildCadModel(db: any): CadModel {
           if (!closed && v.length) pts.push([v[v.length - 1].x, v[v.length - 1].y])
           poly(m, pts, false, li); break
         }
+        case 'POLYLINE2D': case 'POLYLINE3D': {
+          const v = e.vertices ?? []
+          const pts: [number, number][] = []
+          const closed = !!(e.flag & 1)
+          for (let i = 0; i < v.length; i++) {
+            const nxt = v[i + 1] ?? (closed ? v[0] : null)
+            if (!nxt) { pts.push([v[i].x, v[i].y]); break }
+            const arc = bulgeArc(v[i], nxt)
+            for (let k = 0; k < arc.length - 1; k++) pts.push(arc[k])
+          }
+          poly(m, pts, closed, li); break
+        }
+        case 'SPLINE': poly(m, splinePts(e), !!(e.flag & 1), li); break
+        case 'HATCH': {
+          const rings: Float64Array[] = []
+          for (const bp of e.boundaryPaths ?? []) {
+            const pts: [number, number][] = []
+            if ((bp.boundaryPathTypeFlag ?? 0) & 2) {
+              const v = bp.vertices ?? []
+              for (let i = 0; i < v.length; i++) {
+                const nxt = v[i + 1] ?? v[0]
+                const arc = bulgeArc(v[i], nxt)
+                for (let k = 0; k < arc.length - 1; k++) pts.push(arc[k])
+              }
+            } else {
+              for (const ed of bp.edges ?? []) {
+                if (ed.type === 1) pts.push([ed.start.x, ed.start.y], [ed.end.x, ed.end.y])
+                else if (ed.type === 2) {
+                  let a0 = ed.startAngle, a1 = ed.endAngle
+                  if (!ed.isCCW) { const t = a0; a0 = a1; a1 = t } // horário = anti-horário de trás pra frente
+                  if (Math.abs(a1 - a0 - Math.PI * 2) < 1e-6 || Math.abs(a0 - a1 - Math.PI * 2) < 1e-6) { a0 = 0; a1 = Math.PI * 2 }
+                  for (const q of arcPts(ed.center.x, ed.center.y, ed.radius, ed.radius, 0, a0, a1)) pts.push(q)
+                } else if (ed.type === 4) {
+                  const sp = (ed.controlPoints?.length ? ed.controlPoints : ed.fitPoints) ?? []
+                  const q = splinePts({ controlPoints: ed.controlPoints, knots: ed.knots, degree: ed.degree, fitPoints: ed.fitPoints })
+                  for (const r of q.length ? q : sp.map((z: any) => [z.x, z.y])) pts.push(r)
+                }
+              }
+            }
+            if (pts.length < 3) continue
+            const f = new Float64Array(pts.length * 2)
+            pts.forEach(([x, y], i) => { const [a, b] = ap(m, x, y); f[i * 2] = a; f[i * 2 + 1] = b })
+            rings.push(f)
+          }
+          if (rings.length) {
+            const solid = !!e.solidFill || e.patternName === 'SOLID'
+            fills.push({ rings, col: curCol, layer: li, alpha: solid ? 1 : 0.4, obj: objs.length }); layers[li].segs++
+          }
+          break
+        }
         case 'CIRCLE': poly(m, arcPts(e.center.x, e.center.y, e.radius, e.radius, 0, 0, Math.PI * 2), false, li); break
         case 'ARC': poly(m, arcPts(e.center.x, e.center.y, e.radius, e.radius, 0, e.startAngle, e.endAngle), false, li); break
         case 'ELLIPSE': {
@@ -145,13 +246,13 @@ export function buildCadModel(db: any): CadModel {
         case 'TEXT': {
           const [x, y] = ap(m, e.startPoint.x, e.startPoint.y)
           const sc = Math.hypot(m[0], m[1])
-          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: (e.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li })
+          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: (e.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li, col: curCol, obj: objs.length })
           layers[li].texts++; break
         }
         case 'MTEXT': {
           const [x, y] = ap(m, e.insertionPoint.x, e.insertionPoint.y)
           const sc = Math.hypot(m[0], m[1])
-          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: (e.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li })
+          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: (e.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li, col: curCol, obj: objs.length })
           layers[li].texts++; break
         }
         case 'DIMENSION': {
@@ -167,11 +268,23 @@ export function buildCadModel(db: any): CadModel {
           const c = Math.cos(rot), s = Math.sin(rot)
           const place: M = [c * sx, s * sx, -s * sy, c * sy, e.insertionPoint.x, e.insertionPoint.y]
           const base: M = [1, 0, 0, 1, -(b.base?.x ?? 0), -(b.base?.y ?? 0)]
-          walk(b.entities, mul(m, mul(place, base)), depth + 1, lname, false)
+          walk(b.entities, mul(m, mul(place, base)), depth + 1, lname, false, eCol)
           break
         }
-        default: break // HATCH, VIEWPORT, ATTDEF… não desenhados no protótipo
+        default: break // VIEWPORT, ATTDEF… não desenhados
       }
+      if (top) {
+        const s1 = segs.length / 4, t1 = texts.length, f1 = fills.length
+        if (s1 > s0 || t1 > t0 || f1 > f0) {
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+          const ext = (x: number, y: number) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+          for (let i = s0; i < s1; i++) { ext(segs[i * 4], segs[i * 4 + 1]); ext(segs[i * 4 + 2], segs[i * 4 + 3]) }
+          for (let i = t0; i < t1; i++) ext(texts[i].x, texts[i].y)
+          for (let i = f0; i < f1; i++) for (const r of fills[i].rings) for (let k = 0; k < r.length; k += 2) ext(r[k], r[k + 1])
+          objs.push({ kind: String(e.type), name: String(e.name ?? ''), layer: li, s0, s1, t0, t1, f0, f1, bbox: [x0, y0, x1, y1] })
+        }
+      }
+      curCol = 0
     }
   }
   walk(model, ID, 0, null, true)
@@ -179,7 +292,8 @@ export function buildCadModel(db: any): CadModel {
   const code = Number(db.header?.INSUNITS ?? 0)
   const u = UNITS[code]
   return {
-    layers, segs: Float64Array.from(segs), segLayer: Uint16Array.from(segLayer), texts, inserts,
+    layers, segs: Float64Array.from(segs), segLayer: Uint16Array.from(segLayer), texts, inserts, fills, objs,
+    segObj: Uint32Array.from(segObjA), segCol: Uint16Array.from(segColA), palette,
     unitName: u ? u[0] : 'unidades (não informado)', unitToMeters: u ? u[1] : 1, unitKnown: !!u,
   }
 }

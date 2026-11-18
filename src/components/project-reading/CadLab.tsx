@@ -2,14 +2,75 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadCadFile, computeRegions, type CadModel } from '@/lib/project-reading/cad'
-import { Loader2, Upload, Ruler, Move, Maximize } from 'lucide-react'
+import {
+  Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type Tool = 'mover' | 'medir'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
-interface Medida { a: Snap; b: Snap }
+type M6 = [number, number, number, number, number, number]
+const ID6: M6 = [1, 0, 0, 1, 0, 0]
+const mul6 = (p: M6, q: M6): M6 => [
+  p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1],
+  p[0] * q[2] + p[2] * q[3], p[1] * q[2] + p[3] * q[3],
+  p[0] * q[4] + p[2] * q[5] + p[4], p[1] * q[4] + p[3] * q[5] + p[5],
+]
+const ap6 = (m: M6, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+const inv6 = (m: M6): M6 => {
+  const det = m[0] * m[3] - m[1] * m[2]
+  const a = m[3] / det, b = -m[1] / det, c = -m[2] / det, d = m[0] / det
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])]
+}
+const rotAbout = (deg: number, cx: number, cy: number): M6 => {
+  const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r)
+  return [c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy]
+}
 
-const cor = (c: string) => (['#1f2937', '#374151', '#4b5563'].includes(c) ? '#e5e7eb' : c)
+// ── Estado editável (imutável, pra desfazer/refazer) ────────────────────────
+interface Shape { id: number; kind: 'line' | 'rect' | 'circle'; pts: number[]; stroke: string; fill: string | null }
+interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
+interface Cp { id: number; src: number; xf: M6 }
+interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
+const EMPTY: Edits = { ov: {}, cp: [], shapes: [], dims: [], next: 1 }
+
+const BG = '#1b1d23'
+const SEL = '#38bdf8'
+function lum(c: string) {
+  const m = /^#([0-9a-f]{6})$/i.exec(c)
+  if (!m) return 1
+  const n = parseInt(m[1], 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+}
+// fundo escuro: cores quase pretas (ACI 7 etc.) viram claras, como no AutoCAD
+const cor = (c: string) => (lum(c) < 0.2 ? '#e5e7eb' : c)
+
+function distSeg(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1
+  const l2 = dx * dx + dy * dy
+  const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2))
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
+function inRings(rings: Float64Array[], x: number, y: number) {
+  let inside = false
+  for (const r of rings) {
+    const n = r.length / 2
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = r[i * 2], yi = r[i * 2 + 1], xj = r[j * 2], yj = r[j * 2 + 1]
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+    }
+  }
+  return inside
+}
+function dimGeom(d: Dim) {
+  const dx = d.bx - d.ax, dy = d.by - d.ay
+  const len = Math.hypot(dx, dy) || 1e-9
+  const nx = -dy / len, ny = dx / len
+  return { len, nx, ny, p1: [d.ax + nx * d.off, d.ay + ny * d.off] as [number, number], p2: [d.bx + nx * d.off, d.by + ny * d.off] as [number, number] }
+}
+const fmtM = (v: number) => v.toFixed(2).replace('.', ',') + ' m'
+
 export function CadLab() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -20,36 +81,180 @@ export function CadLab() {
   const [tempo, setTempo] = useState<number | null>(null)
   const [layerVis, setLayerVis] = useState<boolean[]>([])
   const [layerFilter, setLayerFilter] = useState('')
-  const [tool, setTool] = useState<Tool>('mover')
-  const BG = '#1b1d23'
+  const [tool, setTool] = useState<Tool>('select')
   const [selBlock, setSelBlock] = useState<string | null>(null)
-  const [medidas, setMedidas] = useState<Medida[]>([])
-  const [pendente, setPendente] = useState<Snap | null>(null)
   const [hover, setHover] = useState<Snap | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const [, setTick] = useState(0)
   const redraw = useCallback(() => setTick(t => t + 1), [])
 
-  // vista: centro (coordenadas do desenho) + escala (px por unidade)
+  // edição
+  const [ed, setEd] = useState<Edits>(EMPTY)
+  const edRef = useRef(ed); edRef.current = ed
+  const past = useRef<Edits[]>([])
+  const future = useRef<Edits[]>([])
+  const [sel, setSel] = useState<string[]>([])
+  const selRef = useRef(sel); selRef.current = sel
+  const clip = useRef<{ ed: Edits; keys: string[] } | null>(null)
+  const [draft, setDraft] = useState<number[][]>([]) // pontos já clicados da ferramenta atual
+  const [stroke, setStroke] = useState('#22d3ee')
+  const [fill, setFill] = useState('#f59e0b')
+  const [useFill, setUseFill] = useState(false)
+  const [angulo, setAngulo] = useState('45')
+
+  const baseRef = useRef<null | { sig: string; layerVis: boolean[]; model: CadModel; cv: HTMLCanvasElement }>(null)
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
-  const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null)
+  const gesture = useRef<null | {
+    type: 'pan' | 'move' | 'box' | 'dimdrag'
+    x: number; y: number; cx: number; cy: number
+    base?: Edits; start?: [number, number]; moved?: boolean; keys?: string[]; dim?: number
+    bx?: number; by?: number
+  }>(null)
+  const [box, setBoxState] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null)
+  const boxRef = useRef<typeof box>(null)
+  const setBox = (b: typeof box) => { boxRef.current = b; setBoxState(b) }
 
   const toScreen = (x: number, y: number, w: number, h: number): [number, number] =>
     [(x - view.current.cx) * view.current.scale + w / 2, h / 2 - (y - view.current.cy) * view.current.scale]
   const toWorld = (px: number, py: number, w: number, h: number): [number, number] =>
     [(px - w / 2) / view.current.scale + view.current.cx, (h / 2 - py) / view.current.scale + view.current.cy]
 
-  // ── Índice de pontos de snap (pontas, meios e pontos de bloco) ───────────
+  // histórico
+  function commit(next: Edits) {
+    past.current.push(edRef.current); future.current = []
+    setEd(next)
+  }
+  function undo() {
+    const p = past.current.pop(); if (!p) return
+    future.current.push(edRef.current); setEd(p); setSel([])
+  }
+  function redo() {
+    const f = future.current.pop(); if (!f) return
+    past.current.push(edRef.current); setEd(f); setSel([])
+  }
+
+  // ── Geometria das chaves de seleção ──────────────────────────────────────
+  // chaves: o<n> = objeto do arquivo, c<id> = cópia, s<id> = forma, d<id> = cota
+  function bboxOf(e: Edits, key: string): [number, number, number, number] | null {
+    if (!model) return null
+    const id = Number(key.slice(1))
+    const k = key[0]
+    if (k === 'o' || k === 'c') {
+      let src = id, xf: M6 = ID6
+      if (k === 'o') { const v = e.ov[id]; if (v === null) return null; if (v) xf = v }
+      else { const c = e.cp.find(c => c.id === id); if (!c) return null; src = c.src; xf = c.xf }
+      const [x0, y0, x1, y1] = model.objs[src].bbox
+      const cs = [ap6(xf, x0, y0), ap6(xf, x1, y0), ap6(xf, x1, y1), ap6(xf, x0, y1)]
+      return [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))]
+    }
+    if (k === 's') {
+      const s = e.shapes.find(s => s.id === id); if (!s) return null
+      if (s.kind === 'circle') return [s.pts[0] - s.pts[2], s.pts[1] - s.pts[2], s.pts[0] + s.pts[2], s.pts[1] + s.pts[2]]
+      const xs = s.pts.filter((_, i) => i % 2 === 0), ys = s.pts.filter((_, i) => i % 2 === 1)
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+    }
+    const d = e.dims.find(d => d.id === id); if (!d) return null
+    const g = dimGeom(d)
+    return [Math.min(d.ax, d.bx, g.p1[0], g.p2[0]), Math.min(d.ay, d.by, g.p1[1], g.p2[1]), Math.max(d.ax, d.bx, g.p1[0], g.p2[0]), Math.max(d.ay, d.by, g.p1[1], g.p2[1])]
+  }
+  function unionBox(e: Edits, keys: string[]) {
+    let b: [number, number, number, number] | null = null
+    for (const k of keys) {
+      const bb = bboxOf(e, k); if (!bb) continue
+      b = b ? [Math.min(b[0], bb[0]), Math.min(b[1], bb[1]), Math.max(b[2], bb[2]), Math.max(b[3], bb[3])] : bb
+    }
+    return b
+  }
+
+  const xfShape = (s: Shape, T: M6): Shape => {
+    if (s.kind === 'circle') { const [x, y] = ap6(T, s.pts[0], s.pts[1]); return { ...s, pts: [x, y, s.pts[2]] } }
+    const out: number[] = []
+    for (let i = 0; i < s.pts.length; i += 2) out.push(...ap6(T, s.pts[i], s.pts[i + 1]))
+    return { ...s, pts: out }
+  }
+  const xfDim = (d: Dim, T: M6): Dim => {
+    const [ax, ay] = ap6(T, d.ax, d.ay), [bx, by] = ap6(T, d.bx, d.by)
+    const det = T[0] * T[3] - T[1] * T[2]
+    return { ...d, ax, ay, bx, by, off: d.off * (det < 0 ? -1 : 1) }
+  }
+  function applyXf(e: Edits, keys: string[], T: M6): Edits {
+    const ov = { ...e.ov }
+    let cp = e.cp, shapes = e.shapes, dims = e.dims
+    for (const k of keys) {
+      const id = Number(k.slice(1))
+      if (k[0] === 'o') { if (ov[id] !== null) ov[id] = mul6(T, ov[id] ?? ID6) }
+      else if (k[0] === 'c') cp = cp.map(c => (c.id === id ? { ...c, xf: mul6(T, c.xf) } : c))
+      else if (k[0] === 's') shapes = shapes.map(s => (s.id === id ? xfShape(s, T) : s))
+      else dims = dims.map(d => (d.id === id ? xfDim(d, T) : d))
+    }
+    return { ...e, ov, cp, shapes, dims }
+  }
+  function cloneItems(from: Edits, keys: string[], T: M6, into: Edits): { ed: Edits; keys: string[] } {
+    let next = into.next
+    const cp = [...into.cp], shapes = [...into.shapes], dims = [...into.dims]
+    const nk: string[] = []
+    for (const k of keys) {
+      const id = Number(k.slice(1))
+      if (k[0] === 'o') { const v = from.ov[id]; if (v === null) continue; cp.push({ id: next, src: id, xf: mul6(T, v ?? ID6) }); nk.push('c' + next++) }
+      else if (k[0] === 'c') { const c = from.cp.find(c => c.id === id); if (!c) continue; cp.push({ id: next, src: c.src, xf: mul6(T, c.xf) }); nk.push('c' + next++) }
+      else if (k[0] === 's') { const s = from.shapes.find(s => s.id === id); if (!s) continue; shapes.push({ ...xfShape(s, T), id: next }); nk.push('s' + next++) }
+      else { const d = from.dims.find(d => d.id === id); if (!d) continue; dims.push({ ...xfDim(d, T), id: next }); nk.push('d' + next++) }
+    }
+    return { ed: { ...into, cp, shapes, dims, next }, keys: nk }
+  }
+  function deleteKeys(e: Edits, keys: string[]): Edits {
+    const ov = { ...e.ov }
+    const set = new Set(keys)
+    for (const k of keys) if (k[0] === 'o') ov[Number(k.slice(1))] = null
+    return {
+      ...e, ov,
+      cp: e.cp.filter(c => !set.has('c' + c.id)), shapes: e.shapes.filter(s => !set.has('s' + s.id)), dims: e.dims.filter(d => !set.has('d' + d.id)),
+    }
+  }
+
+  // ── Ações da barra ───────────────────────────────────────────────────────
+  const u2m = model?.unitToMeters ?? 1
+  function actRotate(deg: number) {
+    const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
+    commit(applyXf(edRef.current, selRef.current, rotAbout(deg, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2)))
+  }
+  function actMirror(h: boolean) {
+    const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
+    const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
+    commit(applyXf(edRef.current, selRef.current, h ? [-1, 0, 0, 1, 2 * cx, 0] : [1, 0, 0, -1, 0, 2 * cy]))
+  }
+  function actDelete() {
+    if (!selRef.current.length) return
+    commit(deleteKeys(edRef.current, selRef.current)); setSel([])
+  }
+  function actCopy() { if (selRef.current.length) clip.current = { ed: edRef.current, keys: [...selRef.current] } }
+  function actPaste(at?: [number, number]) {
+    const c = clip.current; if (!c) return
+    const b = unionBox(c.ed, c.keys); if (!b) return
+    const [tx, ty] = at ?? [(b[0] + b[2]) / 2 + 0.5 / u2m, (b[1] + b[3]) / 2 - 0.5 / u2m]
+    const T: M6 = [1, 0, 0, 1, tx - (b[0] + b[2]) / 2, ty - (b[1] + b[3]) / 2]
+    const r = cloneItems(c.ed, c.keys, T, edRef.current)
+    commit(r.ed); setSel(r.keys)
+  }
+  function actDuplicate() { actCopy(); actPaste() }
+  function setShapeStyle(patch: Partial<Pick<Shape, 'stroke' | 'fill'>>) {
+    const ids = new Set(selRef.current.filter(k => k[0] === 's').map(k => Number(k.slice(1))))
+    if (!ids.size) return
+    commit({ ...edRef.current, shapes: edRef.current.shapes.map(s => (ids.has(s.id) ? { ...s, ...patch } : s)) })
+  }
+
+  // ── Snap ─────────────────────────────────────────────────────────────────
   const snapIndex = useMemo(() => {
     if (!model) return null
-    const pts: { x: number; y: number; kind: Snap['kind']; layer: number }[] = []
+    const pts: { x: number; y: number; kind: Snap['kind']; layer: number; obj: number }[] = []
     const s = model.segs
     for (let i = 0; i < model.segLayer.length; i++) {
       const x1 = s[i * 4], y1 = s[i * 4 + 1], x2 = s[i * 4 + 2], y2 = s[i * 4 + 3]
-      pts.push({ x: x1, y: y1, kind: 'ponta', layer: model.segLayer[i] }, { x: x2, y: y2, kind: 'ponta', layer: model.segLayer[i] },
-        { x: (x1 + x2) / 2, y: (y1 + y2) / 2, kind: 'meio', layer: model.segLayer[i] })
+      const L = model.segLayer[i], o = model.segObj[i]
+      pts.push({ x: x1, y: y1, kind: 'ponta', layer: L, obj: o }, { x: x2, y: y2, kind: 'ponta', layer: L, obj: o },
+        { x: (x1 + x2) / 2, y: (y1 + y2) / 2, kind: 'meio', layer: L, obj: o })
     }
-    for (const b of model.inserts) pts.push({ x: b.x, y: b.y, kind: 'bloco', layer: b.layer })
+    for (const b of model.inserts) pts.push({ x: b.x, y: b.y, kind: 'bloco', layer: b.layer, obj: -1 })
     const cell = 0.5
     const grid = new Map<string, number[]>()
     pts.forEach((p, i) => {
@@ -59,30 +264,122 @@ export function CadLab() {
     return { pts, grid, cell }
   }, [model])
 
-  function findSnap(wx: number, wy: number, w: number, h: number): Snap | null {
+  // pontos de snap de coisas movidas/copiadas/desenhadas
+  const dynPts = useMemo(() => {
+    if (!model) return []
+    const out: { x: number; y: number; kind: Snap['kind']; key: string }[] = []
+    const inst = (src: number, xf: M6, key: string) => {
+      const o = model.objs[src]
+      for (let i = o.s0; i < o.s1; i++) {
+        const [a, b] = ap6(xf, model.segs[i * 4], model.segs[i * 4 + 1]), [c, d] = ap6(xf, model.segs[i * 4 + 2], model.segs[i * 4 + 3])
+        out.push({ x: a, y: b, kind: 'ponta', key }, { x: c, y: d, kind: 'ponta', key }, { x: (a + c) / 2, y: (b + d) / 2, kind: 'meio', key })
+      }
+    }
+    for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) inst(Number(k), v, 'o' + k) }
+    for (const c of ed.cp) inst(c.src, c.xf, 'c' + c.id)
+    for (const s of ed.shapes) {
+      const key = 's' + s.id
+      if (s.kind === 'circle') out.push({ x: s.pts[0], y: s.pts[1], kind: 'bloco', key })
+      else for (let i = 0; i < s.pts.length; i += 2) {
+        out.push({ x: s.pts[i], y: s.pts[i + 1], kind: 'ponta', key })
+        const j = (i + 2) % s.pts.length
+        if (s.kind === 'rect' || i + 2 < s.pts.length) out.push({ x: (s.pts[i] + s.pts[j]) / 2, y: (s.pts[i + 1] + s.pts[j + 1]) / 2, kind: 'meio', key })
+      }
+    }
+    return out
+  }, [ed, model])
+
+  function findSnap(wx: number, wy: number, exclude?: Set<string>): Snap | null {
     if (!snapIndex || !model) return null
     const rWorld = 12 / view.current.scale
     const { pts, grid, cell } = snapIndex
     const n = Math.ceil(rWorld / cell)
-    if (n > 15) return null // muito afastado: sem snap
     let best: Snap | null = null, bestD = rWorld
-    const cx = Math.floor(wx / cell), cy = Math.floor(wy / cell)
-    for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
-      const arr = grid.get(`${gx},${gy}`); if (!arr) continue
-      for (const i of arr) {
-        const p = pts[i]
-        if (!layerVis[p.layer]) continue
-        // prioriza ponta > bloco > meio em empate de distância
-        const d = Math.hypot(p.x - wx, p.y - wy) + (p.kind === 'meio' ? rWorld * 0.05 : 0)
-        if (d < bestD) { bestD = d; best = { x: p.x, y: p.y, kind: p.kind } }
+    const e = edRef.current
+    if (n <= 15) {
+      const cx = Math.floor(wx / cell), cy = Math.floor(wy / cell)
+      for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
+        const arr = grid.get(`${gx},${gy}`); if (!arr) continue
+        for (const i of arr) {
+          const p = pts[i]
+          if (!layerVis[p.layer]) continue
+          if (p.obj >= 0 && (p.obj in e.ov || exclude?.has('o' + p.obj))) continue
+          const d = Math.hypot(p.x - wx, p.y - wy) + (p.kind === 'meio' ? rWorld * 0.05 : 0)
+          if (d < bestD) { bestD = d; best = { x: p.x, y: p.y, kind: p.kind } }
+        }
       }
+    }
+    for (const p of dynPts) {
+      if (exclude?.has(p.key)) continue
+      const d = Math.hypot(p.x - wx, p.y - wy) + (p.kind === 'meio' ? rWorld * 0.05 : 0)
+      if (d < bestD) { bestD = d; best = { x: p.x, y: p.y, kind: p.kind } }
+    }
+    return best
+  }
+
+  // ── Seleção por clique ───────────────────────────────────────────────────
+  function hitObj(idx: number, xf: M6, wx: number, wy: number, tol: number): number | null {
+    if (!model) return null
+    const o = model.objs[idx]
+    const inv = inv6(xf)
+    const [lx, ly] = ap6(inv, wx, wy)
+    const sc = Math.sqrt(Math.abs(xf[0] * xf[3] - xf[1] * xf[2])) || 1
+    const tl = tol / sc
+    const [x0, y0, x1, y1] = o.bbox
+    if (lx < x0 - tl || lx > x1 + tl || ly < y0 - tl || ly > y1 + tl) return null
+    let best = Infinity
+    for (let i = o.s0; i < o.s1; i++) {
+      if (!layerVis[model.segLayer[i]]) continue
+      const d = distSeg(lx, ly, model.segs[i * 4], model.segs[i * 4 + 1], model.segs[i * 4 + 2], model.segs[i * 4 + 3])
+      if (d < best) best = d
+    }
+    if (best <= tl) return best * sc
+    for (let i = o.t0; i < o.t1; i++) {
+      const t = model.texts[i]
+      if (!layerVis[t.layer]) continue
+      if (Math.abs(lx - t.x) < Math.max(t.text.length * t.h * 0.6, tl) && ly > t.y - t.h * 0.4 && ly < t.y + t.h * 1.3) return tol * 0.9
+    }
+    for (let i = o.f0; i < o.f1; i++) {
+      const f = model.fills[i]
+      if (layerVis[f.layer] && inRings(f.rings, lx, ly)) return 1e6 + (x1 - x0) * (y1 - y0) * sc * sc
+    }
+    return null
+  }
+  function hitTest(wx: number, wy: number): string | null {
+    if (!model) return null
+    const e = edRef.current
+    const tol = 8 / view.current.scale
+    let best: string | null = null, bestS = Infinity
+    const consider = (k: string, s: number | null) => { if (s !== null && s < bestS) { bestS = s; best = k } }
+    for (const d of e.dims) {
+      const g = dimGeom(d)
+      let s = Math.min(distSeg(wx, wy, g.p1[0], g.p1[1], g.p2[0], g.p2[1]), distSeg(wx, wy, d.ax, d.ay, g.p1[0], g.p1[1]), distSeg(wx, wy, d.bx, d.by, g.p2[0], g.p2[1]))
+      s = Math.min(s, Math.hypot(wx - (g.p1[0] + g.p2[0]) / 2, wy - (g.p1[1] + g.p2[1]) / 2) * 0.8)
+      if (s <= tol) consider('d' + d.id, s * 0.5)
+    }
+    for (const s of e.shapes) {
+      let d = Infinity
+      if (s.kind === 'line') d = distSeg(wx, wy, s.pts[0], s.pts[1], s.pts[2], s.pts[3])
+      else if (s.kind === 'circle') { const r = Math.hypot(wx - s.pts[0], wy - s.pts[1]); d = s.fill && r < s.pts[2] ? 0 : Math.abs(r - s.pts[2]) }
+      else {
+        for (let i = 0; i < 8; i += 2) d = Math.min(d, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[(i + 2) % 8], s.pts[(i + 3) % 8]))
+        if (s.fill && inRings([Float64Array.from(s.pts)], wx, wy)) d = 0
+      }
+      if (d <= tol) consider('s' + s.id, d * 0.5)
+    }
+    for (const c of e.cp) consider('c' + c.id, hitObj(c.src, c.xf, wx, wy, tol))
+    for (let i = 0; i < model.objs.length; i++) {
+      const v = e.ov[i]
+      if (v === null) continue
+      consider('o' + i, hitObj(i, v ?? ID6, wx, wy, tol))
     }
     return best
   }
 
   // ── Carregar arquivo ─────────────────────────────────────────────────────
   async function handleFile(file: File) {
-    setError(null); setLoading(true); setModel(null); setMedidas([]); setPendente(null); setSelBlock(null)
+    setError(null); setLoading(true); setModel(null); setSelBlock(null); setEd(EMPTY); setSel([]); setDraft([])
+    past.current = []; future.current = []
     setFileName(file.name)
     try {
       const t0 = performance.now()
@@ -97,9 +394,6 @@ export function CadLab() {
     }
   }
 
-  // Desenhos de CAD costumam ter vários desenhos no mesmo espaço (planta,
-  // cortes, detalhes) e às vezes lixo muito longe. Agrupa os traços em
-  // "regiões" (vizinhos a menos de ~20 m) e começa pela maior.
   const regioes = useMemo(() => (model ? computeRegions(model) : []), [model])
 
   function fitBox(x0: number, y0: number, x1: number, y1: number, maxScale = Infinity) {
@@ -117,15 +411,13 @@ export function CadLab() {
     if (r) fitBox(r.x0, r.y0, r.x1, r.y1)
   }
   const instIdx = useRef(0)
-  // Vai para UMA instância do bloco (as cópias podem estar a km umas das outras),
-  // com zoom perto o bastante pra enxergar o desenho. Clicar de novo vai pra próxima.
   function irParaBloco(nome: string, proximo = false) {
     if (!model) return
     const list = model.inserts.filter(b => b.name === nome)
     if (!list.length) return
     instIdx.current = proximo ? (instIdx.current + 1) % list.length : 0
     const b = list[instIdx.current]
-    const half = 1.5 / model.unitToMeters // ~3 m de largura
+    const half = 1.5 / model.unitToMeters
     fitBox(b.x - half, b.y - half, b.x + half, b.y + half)
   }
   useEffect(() => { if (model && regioes.length) fit(0) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [model, regioes])
@@ -137,41 +429,176 @@ export function CadLab() {
     const dpr = window.devicePixelRatio || 1
     const w = el.clientWidth, h = el.clientHeight
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr }
-    const ctx = canvas.getContext('2d')!
+    const main = canvas.getContext('2d')!
+    let ctx = main
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
     if (!model) return
     const { scale } = view.current
     const [wx0, wy1] = toWorld(0, 0, w, h), [wx1, wy0] = toWorld(w, h, w, h)
-    const byLayer = new Map<number, number[]>()
+    const colorOf = (col: number, layer: number) => cor(col ? model.palette[col] : model.layers[layer].color)
+    const inView = (b: number[]) => !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1)
+    const dirty = (o: number) => o in ed.ov
+    const selSet = new Set(sel)
+
+    // pinta um objeto (original, movido ou cópia) com transformação opcional
+    const drawInst = (idx: number, xf: M6, hl: boolean) => {
+      const o = model.objs[idx]
+      const P = (x: number, y: number) => { const [a, b] = ap6(xf, x, y); return toScreen(a, b, w, h) }
+      for (let i = o.f0; i < o.f1; i++) {
+        const f = model.fills[i]; if (!layerVis[f.layer]) continue
+        ctx.beginPath()
+        for (const r of f.rings) { for (let k = 0; k < r.length; k += 2) { const [x, y] = P(r[k], r[k + 1]); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath() }
+        ctx.globalAlpha = f.alpha; ctx.fillStyle = hl ? SEL : colorOf(f.col, f.layer); ctx.fill('evenodd'); ctx.globalAlpha = 1
+      }
+      ctx.lineWidth = hl ? 2 : 1
+      const groups = new Map<string, number[]>()
+      for (let i = o.s0; i < o.s1; i++) {
+        const l = model.segLayer[i]; if (!layerVis[l]) continue
+        const c = hl ? SEL : colorOf(model.segCol[i], l)
+        const g = groups.get(c); if (g) g.push(i); else groups.set(c, [i])
+      }
+      groups.forEach((idxs, c) => {
+        ctx.strokeStyle = c; ctx.beginPath()
+        for (const i of idxs) { const [a, b] = P(model.segs[i * 4], model.segs[i * 4 + 1]), [cc, d] = P(model.segs[i * 4 + 2], model.segs[i * 4 + 3]); ctx.moveTo(a, b); ctx.lineTo(cc, d) }
+        ctx.stroke()
+      })
+      const rot = Math.atan2(xf[1], xf[0]), sc = Math.hypot(xf[0], xf[1])
+      for (let i = o.t0; i < o.t1; i++) {
+        const t = model.texts[i]; if (!layerVis[t.layer] || !t.text) continue
+        drawText(t.text, ...P(t.x, t.y), t.h * sc * scale, t.rot + rot, hl ? SEL : colorOf(t.col, t.layer))
+      }
+    }
+    const drawText = (text: string, x: number, y: number, px: number, rot: number, color: string) => {
+      if (px < 0.4 || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100) return
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-rot)
+      if (px < 4) { // texto minúsculo: vira barrinha, como no AutoCAD
+        ctx.globalAlpha = 0.55; ctx.fillStyle = color
+        ctx.fillRect(0, -Math.max(1, px * 0.8), Math.max(2, text.length * px * 0.55), Math.max(1, px * 0.8))
+        ctx.globalAlpha = 1
+      } else { ctx.fillStyle = color; ctx.font = `${px}px sans-serif`; ctx.fillText(text, 0, 0) }
+      ctx.restore()
+    }
+
+    // Desenho base (originais não movidos) em cache: só refaz quando muda vista, camadas ou objetos mexidos
+    const sig = [view.current.cx, view.current.cy, view.current.scale, w, h, dpr, Object.keys(ed.ov).join(',')].join('|')
+    let cache = baseRef.current
+    if (!cache || cache.sig !== sig || cache.layerVis !== layerVis || cache.model !== model) {
+      const cv = cache?.cv ?? document.createElement('canvas')
+      cv.width = canvas.width; cv.height = canvas.height
+      const bc = cv.getContext('2d')!
+      bc.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx = bc
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
+      // 1) preenchimentos originais
+    for (const f of model.fills) {
+      if (!layerVis[f.layer] || dirty(f.obj) || !inView(model.objs[f.obj].bbox)) continue
+      ctx.beginPath()
+      for (const r of f.rings) { for (let k = 0; k < r.length; k += 2) { const [x, y] = toScreen(r[k], r[k + 1], w, h); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath() }
+      ctx.globalAlpha = f.alpha; ctx.fillStyle = colorOf(f.col, f.layer); ctx.fill('evenodd'); ctx.globalAlpha = 1
+    }
+    // 2) traços originais agrupados por cor
+    const byColor = new Map<string, number[]>()
     for (let i = 0; i < model.segLayer.length; i++) {
       const l = model.segLayer[i]
-      if (!layerVis[l]) continue
+      if (!layerVis[l] || dirty(model.segObj[i])) continue
       const x1 = model.segs[i * 4], y1 = model.segs[i * 4 + 1], x2 = model.segs[i * 4 + 2], y2 = model.segs[i * 4 + 3]
       if (Math.max(x1, x2) < wx0 || Math.min(x1, x2) > wx1 || Math.max(y1, y2) < wy0 || Math.min(y1, y2) > wy1) continue
-      const arr = byLayer.get(l); if (arr) arr.push(i); else byLayer.set(l, [i])
+      const c = colorOf(model.segCol[i], l)
+      const arr = byColor.get(c); if (arr) arr.push(i); else byColor.set(c, [i])
     }
     ctx.lineWidth = 1; ctx.lineCap = 'round'
-    byLayer.forEach((idx, l) => {
-      ctx.strokeStyle = cor(model.layers[l].color)
-      ctx.beginPath()
+    byColor.forEach((idx, c) => {
+      ctx.strokeStyle = c; ctx.beginPath()
       for (const i of idx) {
         const [a, b] = toScreen(model.segs[i * 4], model.segs[i * 4 + 1], w, h)
-        const [c, d] = toScreen(model.segs[i * 4 + 2], model.segs[i * 4 + 3], w, h)
-        ctx.moveTo(a, b); ctx.lineTo(c, d)
+        const [cc, d] = toScreen(model.segs[i * 4 + 2], model.segs[i * 4 + 3], w, h)
+        ctx.moveTo(a, b); ctx.lineTo(cc, d)
       }
       ctx.stroke()
     })
+    // 3) textos originais
     for (const t of model.texts) {
-      if (!layerVis[t.layer] || !t.text) continue
-      const px = t.h * scale
-      if (px < 5 || px > 400) continue
+      if (!layerVis[t.layer] || !t.text || dirty(t.obj)) continue
       const [x, y] = toScreen(t.x, t.y, w, h)
-      if (x < -200 || x > w + 200 || y < -50 || y > h + 50) continue
-      ctx.save(); ctx.translate(x, y); ctx.rotate(-t.rot)
-      ctx.fillStyle = cor(model.layers[t.layer].color); ctx.font = `${px}px sans-serif`; ctx.fillText(t.text, 0, 0)
+      drawText(t.text, x, y, t.h * scale, t.rot, colorOf(t.col, t.layer))
+    }
+      ctx = main
+      cache = { sig, layerVis, model, cv }
+      baseRef.current = cache
+    }
+    main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(cache.cv, 0, 0); main.setTransform(dpr, 0, 0, dpr, 0, 0)
+    // 4) movidos e cópias
+    for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) drawInst(Number(k), v, selSet.has('o' + k)) }
+    for (const c of ed.cp) drawInst(c.src, c.xf, selSet.has('c' + c.id))
+    // seleção de objetos ainda no lugar
+    for (const k of sel) if (k[0] === 'o' && !dirty(Number(k.slice(1)))) drawInst(Number(k.slice(1)), ID6, true)
+
+    // 5) formas desenhadas
+    const shapePath = (s: Shape) => {
+      ctx.beginPath()
+      if (s.kind === 'circle') { const [x, y] = toScreen(s.pts[0], s.pts[1], w, h); ctx.arc(x, y, s.pts[2] * scale, 0, Math.PI * 2) }
+      else {
+        for (let i = 0; i < s.pts.length; i += 2) { const [x, y] = toScreen(s.pts[i], s.pts[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
+        if (s.kind === 'rect') ctx.closePath()
+      }
+    }
+    for (const s of ed.shapes) {
+      const on = selSet.has('s' + s.id)
+      shapePath(s)
+      if (s.fill && s.kind !== 'line') { ctx.fillStyle = s.fill; ctx.fill() }
+      ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
+    }
+
+    // 6) cotas
+    const drawDim = (d: Dim, color: string, lw: number) => {
+      const g = dimGeom(d)
+      const A = toScreen(d.ax, d.ay, w, h), B = toScreen(d.bx, d.by, w, h)
+      const P1 = toScreen(g.p1[0], g.p1[1], w, h), P2 = toScreen(g.p2[0], g.p2[1], w, h)
+      const ang = Math.atan2(P2[1] - P1[1], P2[0] - P1[0])
+      const ux = Math.cos(ang), uy = Math.sin(ang)
+      const side = d.off >= 0 ? 1 : -1 // quão além do ponto a linha de extensão passa
+      const nxs = g.nx, nys = -g.ny // normal em tela
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = lw
+      ctx.beginPath()
+      for (const [P, Q] of [[A, P1], [B, P2]] as const) {
+        const dx = Q[0] - P[0], dy = Q[1] - P[1], l = Math.hypot(dx, dy) || 1
+        ctx.moveTo(P[0] + (dx / l) * 3, P[1] + (dy / l) * 3); ctx.lineTo(Q[0] + (dx / l) * 5 * Math.sign(d.off || 1), Q[1] + (dy / l) * 5 * Math.sign(d.off || 1))
+      }
+      ctx.moveTo(P1[0] - ux * 5, P1[1] - uy * 5); ctx.lineTo(P2[0] + ux * 5, P2[1] + uy * 5)
+      for (const P of [P1, P2]) { ctx.moveTo(P[0] - 4, P[1] + 4); ctx.lineTo(P[0] + 4, P[1] - 4) } // tique oblíquo
+      ctx.stroke()
+      void side; void nxs; void nys
+      let ta = ang
+      if (ta > Math.PI / 2 || ta < -Math.PI / 2) ta += Math.PI
+      ctx.save()
+      ctx.translate((P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2); ctx.rotate(ta)
+      ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'
+      const label = fmtM(g.len * model.unitToMeters)
+      ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, 0, -4)
+      ctx.fillStyle = color; ctx.fillText(label, 0, -4)
       ctx.restore()
     }
+    for (const d of ed.dims) drawDim(d, selSet.has('d' + d.id) ? SEL : '#f87171', selSet.has('d' + d.id) ? 2 : 1.25)
+
+    // 7) rascunho da ferramenta atual
+    const cur = hover ? [hover.x, hover.y] : cursor ? [cursor.x, cursor.y] : null
+    const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
+    if (cur && draft.length) {
+      if (tool === 'linha') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
+      if (tool === 'retangulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1) })
+      if (tool === 'circulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h); ctx.beginPath(); ctx.arc(x1, y1, Math.hypot(cur[0] - draft[0][0], cur[1] - draft[0][1]) * scale, 0, Math.PI * 2); ctx.stroke() })
+      if (tool === 'medir') {
+        if (draft.length === 1) drawDim({ id: 0, ax: draft[0][0], ay: draft[0][1], bx: cur[0], by: cur[1], off: 0 }, '#fbbf24', 1.25)
+        else {
+          const dd: Dim = { id: 0, ax: draft[0][0], ay: draft[0][1], bx: draft[1][0], by: draft[1][1], off: 0 }
+          const g = dimGeom(dd)
+          dd.off = (cur[0] - dd.ax) * g.nx + (cur[1] - dd.ay) * g.ny
+          drawDim(dd, '#fbbf24', 1.25)
+        }
+      }
+    }
+    if (box) { ctx.strokeStyle = SEL; ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.lineWidth = 1; ctx.setLineDash(box.x1 < box.x0 ? [5, 4] : []); ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.setLineDash([]) }
     if (selBlock) {
       ctx.strokeStyle = '#d946ef'; ctx.fillStyle = 'rgba(217,70,239,0.25)'; ctx.lineWidth = 2
       for (const b of model.inserts) {
@@ -180,34 +607,16 @@ export function CadLab() {
         ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
       }
     }
-    // medidas
-    ctx.lineWidth = 2
-    const fm = (a: Snap, b: Snap) => Math.hypot(a.x - b.x, a.y - b.y) * model.unitToMeters
-    const draw = (a: Snap, b: Snap, color: string) => {
-      const [x1, y1] = toScreen(a.x, a.y, w, h), [x2, y2] = toScreen(b.x, b.y, w, h)
-      ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
-      ctx.fillStyle = color; for (const [x, y] of [[x1, y1], [x2, y2]]) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill() }
-      const label = `${fm(a, b).toFixed(2)} m`
-      ctx.font = 'bold 12px sans-serif'
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2
-      ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, mx + 4, my - 4); ctx.lineWidth = 2
-      ctx.fillStyle = color; ctx.fillText(label, mx + 4, my - 4)
-    }
-    for (const m of medidas) draw(m.a, m.b, '#dc2626')
-    if (pendente && (hover || cursor)) {
-      const end = hover ?? { x: cursor!.x, y: cursor!.y, kind: 'ponta' as const }
-      draw(pendente, end, '#f59e0b')
-    }
     if (hover) {
       const [x, y] = toScreen(hover.x, hover.y, w, h)
-      ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 2
+      ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2
       if (hover.kind === 'meio') { ctx.beginPath(); ctx.moveTo(x - 6, y + 5); ctx.lineTo(x + 6, y + 5); ctx.lineTo(x, y - 6); ctx.closePath(); ctx.stroke() }
       else if (hover.kind === 'bloco') { ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke() }
       else ctx.strokeRect(x - 6, y - 6, 12, 12)
     }
   })
 
-  // zoom com a rodinha (listener nativo pra poder cancelar o scroll da página)
+  // zoom com a rodinha
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
@@ -224,46 +633,165 @@ export function CadLab() {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-    // a área do desenho só existe depois que o arquivo carrega
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model])
 
+  // ── Mouse ────────────────────────────────────────────────────────────────
   function pos(e: React.MouseEvent) {
     const r = wrapRef.current!.getBoundingClientRect()
     return { px: e.clientX - r.left, py: e.clientY - r.top, w: r.width, h: r.height }
   }
+  const ortho = (p: number[], from: number[], shift: boolean) => {
+    if (!shift) return p
+    return Math.abs(p[0] - from[0]) > Math.abs(p[1] - from[1]) ? [p[0], from[1]] : [from[0], p[1]]
+  }
+  function point(e: React.MouseEvent, exclude?: Set<string>): { p: number[]; snap: Snap | null } {
+    const { px, py, w, h } = pos(e)
+    const [wx, wy] = toWorld(px, py, w, h)
+    const s = findSnap(wx, wy, exclude)
+    return { p: s ? [s.x, s.y] : [wx, wy], snap: s }
+  }
+
   function onDown(e: React.MouseEvent) {
-    const { px, py } = pos(e)
-    if (e.button === 1 || tool === 'mover') drag.current = { x: px, y: py, cx: view.current.cx, cy: view.current.cy }
+    const { px, py, w, h } = pos(e)
+    if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
+    if (e.button !== 0 || tool !== 'select') return
+    const [wx, wy] = toWorld(px, py, w, h)
+    const hit = hitTest(wx, wy)
+    if (hit) {
+      let keys = selRef.current
+      if (e.shiftKey) {
+        keys = keys.includes(hit) ? keys.filter(k => k !== hit) : [...keys, hit]
+        setSel(keys); return
+      }
+      if (!keys.includes(hit)) { keys = [hit]; setSel(keys) }
+      if (hit[0] === 'd' && keys.length === 1) {
+        gesture.current = { type: 'dimdrag', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: Number(hit.slice(1)), moved: false }
+      } else {
+        const s = findSnap(wx, wy, new Set())
+        gesture.current = { type: 'move', x: px, y: py, cx: 0, cy: 0, base: edRef.current, keys, start: s ? [s.x, s.y] : [wx, wy], moved: false }
+      }
+    } else {
+      if (!e.shiftKey) setSel([])
+      gesture.current = { type: 'box', x: px, y: py, cx: 0, cy: 0, bx: px, by: py }
+    }
   }
   function onMove(e: React.MouseEvent) {
     const { px, py, w, h } = pos(e)
-    if (drag.current) {
-      view.current.cx = drag.current.cx - (px - drag.current.x) / view.current.scale
-      view.current.cy = drag.current.cy + (py - drag.current.y) / view.current.scale
+    const g = gesture.current
+    if (g?.type === 'pan') {
+      view.current.cx = g.cx - (px - g.x) / view.current.scale
+      view.current.cy = g.cy + (py - g.y) / view.current.scale
       redraw(); return
     }
     const [wx, wy] = toWorld(px, py, w, h)
+    if (g?.type === 'move' && g.base && g.keys) {
+      if (!g.moved && Math.hypot(px - g.x, py - g.y) < 4) return
+      g.moved = true
+      const s = findSnap(wx, wy, new Set(g.keys))
+      let [tx, ty] = s ? [s.x, s.y] : [wx, wy]
+      if (e.shiftKey) { if (Math.abs(tx - g.start![0]) > Math.abs(ty - g.start![1])) ty = g.start![1]; else tx = g.start![0] }
+      setHover(s)
+      setEd(applyXf(g.base, g.keys, [1, 0, 0, 1, tx - g.start![0], ty - g.start![1]]))
+      return
+    }
+    if (g?.type === 'dimdrag' && g.base) {
+      g.moved = true
+      const d = g.base.dims.find(d => d.id === g.dim)!
+      const gm = dimGeom(d)
+      const off = (wx - d.ax) * gm.nx + (wy - d.ay) * gm.ny
+      setEd({ ...g.base, dims: g.base.dims.map(x => (x.id === d.id ? { ...x, off } : x)) })
+      return
+    }
+    if (g?.type === 'box') { setBox({ x0: g.x, y0: g.y, x1: px, y1: py }); return }
     setCursor({ x: wx, y: wy })
-    setHover(findSnap(wx, wy, w, h))
+    setHover(tool === 'pan' ? null : findSnap(wx, wy))
   }
-  function onUp() { drag.current = null }
+  function onUp(e?: React.MouseEvent) {
+    const g = gesture.current
+    gesture.current = null
+    if (!g) return
+    if ((g.type === 'move' || g.type === 'dimdrag') && g.base) {
+      if (g.moved) { past.current.push(g.base); future.current = []; redraw() } else setEd(g.base)
+    }
+    const box = boxRef.current
+    if (g.type === 'box' && box && model && wrapRef.current) {
+      const { w, h } = { w: wrapRef.current.clientWidth, h: wrapRef.current.clientHeight }
+      const [ax, ay] = toWorld(Math.min(box.x0, box.x1), Math.max(box.y0, box.y1), w, h)
+      const [bx, by] = toWorld(Math.max(box.x0, box.x1), Math.min(box.y0, box.y1), w, h)
+      const crossing = box.x1 < box.x0
+      const e0 = edRef.current
+      const keys: string[] = []
+      const test = (k: string) => {
+        const bb = bboxOf(e0, k); if (!bb) return
+        const inside = bb[0] >= ax && bb[2] <= bx && bb[1] >= ay && bb[3] <= by
+        const touch = !(bb[2] < ax || bb[0] > bx || bb[3] < ay || bb[1] > by)
+        if (crossing ? touch : inside) keys.push(k)
+      }
+      for (let i = 0; i < model.objs.length; i++) if (layerVis[model.objs[i].layer]) test('o' + i)
+      e0.cp.forEach(c => test('c' + c.id)); e0.shapes.forEach(s => test('s' + s.id)); e0.dims.forEach(d => test('d' + d.id))
+      setSel(prev => (e?.shiftKey ? Array.from(new Set([...prev, ...keys])) : keys))
+    }
+    setBox(null)
+  }
   function onClick(e: React.MouseEvent) {
-    if (tool !== 'medir') return
-    const { px, py, w, h } = pos(e)
-    const [wx, wy] = toWorld(px, py, w, h)
-    const p: Snap = findSnap(wx, wy, w, h) ?? { x: wx, y: wy, kind: 'ponta' }
-    if (!pendente) setPendente(p)
-    else { setMedidas(m => [...m, { a: pendente, b: p }]); setPendente(null) }
+    if (tool === 'select' || tool === 'pan') return
+    const { p: raw } = point(e)
+    const last = draft[draft.length - 1]
+    const p = last && tool !== 'medir' ? ortho(raw, last, e.shiftKey) : raw
+    const e0 = edRef.current
+    if (tool === 'linha') {
+      if (!draft.length) { setDraft([p]); return }
+      if (Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'line', pts: [draft[0][0], draft[0][1], p[0], p[1]], stroke, fill: null }], next: e0.next + 1 })
+      setDraft([p]) // continua a partir do último ponto; Esc / botão direito termina
+    } else if (tool === 'retangulo') {
+      if (!draft.length) { setDraft([p]); return }
+      const [x0, y0] = draft[0], [x1, y1] = p
+      if (Math.abs(x1 - x0) < 1e-9 || Math.abs(y1 - y0) < 1e-9) return
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'rect', pts: [x0, y0, x1, y0, x1, y1, x0, y1], stroke, fill: useFill ? fill : null }], next: e0.next + 1 })
+      setDraft([])
+    } else if (tool === 'circulo') {
+      if (!draft.length) { setDraft([p]); return }
+      const r = Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1])
+      if (r < 1e-9) return
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'circle', pts: [draft[0][0], draft[0][1], r], stroke, fill: useFill ? fill : null }], next: e0.next + 1 })
+      setDraft([])
+    } else if (tool === 'medir') {
+      if (draft.length < 2) { if (draft.length === 1 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return; setDraft([...draft, p]); return }
+      const d: Dim = { id: e0.next, ax: draft[0][0], ay: draft[0][1], bx: draft[1][0], by: draft[1][1], off: 0 }
+      const g = dimGeom(d)
+      d.off = (raw[0] - d.ax) * g.nx + (raw[1] - d.ay) * g.ny
+      commit({ ...e0, dims: [...e0.dims, d], next: e0.next + 1 })
+      setDraft([])
+    }
   }
+
+  useEffect(() => { setDraft([]) }, [tool])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setPendente(null); setTool('mover') }
-      if ((e.key === 'm' || e.key === 'M') && !(e.target instanceof HTMLInputElement)) setTool('medir')
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return
+      const mod = ev.metaKey || ev.ctrlKey
+      const k = ev.key.toLowerCase()
+      if (mod && k === 'z') { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return }
+      if (mod && k === 'y') { ev.preventDefault(); redo(); return }
+      if (mod && k === 'c') { actCopy(); return }
+      if (mod && k === 'v') { ev.preventDefault(); actPaste(); return }
+      if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
+      if (mod) return
+      if (k === 'escape') { setDraft([]); setSel([]); setTool('select') }
+      else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
+      else if (k === 'v') setTool('select')
+      else if (k === 'h') setTool('pan')
+      else if (k === 'm') setTool('medir')
+      else if (k === 'l') setTool('linha')
+      else if (k === 'r') setTool('retangulo')
+      else if (k === 'c') setTool('circulo')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model])
 
   const blocos = useMemo(() => {
     if (!model) return []
@@ -272,13 +800,24 @@ export function CadLab() {
     return Array.from(c.entries()).filter(([n]) => !n.startsWith('*')).sort((a, b) => b[1] - a[1])
   }, [model])
 
-  const totalMedido = model ? medidas.reduce((s, m) => s + Math.hypot(m.a.x - m.b.x, m.a.y - m.b.y) * model.unitToMeters, 0) : 0
+  const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
+  const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
+  const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
+
+  const TB = ({ id, icon, label, k }: { id: Tool; icon: React.ReactNode; label: string; k: string }) => (
+    <button onClick={() => setTool(id)} title={`${label} (${k})`}
+      className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium', tool === id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>{icon} {label}</button>
+  )
+  const AB = ({ onClick, icon, label, disabled }: { onClick: () => void; icon: React.ReactNode; label: string; disabled?: boolean }) => (
+    <button onClick={onClick} disabled={disabled} title={label}
+      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-navy-muted hover:bg-surface-secondary disabled:opacity-35 disabled:hover:bg-transparent">{icon}<span className="hidden xl:inline">{label}</span></button>
+  )
 
   return (
     <div className="space-y-3">
       <div>
         <h1 className="text-2xl font-bold text-navy">Laboratório CAD <span className="text-xs font-semibold align-middle bg-amber-100 text-amber-700 rounded px-2 py-0.5">protótipo · só você vê</span></h1>
-        <p className="text-sm text-navy-muted">Abre DWG ou DXF direto no navegador (o arquivo não é enviado pra lugar nenhum). Camadas, blocos contados, snap nas pontas/meios e medição em metros reais.</p>
+        <p className="text-sm text-navy-muted">Abre DWG ou DXF direto no navegador (o arquivo não é enviado pra lugar nenhum). Camadas, blocos, snap, cotas, e edição: selecionar, mover, copiar, girar, espelhar, apagar, desenhar linhas, retângulos e círculos.</p>
       </div>
 
       <label className="flex items-center gap-3 border-2 border-dashed border-surface-border hover:border-brand-400 rounded-card px-4 py-3 cursor-pointer bg-gradient-card shadow-card">
@@ -293,37 +832,75 @@ export function CadLab() {
       {model && (
         <div className="flex gap-3 items-start">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1 mb-2">
-              <button onClick={() => setTool('mover')} className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium', tool === 'mover' ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}><Move className="w-3.5 h-3.5" /> Mover</button>
-              <button onClick={() => setTool('medir')} className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium', tool === 'medir' ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}><Ruler className="w-3.5 h-3.5" /> Medir (M)</button>
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1 mb-1">
+              <TB id="select" icon={<MousePointer className="w-3.5 h-3.5" />} label="Selecionar" k="V" />
+              <TB id="pan" icon={<Hand className="w-3.5 h-3.5" />} label="Pan" k="H" />
+              <TB id="medir" icon={<Ruler className="w-3.5 h-3.5" />} label="Cota" k="M" />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
+              <TB id="linha" icon={<Minus className="w-3.5 h-3.5 -rotate-45" />} label="Linha" k="L" />
+              <TB id="retangulo" icon={<Square className="w-3.5 h-3.5" />} label="Retângulo" k="R" />
+              <TB id="circulo" icon={<CircleIcon className="w-3.5 h-3.5" />} label="Círculo" k="C" />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
               <button onClick={() => fit(0)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary"><Maximize className="w-3.5 h-3.5" /> Ajustar</button>
               <span className="ml-auto text-[11px] text-gray-400">
                 {tempo != null && `lido em ${(tempo / 1000).toFixed(1)}s · `}{(model.segLayer.length).toLocaleString('pt-BR')} traços · unidade: {model.unitName}
                 {cursor && ` · x ${cursor.x.toFixed(2)} y ${cursor.y.toFixed(2)}`}
               </span>
             </div>
-            <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '70vh', cursor: tool === 'medir' ? 'crosshair' : drag.current ? 'grabbing' : 'grab' }}
-              onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}>
+            <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 mb-2">
+              <AB onClick={undo} icon={<Undo2 className="w-3.5 h-3.5" />} label="Desfazer" disabled={!past.current.length} />
+              <AB onClick={redo} icon={<Redo2 className="w-3.5 h-3.5" />} label="Refazer" disabled={!future.current.length} />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
+              <AB onClick={actCopy} icon={<Copy className="w-3.5 h-3.5" />} label="Copiar" disabled={!sel.length} />
+              <AB onClick={() => actPaste()} icon={<ClipboardPaste className="w-3.5 h-3.5" />} label="Colar" disabled={!clip.current} />
+              <AB onClick={actDuplicate} icon={<CopyPlus className="w-3.5 h-3.5" />} label="Duplicar" disabled={!sel.length} />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
+              <AB onClick={() => actRotate(90)} icon={<RotateCw className="w-3.5 h-3.5" />} label="Girar 90°" disabled={!sel.length} />
+              <input value={angulo} onChange={e => setAngulo(e.target.value)} className="w-12 text-xs border border-gray-200 rounded px-1.5 py-1 text-center" title="Ângulo em graus (anti-horário)" />
+              <AB onClick={() => { const a = parseFloat(angulo.replace(',', '.')); if (!isNaN(a)) actRotate(a) }} icon={<RotateCw className="w-3.5 h-3.5" />} label="Girar" disabled={!sel.length} />
+              <AB onClick={() => actMirror(true)} icon={<FlipHorizontal className="w-3.5 h-3.5" />} label="Espelhar ↔" disabled={!sel.length} />
+              <AB onClick={() => actMirror(false)} icon={<FlipVertical className="w-3.5 h-3.5" />} label="Espelhar ↕" disabled={!sel.length} />
+              <AB onClick={actDelete} icon={<Trash2 className="w-3.5 h-3.5" />} label="Apagar" disabled={!sel.length} />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
+              <label className="flex items-center gap-1 text-[11px] text-navy-muted">Contorno
+                <input type="color" value={selShapes[0]?.stroke ?? stroke} onChange={e => { setStroke(e.target.value); setShapeStyle({ stroke: e.target.value }) }} className="w-6 h-6 p-0 border border-gray-200 rounded cursor-pointer" /></label>
+              <label className="flex items-center gap-1 text-[11px] text-navy-muted ml-1">
+                <input type="checkbox" checked={selShapes.length ? !!selShapes[0].fill : useFill} onChange={e => { setUseFill(e.target.checked); setShapeStyle({ fill: e.target.checked ? fill : null }) }} /> Preencher
+                <input type="color" value={selShapes[0]?.fill ?? fill} onChange={e => { setFill(e.target.value); setUseFill(true); setShapeStyle({ fill: e.target.value }) }} className="w-6 h-6 p-0 border border-gray-200 rounded cursor-pointer" /></label>
+            </div>
+            <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '66vh', cursor: gesture.current?.type === 'pan' ? 'grabbing' : cursorCss }}
+              onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}
+              onDoubleClick={() => setDraft([])} onContextMenu={e => { e.preventDefault(); setDraft([]) }}>
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
               {hover && <div className="absolute left-2 bottom-2 text-[11px] bg-white/90 border border-gray-200 rounded px-2 py-0.5 text-green-700 font-medium">snap: {hover.kind}</div>}
-              {tool === 'medir' && <div className="absolute left-2 top-2 text-[11px] bg-amber-50 border border-amber-200 rounded px-2 py-0.5 text-amber-700">{pendente ? 'Clique no segundo ponto (Esc cancela)' : 'Clique no primeiro ponto'}</div>}
+              {tool !== 'select' && tool !== 'pan' && (
+                <div className="absolute left-2 top-2 text-[11px] bg-amber-50 border border-amber-200 rounded px-2 py-0.5 text-amber-700">
+                  {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
+                  {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
+                  {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
+                  {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
+                </div>
+              )}
+              {tool === 'select' && sel.length > 0 && <div className="absolute left-2 top-2 text-[11px] bg-sky-50 border border-sky-200 rounded px-2 py-0.5 text-sky-700">{sel.length} selecionado(s) — arraste pra mover, Shift pra somar, Delete apaga</div>}
             </div>
             {!model.unitKnown && <p className="text-[11px] text-amber-600 mt-1">O arquivo não informa a unidade — as medidas estão assumindo metros.</p>}
           </div>
 
-          <div className="w-72 shrink-0 space-y-3 max-h-[78vh] overflow-y-auto">
+          <div className="w-72 shrink-0 space-y-3 max-h-[80vh] overflow-y-auto">
             <section className="border border-gray-200 rounded-xl bg-white p-3">
-              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Medidas</p>
-              {medidas.length === 0 && <p className="text-xs text-gray-400">Use "Medir" e clique em dois pontos — o cursor gruda nas pontas (□), meios (△) e blocos (○).</p>}
-              {medidas.map((m, i) => (
-                <p key={i} className="text-xs text-gray-700 flex justify-between"><span>#{i + 1}</span><b>{(Math.hypot(m.a.x - m.b.x, m.a.y - m.b.y) * model.unitToMeters).toFixed(2)} m</b></p>
-              ))}
-              {medidas.length > 0 && (
-                <div className="flex justify-between text-xs border-t border-gray-100 mt-1 pt-1">
-                  <span className="text-gray-500">Total</span><b>{totalMedido.toFixed(2)} m</b>
-                  <button onClick={() => setMedidas([])} className="text-gray-400 hover:text-red-500 underline">limpar</button>
+              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Cotas</p>
+              {ed.dims.length === 0 && <p className="text-xs text-gray-400">Use "Cota": 2 pontos e depois clique onde ela deve ficar. Selecione e arraste a cota pra afastá-la da linha, ou ajuste a distância abaixo.</p>}
+              {ed.dims.map((d, i) => (
+                <div key={d.id} className={cn('flex items-center gap-1.5 text-xs py-0.5 rounded px-1', sel.includes('d' + d.id) && 'bg-sky-50')}>
+                  <button onClick={() => setSel(['d' + d.id])} className="text-gray-500 hover:text-gray-800">#{i + 1}</button>
+                  <b className="flex-1">{fmtM(dimGeom(d).len * model.unitToMeters)}</b>
+                  <input type="number" step="0.1" value={Number((d.off * model.unitToMeters).toFixed(2))}
+                    onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) commit({ ...ed, dims: ed.dims.map(x => (x.id === d.id ? { ...x, off: v / model.unitToMeters } : x)) }) }}
+                    className="w-16 text-[11px] border border-gray-200 rounded px-1 py-0.5" title="Distância da cota até a linha (m)" />
+                  <button onClick={() => { commit(deleteKeys(ed, ['d' + d.id])); setSel(s => s.filter(k => k !== 'd' + d.id)) }} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
                 </div>
-              )}
+              ))}
+              {ed.dims.length > 0 && <div className="flex justify-between text-xs border-t border-gray-100 mt-1 pt-1"><span className="text-gray-500">Total</span><b>{fmtM(totalCotas)}</b></div>}
             </section>
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
@@ -362,7 +939,7 @@ export function CadLab() {
                 {model.layers.map((l, i) => ({ l, i })).filter(({ l }) => l.segs + l.texts > 0 && l.name.toLowerCase().includes(layerFilter.toLowerCase())).map(({ l, i }) => (
                   <label key={i} className="flex items-center gap-1.5 text-xs py-0.5 cursor-pointer hover:bg-gray-50 rounded px-1">
                     <input type="checkbox" checked={!!layerVis[i]} onChange={() => setLayerVis(v => v.map((x, k) => k === i ? !x : x))} />
-                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: l.color }} />
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: cor(l.color) }} />
                     <span className={cn('truncate flex-1', !layerVis[i] && 'text-gray-400')}>{l.name}</span>
                     <span className="text-[10px] text-gray-400">{l.segs + l.texts}</span>
                   </label>
