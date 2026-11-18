@@ -506,7 +506,9 @@ export function extractLibraryBlocks(db: any): LibBlock[] {
       rings: f.rings.map(r => { const a = Array.from(r, r5); for (let k = 0; k < r.length; k += 2) ext(r[k], r[k + 1]); return a }),
       c: colIdx(resolve(f.col, f.layer)), a: f.alpha,
     }))
-    out.push({ name, unitToMeters: unit, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1] })
+    // cada bloco pode ter sua própria unidade de inserção (mm, cm, m...); se não tiver, vale a do arquivo
+    const bu = UNITS[Number(b.insertionUnits ?? 0)]?.[1] ?? unit
+    out.push({ name, unitToMeters: bu, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1] })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }

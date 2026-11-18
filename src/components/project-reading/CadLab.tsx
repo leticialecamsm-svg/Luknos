@@ -113,6 +113,8 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  const [placeScale, setPlaceScale] = useState('1') // multiplicador do tamanho ao colocar bloco
+  const [scaleBy, setScaleBy] = useState('2') // fator do botão Escalar
   const [textH, setTextH] = useState('0.15') // altura do texto em metros
   const [textEdit, setTextEdit] = useState<null | { kind: 'text' | 'arrow'; x: number; y: number; tip?: number[]; id?: number; value: string }>(null)
   const textEditRef = useRef(textEdit); textEditRef.current = textEdit
@@ -250,6 +252,13 @@ export function CadLab() {
   function actRotate(deg: number) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
     commit(applyXf(edRef.current, selRef.current, rotAbout(deg, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2)))
+  }
+  // aumenta/diminui blocos selecionados (só blocos e cópias; formas desenhadas não mudam)
+  function actScale(f: number) {
+    const keys = selRef.current.filter(k => k[0] === 'c' || k[0] === 'o')
+    const b = unionBox(edRef.current, keys); if (!b || !keys.length || !(f > 0)) return
+    const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
+    commit(applyXf(edRef.current, keys, [f, 0, 0, f, cx - f * cx, cy - f * cy]))
   }
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
@@ -659,7 +668,8 @@ export function CadLab() {
     }
     if (tool === 'inserir' && placing && cur) {
       ctx.globalAlpha = 0.65
-      drawInst(placing.obj, [placing.s, 0, 0, placing.s, cur[0], cur[1]], false)
+      const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
+      drawInst(placing.obj, [ps, 0, 0, ps, cur[0], cur[1]], false)
       ctx.globalAlpha = 1
     }
     if (box) { ctx.strokeStyle = SEL; ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.lineWidth = 1; ctx.setLineDash(box.x1 < box.x0 ? [5, 4] : []); ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.setLineDash([]) }
@@ -813,7 +823,8 @@ export function CadLab() {
     }
     if (tool === 'inserir') {
       if (!placing) return
-      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [placing.s, 0, 0, placing.s, p[0], p[1]] }], next: e0.next + 1 })
+      const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
+      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [ps, 0, 0, ps, p[0], p[1]] }], next: e0.next + 1 })
       setSel(['c' + e0.next]); return
     }
     if (tool === 'linha') {
@@ -1077,6 +1088,10 @@ export function CadLab() {
               <AB onClick={() => actMirror(false)} icon={<FlipVertical className="w-3.5 h-3.5" />} label="Espelhar ↕" disabled={!sel.length} />
               <AB onClick={actDelete} icon={<Trash2 className="w-3.5 h-3.5" />} label="Apagar" disabled={!sel.length} />
               <span className="w-px h-5 bg-gray-200 mx-1" />
+              <span className="text-[11px] text-navy-muted">Escala</span>
+              <input value={scaleBy} onChange={e => setScaleBy(e.target.value)} className="w-12 text-xs border border-gray-200 rounded px-1.5 py-1 text-center" title="Fator: 2 = dobra o tamanho, 0.5 = metade" />
+              <AB onClick={() => actScale(parseFloat(scaleBy.replace(',', '.')))} icon={<Maximize className="w-3.5 h-3.5" />} label="Escalar" disabled={!sel.length} />
+              <span className="w-px h-5 bg-gray-200 mx-1" />
               <label className="flex items-center gap-1 text-[11px] text-navy-muted" title="Altura das letras em metros">Texto
                 <input value={textH} onChange={e => { setTextH(e.target.value); const v = parseFloat(e.target.value.replace(',', '.')); if (v > 0) { const ids = new Set(selRef.current.filter(k => k[0] === 's').map(k => Number(k.slice(1)))); if (ids.size) commit({ ...edRef.current, shapes: edRef.current.shapes.map(x => (ids.has(x.id) && (x.kind === 'text' || x.kind === 'arrow') ? { ...x, h: v / u2m } : x)) }) } }}
                   className="w-12 text-xs border border-gray-200 rounded px-1.5 py-1 text-center" />m</label>
@@ -1131,6 +1146,12 @@ export function CadLab() {
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
+                </div>
+              )}
+              {tool === 'inserir' && placing && (
+                <div className="absolute right-2 top-2 z-10 flex items-center gap-1 text-[11px] bg-white/95 border border-gray-200 rounded px-2 py-1 text-gray-600" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                  Tamanho ×
+                  <input value={placeScale} onChange={e => setPlaceScale(e.target.value)} className="w-12 text-xs border border-gray-200 rounded px-1 py-0.5 text-center" title="1 = tamanho do arquivo da biblioteca; 5 = cinco vezes maior" />
                 </div>
               )}
               {tool === 'select' && sel.length > 0 && <div className="absolute left-2 top-2 text-[11px] bg-sky-50 border border-sky-200 rounded px-2 py-0.5 text-sky-700">{sel.length} selecionado(s) — arraste pra mover, Shift pra somar, Delete apaga</div>}
