@@ -894,12 +894,13 @@ export function CadLab() {
     setPlacing({ name: b.name, obj, s: b.unitToMeters / m.unitToMeters }); setTool('inserir')
   }
   async function onLibFile(file: File) {
+    if (file.size > 60e6) { setLibMsg(`Esse arquivo tem ${(file.size / 1e6).toFixed(0)} MB — pesado demais pro navegador. No AutoCAD: rode -PURGE (Tudo) e salve, ou use WBLOCK só com os blocos que quer e suba o arquivo menor (idealmente até uns 30 MB).`); return }
     setLibMsg('Lendo o arquivo de biblioteca...'); setCand(null)
     try {
       const blocks = await loadCadLibraryFile(await file.arrayBuffer())
       if (!blocks.length) { setLibMsg('Nenhum bloco encontrado nesse arquivo.'); return }
       setCand(blocks); setCandSel(new Set(blocks.map(b => b.name))); setLibMsg(null)
-    } catch (err: any) { setLibMsg(err?.message ?? 'Falha ao ler o arquivo.') }
+    } catch (err: any) { setLibMsg(/Aborted|memory|out of/i.test(String(err?.message)) ? `Esse arquivo é pesado demais pro navegador (${(file.size / 1e6).toFixed(0)} MB). No AutoCAD: abra o arquivo, rode -PURGE (Tudo) e salve; ou use WBLOCK só com os blocos que quer e suba o arquivo menor (idealmente até uns 30 MB).` : (err?.message ?? 'Falha ao ler o arquivo.')) }
   }
   async function saveCand() {
     if (!cand) return
