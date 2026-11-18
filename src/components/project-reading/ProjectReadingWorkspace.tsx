@@ -8,10 +8,11 @@ import {
   createSymbolOccurrence, updateSymbolOccurrence, deleteSymbolOccurrence,
   createMeasurement, updateMeasurement, deleteMeasurement,
   createAnnotation, deleteAnnotation, updateAnnotation, updatePlanScale, updatePlanRotation, updateWorkingPage, restoreRow,
-  createPowerSupply, updatePowerSupply, deletePowerSupply,
+  createPowerSupply, updatePowerSupply, deletePowerSupply, importCadBlocks,
 } from '@/lib/project-reading/actions'
 import { pointInPolygon, polylineLength, distance, computeScaleMetersPerPixel, closestPointOnPolyline, type Point } from '@/lib/project-reading/geometry'
 import { calcularFita, calcularPlanoDeCorte, planejarCortes, round2, sugerirFonte, CATALOGO_FONTES_12V, type TrechoNecessario, type EmendaInfo, type PlanoOtimizado } from '@/lib/project-reading/calculations'
+import { loadCadFile, buildSnapIndex, findSnapWorld, makeCadPdfAdapter, type CadModel, type CadMeta, type CadRegion, type SnapIndex } from '@/lib/project-reading/cad'
 import { cn } from '@/lib/utils'
 import {
   ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight, ChevronDown, MousePointer2, Shapes, Ruler,
@@ -53,6 +54,7 @@ interface PowerSupply { id: string; measurement_id: string; page: number; x: num
 interface Plan {
   id: string; name: string; num_pages: number; pdfUrl: string
   scale_m_per_px: Record<string, number>; page_rotation?: Record<string, number>; working_page?: number
+  source_type?: 'pdf' | 'cad'; cad_meta?: CadMeta | null
 }
 
 const TOOLS: { id: Tool; label: string; icon: any }[] = [
@@ -163,6 +165,13 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const [pageNum, setPageNum] = useState(plan.working_page ?? 1)
   const [renderScale, setRenderScale] = useState(1.4)
   const [pdfDoc, setPdfDoc] = useState<any>(null)
+  // Planta em CAD (DWG/DXF): cada região do desenho é uma "página", e a
+  // escala em metros por pixel vem exata do próprio arquivo.
+  const isCad = plan.source_type === 'cad'
+  const cadModelRef = useRef<CadModel | null>(null)
+  const cadSnapRef = useRef<SnapIndex | null>(null)
+  const cadHiddenRef = useRef<Set<string>>(new Set())
+  const [snapHover, setSnapHover] = useState<Point | null>(null)
   const [rendering, setRendering] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 })
@@ -571,7 +580,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     setPopoverAnchor({ x: e.clientX, y: e.clientY })
   }
 
-  const scale = scaleMap[String(pageNum)] ?? null
+  const cadRegion = isCad ? plan.cad_meta?.regions[pageNum - 1] ?? null : null
+  const scale = cadRegion && plan.cad_meta ? plan.cad_meta.unitToMeters / cadRegion.k : (scaleMap[String(pageNum)] ?? null)
   const pagePoints = useMemo(() => ({
     environments: environments.filter(e => e.page === pageNum),
     symbols: symbols.filter(s => s.page === pageNum),
@@ -693,6 +703,23 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   useEffect(() => {
     let cancelled = false
     setRendering(true)
+    if (isCad) {
+      ;(async () => {
+        const model = await loadCadFile(await (await fetch(plan.pdfUrl)).arrayBuffer())
+        if (cancelled || !plan.cad_meta) return
+        const layers = model.layers.filter(l => l.segs + l.texts > 0)
+          .map((l, i) => ({ id: String(i), name: l.name })).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+        let hidden: string[] = model.layers.filter(l => !l.visible).map(l => l.name)
+        try { const raw = localStorage.getItem(hiddenLayersKey); if (raw) hidden = JSON.parse(raw) } catch {}
+        cadModelRef.current = model
+        cadSnapRef.current = buildSnapIndex(model)
+        cadHiddenRef.current = new Set(hidden)
+        setPdfLayers(layers)
+        setHiddenLayers(hidden.filter(n => layers.some(l => l.name === n)))
+        setPdfDoc(makeCadPdfAdapter(model, plan.cad_meta, () => cadHiddenRef.current))
+      })().catch(err => { console.error(err); setRendering(false); window.alert('Não foi possível ler o desenho CAD: ' + (err?.message ?? err)) })
+      return () => { cancelled = true }
+    }
     pdfjsLib.getDocument(plan.pdfUrl).promise.then(async doc => {
       if (cancelled) return
       const config = await doc.getOptionalContentConfig()
@@ -719,6 +746,12 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   const CAMADAS_POLUENTES = /cota|dim|texto|text|anota|mobili|layout|el[eé]tric|tomada|interrupt|hachur|hatch|piso|logo|n[ií]vel|legenda|lumin|ilumina/i
 
   function applyHiddenLayers(names: string[]) {
+    if (isCad) {
+      cadHiddenRef.current = new Set(names)
+      setHiddenLayers(names)
+      try { localStorage.setItem(hiddenLayersKey, JSON.stringify(names)) } catch {}
+      return
+    }
     if (!ocConfig) return
     for (const l of pdfLayers) ocConfig.setVisibility(l.id, !names.includes(l.name))
     setHiddenLayers(names)
@@ -993,6 +1026,18 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
   }
   function toScreen([x, y]: Point): Point { return [x * renderScale, y * renderScale] }
 
+  // Em planta CAD, os pontos marcados "grudam" nas pontas/meios das linhas e
+  // nos blocos do desenho (raio de ~10 px na tela) — mesma ideia do snap do
+  // AutoCAD. Fora do CAD devolve o ponto como veio.
+  function snapBase(p: Point): Point {
+    const model = cadModelRef.current, idx = cadSnapRef.current
+    if (!isCad || !model || !idx || !cadRegion) return p
+    const k = cadRegion.k
+    const s = findSnapWorld(idx, model, cadHiddenRef.current, cadRegion.x0 + p[0] / k, cadRegion.y1 - p[1] / k, 10 / (k * renderScale))
+    return s ? [(s.x - cadRegion.x0) * k, (cadRegion.y1 - s.y) * k] : p
+  }
+  function toBaseSnap(e: React.MouseEvent): Point { return snapBase(toBase(e)) }
+
   // ── Interações do canvas ──────────────────────────────────────────────────
 
   function resetDrafts() {
@@ -1009,7 +1054,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     // Colocar a fonte ou apontar a seta têm prioridade sobre a ferramenta
     // ativa — o usuário já confirmou a ação no popover, só falta o clique.
     if (pendingFontePlacement) {
-      const p = toBase(e)
+      const p = toBaseSnap(e)
       const { measurementId, watts } = pendingFontePlacement
       setPendingFontePlacement(null)
       setBusy(true)
@@ -1019,13 +1064,13 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
       return
     }
     if (pendingArrowFor) {
-      const p = toBase(e)
+      const p = toBaseSnap(e)
       updateAnnotationData(pendingArrowFor, { arrowTo: p })
       setPendingArrowFor(null)
       return
     }
     if (tool === 'select') { setSelection(null); return }
-    const p = toBase(e)
+    const p = toBaseSnap(e)
     // Trecho vertical (sobe/desce uma parede, dentro de um forro...) não dá
     // pra traçar na planta baixa — ela só mostra a vista de cima. Em vez de
     // dois pontos, clica uma vez só pra marcar onde fica e digita o
@@ -1242,6 +1287,13 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     if (tool === 'anot-livre') { setDrawingFreehand(true); setDraftFreehand([p]) }
   }
   function handleMouseMove(e: React.MouseEvent) {
+    if (isCad && !panning) {
+      const drawing = tool === 'ambiente' || tool === 'medir' || tool === 'medir-perfil' || tool === 'medir-fita' || tool === 'simbolo' || tool === 'calibrar' || !!pendingFontePlacement || !!draggingPoint
+      if (drawing) {
+        const raw = toBase(e), sp = snapBase(raw)
+        setSnapHover(sp[0] !== raw[0] || sp[1] !== raw[1] ? sp : null)
+      } else if (snapHover) setSnapHover(null)
+    }
     if (panning) {
       const container = canvasRef.current?.parentElement?.parentElement
       if (container) {
@@ -1268,7 +1320,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
     if (draggingPoint) {
       setMeasurements(prev => prev.map(m => {
         if (m.id !== draggingPoint.measurementId) return m
-        const newPoints = m.points.map((pt, i) => i === draggingPoint.pointIndex ? p : pt)
+        const newPoints = m.points.map((pt, i) => i === draggingPoint.pointIndex ? snapBase(p) : pt)
         const newLength = scale ? round2(polylineLength(newPoints) * scale) : m.length_m
         return { ...m, points: newPoints, length_m: newLength }
       }))
@@ -1558,7 +1610,7 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
             <button onClick={() => setRenderScale(s => Math.max(0.3, s - 0.2))} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary"><ZoomOut className="w-4 h-4" /></button>
             <button onClick={fitToScreen} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary" title="Ajustar à tela"><Maximize className="w-4 h-4" /></button>
             <button onClick={() => setRenderScale(s => Math.min(4, s + 0.2))} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary"><ZoomIn className="w-4 h-4" /></button>
-            <button onClick={rotatePage} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>
+            {!isCad && <button onClick={rotatePage} className="p-1.5 rounded-lg text-navy-muted hover:bg-surface-secondary" title="Girar página 90°"><RotateCw className="w-4 h-4" /></button>}
             <div className="w-px h-4 bg-gray-200 mx-1" />
             <button onClick={() => { setReaproveitamentoView(v => !v); setFontesView(false) }} title="Visualizar reaproveitamento"
               className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
@@ -1734,6 +1786,8 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
               {/* Cota da medição em desenho (preview ao vivo) */}
               {draftPoints.length > 0 && isMeasuring && renderCota(draftPoints, '#f59400', 'draft-medida', scale, { dashed: true })}
               {draftPoints.map((p, i) => { const [sx, sy] = toScreen(p); return <circle key={i} cx={sx} cy={sy} r={3.5} fill="#f59400" /> })}
+              {/* Marcador do snap em planta CAD — quadrado verde na ponta/meio mais perto */}
+              {snapHover && (() => { const [hx, hy] = toScreen(snapHover); return <rect x={hx - 6} y={hy - 6} width={12} height={12} fill="none" stroke="#16a34a" strokeWidth={2} pointerEvents="none" /> })()}
 
               {/* Medições — sempre como cota (linha de extensão + medida em metros).
                   Na visão limpa (reaproveitamento), só perfil/fita aparecem.
@@ -2000,6 +2054,10 @@ export function ProjectReadingWorkspace({ plan, environments: initEnvs, legendIt
                 onFocusEnvironment={focusOnEnvironment}
                 onDuplicatePerfilFita={duplicatePerfilFita} onDuplicateFita={duplicateFita}
               />
+            )}
+            {tab === 'legenda' && isCad && cadModelRef.current && cadRegion && (
+              <CadBlockImport planId={plan.id} page={pageNum} model={cadModelRef.current} region={cadRegion} hidden={hiddenLayers}
+                onImported={(items, syms) => { setLegendItems(prev => [...prev, ...items]); setSymbols(prev => [...prev, ...syms]) }} />
             )}
             {tab === 'legenda' && (
               <LegendaTab planId={plan.id} items={legendItems}
@@ -2474,6 +2532,67 @@ function AmbientesTab({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Blocos do desenho CAD (luminárias etc.) → itens de legenda + símbolos já
+// no lugar. Mostra os blocos desta página; os que parecem luminária já vêm
+// marcados, o resto a pessoa escolhe.
+const BLOCO_LUMINARIA = /foco|spot|lumin|pend|plaf|arand|embut|trilho|refletor|dicr|par\d|led|lamp|vigo|aplique|balizador/i
+const BLOCO_RUIDO = /^(\*|_)|nome_layer|seta|texto_|desenho_|carimbo|malha|escala|norte|slot|layout/i
+
+function CadBlockImport({ planId, page, model, region, hidden, onImported }: {
+  planId: string; page: number; model: CadModel; region: CadRegion
+  hidden: string[]; onImported: (items: LegendItem[], syms: SymbolOccurrence[]) => void
+}) {
+  const grupos = useMemo(() => {
+    const por = new Map<string, [number, number][]>()
+    for (const b of model.inserts) {
+      if (BLOCO_RUIDO.test(b.name) || hidden.includes(model.layers[b.layer]?.name)) continue
+      if (b.x < region.x0 || b.x > region.x1 || b.y < region.y0 || b.y > region.y1) continue
+      const arr = por.get(b.name) ?? []
+      arr.push([(b.x - region.x0) * region.k, (region.y1 - b.y) * region.k])
+      por.set(b.name, arr)
+    }
+    return Array.from(por.entries()).sort((a, b) => b[1].length - a[1].length)
+  }, [model, region, hidden])
+  const [escolhidos, setEscolhidos] = useState<Set<string>>(new Set())
+  const [marcouAuto, setMarcouAuto] = useState<string>('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const chave = `${page}`
+  if (marcouAuto !== chave) { setMarcouAuto(chave); setEscolhidos(new Set(grupos.filter(([n]) => BLOCO_LUMINARIA.test(n)).map(([n]) => n))) }
+  const total = grupos.filter(([n]) => escolhidos.has(n)).reduce((s, [, p]) => s + p.length, 0)
+
+  async function importar() {
+    setBusy(true); setMsg('')
+    const res = await importCadBlocks(planId, page, grupos.filter(([n]) => escolhidos.has(n)).map(([name, points]) => ({ name, points })))
+    setBusy(false)
+    if ('error' in res && res.error) { setMsg(res.error); return }
+    onImported((res.legendItems ?? []) as LegendItem[], (res.symbols ?? []) as SymbolOccurrence[])
+    setMsg(`${(res.symbols ?? []).length} símbolo(s) e ${(res.legendItems ?? []).length} item(ns) de legenda criados.`)
+  }
+
+  if (grupos.length === 0) return null
+  return (
+    <div className="border border-amber-200 bg-amber-50/60 rounded-xl p-3 mb-3 space-y-2">
+      <p className="text-xs font-bold text-amber-700 uppercase">Blocos do desenho CAD</p>
+      <p className="text-[11px] text-gray-600">O desenho já tem esses símbolos posicionados. Escolha os que são luminárias e importe — viram itens da legenda e marcações na planta, sem clicar um a um.</p>
+      <div className="max-h-44 overflow-y-auto space-y-0.5">
+        {grupos.map(([nome, pts]) => (
+          <label key={nome} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-amber-100/60 rounded px-1 py-0.5">
+            <input type="checkbox" checked={escolhidos.has(nome)}
+              onChange={() => setEscolhidos(prev => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n })} />
+            <span className="truncate flex-1 text-gray-700">{nome}</span><b className="text-gray-800">{pts.length}</b>
+          </label>
+        ))}
+      </div>
+      <button onClick={importar} disabled={busy || total === 0}
+        className="w-full text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-40 rounded-lg px-3 py-1.5">
+        {busy ? 'Importando...' : `Importar ${total} ocorrência(s)`}
+      </button>
+      {msg && <p className="text-[11px] text-amber-800">{msg}</p>}
     </div>
   )
 }

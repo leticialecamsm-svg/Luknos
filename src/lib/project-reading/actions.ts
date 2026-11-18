@@ -8,6 +8,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { pointInPolygon } from './geometry'
 
 const BASE_PATH = '/dashboard/project-reading'
 
@@ -72,19 +73,20 @@ export async function createPlanUpload(input: { fileName: string; sizeBytes: num
   return { path: data.path, token: data.token }
 }
 
-export async function finalizePlan(input: { storagePath: string; fileName: string; name: string; numPages: number }) {
+export async function finalizePlan(input: { storagePath: string; fileName: string; name: string; numPages: number; sourceType?: 'pdf' | 'cad'; cadMeta?: unknown }) {
   const userId = await requireUserId()
   if (!userId) return { error: 'Não autenticado' }
   // o caminho precisa ser do próprio usuário (gerado por createPlanUpload)
   if (!input.storagePath.startsWith(`${userId}/`)) return { error: 'Caminho de arquivo inválido' }
   const admin = createAdminClient()
   const { data, error } = await admin.from('project_plans').insert({
-    name: input.name.trim() || input.fileName.replace(/\.pdf$/i, ''),
+    name: input.name.trim() || input.fileName.replace(/\.(pdf|dwg|dxf)$/i, ''),
     original_filename: input.fileName,
     storage_path: input.storagePath,
     num_pages: input.numPages || 1,
     status: 'ready',
     created_by: userId,
+    ...(input.sourceType === 'cad' ? { source_type: 'cad', cad_meta: input.cadMeta ?? null } : {}),
   }).select().single()
   if (error) return { error: error.message }
   revalidatePath(BASE_PATH)
@@ -356,4 +358,49 @@ export async function deleteAnnotation(planId: string, id: string) {
   if (error) return { error: error.message }
   revalidatePath(`${BASE_PATH}/${planId}`)
   return { ok: true }
+}
+
+// Planta em CAD: transforma os blocos do desenho (luminárias etc.) em itens
+// de legenda + símbolos já posicionados. Cada bloco vira UM item de legenda
+// (reaproveita o que já existe com o mesmo nome) e cada inserção vira uma
+// ocorrência, ligada ao ambiente cujo polígono a contém. Reimportar não
+// duplica o que já está no mesmo lugar.
+export async function importCadBlocks(planId: string, page: number, blocks: { name: string; points: [number, number][] }[]) {
+  const userId = await requireUserId()
+  if (!userId) return { error: 'Não autenticado' }
+  const admin = createAdminClient()
+  const [legend, envs, existing] = await Promise.all([
+    admin.from('plan_legend_items').select('*').eq('plan_id', planId),
+    admin.from('plan_environments').select('id, polygon').eq('plan_id', planId).eq('page', page),
+    admin.from('plan_symbol_occurrences').select('legend_item_id, x, y').eq('plan_id', planId).eq('page', page),
+  ])
+  const items = legend.data ?? []
+  let nextNum = items.reduce((max, i: any) => Math.max(max, parseInt(i.code, 10) || 0), 0) + 1
+  const newItems: any[] = []
+  const newSymbols: any[] = []
+  for (const b of blocks) {
+    if (b.points.length === 0) continue
+    let item: any = items.find((i: any) => (i.description ?? '').trim().toLowerCase() === b.name.trim().toLowerCase())
+    if (!item) {
+      const { data, error } = await admin.from('plan_legend_items').insert({
+        plan_id: planId, code: String(nextNum++).padStart(2, '0'), description: b.name,
+      }).select().single()
+      if (error) return { error: error.message }
+      item = data; items.push(item); newItems.push(item)
+    }
+    const rows = b.points
+      .filter(([x, y]) => !(existing.data ?? []).some((e: any) => e.legend_item_id === item.id && Math.hypot(Number(e.x) - x, Number(e.y) - y) < 0.5))
+      .map(([x, y]) => ({
+        plan_id: planId, page, x, y, legend_item_id: item.id,
+        environment_id: (envs.data ?? []).find((env: any) => pointInPolygon([x, y], env.polygon))?.id ?? null,
+        detection_source: 'automatica', status: 'confirmado', created_by: userId,
+      }))
+    if (rows.length) {
+      const { data, error } = await admin.from('plan_symbol_occurrences').insert(rows).select()
+      if (error) return { error: error.message }
+      newSymbols.push(...(data ?? []))
+    }
+  }
+  revalidatePath(`${BASE_PATH}/${planId}`)
+  return { ok: true, legendItems: newItems, symbols: newSymbols }
 }

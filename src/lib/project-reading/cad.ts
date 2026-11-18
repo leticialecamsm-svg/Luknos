@@ -196,3 +196,155 @@ export async function loadCadFile(buf: ArrayBuffer): Promise<CadModel> {
   try { lib.dwg_free(data) } catch { /* libera memória, não crítico */ }
   return model
 }
+
+// ── Integração com o leitor de projeto ──────────────────────────────────────
+// Cada "região" do desenho (planta, corte, detalhe...) vira uma PÁGINA do
+// leitor. As coordenadas guardadas nas marcações seguem a mesma regra dos
+// PDFs — "pixels do canvas na escala 1", origem no canto superior esquerdo
+// — só que aqui a escala em metros por pixel é exata (vem do próprio CAD,
+// sem calibrar): px = (X - x0) * k  /  py = (y1 - Y) * k.
+
+export interface CadRegion { x0: number; y0: number; x1: number; y1: number; n: number; k: number }
+export interface CadMeta { unitToMeters: number; unitName: string; regions: CadRegion[] }
+
+const MAX_BASE_PX = 2200 // lado maior da região na escala 1
+
+export function computeRegions(model: CadModel): CadRegion[] {
+  const c = 10 / model.unitToMeters // ~10 m
+  const cells = new Map<string, { n: number; x0: number; y0: number; x1: number; y1: number }>()
+  for (let i = 0; i < model.segLayer.length; i++) {
+    if (!model.layers[model.segLayer[i]].visible) continue
+    const x1 = model.segs[i * 4], y1 = model.segs[i * 4 + 1], x2 = model.segs[i * 4 + 2], y2 = model.segs[i * 4 + 3]
+    const k = `${Math.floor((x1 + x2) / 2 / c)},${Math.floor((y1 + y2) / 2 / c)}`
+    const cell = cells.get(k)
+    if (!cell) cells.set(k, { n: 1, x0: Math.min(x1, x2), y0: Math.min(y1, y2), x1: Math.max(x1, x2), y1: Math.max(y1, y2) })
+    else { cell.n++; cell.x0 = Math.min(cell.x0, x1, x2); cell.y0 = Math.min(cell.y0, y1, y2); cell.x1 = Math.max(cell.x1, x1, x2); cell.y1 = Math.max(cell.y1, y1, y2) }
+  }
+  const seen = new Set<string>()
+  const raw: { n: number; x0: number; y0: number; x1: number; y1: number }[] = []
+  cells.forEach((_, start) => {
+    if (seen.has(start)) return
+    const reg = { n: 0, x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+    const stack = [start]; seen.add(start)
+    while (stack.length) {
+      const key = stack.pop()!
+      const cell = cells.get(key)!
+      reg.n += cell.n; reg.x0 = Math.min(reg.x0, cell.x0); reg.y0 = Math.min(reg.y0, cell.y0); reg.x1 = Math.max(reg.x1, cell.x1); reg.y1 = Math.max(reg.y1, cell.y1)
+      const [gx, gy] = key.split(',').map(Number)
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const nk = `${gx + dx},${gy + dy}`
+        if (cells.has(nk) && !seen.has(nk)) { seen.add(nk); stack.push(nk) }
+      }
+    }
+    raw.push(reg)
+  })
+  raw.sort((a, b) => b.n - a.n)
+  const maior = raw[0]?.n ?? 0
+  return raw.filter(r => r.n >= Math.max(30, maior * 0.01)).map(r => {
+    const side = Math.max(r.x1 - r.x0, r.y1 - r.y0, 1e-6)
+    const pad = side * 0.02
+    const reg = { ...r, x0: r.x0 - pad, y0: r.y0 - pad, x1: r.x1 + pad, y1: r.y1 + pad }
+    return { ...reg, k: MAX_BASE_PX / (side + pad * 2) }
+  })
+}
+
+// Desenha uma região no canvas (já dimensionado), na escala de visualização
+// `scale` — mesma lógica de "escala 1 = k px por unidade do desenho".
+export function drawCadRegion(ctx: CanvasRenderingContext2D, model: CadModel, region: CadRegion, scale: number, hidden: Set<string>) {
+  const K = region.k * scale
+  const w = (region.x1 - region.x0) * K, h = (region.y1 - region.y0) * K
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
+  const byLayer = new Map<number, number[]>()
+  for (let i = 0; i < model.segLayer.length; i++) {
+    const l = model.segLayer[i]
+    if (hidden.has(model.layers[l].name)) continue
+    const x1 = model.segs[i * 4], y1 = model.segs[i * 4 + 1], x2 = model.segs[i * 4 + 2], y2 = model.segs[i * 4 + 3]
+    if (Math.max(x1, x2) < region.x0 || Math.min(x1, x2) > region.x1 || Math.max(y1, y2) < region.y0 || Math.min(y1, y2) > region.y1) continue
+    const arr = byLayer.get(l); if (arr) arr.push(i); else byLayer.set(l, [i])
+  }
+  ctx.lineWidth = Math.max(1, Math.min(2, scale * 0.8)); ctx.lineCap = 'round'
+  byLayer.forEach((idx, l) => {
+    ctx.strokeStyle = model.layers[l].color
+    ctx.beginPath()
+    for (const i of idx) {
+      ctx.moveTo((model.segs[i * 4] - region.x0) * K, (region.y1 - model.segs[i * 4 + 1]) * K)
+      ctx.lineTo((model.segs[i * 4 + 2] - region.x0) * K, (region.y1 - model.segs[i * 4 + 3]) * K)
+    }
+    ctx.stroke()
+  })
+  for (const t of model.texts) {
+    if (!t.text || hidden.has(model.layers[t.layer].name)) continue
+    const px = t.h * K
+    if (px < 4 || px > 600) continue
+    if (t.x < region.x0 || t.x > region.x1 || t.y < region.y0 || t.y > region.y1) continue
+    ctx.save(); ctx.translate((t.x - region.x0) * K, (region.y1 - t.y) * K); ctx.rotate(-t.rot)
+    ctx.fillStyle = model.layers[t.layer].color; ctx.font = `${px}px sans-serif`; ctx.fillText(t.text, 0, 0)
+    ctx.restore()
+  }
+}
+
+// ── Snap (pontas, meios e pontos de bloco) ──────────────────────────────────
+export interface SnapIndex { pts: { x: number; y: number; layer: number }[]; grid: Map<string, number[]>; cell: number }
+
+export function buildSnapIndex(model: CadModel): SnapIndex {
+  const pts: SnapIndex['pts'] = []
+  const s = model.segs
+  for (let i = 0; i < model.segLayer.length; i++) {
+    const x1 = s[i * 4], y1 = s[i * 4 + 1], x2 = s[i * 4 + 2], y2 = s[i * 4 + 3], l = model.segLayer[i]
+    pts.push({ x: x1, y: y1, layer: l }, { x: x2, y: y2, layer: l }, { x: (x1 + x2) / 2, y: (y1 + y2) / 2, layer: l })
+  }
+  for (const b of model.inserts) pts.push({ x: b.x, y: b.y, layer: b.layer })
+  const cell = 0.5 / model.unitToMeters
+  const grid = new Map<string, number[]>()
+  pts.forEach((p, i) => {
+    const k = `${Math.floor(p.x / cell)},${Math.floor(p.y / cell)}`
+    const arr = grid.get(k); if (arr) arr.push(i); else grid.set(k, [i])
+  })
+  return { pts, grid, cell }
+}
+
+export function findSnapWorld(idx: SnapIndex, model: CadModel, hidden: Set<string>, wx: number, wy: number, rWorld: number): { x: number; y: number } | null {
+  const n = Math.ceil(rWorld / idx.cell)
+  if (n > 15) return null
+  let best: { x: number; y: number } | null = null, bestD = rWorld
+  const cx = Math.floor(wx / idx.cell), cy = Math.floor(wy / idx.cell)
+  for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
+    const arr = idx.grid.get(`${gx},${gy}`); if (!arr) continue
+    for (const i of arr) {
+      const p = idx.pts[i]
+      if (hidden.has(model.layers[p.layer].name)) continue
+      const d = Math.hypot(p.x - wx, p.y - wy)
+      if (d < bestD) { bestD = d; best = { x: p.x, y: p.y } }
+    }
+  }
+  return best
+}
+
+// Adaptador com a mesma "cara" de uma página do pdf.js — assim o leitor
+// reaproveita todo o caminho de render/zoom/exportação sem mudar nada.
+export function makeCadPdfAdapter(model: CadModel, meta: CadMeta, getHidden: () => Set<string>) {
+  return {
+    numPages: meta.regions.length,
+    getPage: async (n: number) => {
+      const region = meta.regions[Math.min(Math.max(n, 1), meta.regions.length) - 1]
+      return {
+        rotate: 0,
+        getViewport: ({ scale }: { scale: number }) => ({
+          scale, width: Math.ceil((region.x1 - region.x0) * region.k * scale), height: Math.ceil((region.y1 - region.y0) * region.k * scale),
+        }),
+        render: ({ canvasContext, viewport }: { canvasContext: CanvasRenderingContext2D; viewport: { scale: number } }) => {
+          let cancelled = false
+          const promise = new Promise<void>((resolve, reject) => {
+            requestAnimationFrame(() => {
+              if (cancelled) { const e = new Error('cancelled'); e.name = 'RenderingCancelledException'; reject(e); return }
+              drawCadRegion(canvasContext, model, region, viewport.scale, getHidden())
+              resolve()
+            })
+          })
+          return { promise, cancel: () => { cancelled = true } }
+        },
+      }
+    },
+  }
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadCadFile, type CadModel } from '@/lib/project-reading/cad'
+import { loadCadFile, computeRegions, type CadModel } from '@/lib/project-reading/cad'
 import { Loader2, Upload, Ruler, Move, Maximize } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -98,38 +98,7 @@ export function CadLab() {
   // Desenhos de CAD costumam ter vários desenhos no mesmo espaço (planta,
   // cortes, detalhes) e às vezes lixo muito longe. Agrupa os traços em
   // "regiões" (vizinhos a menos de ~20 m) e começa pela maior.
-  const regioes = useMemo(() => {
-    if (!model) return []
-    const c = 10 / model.unitToMeters
-    const cells = new Map<string, { n: number; x0: number; y0: number; x1: number; y1: number }>()
-    for (let i = 0; i < model.segLayer.length; i++) {
-      if (!model.layers[model.segLayer[i]].visible) continue
-      const x1 = model.segs[i * 4], y1 = model.segs[i * 4 + 1], x2 = model.segs[i * 4 + 2], y2 = model.segs[i * 4 + 3]
-      const k = `${Math.floor((x1 + x2) / 2 / c)},${Math.floor((y1 + y2) / 2 / c)}`
-      const cell = cells.get(k)
-      if (!cell) cells.set(k, { n: 1, x0: Math.min(x1, x2), y0: Math.min(y1, y2), x1: Math.max(x1, x2), y1: Math.max(y1, y2) })
-      else { cell.n++; cell.x0 = Math.min(cell.x0, x1, x2); cell.y0 = Math.min(cell.y0, y1, y2); cell.x1 = Math.max(cell.x1, x1, x2); cell.y1 = Math.max(cell.y1, y1, y2) }
-    }
-    const seen = new Set<string>()
-    const out: { n: number; x0: number; y0: number; x1: number; y1: number }[] = []
-    cells.forEach((_, start) => {
-      if (seen.has(start)) return
-      const reg = { n: 0, x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
-      const stack = [start]; seen.add(start)
-      while (stack.length) {
-        const k = stack.pop()!
-        const cell = cells.get(k)!
-        reg.n += cell.n; reg.x0 = Math.min(reg.x0, cell.x0); reg.y0 = Math.min(reg.y0, cell.y0); reg.x1 = Math.max(reg.x1, cell.x1); reg.y1 = Math.max(reg.y1, cell.y1)
-        const [gx, gy] = k.split(',').map(Number)
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-          const nk = `${gx + dx},${gy + dy}`
-          if (cells.has(nk) && !seen.has(nk)) { seen.add(nk); stack.push(nk) }
-        }
-      }
-      out.push(reg)
-    })
-    return out.sort((a, b) => b.n - a.n)
-  }, [model])
+  const regioes = useMemo(() => (model ? computeRegions(model) : []), [model])
 
   function fitBox(x0: number, y0: number, x1: number, y1: number, maxScale = Infinity) {
     const el = wrapRef.current

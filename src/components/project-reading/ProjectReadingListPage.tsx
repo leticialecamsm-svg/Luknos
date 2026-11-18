@@ -21,29 +21,47 @@ export function ProjectReadingListPage({ plans: initialPlans, cadLab }: { plans:
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function handleFile(file: File) {
-    if (file.type !== 'application/pdf') { setError('Selecione um arquivo PDF.'); return }
+    const isCad = /\.(dwg|dxf)$/i.test(file.name)
+    if (isCad && !cadLab) { setError('Arquivos DWG/DXF ainda estão em teste e não estão liberados pra você.'); return }
+    if (!isCad && file.type !== 'application/pdf') { setError(cadLab ? 'Selecione um PDF, DWG ou DXF.' : 'Selecione um arquivo PDF.'); return }
     setError(null)
     setUploading(true)
     try {
-      // Descobre a quantidade de páginas no navegador antes de subir, pra já
-      // salvar certo (evita ter que corrigir depois).
-      setEtapa('Lendo o PDF...')
-      const pdfjsLib = await import('pdfjs-dist')
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-      const buf = await file.arrayBuffer()
-      const doc = await pdfjsLib.getDocument({ data: buf }).promise
-      const numPages = doc.numPages
+      let numPages = 1
+      let cadMeta: unknown = undefined
+      if (isCad) {
+        // DWG/DXF é lido no navegador: cada região do desenho (planta, corte,
+        // detalhe...) vira uma página, e a unidade do arquivo dá a escala.
+        setEtapa('Lendo o desenho (arquivos grandes levam alguns segundos)...')
+        const { loadCadFile, computeRegions } = await import('@/lib/project-reading/cad')
+        const model = await loadCadFile(await file.arrayBuffer())
+        const regions = computeRegions(model)
+        if (regions.length === 0) { setError('Não encontrei desenho nesse arquivo.'); return }
+        numPages = regions.length
+        cadMeta = { unitToMeters: model.unitToMeters, unitName: model.unitName, regions }
+      } else {
+        // Descobre a quantidade de páginas no navegador antes de subir, pra já
+        // salvar certo (evita ter que corrigir depois).
+        setEtapa('Lendo o PDF...')
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+        const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise
+        numPages = doc.numPages
+      }
 
       setEtapa('Enviando arquivo...')
       const prep = await createPlanUpload({ fileName: file.name, sizeBytes: file.size })
       if (prep.error) { setError(prep.error); return }
       if (!prep.path || !prep.token) { setError('Não foi possível preparar o envio'); return }
       const { error: upErr } = await createClient().storage.from('project-plans')
-        .uploadToSignedUrl(prep.path, prep.token, file, { contentType: 'application/pdf' })
+        .uploadToSignedUrl(prep.path, prep.token, file, { contentType: isCad ? 'application/octet-stream' : 'application/pdf' })
       if (upErr) { setError(`Falha no envio: ${upErr.message}`); return }
 
       setEtapa('Salvando planta...')
-      const res = await finalizePlan({ storagePath: prep.path, fileName: file.name, name: file.name.replace(/\.pdf$/i, ''), numPages })
+      const res = await finalizePlan({
+        storagePath: prep.path, fileName: file.name, name: file.name.replace(/\.(pdf|dwg|dxf)$/i, ''), numPages,
+        ...(isCad ? { sourceType: 'cad' as const, cadMeta } : {}),
+      })
       if (res?.error) { setError(res.error); return }
       if (res?.plan) router.push(`/dashboard/project-reading/${res.plan.id}`)
     } catch (e: any) {
@@ -77,10 +95,10 @@ export function ProjectReadingListPage({ plans: initialPlans, cadLab }: { plans:
         onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
         className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-surface-border hover:border-brand-400 rounded-card py-12 cursor-pointer transition-colors bg-gradient-card shadow-card"
       >
-        <input ref={inputRef} type="file" accept="application/pdf" className="hidden"
+        <input ref={inputRef} type="file" accept={cadLab ? 'application/pdf,.dwg,.dxf' : 'application/pdf'} className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
         {uploading ? <Loader2 className="w-8 h-8 text-brand-500 animate-spin" /> : <Upload className="w-8 h-8 text-navy-muted/50" />}
-        <p className="text-sm font-medium text-navy-muted">{uploading ? (etapa || 'Processando PDF...') : 'Clique ou arraste um PDF aqui'}</p>
+        <p className="text-sm font-medium text-navy-muted">{uploading ? (etapa || 'Processando PDF...') : `Clique ou arraste um PDF aqui${cadLab ? ' (ou DWG/DXF)' : ''}`}</p>
       </label>
       {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
 
