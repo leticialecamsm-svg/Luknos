@@ -10,4 +10,10 @@ const nextConfig = {
     serverActions: { bodySizeLimit: '20mb' },
   },
 }
+// O glue WebAssembly do leitor de DWG (libredwg) cita módulos do Node que não
+// existem no navegador — sem isso o bundle do cliente não compila.
+nextConfig.webpack = (config, { isServer }) => {
+  if (!isServer) config.resolve.fallback = { ...config.resolve.fallback, fs: false, path: false, module: false, crypto: false }
+  return config
+}
 module.exports = nextConfig

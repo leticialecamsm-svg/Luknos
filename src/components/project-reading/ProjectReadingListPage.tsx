@@ -12,7 +12,7 @@ interface PlanRow {
   status: string; created_at: string; users?: { name: string } | null
 }
 
-export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow[] }) {
+export function ProjectReadingListPage({ plans: initialPlans, cadLab }: { plans: PlanRow[]; cadLab?: boolean }) {
   const router = useRouter()
   const [plans, setPlans] = useState(initialPlans)
   const [uploading, setUploading] = useState(false)
@@ -65,6 +65,11 @@ export function ProjectReadingListPage({ plans: initialPlans }: { plans: PlanRow
       <div>
         <h1 className="text-2xl font-bold text-navy">Leitura de Projeto</h1>
         <p className="text-sm text-navy-muted">Suba uma planta luminotécnica em PDF pra marcar ambientes, legenda, símbolos e medições — sem precisar de régua ou app externo.</p>
+        {cadLab && (
+          <Link href="/dashboard/project-reading/cad-lab" className="inline-block mt-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg px-2.5 py-1">
+            🧪 Laboratório CAD (protótipo — abre DWG/DXF)
+          </Link>
+        )}
       </div>
 
       <label

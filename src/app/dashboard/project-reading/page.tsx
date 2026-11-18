@@ -12,5 +12,7 @@ export default async function ProjectReadingPage() {
   if (!user) redirect('/auth/login')
 
   const plans = await listPlans()
-  return <ProjectReadingListPage plans={plans as any[]} />
+  // Protótipo de leitura de DWG/DXF: link só pra quem pode ver (sem menu).
+  const cadLab = ['leticialecamsm@gmail.com'].includes((user.email ?? '').toLowerCase())
+  return <ProjectReadingListPage plans={plans as any[]} cadLab={cadLab} />
 }
