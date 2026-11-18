@@ -144,15 +144,16 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
     if (!bulge) return [[p.x, p.y], [q.x, q.y]]
     const dx = q.x - p.x, dy = q.y - p.y
     const chord = Math.hypot(dx, dy)
-    const theta = 4 * Math.atan(bulge)
-    const r = chord / (2 * Math.sin(theta / 2))
-    const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2
-    const off = Math.sqrt(Math.max(0, r * r - (chord / 2) ** 2)) * Math.sign(bulge) * Math.sign(r)
-    const cx = mx - (dy / chord) * off, cy = my + (dx / chord) * off
+    if (chord < 1e-12) return [[p.x, p.y]]
+    const theta = 4 * Math.atan(bulge) // com sinal: positivo = anti-horário
+    // centro = ponto médio + normal esquerda × (corda/2)·(1−b²)/(2b) (o sinal de b decide o lado)
+    const k = (chord * (1 - bulge * bulge)) / (4 * bulge)
+    const cx = (p.x + q.x) / 2 - (dy / chord) * k, cy = (p.y + q.y) / 2 + (dx / chord) * k
+    const R = Math.hypot(p.x - cx, p.y - cy)
     const a0 = Math.atan2(p.y - cy, p.x - cx)
     const n = Math.max(2, Math.ceil(Math.abs(theta) / (Math.PI / 12)))
     const out: [number, number][] = []
-    for (let i = 0; i <= n; i++) { const a = a0 + (theta * i) / n; out.push([cx + Math.abs(r) * Math.cos(a), cy + Math.abs(r) * Math.sin(a)]) }
+    for (let i = 0; i <= n; i++) { const a = a0 + (theta * i) / n; out.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]) }
     return out
   }
   const cleanText = (t: string) => String(t ?? '')
@@ -228,8 +229,13 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
             rings.push(f)
           }
           if (rings.length) {
-            const solid = !!e.solidFill || e.patternName === 'SOLID'
-            fills.push({ rings, col: curCol, layer: li, alpha: solid ? 1 : 0.4, obj: objs.length }); layers[li].segs++
+            const solid = !!e.solidFill || String(e.patternName).startsWith('SOLID')
+            // degradê: usa a primeira cor do degradê (as 24 bits baixas do RGB verdadeiro)
+            const gc = e.gradientFlag ? e.gradientColors?.[0]?.rgb : undefined
+            const col = typeof gc === 'number' ? palIdx('#' + (gc & 0xffffff).toString(16).padStart(6, '0')) : curCol
+            // transparência da entidade (tipo 2 = valor 0–255, 255 = opaco)
+            const tr = e.transparencyType === 2 && typeof e.transparency === 'number' ? Math.min(1, Math.max(0, e.transparency / 255)) : 1
+            fills.push({ rings, col, layer: li, alpha: (solid ? 1 : 0.4) * tr, obj: objs.length }); layers[li].segs++
           }
           break
         }
