@@ -9,6 +9,7 @@ type Tool = 'mover' | 'medir'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 interface Medida { a: Snap; b: Snap }
 
+const cor = (c: string) => (['#1f2937', '#374151', '#4b5563'].includes(c) ? '#e5e7eb' : c)
 export function CadLab() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -20,6 +21,7 @@ export function CadLab() {
   const [layerVis, setLayerVis] = useState<boolean[]>([])
   const [layerFilter, setLayerFilter] = useState('')
   const [tool, setTool] = useState<Tool>('mover')
+  const BG = '#1b1d23'
   const [selBlock, setSelBlock] = useState<string | null>(null)
   const [medidas, setMedidas] = useState<Medida[]>([])
   const [pendente, setPendente] = useState<Snap | null>(null)
@@ -114,13 +116,17 @@ export function CadLab() {
     const r = regioes[i]
     if (r) fitBox(r.x0, r.y0, r.x1, r.y1)
   }
-  function irParaBloco(nome: string) {
+  const instIdx = useRef(0)
+  // Vai para UMA instância do bloco (as cópias podem estar a km umas das outras),
+  // com zoom perto o bastante pra enxergar o desenho. Clicar de novo vai pra próxima.
+  function irParaBloco(nome: string, proximo = false) {
     if (!model) return
     const list = model.inserts.filter(b => b.name === nome)
     if (!list.length) return
-    const xs = list.map(b => b.x), ys = list.map(b => b.y)
-    const pad = 2 / model.unitToMeters
-    fitBox(Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad, 60 * model.unitToMeters ** -1)
+    instIdx.current = proximo ? (instIdx.current + 1) % list.length : 0
+    const b = list[instIdx.current]
+    const half = 1.5 / model.unitToMeters // ~3 m de largura
+    fitBox(b.x - half, b.y - half, b.x + half, b.y + half)
   }
   useEffect(() => { if (model && regioes.length) fit(0) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [model, regioes])
 
@@ -133,7 +139,7 @@ export function CadLab() {
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr }
     const ctx = canvas.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
     if (!model) return
     const { scale } = view.current
     const [wx0, wy1] = toWorld(0, 0, w, h), [wx1, wy0] = toWorld(w, h, w, h)
@@ -147,7 +153,7 @@ export function CadLab() {
     }
     ctx.lineWidth = 1; ctx.lineCap = 'round'
     byLayer.forEach((idx, l) => {
-      ctx.strokeStyle = model.layers[l].color
+      ctx.strokeStyle = cor(model.layers[l].color)
       ctx.beginPath()
       for (const i of idx) {
         const [a, b] = toScreen(model.segs[i * 4], model.segs[i * 4 + 1], w, h)
@@ -163,7 +169,7 @@ export function CadLab() {
       const [x, y] = toScreen(t.x, t.y, w, h)
       if (x < -200 || x > w + 200 || y < -50 || y > h + 50) continue
       ctx.save(); ctx.translate(x, y); ctx.rotate(-t.rot)
-      ctx.fillStyle = model.layers[t.layer].color; ctx.font = `${px}px sans-serif`; ctx.fillText(t.text, 0, 0)
+      ctx.fillStyle = cor(model.layers[t.layer].color); ctx.font = `${px}px sans-serif`; ctx.fillText(t.text, 0, 0)
       ctx.restore()
     }
     if (selBlock) {
@@ -184,7 +190,7 @@ export function CadLab() {
       const label = `${fm(a, b).toFixed(2)} m`
       ctx.font = 'bold 12px sans-serif'
       const mx = (x1 + x2) / 2, my = (y1 + y2) / 2
-      ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.strokeText(label, mx + 4, my - 4); ctx.lineWidth = 2
+      ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, mx + 4, my - 4); ctx.lineWidth = 2
       ctx.fillStyle = color; ctx.fillText(label, mx + 4, my - 4)
     }
     for (const m of medidas) draw(m.a, m.b, '#dc2626')
@@ -296,7 +302,7 @@ export function CadLab() {
                 {cursor && ` · x ${cursor.x.toFixed(2)} y ${cursor.y.toFixed(2)}`}
               </span>
             </div>
-            <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden bg-white" style={{ height: '70vh', cursor: tool === 'medir' ? 'crosshair' : drag.current ? 'grabbing' : 'grab' }}
+            <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '70vh', cursor: tool === 'medir' ? 'crosshair' : drag.current ? 'grabbing' : 'grab' }}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}>
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
               {hover && <div className="absolute left-2 bottom-2 text-[11px] bg-white/90 border border-gray-200 rounded px-2 py-0.5 text-green-700 font-medium">snap: {hover.kind}</div>}
@@ -334,10 +340,10 @@ export function CadLab() {
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Blocos no desenho ({blocos.reduce((s, b) => s + b[1], 0)})</p>
-              <p className="text-[10px] text-gray-400 mb-1">Cada bloco é um símbolo repetido (luminária, seta...). Clique pra destacar onde estão.</p>
+              <p className="text-[10px] text-gray-400 mb-1">Cada bloco é um símbolo repetido (luminária, seta...). Clique pra ir até um; clique de novo pra ir pro próximo.</p>
               <div className="space-y-0.5 max-h-52 overflow-y-auto">
                 {blocos.map(([nome, n]) => (
-                  <button key={nome} onClick={() => { const on = selBlock !== nome; setSelBlock(on ? nome : null); if (on) irParaBloco(nome) }}
+                  <button key={nome} onClick={() => { if (selBlock === nome) { irParaBloco(nome, true) } else { setSelBlock(nome); irParaBloco(nome) } }}
                     className={cn('w-full flex justify-between text-xs rounded px-1.5 py-0.5 text-left', selBlock === nome ? 'bg-fuchsia-100 text-fuchsia-800' : 'hover:bg-gray-50 text-gray-700')}>
                     <span className="truncate">{nome}</span><b className="ml-2">{n}</b>
                   </button>
