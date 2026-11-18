@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
-import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock } from '@/lib/project-reading/cad-library-actions'
+import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
   RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes,
@@ -117,7 +117,9 @@ export function CadLab() {
   const [textEdit, setTextEdit] = useState<null | { kind: 'text' | 'arrow'; x: number; y: number; tip?: number[]; id?: number; value: string }>(null)
   const textEditRef = useRef(textEdit); textEditRef.current = textEdit
   // biblioteca
-  const [lib, setLib] = useState<{ id: string; name: string; data: LibBlock }[]>([])
+  const [lib, setLib] = useState<CadLibRow[]>([])
+  const [openFam, setOpenFam] = useState<string | null>(null)
+  const [stateMenu, setStateMenu] = useState(false)
   const [libMsg, setLibMsg] = useState<string | null>(null)
   const [libFilter, setLibFilter] = useState('')
   const [cand, setCand] = useState<LibBlock[] | null>(null)
@@ -841,6 +843,7 @@ export function CadLab() {
     }
   }
 
+  useEffect(() => { setStateMenu(false) }, [sel])
   useEffect(() => {
     setDraft([]); if (tool !== 'inserir') setPlacing(null)
     // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
@@ -881,9 +884,9 @@ export function CadLab() {
   useEffect(() => {
     listCadLibrary().then(r => { if (r.rows) setLib(r.rows); else if (r.error) setLibMsg(r.error) }).catch(() => {})
   }, [])
-  function startPlace(b: LibBlock) {
-    const m = modelRef.current
-    if (!m) return
+  // coloca a definição do bloco no desenho aberto (uma vez por bloco) e devolve o índice do objeto
+  function ensureObj(b: LibBlock): number {
+    const m = modelRef.current!
     let obj = libObj.current.get(b.name)
     if (obj === undefined) {
       const r = appendLibBlock(m, b)
@@ -891,7 +894,63 @@ export function CadLab() {
       if (r.layerAdded) setLayerVis(v => [...v, true])
       obj = r.obj; libObj.current.set(b.name, obj)
     }
-    setPlacing({ name: b.name, obj, s: b.unitToMeters / m.unitToMeters }); setTool('inserir')
+    return obj
+  }
+  function startPlace(b: LibBlock) {
+    const m = modelRef.current
+    if (!m) return
+    setPlacing({ name: b.name, obj: ensureObj(b), s: b.unitToMeters / m.unitToMeters }); setTool('inserir')
+  }
+
+  // ── Famílias e estados ───────────────────────────────────────────────────
+  // Família = campo "family" (manual) ou o nome sem o número final ("Vigo 10 focos" → "Vigo")
+  const autoStem = (name: string) => name.replace(/[\s_-]*\d+([.,]\d+)?\s*[^\d\s]*\s*$/, '').trim()
+  const groups = useMemo(() => {
+    const stems = new Map<string, number>()
+    for (const r of lib) { const k = r.family?.trim() || autoStem(r.name); if (k) stems.set(k, (stems.get(k) ?? 0) + 1) }
+    const m = new Map<string, CadLibRow[]>()
+    for (const r of lib) {
+      const st = r.family?.trim() || autoStem(r.name)
+      const k = st && (r.family?.trim() || (stems.get(st) ?? 0) > 1) ? st : r.name
+      const arr = m.get(k); if (arr) arr.push(r); else m.set(k, [r])
+    }
+    m.forEach(arr => arr.sort((x, y) => x.name.localeCompare(y.name, 'pt-BR', { numeric: true })))
+    return Array.from(m.entries()).sort((x, y) => x[0].localeCompare(y[0], 'pt-BR', { numeric: true }))
+  }, [lib])
+  const groupOfName = useMemo(() => {
+    const m = new Map<string, { key: string; rows: CadLibRow[] }>()
+    for (const [key, rows] of groups) for (const r of rows) m.set(r.name, { key, rows })
+    return m
+  }, [groups])
+  // seleção atual: só blocos da biblioteca, todos da mesma família com 2+ estados → mostra o menu de estado
+  const stateInfo = (() => {
+    if (!model || tool !== 'select' || !sel.length || sel.some(k => k[0] !== 'c')) return null
+    let fam: { key: string; rows: CadLibRow[] } | null = null
+    const cur = new Set<string>()
+    for (const k of sel) {
+      const c = ed.cp.find(c => c.id === Number(k.slice(1))); const o = c ? model.objs[c.src] : null
+      if (!o || o.kind !== 'LIB') return null
+      const g = groupOfName.get(o.name); if (!g || g.rows.length < 2) return null
+      if (fam && fam.key !== g.key) return null
+      fam = g; cur.add(o.name)
+    }
+    if (!fam) return null
+    const bb = unionBox(ed, sel)
+    return bb ? { fam, cur, bb } : null
+  })()
+  function changeState(row: CadLibRow) {
+    if (!stateInfo || !modelRef.current) return
+    const obj = ensureObj(row.data)
+    const ids = new Set(sel.map(k => Number(k.slice(1))))
+    commit({ ...edRef.current, cp: edRef.current.cp.map(c => (ids.has(c.id) ? { ...c, src: obj } : c)) })
+    setStateMenu(false)
+  }
+  async function renameFamily(r: CadLibRow) {
+    const v = window.prompt(`Família do bloco "${r.name}" (vazio = automática pelo nome):`, r.family ?? autoStem(r.name))
+    if (v === null) return
+    const res = await setCadLibraryFamily(r.id, v)
+    if (res.error) { setLibMsg(res.error); return }
+    setLib(l => l.map(x => (x.id === r.id ? { ...x, family: v.trim() || null } : x)))
   }
   async function onLibFile(file: File) {
     if (file.size > 60e6) { setLibMsg(`Esse arquivo tem ${(file.size / 1e6).toFixed(0)} MB — pesado demais pro navegador. No AutoCAD: rode -PURGE (Tudo) e salve, ou use WBLOCK só com os blocos que quer e suba o arquivo menor (idealmente até uns 30 MB).`); return }
@@ -1043,6 +1102,25 @@ export function CadLab() {
                     className="text-xs px-2 py-1 rounded border border-amber-400 bg-white text-gray-800 shadow-lg z-10" />
                 )
               })()}
+              {stateInfo && (() => {
+                const el = wrapRef.current
+                const [sx, sy] = toScreen((stateInfo.bb[0] + stateInfo.bb[2]) / 2, stateInfo.bb[1], el?.clientWidth ?? 0, el?.clientHeight ?? 0)
+                return (
+                  <div style={{ position: 'absolute', left: sx - 10, top: sy + 6 }} className="z-10" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    <button onClick={() => setStateMenu(v => !v)} title="Trocar o estado do bloco" className="w-5 h-5 flex items-center justify-center bg-red-700/90 hover:bg-red-600 text-white text-[9px] rounded-sm" style={{ clipPath: 'polygon(0 0,100% 0,50% 100%)', paddingBottom: 2 }}>▼</button>
+                    {stateMenu && (
+                      <div style={{ position: 'absolute', left: 0, top: sy + 30 + (stateInfo.fam.rows.length * 26 + 28) > (el?.clientHeight ?? 0) ? -(stateInfo.fam.rows.length * 26 + 28) - 4 : 24 }} className="min-w-[150px] bg-white/95 backdrop-blur rounded-lg border border-gray-200 shadow-xl py-1">
+                        <p className="px-3 py-0.5 text-[10px] text-gray-400 uppercase">{stateInfo.fam.key}</p>
+                        {stateInfo.fam.rows.map(r => (
+                          <button key={r.id} onClick={() => changeState(r)} className="w-full text-left px-3 py-1 text-xs hover:bg-brand-50 flex items-center gap-1.5 text-gray-800">
+                            <span className="w-3 text-brand-600">{stateInfo.cur.size === 1 && stateInfo.cur.has(r.name) ? '✓' : ''}</span>{r.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               {hover && <div className="absolute left-2 bottom-2 text-[11px] bg-white/90 border border-gray-200 rounded px-2 py-0.5 text-green-700 font-medium">snap: {hover.kind}</div>}
               {tool !== 'select' && tool !== 'pan' && (
                 <div className="absolute left-2 top-2 text-[11px] bg-amber-50 border border-amber-200 rounded px-2 py-0.5 text-amber-700">
@@ -1111,13 +1189,35 @@ export function CadLab() {
               )}
               {lib.length > 6 && <input value={libFilter} onChange={e => setLibFilter(e.target.value)} placeholder="buscar bloco..." className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 mb-1" />}
               {lib.length === 0 && !cand && <p className="text-xs text-gray-400">Ainda vazia. Use "importar arquivo" com o seu DWG/DXF de blocos padrão.</p>}
-              <div className="max-h-60 overflow-y-auto grid grid-cols-3 gap-1.5">
-                {lib.filter(r => r.name.toLowerCase().includes(libFilter.toLowerCase())).map(r => (
-                  <div key={r.id} className={cn('relative group border rounded-lg p-1 text-center cursor-pointer hover:border-brand-400', placing?.name === r.name && tool === 'inserir' ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}
-                    onClick={() => startPlace(r.data)} title={r.name}>
-                    <div className="flex justify-center"><BlockThumb b={r.data} /></div>
-                    <p className="text-[10px] text-gray-600 truncate mt-0.5">{r.name}</p>
-                    <button onClick={ev => { ev.stopPropagation(); removeLib(r.id, r.name) }} className="absolute top-0.5 right-0.5 hidden group-hover:block text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+              <div className="max-h-72 overflow-y-auto grid grid-cols-3 gap-1.5">
+                {groups.filter(([k, rows]) => (k + rows.map(r => r.name).join(' ')).toLowerCase().includes(libFilter.toLowerCase())).map(([key, rows]) => (
+                  <div key={key} className={cn('relative group border rounded-lg p-1 text-center cursor-pointer hover:border-brand-400', rows.some(r => placing?.name === r.name) && tool === 'inserir' ? 'border-brand-500 bg-brand-50' : 'border-gray-200', openFam === key && 'col-span-3')}
+                    onClick={() => (rows.length > 1 ? setOpenFam(openFam === key ? null : key) : startPlace(rows[0].data))} title={key}>
+                    {openFam === key ? (
+                      <div onClick={ev => ev.stopPropagation()} className="text-left">
+                        <p className="text-[11px] font-semibold text-gray-700 mb-1">{key} — {rows.length} estados <button onClick={() => setOpenFam(null)} className="text-gray-400 font-normal ml-1">fechar</button></p>
+                        {rows.map(r => (
+                          <div key={r.id} className="flex items-center gap-1.5 text-xs py-0.5">
+                            <button onClick={() => startPlace(r.data)} title="Colocar no desenho"><BlockThumb b={r.data} /></button>
+                            <span className="flex-1 truncate">{r.name}</span>
+                            <button onClick={() => renameFamily(r)} className="text-[10px] text-brand-600 underline">família</button>
+                            <button onClick={() => removeLib(r.id, r.name)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-center"><BlockThumb b={rows[0].data} /></div>
+                        <p className="text-[10px] text-gray-600 truncate mt-0.5">{key}</p>
+                        {rows.length > 1 && <span className="absolute top-0.5 left-0.5 text-[9px] bg-brand-600 text-white rounded px-1">{rows.length} estados</span>}
+                        {rows.length === 1 && (
+                          <>
+                            <button onClick={ev => { ev.stopPropagation(); removeLib(rows[0].id, rows[0].name) }} className="absolute top-0.5 right-0.5 hidden group-hover:block text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                            <button onClick={ev => { ev.stopPropagation(); renameFamily(rows[0]) }} className="absolute top-0.5 left-0.5 hidden group-hover:block text-[9px] text-brand-600 underline bg-white/80 rounded px-0.5">família</button>
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

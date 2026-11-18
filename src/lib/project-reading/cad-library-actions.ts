@@ -12,9 +12,11 @@ async function requireUserId(): Promise<string | null> {
   return user?.id ?? null
 }
 
-export async function listCadLibrary(): Promise<{ rows?: { id: string; name: string; data: LibBlock }[]; error?: string }> {
+export interface CadLibRow { id: string; name: string; data: LibBlock; family: string | null }
+
+export async function listCadLibrary(): Promise<{ rows?: CadLibRow[]; error?: string }> {
   if (!(await requireUserId())) return { error: 'Não autenticado' }
-  const { data, error } = await createAdminClient().from('cad_block_library').select('id, name, data').order('name')
+  const { data, error } = await createAdminClient().from('cad_block_library').select('id, name, data, family').order('name')
   if (error) return { error: error.message }
   return { rows: (data ?? []) as any }
 }
@@ -35,5 +37,12 @@ export async function saveCadLibraryBlock(block: LibBlock): Promise<{ error?: st
 export async function deleteCadLibraryBlock(id: string): Promise<{ error?: string }> {
   if (!(await requireUserId())) return { error: 'Não autenticado' }
   const { error } = await createAdminClient().from('cad_block_library').delete().eq('id', id)
+  return error ? { error: error.message } : {}
+}
+
+// Define (ou limpa, com vazio) a família de um bloco: blocos da mesma família viram "estados" um do outro.
+export async function setCadLibraryFamily(id: string, family: string): Promise<{ error?: string }> {
+  if (!(await requireUserId())) return { error: 'Não autenticado' }
+  const { error } = await createAdminClient().from('cad_block_library').update({ family: family.trim() || null }).eq('id', id)
   return error ? { error: error.message } : {}
 }
