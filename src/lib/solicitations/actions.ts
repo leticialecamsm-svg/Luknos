@@ -1146,23 +1146,29 @@ export async function createQuoteForSolicitation(
   }).select('id').maybeSingle()
   if (error) return { error: error.message }
 
-  // Popula quote_owners a partir do responsável da etapa orçamento
+  // Popula quote_owners a partir do responsável da etapa orçamento.
+  // Sem responsável definido, quem criou o orçamento vira o dono — antes o
+  // orçamento ficava SEM dono e a venda não entrava no dashboard de ninguém.
   if (inserted?.id) {
     const { data: stageResps } = await db
       .from('solicitation_stage_responsibles')
       .select('user_id, stage')
       .eq('solicitation_id', solicitationId)
       .in('stage', ['orcamento', 'negociacao'])
+    let owners: { quote_id: string; user_id: string; role: string }[]
     if (stageResps && stageResps.length > 0) {
       const orcamentoIds = new Set<string>(stageResps.filter((r: any) => r.stage === 'orcamento').map((r: any) => r.user_id as string))
       const allIdsList = Array.from(new Set<string>(stageResps.map((r: any) => r.user_id as string)))
-      const owners = allIdsList.map((uid) => ({
+      owners = allIdsList.map((uid) => ({
         quote_id: inserted.id,
         user_id: uid,
         role: orcamentoIds.has(uid) ? 'primary' : 'collaborator',
       }))
-      await db.from('quote_owners').insert(owners)
+    } else {
+      owners = [{ quote_id: inserted.id, user_id: user.id, role: 'primary' }]
     }
+    const { error: ownErr } = await db.from('quote_owners').insert(owners)
+    if (ownErr) console.error('[createQuoteForSolicitation] quote_owners:', ownErr.message)
   }
 
   await logSolicitationEvent(solicitationId, 'orcamento', 'Orçamento criado', user.id)
@@ -1666,6 +1672,25 @@ export async function setStageResponsibles(
     }))
     const { error: insErr } = await db.from('solicitation_stage_responsibles').insert(rows)
     if (insErr) return { error: insErr.message }
+
+    // Responsável de orçamento/negociação escolhido depois: vira dono dos
+    // orçamentos da solicitação que ainda estão sem dono (senão a venda não
+    // aparece no dashboard). Orçamentos que já têm dono não são mexidos.
+    if (stage === 'orcamento' || stage === 'negociacao') {
+      const { data: sq } = await db.from('quotes').select('id').eq('solicitation_id', solicitationId)
+      const quoteIds = (sq ?? []).map((q: any) => q.id as string)
+      if (quoteIds.length) {
+        const { data: existing } = await db.from('quote_owners').select('quote_id').in('quote_id', quoteIds)
+        const owned = new Set((existing ?? []).map((o: any) => o.quote_id as string))
+        const ownerRows = quoteIds.filter(id => !owned.has(id)).flatMap(qid =>
+          userIds.map((uid, i) => ({ quote_id: qid, user_id: uid, role: i === 0 && stage === 'orcamento' ? 'primary' : 'collaborator' }))
+        )
+        if (ownerRows.length) {
+          const { error: ownErr } = await db.from('quote_owners').insert(ownerRows)
+          if (ownErr) console.error('[setStageResponsibles] quote_owners:', ownErr.message)
+        }
+      }
+    }
   }
   await logSolicitationEvent(solicitationId, stage, `Responsáveis da etapa atualizados`, user.id)
   refresh(solicitationId)
