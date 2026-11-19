@@ -6,6 +6,7 @@ import { formatDayLabel, sameDay } from './crm-time'
 export interface LayoutMsg {
   direction: 'inbound' | 'outbound'
   sender_user_id: string | null
+  from_phone?: boolean
   acted_by_name?: string | null
   participant_jid?: string | null
   participant_name?: string | null
@@ -20,7 +21,7 @@ export interface LayoutSlot {
 
 function author(m: LayoutMsg): string {
   if (m.is_system) return 'system'
-  if (m.direction === 'outbound') return `out:${m.sender_user_id ?? 'phone'}:${m.acted_by_name ?? ''}`
+  if (m.direction === 'outbound') return `out:${m.from_phone ? 'phone' : (m.sender_user_id ?? 'phone')}:${m.acted_by_name ?? ''}`
   return `in:${m.participant_jid ?? m.participant_name ?? ''}`
 }
 

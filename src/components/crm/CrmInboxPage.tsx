@@ -100,6 +100,8 @@ interface Msg {
   id: string
   direction: 'inbound' | 'outbound'
   sender_user_id: string | null
+  // enviada pelo celular (fora do CRM): mostra sempre o ícone do celular, nunca o consultor
+  from_phone?: boolean
   sender_name: string | null
   sender_avatar_url?: string | null
   sender_avatar_color?: string | null
@@ -191,7 +193,7 @@ function withMyReaction(chips: ReactionChip[], emoji: string): ReactionChip[] {
   return out
 }
 
-const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed', 'ad_context'] as const
+const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'from_phone', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed', 'ad_context'] as const
 
 const DRAFTS_KEY = 'crm-drafts'
 function readDrafts(): Record<string, string> {
@@ -589,7 +591,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     const m: Record<string, any> = { ...(prev ?? { reactions: [] }) }
     // só os campos que vieram: num UPDATE, texto/miniatura grandes que não mudaram podem não vir
     for (const k of MSG_FIELDS) if (k in r) m[k] = r[k]
-    if (!prev) {
+    if (!prev || ('sender_user_id' in r && r.sender_user_id !== prev.sender_user_id)) {
       m.sender_name = r.sender_user_id ? usersById.get(r.sender_user_id)?.name ?? null : null
       m.sender_avatar_url = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_url ?? null : null
       m.sender_avatar_color = r.sender_user_id ? usersById.get(r.sender_user_id)?.avatar_color ?? null : null
@@ -2354,7 +2356,7 @@ function MessageBubble({
 
   // Um administrador respondeu "como" o atendente: o balão é do atendente (assinatura),
   // mas mostramos também quem de fato enviou, com destaque âmbar.
-  const acted = isOutbound && !!msg.acted_by_name && !!msg.sender_name
+  const acted = isOutbound && !!msg.acted_by_name && !!msg.sender_name && !msg.from_phone
   const speaker = !isOutbound && isGroup ? (msg.participant_name ?? 'Participante') : null
 
   // Sem avatar a cada mensagem: só nos grupos, ao lado da primeira de cada sequência de quem falou.
@@ -2374,11 +2376,13 @@ function MessageBubble({
   // no balão, mas o avatar de quem enviou continua ao lado.
   const isStickerMsg = msg.message_type === 'image' && (msg.mime_type ?? '').includes('webp')
   const carriesSignature = msg.message_type === 'text' || (['image', 'video', 'document'].includes(msg.message_type) && !isStickerMsg)
+  const viaPhone = isOutbound && !!msg.from_phone
   const outLabel = !isOutbound ? null
+    : viaPhone ? (first ? 'Pelo celular' : null)
     : msg.sender_name ? (carriesSignature && (msg.signed ?? !hideSignature) ? `${msg.sender_name}:` : null)
     : (first ? 'Pelo celular' : null)
   const outAvatar = isOutbound ? (
-    msg.sender_name ? (
+    msg.sender_name && !viaPhone ? (
       msg.acted_by_name
         ? <Avatar user={{ name: msg.acted_by_name, avatar_url: msg.acted_by_avatar_url, avatar_color: msg.acted_by_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.acted_by_name} (como ${msg.sender_name})`} />
         : <Avatar user={{ name: msg.sender_name, avatar_url: msg.sender_avatar_url, avatar_color: msg.sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.sender_name}`} />
