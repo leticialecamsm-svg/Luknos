@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, RotateCcw, Server, WifiOff, XCircle, Wrench, Info } from 'lucide-react'
-import { getCrmConnections, restartCrmInstance, type ConnectionEvent, type ConnectionRow } from '@/lib/crm-actions'
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, RotateCcw, Server, WifiOff, XCircle, Wrench, Info, QrCode, X } from 'lucide-react'
+import { getCrmConnections, restartCrmInstance, relinkCrmInstance, connectCrmInstance, getCrmInstanceConnectionState, type ConnectionEvent, type ConnectionRow } from '@/lib/crm-actions'
 import { useToast } from '@/components/ui/Toast'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { cn } from '@/lib/utils'
@@ -34,6 +34,7 @@ const KIND: Record<string, { label: string; cls: string; Icon: typeof CheckCircl
   restart_manual: { label: 'Reinício pedido', cls: 'text-blue-700 bg-blue-50', Icon: RotateCcw },
   restart_auto: { label: 'Reinício automático', cls: 'text-blue-700 bg-blue-50', Icon: RotateCcw },
   restart_failed: { label: 'Reinício falhou', cls: 'text-red-600 bg-red-50', Icon: XCircle },
+  relink: { label: 'Reconexão por QR', cls: 'text-blue-700 bg-blue-50', Icon: QrCode },
   send_failed: { label: 'Envio falhou', cls: 'text-gray-700 bg-gray-100', Icon: WifiOff },
 }
 
@@ -51,6 +52,7 @@ export function CrmConnections({ initial }: { initial: Data }) {
   const [data, setData] = useState<Data>(initial)
   const [filter, setFilter] = useState<string>('all') // all | server | <instance id>
   const [busy, setBusy] = useState<string | null>(null)
+  const [qr, setQr] = useState<{ row: ConnectionRow; img?: string; pairing?: string | null; loading: boolean; error?: string } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
@@ -81,6 +83,37 @@ export function CrmConnections({ initial }: { initial: Data }) {
     reload()
   }
 
+  // Reconectar de vez: desconecta a sessão travada e mostra o QR para ler no celular do número.
+  async function relink(r: ConnectionRow) {
+    const ok = await confirm(
+      `Reconectar "${r.label}" com novo QR code? A sessão atual é desconectada e você precisa ler o QR no celular desse número (WhatsApp → Aparelhos conectados). Depois disso o número volta a receber. O que chegou enquanto estava parado não volta para o CRM: fica só no celular.`,
+      'Gerar QR code',
+    )
+    if (!ok) return
+    setQr({ row: r, loading: true })
+    const res: any = await relinkCrmInstance(r.id)
+    if (res.error) { setQr({ row: r, loading: false, error: res.error }); return }
+    if (res.alreadyConnected) { setQr({ row: r, loading: false, error: 'O número ainda aparece conectado. Tente de novo em alguns segundos.' }); return }
+    setQr({ row: r, loading: false, img: res.qrcodeBase64, pairing: res.pairingCode, error: res.qrcodeBase64 ? undefined : 'A Evolution não devolveu o QR code.' })
+  }
+  async function newQr(r: ConnectionRow) {
+    setQr({ row: r, loading: true })
+    const res: any = await connectCrmInstance(r.instance_name)
+    if (res.error) { setQr({ row: r, loading: false, error: res.error }); return }
+    if (res.alreadyConnected) { setQr(null); toast.success('WHATSAPP CONECTADO', r.label); reload(); return }
+    setQr({ row: r, loading: false, img: res.qrcodeBase64, pairing: res.pairingCode, error: res.qrcodeBase64 ? undefined : 'A Evolution não devolveu o QR code.' })
+  }
+  // com o QR aberto, acompanha até conectar
+  useEffect(() => {
+    if (!qr?.img) return
+    const t = setInterval(async () => {
+      const { state } = await getCrmInstanceConnectionState(qr.row.instance_name)
+      if (state === 'open') { setQr(null); toast.success('WHATSAPP RECONECTADO', `${qr.row.label} voltou. Em 1–2 minutos o monitor confirma que está recebendo.`); reload() }
+    }, 3000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qr?.img, qr?.row.instance_name])
+
   const events = useMemo(() => data.events.filter((e) => filter === 'all' || (filter === 'server' ? !e.instance_id : e.instance_id === filter)), [data.events, filter])
   const groups = useMemo(() => {
     const out: { day: string; label: string; items: ConnectionEvent[] }[] = []
@@ -98,6 +131,25 @@ export function CrmConnections({ initial }: { initial: Data }) {
   return (
     <div className="space-y-5 pb-8">
       {ConfirmDialog}
+      {qr && (
+        <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setQr(null) }}>
+          <div role="dialog" aria-modal="true" aria-label="Reconectar WhatsApp" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 text-center space-y-3">
+            <div className="flex items-center">
+              <h3 className="font-semibold text-gray-900">Reconectar {qr.row.label}</h3>
+              <button onClick={() => setQr(null)} aria-label="Fechar" className="ml-auto text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+            </div>
+            {qr.loading && <div className="py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" /><p className="text-xs text-gray-500 mt-2">Desconectando a sessão e gerando o QR…</p></div>}
+            {qr.error && <p role="alert" className="text-sm text-red-600">{qr.error}</p>}
+            {qr.img && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qr.img} alt="QR Code do WhatsApp" className="w-64 h-64 mx-auto" />
+            )}
+            {qr.pairing && <p className="text-sm">Ou use o código: <b className="tracking-widest">{qr.pairing}</b></p>}
+            {qr.img && <p className="text-xs text-gray-500">No celular de <b>{qr.row.label}</b>: WhatsApp → Aparelhos conectados → Conectar um aparelho. Esta tela fecha sozinha quando conectar.</p>}
+            {!qr.loading && <button onClick={() => newQr(qr.row)} className="text-sm underline text-gray-600">Gerar novo QR</button>}
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold text-gray-900">Conexões dos WhatsApps</h1>
@@ -160,6 +212,14 @@ export function CrmConnections({ initial }: { initial: Data }) {
                   className={cn('w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg disabled:opacity-60', mute ? 'bg-gray-900 text-white hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
                 >
                   {busy === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />} Reiniciar conexão
+                </button>
+              )}
+              {r.is_active && (mute || r.status === 'down') && (
+                <button
+                  onClick={() => relink(r)}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+                >
+                  <QrCode className="w-4 h-4" /> Reconectar com novo QR
                 </button>
               )}
             </div>

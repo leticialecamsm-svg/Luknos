@@ -6,6 +6,7 @@
 //                           (mantendo os eventos já ligados) e devolve o QR Code (base64) pra parear.
 // action: 'status'       -> estado da conexão (open/connecting/close).
 // action: 'restart'      -> reinicia a conexão do número (sem QR code); para número "conectado mas mudo".
+// action: 'relink'       -> desconecta a sessão travada e já devolve um QR Code novo (o número é lido de novo no celular).
 // action: 'contact_info' -> nome/foto de um contato.
 // action: 'debug_contact'-> tenta vários endpoints de contato (diagnóstico).
 
@@ -32,6 +33,7 @@ Deno.serve(async (req) => {
   try {
     if (payload.action === 'status') return json(await status(instanceName))
     if (payload.action === 'restart') return json(await restart(instanceName))
+    if (payload.action === 'relink') return json(await relink(instanceName))
     if (payload.action === 'contact_info') {
       if (!payload.remote_jid) return json({ error: 'remote_jid_required' }, 400)
       return json(await contactInfo(instanceName, payload.remote_jid))
@@ -55,6 +57,23 @@ async function restart(instanceName: string) {
   const body = await res.text().catch(() => '')
   if (!res.ok) return { error: `A Evolution não reiniciou a conexão (${res.status}) ${body.slice(0, 160)}` }
   return { ok: true }
+}
+
+// Número "conectado" mas parado, que o reinício não destrava: desconecta de vez (logout) e gera QR novo.
+async function relink(instanceName: string) {
+  const out = await evolutionFetch(`/instance/logout/${instanceName}`, { method: 'DELETE' })
+  if (!out.ok && out.status !== 400 && out.status !== 404) {
+    const body = await out.text().catch(() => '')
+    return { error: `A Evolution não desconectou o número (${out.status}) ${body.slice(0, 160)}` }
+  }
+  // a Evolution leva um instante para soltar a sessão: tenta pedir o QR algumas vezes
+  let last: Record<string, unknown> = { error: 'A Evolution não devolveu QR Code.' }
+  for (let i = 0; i < 4; i++) {
+    await new Promise((r) => setTimeout(r, 1500 + i * 1000))
+    last = await connect(instanceName)
+    if (last.qrcode_base64 || (last.error && !/QR/i.test(String(last.error)))) return last
+  }
+  return last
 }
 
 async function instanceExists(instanceName: string): Promise<boolean> {

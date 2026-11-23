@@ -253,6 +253,28 @@ export async function connectCrmInstance(instanceName: string) {
   return { qrcodeBase64: r.qrcode_base64 as string | undefined, pairingCode: r.pairing_code as string | null }
 }
 
+// Desconecta a sessão travada de um número e devolve um QR novo para ler no celular.
+// Só para o que o reinício não resolve: depois o número volta a receber, mas as mensagens do
+// período parado não voltam (ficam só no celular).
+export async function relinkCrmInstance(instanceId: string) {
+  const auth = await ensureAdmin()
+  if ('error' in auth) return { error: auth.error }
+  const admin = createAdminClient()
+  const { data: inst } = await admin.from('crm_instances').select('id, label, instance_name').eq('id', instanceId).maybeSingle()
+  if (!inst) return { error: 'Número não encontrado' }
+  const r = await callEvolutionSetup({ action: 'relink', instance_name: inst.instance_name })
+  const who = auth.actedBy?.name ?? auth.name
+  await admin.from('crm_health_events').insert({
+    component: `instance:${inst.id}`,
+    kind: 'relink',
+    message: r.error ? `${who} tentou reconectar ${inst.label} com novo QR, mas falhou: ${r.error}` : `${who} desconectou ${inst.label} para ler o QR code de novo.`,
+    meta: { by: auth.actedBy?.id ?? auth.userId },
+  })
+  if (r.error) return { error: r.error as string }
+  if (r.already_connected) return { alreadyConnected: true }
+  return { qrcodeBase64: r.qrcode_base64 as string | undefined, pairingCode: (r.pairing_code as string | null) ?? null }
+}
+
 export async function getCrmInstanceConnectionState(instanceName: string) {
   const auth = await ensureAdmin()
   if ('error' in auth) return { state: 'unknown' }
