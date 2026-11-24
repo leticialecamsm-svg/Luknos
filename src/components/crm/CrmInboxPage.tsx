@@ -283,6 +283,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // menções em grupo
   const [members, setMembers] = useState<GroupMember[]>([])
   const [picks, setPicks] = useState<MentionPick[]>([])
+  const [teamPicks, setTeamPicks] = useState<{ id: string; name: string }[]>([]) // conversa individual: @pessoa da equipe
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
   const [mentionIdx, setMentionIdx] = useState(0)
   const [showInfo, setShowInfo] = useState(false)
@@ -835,7 +836,7 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
   // Membros do grupo aberto (para mencionar e para trocar "@número" pelo nome nas mensagens)
   const selectedIsGroup = !!selected?.is_group
   useEffect(() => {
-    setMembers([]); setPicks([]); setMention(null)
+    setMembers([]); setPicks([]); setTeamPicks([]); setMention(null)
     if (!selectedId || !selectedIsGroup) return
     let alive = true
     getGroupParticipants(selectedId).then((r) => { if (alive && 'members' in r) setMembers(r.members) })
@@ -854,12 +855,26 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     () => buildMentionNames(members, messages.map((m) => ({ jid: m.participant_jid ?? null, name: m.participant_name ?? null }))),
     [members, messages],
   )
+  const normTxt = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const teamOptions = mention && !selectedIsGroup
+    ? users.filter((u) => u.id !== currentUserId && u.has_crm !== false && normTxt(u.name).includes(normTxt(mention.query.trim()))).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).slice(0, 8)
+    : []
   const mentionOptions = mention && selectedIsGroup
     ? [
         ...('todos'.startsWith(mention.query.toLowerCase()) ? [{ all: true as const }] : []),
         ...filterMembers(mentionable, mention.query).map((m) => ({ all: false as const, m })),
       ]
     : []
+  const pickTeam = (u: SystemUser) => {
+    if (!mention) return
+    const el = textareaRef.current
+    const caret = el?.selectionStart ?? text.length
+    setText(text.slice(0, mention.start) + '@' + u.name + ' ' + text.slice(caret))
+    setTeamPicks((p) => (p.some((x) => x.id === u.id) ? p : [...p, { id: u.id, name: u.name }]))
+    setMention(null)
+    const pos = mention.start + u.name.length + 2
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(pos, pos) })
+  }
   const pickMention = (opt: (typeof mentionOptions)[number]) => {
     if (!mention) return
     const el = textareaRef.current
@@ -1225,11 +1240,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
     const reply = replyTo
     const out = selectedIsGroup ? applyMentionsToSend(text, picks) : { text, mentioned: [] as string[], all: false }
     setText('')
-    setPicks([]); setMention(null); setReplyTo(null)
+    const teamIds = selectedIsGroup ? [] : teamPicks.filter((t) => text.includes(`@${t.name}`)).map((t) => t.id)
+    setPicks([]); setTeamPicks([]); setMention(null); setReplyTo(null)
     stopTyping()
     const temp = makeTemp({ body: out.text }, reply)
     enqueue(cid, temp)
-    runSend(cid, temp.id, () => postCrmSend({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all }))
+    runSend(cid, temp.id, () => postCrmSend({ conversationId: cid, text: out.text, replyToMessageId: reply?.id, mentioned: out.mentioned, mentionAll: out.all, mentionedUserIds: teamIds }))
   }
 
   function stopRecordingTracks() {
@@ -2065,6 +2081,27 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
 
                 {/* Input */}
                 <div className="relative flex-1 min-w-0 flex">
+                {mention && teamOptions.length > 0 && (
+                  <div role="listbox" aria-label="Mencionar alguém da equipe" className="absolute bottom-full left-0 mb-2 z-40 w-72 max-w-full bg-white border border-gray-200 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
+                    <p className="px-3 py-1 text-[11px] text-gray-500">Mencionar alguém da equipe (a pessoa recebe um aviso)</p>
+                    {teamOptions.map((u, i) => (
+                      <button
+                        key={u.id}
+                        role="option"
+                        aria-selected={i === mentionIdx}
+                        onMouseDown={(e) => { e.preventDefault(); pickTeam(u) }}
+                        onMouseEnter={() => setMentionIdx(i)}
+                        className={cn('w-full text-left px-3 py-1.5 text-sm flex items-center gap-2', i === mentionIdx ? 'bg-gray-100' : 'hover:bg-gray-50')}
+                      >
+                        <Avatar user={{ name: u.name, avatar_url: u.avatar_url, avatar_color: u.avatar_color }} size={28} />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-gray-900">{u.name}</span>
+                          <span className="block truncate text-[11px] text-gray-500">{u.role_label ?? u.role}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {mention && mentionOptions.length > 0 && (
                   <div role="listbox" aria-label="Mencionar" className="absolute bottom-full left-0 mb-2 z-40 w-72 max-w-full bg-white border border-gray-200 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
                     {mentionOptions.map((o, i) => (
@@ -2090,9 +2127,15 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
                 <textarea
                   ref={textareaRef}
                   value={text}
-                  onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); else stopTyping(); if (selectedIsGroup) { setMention(activeMention(e.target.value, e.target.selectionStart)); setMentionIdx(0) } }}
-                  onClick={(e) => { if (selectedIsGroup) setMention(activeMention(e.currentTarget.value, e.currentTarget.selectionStart)) }}
+                  onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); else stopTyping(); setMention(activeMention(e.target.value, e.target.selectionStart)); setMentionIdx(0) }}
+                  onClick={(e) => setMention(activeMention(e.currentTarget.value, e.currentTarget.selectionStart))}
                   onKeyDown={(e) => {
+                    if (mention && teamOptions.length > 0) {
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % teamOptions.length); return }
+                      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + teamOptions.length) % teamOptions.length); return }
+                      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickTeam(teamOptions[mentionIdx] ?? teamOptions[0]); return }
+                      if (e.key === 'Escape') { e.preventDefault(); setMention(null); return }
+                    }
                     if (mention && mentionOptions.length > 0) {
                       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionOptions.length); return }
                       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionOptions.length) % mentionOptions.length); return }

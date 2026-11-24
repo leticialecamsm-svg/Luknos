@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { subscribeCrmMessages } from '@/lib/crm-realtime'
+import { subscribeCrmMessages, subscribeCrmMentions } from '@/lib/crm-realtime'
 import { getPushPublicKey, savePushSubscription, removePushSubscription, sendMyTestPush, type IncomingNotice } from '@/lib/crm-actions'
 import { getOpenConversationId } from '@/lib/crm-open-conversation'
 import type { NoticeItem } from '@/components/crm/CrmNoticeStack'
@@ -179,6 +179,21 @@ export function useCrmDesktopNotify(active: boolean) {
       if (!info) return
       if (document.visibilityState === 'visible' && getOpenConversationId() === info.conversation_id) return
       showRef.current(info)
+    })
+  }, [active])
+
+  // Fui mencionado: cartão na tela quando o sistema está à frente (com ele escondido, o push já avisa).
+  useEffect(() => {
+    if (!active) return
+    return subscribeCrmMentions((r) => {
+      const away = document.visibilityState === 'hidden' || !document.hasFocus()
+      if (away && pushRef.current) return
+      showRef.current({
+        conversation_id: r.conversation_id,
+        title: `${r.by_name ?? 'Alguém'} te mencionou`,
+        body: `${r.conv_name ?? ''}: ${r.preview ?? ''}`.trim(),
+        photo: r.by_photo ?? null, instance_label: 'Menção', color_index: 0, at: r.created_at,
+      })
     })
   }, [active])
 

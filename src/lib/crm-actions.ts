@@ -9,7 +9,7 @@ import { DEFAULT_COMMISSION_BY_TYPE, isOpenQuote, extractLinks, formatPhoneForCo
 import { messagePreview, canDeleteForEveryone, canEditMessage, isGroupJid } from '@/lib/crm-preview'
 import { fetchCrmMediaToDrive } from '@/lib/crm-media'
 import { driveDownload } from '@/lib/google-drive'
-import { vapidKeys, sendTestPush } from '@/lib/crm-push'
+import { vapidKeys, sendTestPush, sendMentionPush } from '@/lib/crm-push'
 import { FOLLOWUP_NOTE_MAX } from '@/lib/crm-followup'
 import { isUrgentWait } from '@/lib/crm-awaiting'
 import { groupReactions, isValidReaction } from '@/lib/crm-reactions'
@@ -1278,6 +1278,30 @@ export async function createCrmAttachmentUpload(input: { conversationId: string;
   return { path: data.path, token: data.token }
 }
 
+// Quem foi mencionado recebe o aviso (cartão na tela + push) e passa a ter a conversa liberada para
+// conseguir abrir o link — exceto quem foi bloqueado nela. Não avisa a própria pessoa.
+async function notifyTeamMentions(db: ReturnType<typeof createAdminClient>, a: { conversationId: string; messageId: string | null; byUserId: string; userIds: string[]; text: string }) {
+  const ids = Array.from(new Set(a.userIds)).filter((id) => id && id !== a.byUserId).slice(0, 10)
+  if (!ids.length) return
+  const [{ data: users }, { data: by }, { data: blocks }, { data: conv }] = await Promise.all([
+    db.from('users').select('id').in('id', ids),
+    db.from('users').select('name, avatar_url').eq('id', a.byUserId).maybeSingle(),
+    db.from('crm_conversation_blocks').select('user_id').eq('conversation_id', a.conversationId).in('user_id', ids),
+    db.from('crm_conversations').select('remote_jid, contact_name_cache, contacts(name)').eq('id', a.conversationId).maybeSingle(),
+  ])
+  const blocked = new Set((blocks ?? []).map((b: any) => b.user_id as string))
+  const valid = (users ?? []).map((u: any) => u.id as string).filter((id) => !blocked.has(id))
+  if (!valid.length) return
+  const convName = (conv as any)?.contacts?.name ?? (conv as any)?.contact_name_cache ?? String((conv as any)?.remote_jid ?? '').split('@')[0]
+  const preview = a.text.replace(/\s+/g, ' ').trim().slice(0, 160)
+  await db.from('crm_conversation_access').upsert(valid.map((user_id) => ({ conversation_id: a.conversationId, user_id, granted_by: a.byUserId })), { onConflict: 'conversation_id,user_id', ignoreDuplicates: true })
+  const { data: rows } = await db.from('crm_mentions').insert(valid.map((mentioned_user_id) => ({ conversation_id: a.conversationId, message_id: a.messageId, mentioned_user_id, by_user_id: a.byUserId, preview, by_name: (by as any)?.name ?? null, by_photo: (by as any)?.avatar_url ?? null, conv_name: convName }))).select('id, mentioned_user_id')
+  const byName = (by as any)?.name ?? 'Alguém'
+  for (const r of rows ?? []) {
+    await sendMentionPush([r.mentioned_user_id as string], { title: `${byName} te mencionou`, body: `${convName}: ${preview}`, icon: (by as any)?.avatar_url ?? null, conversationId: a.conversationId, mentionId: r.id as string })
+  }
+}
+
 export async function sendCrmMessage(input: {
   conversationId: string
   text?: string
@@ -1288,6 +1312,7 @@ export async function sendCrmMessage(input: {
   replyToMessageId?: string // responder (citar) uma mensagem desta conversa
   mentioned?: string[] // grupo: JIDs mencionados (o texto traz "@<número>")
   mentionAll?: boolean
+  mentionedUserIds?: string[] // conversa individual: pessoas da equipe mencionadas (@Paulo) — só avisa
   forwarded?: boolean // marca como "Encaminhada"
 }) {
   const auth = await ensureStaff()
@@ -1340,7 +1365,12 @@ export async function sendCrmMessage(input: {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || !body?.sent) return await sendFailed(adminDb, input.conversationId, auth.userId, body?.error ?? 'Falha ao enviar')
-    return { ok: true, messageId: (body.message_id as string | null) ?? null }
+    const messageId = (body.message_id as string | null) ?? null
+    if (input.mentionedUserIds?.length) {
+      // não segura o envio: se o aviso falhar, a mensagem já foi
+      await notifyTeamMentions(adminDb, { conversationId: input.conversationId, messageId, byUserId: auth.actedBy?.id ?? auth.userId, userIds: input.mentionedUserIds, text: input.text ?? '' }).catch((e) => console.warn('menção falhou', e?.message))
+    }
+    return { ok: true, messageId }
   } catch (e: any) {
     return await sendFailed(adminDb, input.conversationId, auth.userId, e?.message ?? 'Falha ao enviar')
   }

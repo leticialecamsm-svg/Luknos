@@ -49,3 +49,26 @@ export function subscribeCrmPresence(onEvent: (row: { conversation_id: string; a
     if (channel) supabase.removeChannel(channel)
   }
 }
+
+// Menções a mim (@Fulano): a política de acesso só entrega as linhas em que eu fui mencionado.
+export function subscribeCrmMentions(onEvent: (row: { id: string; conversation_id: string; by_name: string | null; by_photo: string | null; conv_name: string | null; preview: string | null; created_at: string }) => void): () => void {
+  const supabase = createClient()
+  let channel: ReturnType<typeof supabase.channel> | null = null
+  let cancelled = false
+  ;(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) supabase.realtime.setAuth(session.access_token)
+    if (cancelled) return
+    channel = supabase
+      .channel('crm:mentions')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_mentions' }, (p) => {
+        const row = (p as unknown as { new?: Record<string, unknown> }).new
+        if (row && row.conversation_id) onEvent(row as never)
+      })
+      .subscribe()
+  })()
+  return () => {
+    cancelled = true
+    if (channel) supabase.removeChannel(channel)
+  }
+}

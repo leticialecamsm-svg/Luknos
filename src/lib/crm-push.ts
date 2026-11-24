@@ -122,3 +122,20 @@ export async function sendHealthPush(title: string, body: string) {
   }))
   return { sent }
 }
+
+// Aviso de menção ("fulano te mencionou") só para as pessoas mencionadas.
+export async function sendMentionPush(userIds: string[], p: { title: string; body: string; icon: string | null; conversationId: string; mentionId: string }) {
+  if (!userIds.length) return { sent: 0 }
+  const admin = createAdminClient()
+  const { data: subs } = await admin.from('crm_push_subscriptions').select('endpoint, p256dh, auth').in('user_id', userIds)
+  if (!subs?.length) return { sent: 0, skipped: 'no_subscription' }
+  const keys = await vapidKeys()
+  webpush.setVapidDetails('mailto:comercial@luknoseletrica.com.br', keys.publicKey, keys.privateKey)
+  const payload = { title: p.title, body: p.body, icon: p.icon, tag: `mencao-${p.mentionId}`, url: `/crm/conversas?c=${p.conversationId}`, at: new Date().toISOString() }
+  let sent = 0
+  await Promise.all(subs.map(async (s) => {
+    try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 3600, urgency: 'high' }); sent++ }
+    catch (e: any) { if (e?.statusCode === 404 || e?.statusCode === 410) await admin.from('crm_push_subscriptions').delete().eq('endpoint', s.endpoint) }
+  }))
+  return { sent }
+}
