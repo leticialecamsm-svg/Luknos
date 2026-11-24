@@ -494,19 +494,41 @@ function EarningsModal({ myEarnings, onClose }: { myEarnings: any; onClose: () =
             <div>
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Minhas vendas do mês</p>
               <div className="divide-y divide-surface-border border border-surface-border rounded-lg overflow-hidden">
-                {myEarnings.sellerDetails.map((s: any) => (
-                  <div key={s.number} className="flex items-center justify-between px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-brand-600">#{s.number}</span>{' '}
-                      <span className="text-gray-700 truncate">{s.client_name}</span>
-                      {s.num_owners > 1 && <span className="text-gray-400"> · 1/{s.num_owners}</span>}
+                {[...myEarnings.sellerDetails].sort((a: any, b: any) => {
+                  if (!a.closed_at && !b.closed_at) return 0
+                  if (!a.closed_at) return 1
+                  if (!b.closed_at) return -1
+                  return b.closed_at.localeCompare(a.closed_at)
+                }).map((s: any) => {
+                  const closedDate = s.closed_at
+                    ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(s.closed_at + 'T12:00:00'))
+                    : null
+                  const inner = (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <div>
+                          <span className="font-semibold text-brand-600">#{s.number}</span>{' '}
+                          <span className="text-gray-700 truncate">{s.client_name}</span>
+                          {s.num_owners > 1 && <span className="text-gray-400"> · 1/{s.num_owners}</span>}
+                        </div>
+                        {closedDate && <p className="text-[11px] text-gray-400 mt-0.5">Fechado em {closedDate}</p>}
+                      </div>
+                      <div className="text-right shrink-0 ml-2">
+                        <p className="text-gray-900 font-medium">{formatCurrency(s.value)}</p>
+                        <p className="text-[11px] text-emerald-600">{formatCurrency(s.comm)} comissão</p>
+                      </div>
+                    </>
+                  )
+                  return s.solicitation_id ? (
+                    <a key={s.number} href={`/solicitacoes/${s.solicitation_id}`} className="flex items-center justify-between px-3 py-2 text-sm hover:bg-surface-secondary transition-colors">
+                      {inner}
+                    </a>
+                  ) : (
+                    <div key={s.number} className="flex items-center justify-between px-3 py-2 text-sm">
+                      {inner}
                     </div>
-                    <div className="text-right shrink-0 ml-2">
-                      <p className="text-gray-900 font-medium">{formatCurrency(s.value)}</p>
-                      <p className="text-[11px] text-emerald-600">{formatCurrency(s.comm)} comissão</p>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}

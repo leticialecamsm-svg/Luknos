@@ -2978,7 +2978,7 @@ export async function getCommissionEarnings(year?: number, month?: number) {
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
     admin.from('users').select('id, name, avatar_color, avatar_url, role').eq('active', true),
     admin.from('quotes_full')
-      .select('id, number, client_name, final_value, quoted_value, closed_at, owners:quote_owners(user_id)')
+      .select('id, number, client_name, final_value, quoted_value, closed_at, solicitation_id, owners:quote_owners(user_id)')
       .eq('temperature', 'closed').gte('closed_at', mStart).lte('closed_at', mEnd),
   ])
 
@@ -3017,6 +3017,8 @@ export async function getCommissionEarnings(year?: number, month?: number) {
         value: valuePerOwner,
         num_owners: numOwners,
         comm: parseFloat((valuePerOwner * SELLER_COMMISSION_PCT / 100).toFixed(2)),
+        closed_at: q.closed_at,
+        solicitation_id: (q as any).solicitation_id ?? null,
       })
     }
   }
