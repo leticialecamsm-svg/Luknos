@@ -1673,21 +1673,45 @@ export async function setStageResponsibles(
     const { error: insErr } = await db.from('solicitation_stage_responsibles').insert(rows)
     if (insErr) return { error: insErr.message }
 
-    // Responsável de orçamento/negociação escolhido depois: vira dono dos
-    // orçamentos da solicitação que ainda estão sem dono (senão a venda não
-    // aparece no dashboard). Orçamentos que já têm dono não são mexidos.
+    // Sincroniza quote_owners quando o responsável de orçamento/negociação muda.
+    // Para orçamentos FECHADOS (closed_at preenchido): substitui sempre — o dono
+    // deve refletir quem era responsável no momento do fechamento.
+    // Para orçamentos abertos sem dono: apenas adiciona.
     if (stage === 'orcamento' || stage === 'negociacao') {
-      const { data: sq } = await db.from('quotes').select('id').eq('solicitation_id', solicitationId)
-      const quoteIds = (sq ?? []).map((q: any) => q.id as string)
-      if (quoteIds.length) {
-        const { data: existing } = await db.from('quote_owners').select('quote_id').in('quote_id', quoteIds)
+      const { data: sq } = await db.from('quotes').select('id, closed_at').eq('solicitation_id', solicitationId)
+      const allQuotes = (sq ?? []) as { id: string; closed_at: string | null }[]
+      const closedIds = allQuotes.filter(q => q.closed_at).map(q => q.id)
+      const openIds   = allQuotes.filter(q => !q.closed_at).map(q => q.id)
+
+      // Orçamentos fechados: reconstrói quote_owners a partir dos responsáveis atuais de AMBAS as etapas
+      if (closedIds.length) {
+        const { data: allStageResps } = await db
+          .from('solicitation_stage_responsibles')
+          .select('user_id, stage')
+          .eq('solicitation_id', solicitationId)
+          .in('stage', ['orcamento', 'negociacao'])
+        const orcIds = new Set((allStageResps ?? []).filter((r: any) => r.stage === 'orcamento').map((r: any) => r.user_id as string))
+        const allIds = Array.from(new Set((allStageResps ?? []).map((r: any) => r.user_id as string)))
+        if (allIds.length) {
+          await db.from('quote_owners').delete().in('quote_id', closedIds)
+          const closedOwnerRows = closedIds.flatMap(qid =>
+            allIds.map(uid => ({ quote_id: qid, user_id: uid, role: orcIds.has(uid) ? 'primary' : 'collaborator' }))
+          )
+          const { error: ownErr } = await db.from('quote_owners').insert(closedOwnerRows)
+          if (ownErr) console.error('[setStageResponsibles] quote_owners closed:', ownErr.message)
+        }
+      }
+
+      // Orçamentos abertos sem dono: apenas preenche
+      if (openIds.length) {
+        const { data: existing } = await db.from('quote_owners').select('quote_id').in('quote_id', openIds)
         const owned = new Set((existing ?? []).map((o: any) => o.quote_id as string))
-        const ownerRows = quoteIds.filter(id => !owned.has(id)).flatMap(qid =>
+        const openOwnerRows = openIds.filter(id => !owned.has(id)).flatMap(qid =>
           userIds.map((uid, i) => ({ quote_id: qid, user_id: uid, role: i === 0 && stage === 'orcamento' ? 'primary' : 'collaborator' }))
         )
-        if (ownerRows.length) {
-          const { error: ownErr } = await db.from('quote_owners').insert(ownerRows)
-          if (ownErr) console.error('[setStageResponsibles] quote_owners:', ownErr.message)
+        if (openOwnerRows.length) {
+          const { error: ownErr } = await db.from('quote_owners').insert(openOwnerRows)
+          if (ownErr) console.error('[setStageResponsibles] quote_owners open:', ownErr.message)
         }
       }
     }
