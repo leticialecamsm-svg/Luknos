@@ -936,7 +936,7 @@ export async function getCrmMessages(conversationId: string, opts: { before?: st
   const limit = Math.min(Math.max(opts.limit ?? 60, 1), 200)
   let q = admin
     .from('crm_messages')
-    .select('id, direction, sender_user_id, from_phone, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, signed, ad_context, sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
+    .select('id, direction, sender_user_id, from_phone, message_type, body, storage_path, file_name, mime_type, is_system, created_at, provider_message_id, reply_to_provider_id, reply_to_preview, deleted_at, edited_at, is_forwarded, drive_file_id, media_size, media_seconds, thumb, participant_name, participant_jid, signed, ad_context, team_sender_user_id, team_sender:users!crm_messages_team_sender_user_id_fkey(name, avatar_url, avatar_color), sender:users!crm_messages_sender_user_id_fkey(name, avatar_url, avatar_color), acted:users!crm_messages_acted_by_user_id_fkey(name, avatar_url, avatar_color), deleter:users!crm_messages_deleted_by_user_id_fkey(name)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(limit + 1)
@@ -971,6 +971,9 @@ export async function getCrmMessages(conversationId: string, opts: { before?: st
         sender_name: m.sender?.name ?? null,
         sender_avatar_url: m.sender?.avatar_url ?? null,
         sender_avatar_color: m.sender?.avatar_color ?? null,
+        team_sender_name: m.team_sender?.name ?? null,
+        team_sender_avatar_url: m.team_sender?.avatar_url ?? null,
+        team_sender_avatar_color: m.team_sender?.avatar_color ?? null,
         acted_by_name: m.acted?.name ?? null,
         acted_by_avatar_url: m.acted?.avatar_url ?? null,
         acted_by_avatar_color: m.acted?.avatar_color ?? null,

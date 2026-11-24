@@ -105,6 +105,11 @@ interface Msg {
   sender_name: string | null
   sender_avatar_url?: string | null
   sender_avatar_color?: string | null
+  // recebida de outro número da equipe: quem da equipe enviou (só indicação visual no CRM)
+  team_sender_user_id?: string | null
+  team_sender_name?: string | null
+  team_sender_avatar_url?: string | null
+  team_sender_avatar_color?: string | null
   provider_message_id?: string | null
   reply_to_provider_id?: string | null
   reply_to_preview?: string | null
@@ -193,7 +198,7 @@ function withMyReaction(chips: ReactionChip[], emoji: string): ReactionChip[] {
   return out
 }
 
-const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'from_phone', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed', 'ad_context'] as const
+const MSG_FIELDS = ['id', 'direction', 'sender_user_id', 'from_phone', 'message_type', 'body', 'storage_path', 'file_name', 'mime_type', 'is_system', 'created_at', 'provider_message_id', 'reply_to_provider_id', 'reply_to_preview', 'deleted_at', 'edited_at', 'is_forwarded', 'drive_file_id', 'media_size', 'media_seconds', 'thumb', 'participant_name', 'participant_jid', 'signed', 'ad_context', 'team_sender_user_id'] as const
 
 const DRAFTS_KEY = 'crm-drafts'
 function readDrafts(): Record<string, string> {
@@ -598,6 +603,12 @@ export function CrmInboxPage({ currentUserId, users, initialConversationId = nul
       m.acted_by_name = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.name ?? null : null
       m.acted_by_avatar_url = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.avatar_url ?? null : null
       m.acted_by_avatar_color = r.acted_by_user_id ? usersById.get(r.acted_by_user_id)?.avatar_color ?? null : null
+    }
+    if ('team_sender_user_id' in r || !prev) {
+      const tu = r.team_sender_user_id ? usersById.get(r.team_sender_user_id) : null
+      m.team_sender_name = tu?.name ?? null
+      m.team_sender_avatar_url = tu?.avatar_url ?? null
+      m.team_sender_avatar_color = tu?.avatar_color ?? null
     }
     if (r.deleted_by_user_id && !m.deleted_by_name) m.deleted_by_name = usersById.get(r.deleted_by_user_id)?.name ?? null
     if (m.deleted_at) { m.body = null; m.storage_path = null; m.file_name = null; m.reactions = [] }
@@ -2371,6 +2382,10 @@ function MessageBubble({
       )
     ) : <span className="w-7 shrink-0" aria-hidden />
   ) : null
+  // Recebida de outro número da equipe: foto de quem da equipe enviou (só no CRM; o cliente não vê nada)
+  const teamAvatar = !isOutbound && !isGroup && msg.team_sender_name ? (
+    <Avatar user={{ name: msg.team_sender_name, avatar_url: msg.team_sender_avatar_url, avatar_color: msg.team_sender_avatar_color }} size={28} className="mt-0.5" title={`Enviada por ${msg.team_sender_name}`} />
+  ) : null
   // Nas enviadas, mostramos como chega ao cliente: "Nome:" no começo (texto e arquivo com legenda;
   // áudio, figurinha e cartão de contato não levam assinatura). Conversa "sem assinatura": sem o nome
   // no balão, mas o avatar de quem enviou continua ao lado.
@@ -2426,7 +2441,7 @@ function MessageBubble({
   if (msg.deleted_at) {
     return (
       <div id={`msg-${msg.id}`} className={cn('flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
-        {groupAvatar}
+        {groupAvatar}{teamAvatar}
         <div className={cn('relative max-w-[85%] md:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-2 text-[14px] leading-[19px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] italic text-gray-500', bubbleTone, tailCorner)}>
           🚫 Mensagem apagada{msg.deleted_by_name ? ` por ${msg.deleted_by_name}` : ''}{tail}
           <span className="absolute bottom-1 right-2 not-italic">{meta}</span>
@@ -2549,7 +2564,7 @@ function MessageBubble({
 
   return (
     <div id={`msg-${msg.id}`} className={cn('group/row flex items-start gap-1.5', isOutbound ? 'justify-end' : 'justify-start')}>
-      {groupAvatar}
+      {groupAvatar}{teamAvatar}
       {isOutbound && actions}
       <div
         onContextMenu={(e) => {
