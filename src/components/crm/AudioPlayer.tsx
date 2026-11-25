@@ -11,7 +11,7 @@ const peaksCache = new Map<string, number[]>()
 
 // Player de mensagem de voz estilo WhatsApp: onda clicável/arrastável para ir a
 // qualquer ponto, velocidade 1x/1,5x/2x e só um áudio toca por vez.
-export function AudioPlayer({ src, mimeType, fileName, tone = 'light' }: { src: string; mimeType?: string | null; fileName?: string | null; tone?: 'light' | 'blue' }) {
+export function AudioPlayer({ src, mimeType, fileName, tone = 'light', compact = false }: { src: string; mimeType?: string | null; fileName?: string | null; tone?: 'light' | 'blue'; compact?: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const waveRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
@@ -95,7 +95,7 @@ export function AudioPlayer({ src, mimeType, fileName, tone = 'light' }: { src: 
   }
 
   return (
-    <div className="flex items-center gap-2.5 min-w-[240px]">
+    <div className={cn('flex items-center', compact ? 'gap-1.5 w-full min-w-0' : 'gap-2.5 min-w-[240px]')}>
       <audio
         ref={audioRef}
         src={src}

@@ -4,6 +4,7 @@
 // cards empilhados (data + nome em cima, miniatura grande embaixo) e o modal
 // de pré-visualização via proxy same-origin (/api/solicitacoes/drive-file).
 
+import { AudioPlayer } from '@/components/crm/AudioPlayer'
 import { useEffect, useState } from 'react'
 import { Check, CloudOff, FileText, Image as ImageIcon, Box, Loader2, UploadCloud, Paperclip, Trash2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
@@ -304,8 +305,21 @@ export function StageFileUpload({ solicitationId, stage, onUploaded }: { solicit
   )
 }
 
+// Cópias vindas do WhatsApp antigas terminam em "… - audio.ogg [a1b2c3]": o código no fim não é extensão.
+function fileExt(name: string) {
+  return (name.replace(/\s*\[[0-9a-f]{6}\]$/i, '').split('.').pop() ?? '').toLowerCase()
+}
+
+function isAudioFile(name: string, mime: string) {
+  return mime.startsWith('audio/') || ['ogg', 'oga', 'opus', 'mp3', 'm4a', 'wav', 'aac', 'amr'].includes(fileExt(name))
+}
+
+function isVideoFile(name: string, mime: string) {
+  return mime.startsWith('video/') || ['mp4', 'mov', 'webm', '3gp'].includes(fileExt(name))
+}
+
 function stageFileIcon(name: string, mime: string) {
-  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  const ext = fileExt(name)
   if (ext === 'pdf' || mime === 'application/pdf') return FileText
   if (['dwg', 'skp', 'skb'].includes(ext) || mime.includes('sketchup') || mime.includes('acad')) return Box
   if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'tif', 'tiff'].includes(ext)) return ImageIcon
@@ -313,12 +327,12 @@ function stageFileIcon(name: string, mime: string) {
 }
 
 function isImageFile(name: string, mime: string) {
-  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  const ext = fileExt(name)
   return mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'tif', 'tiff'].includes(ext)
 }
 
 function isPdfFile(name: string, mime: string) {
-  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  const ext = fileExt(name)
   return mime === 'application/pdf' || ext === 'pdf'
 }
 
@@ -348,6 +362,10 @@ export function FilePreviewModal({ file, onClose }: { file: { id: string; name: 
             <img src={url} alt={file.name} className="max-w-full max-h-[70vh] object-contain" />
           ) : isPdf ? (
             <iframe src={url} title={file.name} className="w-full h-[70vh] border-0" />
+          ) : isAudioFile(file.name, file.mimeType) ? (
+            <div className="w-full max-w-md"><AudioPlayer src={url} mimeType={file.mimeType} fileName={file.name} /></div>
+          ) : isVideoFile(file.name, file.mimeType) ? (
+            <video src={url} controls playsInline className="max-w-full max-h-[70vh] rounded-lg" />
           ) : (
             <div className="text-center text-sm text-gray-500 space-y-3">
               <p>Não é possível pré-visualizar este tipo de arquivo.</p>
@@ -417,11 +435,24 @@ function StageFileList({ solicitationId, stage, refreshKey, onChanged }: { solic
       <div className="mt-3 space-y-2.5">
         {files.map(f => {
           const image = isImageFile(f.name, f.mimeType)
-          const ext = (f.name.split('.').pop() ?? '').toLowerCase()
+          const ext = fileExt(f.name)
+          const audio = !image && isAudioFile(f.name, f.mimeType)
           const colors = extBadgeColors(ext)
           const isDeleting = deletingId === f.id
           return (
             <div key={f.id} className="relative group rounded-2xl border border-surface-border bg-white p-2 hover:border-brand-300 hover:shadow-sm transition-shadow">
+              {audio ? (
+                // áudio toca no próprio cartão
+                <div title={f.name}>
+                  <div className="px-1 pb-1.5 pr-8">
+                    {f.createdTime && <div className="text-[10px] text-gray-400">{formatDate(f.createdTime)}</div>}
+                    <div className="text-xs font-medium text-navy truncate">{f.name}</div>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 px-2 py-2">
+                    <AudioPlayer compact src={`/api/solicitacoes/drive-file/${f.id}`} mimeType={f.mimeType} fileName={f.name} />
+                  </div>
+                </div>
+              ) : (
               <button
                 type="button"
                 onClick={() => setPreview(f)}
@@ -443,6 +474,7 @@ function StageFileList({ solicitationId, stage, refreshKey, onChanged }: { solic
                   </div>
                 )}
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => handleDelete({ id: f.id, name: f.name })}

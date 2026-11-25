@@ -825,11 +825,16 @@ async function copyCrmLinksToStageFolder(
       }).format(new Date(m.created_at)).replace(/\//g, '-').replace(', ', ' ').replace(/:/g, 'h', ).replace(/h(\d{2})$/, 'm$1')
       // inclui os primeiros 6 chars do message id para garantir unicidade mesmo com mesmo nome+segundo
       const msgSuffix = (m.id as string).slice(0, 6)
-      const name = `WhatsApp ${when} - ${m.file_name ?? m.message_type} [${msgSuffix}]`
+      // o código vai ANTES da extensão ("audio [a1b2c3].ogg"), para o arquivo continuar abrindo
+      const original = String(m.file_name ?? m.message_type)
+      const dot = original.lastIndexOf('.')
+      const tagged = dot > 0 ? `${original.slice(0, dot)} [${msgSuffix}]${original.slice(dot)}` : `${original} [${msgSuffix}]`
+      const name = `WhatsApp ${when} - ${tagged}`
+      const oldName = `WhatsApp ${when} - ${original} [${msgSuffix}]` // formato das cópias antigas
       let copied: { id: string }
       // mesma mensagem vinculada de novo: reaproveita pelo id do link (key = message id), não pelo nome
       const alreadyByMsg = existingNames.get(m.id as string)
-      const already = alreadyByMsg ?? existingNames.get(name)
+      const already = alreadyByMsg ?? existingNames.get(name) ?? existingNames.get(oldName)
       // mídia que ninguém baixou ainda na conversa: busca no WhatsApp primeiro
       if (!already && !m.drive_file_id && !m.storage_path) m.drive_file_id = await fetchCrmMediaToDrive(m)
       if (already) {

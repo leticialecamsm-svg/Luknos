@@ -8,6 +8,7 @@
 // - Demais etapas: painel "Planejado / Concluído + Arquivos" (StagePanel),
 //   reaproveitando todas as server actions de criar/editar/excluir/status.
 
+import { AudioPlayer } from '@/components/crm/AudioPlayer'
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronDown, Truck, Calendar, CalendarDays, Ruler, ShoppingCart, Wrench, HeartHandshake, Star, Plus, MapPin, FileText, HandCoins, Package, HeartPulse, LayoutDashboard, Check, Clock, MessageSquare, Image as ImageIcon, FileAudio, FileVideo, File as FileIcon, ArrowRight, CheckSquare, CalendarClock, BookOpen } from 'lucide-react'
 import Link from 'next/link'
@@ -85,6 +86,7 @@ function LinkifiedText({ text }: { text: string }) {
 }
 
 function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; stage: string }) {
+  const [showAll, setShowAll] = useState(false)
   if (!msgs?.length) return null
 
   const title = (m: CrmMsg) => {
@@ -122,7 +124,7 @@ function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; 
         )}
       </div>
       <div className="space-y-1.5">
-        {msgs.slice(0, 5).map((m) => (
+        {msgs.slice(0, showAll ? msgs.length : 5).map((m) => (
           <div key={m.id} className={cn(
             'rounded-lg border px-2.5 py-2 text-xs',
             m.direction === 'outbound' ? 'bg-green-50 border-green-100' : 'bg-white border-gray-200'
@@ -146,7 +148,11 @@ function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; 
                 />
               </a>
             )}
-            {m.mediaUrl && m.messageType !== 'image' ? (
+            {m.mediaUrl && (m.messageType === 'audio' || m.messageType === 'ptt') ? (
+              <div className="max-w-md py-0.5"><AudioPlayer src={m.mediaUrl} mimeType={m.mimeType} fileName={m.fileName} /></div>
+            ) : m.mediaUrl && m.messageType === 'video' ? (
+              <video src={m.mediaUrl} controls playsInline preload="metadata" className="rounded max-h-[220px] max-w-full" />
+            ) : m.mediaUrl && m.messageType !== 'image' ? (
               <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline line-clamp-2 break-words leading-snug">{title(m)}</a>
             ) : (m.messageType === 'text' || m.messageType === 'extended_text') ? (
               <p className="text-gray-700 line-clamp-4 break-words whitespace-pre-line leading-snug"><LinkifiedText text={title(m)} /></p>
@@ -157,7 +163,9 @@ function CrmMessagesSection({ msgs }: { msgs: CrmMsg[]; solicitationId: string; 
           </div>
         ))}
         {msgs.length > 5 && (
-          <p className="text-[11px] text-gray-400 text-center pt-1">+ {msgs.length - 5} registro(s) a mais</p>
+          <button type="button" onClick={() => setShowAll((v) => !v)} className="w-full text-[11px] font-medium text-indigo-600 hover:text-indigo-800 text-center pt-1">
+            {showAll ? 'Mostrar menos' : `Ver mais ${msgs.length - 5} registro(s)`}
+          </button>
         )}
       </div>
     </div>

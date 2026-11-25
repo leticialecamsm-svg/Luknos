@@ -56,19 +56,32 @@ export async function GET(
       // completo abaixo, mesmo fluxo de quando thumb não é pedido.
     }
 
+    // áudio e vídeo são pedidos em partes (Range) pelo navegador: sem isso não dá para avançar
+    // no áudio, e a resposta de uma função da Vercel tem limite de tamanho
+    const asked = /bytes=(\d+)-(\d*)/.exec(req.headers.get('range') ?? '')
+    let range: string | null = null
+    if (asked) {
+      const start = Number(asked[1])
+      const last = start + 4 * 1024 * 1024 - 1
+      range = `bytes=${start}-${asked[2] ? Math.min(Number(asked[2]), last) : last}`
+    }
     const fileRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) } }
     )
     if (fileRes.status === 404) return new Response('Arquivo não encontrado', { status: 404 })
     if (!fileRes.ok || !fileRes.body) return new Response('Falha ao buscar o arquivo no Drive', { status: 502 })
 
-    return new Response(fileRes.body, {
-      headers: {
-        'Content-Type': fileRes.headers.get('content-type') ?? 'application/octet-stream',
-        'Cache-Control': 'private, max-age=300',
-      },
+    const headers = new Headers({
+      'Content-Type': fileRes.headers.get('content-type') ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=300',
+      'Accept-Ranges': 'bytes',
     })
+    for (const h of ['content-length', 'content-range']) {
+      const v = fileRes.headers.get(h)
+      if (v) headers.set(h, v)
+    }
+    return new Response(fileRes.body, { status: fileRes.status === 206 ? 206 : 200, headers })
   } catch (e) {
     console.error('[api/solicitacoes/drive-file] falha ao servir arquivo do Drive:', e)
     return new Response('Erro ao acessar o Google Drive', { status: 500 })
