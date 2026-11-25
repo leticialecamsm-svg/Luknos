@@ -5,12 +5,14 @@ import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normal
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
+import { CadSpecFields } from './CadSpecFields'
 import { isTape, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
-import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState } from '@/lib/project-reading/cad-state'
+import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita'
@@ -122,7 +124,9 @@ export function CadLab() {
   const [fitaCor, setFitaCor] = useState('#f43f5e')
   const [wmPadrao, setWmPadrao] = useState('9.6')
   const [voltPadrao, setVoltPadrao] = useState(12)
-  const [fonteModal, setFonteModal] = useState<null | { id: number; wm: string; volt: number }>(null)
+  const [fonteModal, setFonteModal] = useState<null | { id: number; wm: string; volt: number; spec: Spec; tapeColor: string }>(null)
+  const [specModal, setSpecModal] = useState<null | { block?: LibBlock; keys?: string[]; title: string; form: Spec; showPower: boolean }>(null)
+  const lastSpec = useRef(new Map<string, Spec>())
   const [placeScale, setPlaceScale] = useState('1') // multiplicador do tamanho ao colocar bloco
   const [scaleBy, setScaleBy] = useState('2') // fator do botão Escalar
   const [textH, setTextH] = useState('0.15') // altura do texto em metros
@@ -137,7 +141,7 @@ export function CadLab() {
   const [cand, setCand] = useState<LibBlock[] | null>(null)
   const [candSel, setCandSel] = useState<Set<string>>(new Set())
   const [libBusy, setLibBusy] = useState(false)
-  const [placing, setPlacing] = useState<null | { name: string; obj: number; s: number }>(null)
+  const [placing, setPlacing] = useState<null | { name: string; obj: number; s: number; spec: Spec }>(null)
   const libObj = useRef(new Map<string, number>())
   const modelRef = useRef<CadModel | null>(null); modelRef.current = model
   const needFit = useRef(false)
@@ -189,6 +193,19 @@ export function CadLab() {
 
   // ── Geometria das chaves de seleção ──────────────────────────────────────
   // chaves: o<n> = objeto do arquivo, c<id> = cópia, s<id> = forma, d<id> = cota
+  const items = useMemo(() => (model ? collectItems(model, ed, model.unitToMeters) : []), [model, ed])
+  // cantos da legenda (o tamanho depende dos itens do projeto)
+  function legendBox(sh: Shape, e: Edits) {
+    const l = legendLayout(collectItems(model!, e, model!.unitToMeters), sh.h ?? 0.2)
+    return legendPoly(sh, l.width, l.height)
+  }
+  function insertLegend() {
+    const el = wrapRef.current; if (!el) return
+    const [x, y] = toWorld(40, 40, el.clientWidth, el.clientHeight)
+    const e0 = edRef.current
+    commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'legenda', pts: [x, y], h: 11 / view.current.scale, stroke: '#e5e7eb', fill: null }], next: e0.next + 1 })
+    setSel(['s' + e0.next]); setTool('select')
+  }
   function bboxOf(e: Edits, key: string): [number, number, number, number] | null {
     if (!model) return null
     const id = Number(key.slice(1))
@@ -208,7 +225,7 @@ export function CadLab() {
         const xs = q.filter((_, i) => i % 2 === 0), ys = q.filter((_, i) => i % 2 === 1)
         return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
       }
-      const poly = polyOf(s)
+      const poly = s.kind === 'legenda' ? legendBox(s, e) : polyOf(s)
       if (poly) {
         const xs = poly.filter((_, i) => i % 2 === 0), ys = poly.filter((_, i) => i % 2 === 1)
         return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
@@ -301,7 +318,8 @@ export function CadLab() {
   const num = (v: string, d = 0) => { const n = parseFloat(v.replace(',', '.')); return isNaN(n) ? d : n }
   function openFonte(id: number, from: Edits = edRef.current) {
     const s = from.shapes.find(x => x.id === id)
-    setFonteModal({ id, wm: s?.wm ? String(s.wm) : wmPadrao, volt: s?.volt ?? voltPadrao })
+    if (!s) return
+    setFonteModal({ id, wm: s.wm ? String(s.wm) : wmPadrao, volt: s.volt ?? voltPadrao, spec: { ...specOfShape(s), color: s.stroke }, tapeColor: s.tapeColor ?? fitaCor })
   }
   function addTape(shape: Omit<Shape, 'id'>) {
     const e0 = edRef.current
@@ -323,11 +341,11 @@ export function CadLab() {
     const tape = e0.shapes.find(x => x.id === m.id)
     if (!tape) return
     const wm = num(m.wm)
-    if (!(wm > 0)) return
-    setWmPadrao(m.wm); setVoltPadrao(m.volt)
-    let shapes = e0.shapes.map(x => (x.id === m.id ? { ...x, wm, volt: m.volt } : x))
+    const spec = { ...m.spec, name: m.spec.name.trim() || specOfShape(tape).name }
+    if (wm > 0) { setWmPadrao(m.wm); setVoltPadrao(m.volt) }
+    let shapes = e0.shapes.map(x => (x.id === m.id ? { ...x, wm: wm > 0 ? wm : x.wm, volt: m.volt, spec, stroke: spec.color || x.stroke, tapeColor: x.kind === 'perfil' ? m.tapeColor : x.tapeColor } : x))
     let next = e0.next
-    if (incluir) {
+    if (incluir && wm > 0) {
       const r = dimensionarFonte(polyLength(tape.pts) * u2m, wm)
       const antigas = shapes.filter(x => x.kind === 'fonte' && x.link === m.id)
       shapes = shapes.filter(x => !(x.kind === 'fonte' && x.link === m.id))
@@ -366,8 +384,14 @@ export function CadLab() {
   function actDuplicate() { actCopy(); actPaste() }
   function setShapeStyle(patch: Partial<Pick<Shape, 'stroke' | 'fill'>>) {
     const ids = new Set(selRef.current.filter(k => k[0] === 's').map(k => Number(k.slice(1))))
-    if (!ids.size) return
-    commit({ ...edRef.current, shapes: edRef.current.shapes.map(s => (ids.has(s.id) ? { ...s, ...patch } : s)) })
+    const cids = new Set(patch.stroke ? selRef.current.filter(k => k[0] === 'c').map(k => Number(k.slice(1))) : [])
+    if (!ids.size && !cids.size) return
+    const e0 = edRef.current, m = modelRef.current
+    commit({
+      ...e0,
+      shapes: e0.shapes.map(s => (ids.has(s.id) ? { ...s, ...patch, spec: s.spec && patch.stroke ? { ...s.spec, color: patch.stroke } : s.spec } : s)),
+      cp: e0.cp.map(c => (cids.has(c.id) && m?.objs[c.src]?.kind === 'LIB' ? { ...c, spec: { ...(c.spec ?? guessSpec(m.objs[c.src].name)), color: patch.stroke! } } : c)),
+    })
   }
 
   // ── Snap ─────────────────────────────────────────────────────────────────
@@ -487,7 +511,11 @@ export function CadLab() {
     for (const s of e.shapes) {
       let d = Infinity
       const box = polyOf(s)
-      if (box) {
+      if (s.kind === 'legenda') {
+        // prioridade baixa: o que estiver em cima da legenda é selecionado antes
+        if (inRings([Float64Array.from(legendBox(s, e))], wx, wy)) consider('s' + s.id, tol * 0.95)
+        continue
+      } else if (box) {
         d = inRings([Float64Array.from(box)], wx, wy) ? 0 : Math.min(...[0, 2, 4, 6].map(i => distSeg(wx, wy, box[i], box[i + 1], box[(i + 2) % 8], box[(i + 3) % 8])))
       } else if (s.kind === 'fita') {
         for (let i = 0; i + 3 < s.pts.length; i += 2) d = Math.min(d, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[i + 2], s.pts[i + 3]))
@@ -722,20 +750,23 @@ export function CadLab() {
     const selSet = new Set(sel)
 
     // pinta um objeto (original, movido ou cópia) com transformação opcional
-    const drawInst = (idx: number, xf: M6, hl: boolean) => {
+    const drawInst = (idx: number, xf: M6, hl: boolean, tint?: string) => {
       const o = model.objs[idx]
       const P = (x: number, y: number) => { const [a, b] = ap6(xf, x, y); return toScreen(a, b, w, h) }
       for (let i = o.f0; i < o.f1; i++) {
         const f = model.fills[i]; if (!layerVis[f.layer]) continue
         ctx.beginPath()
         for (const r of f.rings) { for (let k = 0; k < r.length; k += 2) { const [x, y] = P(r[k], r[k + 1]); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath() }
-        ctx.globalAlpha = f.alpha; ctx.fillStyle = hl ? SEL : colorOf(f.col, f.layer); ctx.fill('evenodd'); ctx.globalAlpha = 1
+        // cor escolhida pinta o corpo do bloco; o preenchimento opaco da "luz" mantém a cor original
+        let fc = colorOf(f.col, f.layer)
+        if (tint) { let corpo = f.alpha < 1; for (let k = o.s0; !corpo && k < o.s1; k++) corpo = colorOf(model.segCol[k], model.segLayer[k]) === fc; if (corpo) fc = tint }
+        ctx.globalAlpha = f.alpha; ctx.fillStyle = hl ? SEL : fc; ctx.fill('evenodd'); ctx.globalAlpha = 1
       }
       ctx.lineWidth = hl ? 2 : 1
       const groups = new Map<string, number[]>()
       for (let i = o.s0; i < o.s1; i++) {
         const l = model.segLayer[i]; if (!layerVis[l]) continue
-        const c = hl ? SEL : colorOf(model.segCol[i], l)
+        const c = hl ? SEL : tint || colorOf(model.segCol[i], l)
         const g = groups.get(c); if (g) g.push(i); else groups.set(c, [i])
       }
       groups.forEach((idxs, c) => {
@@ -746,7 +777,7 @@ export function CadLab() {
       const rot = Math.atan2(xf[1], xf[0]), sc = Math.hypot(xf[0], xf[1])
       for (let i = o.t0; i < o.t1; i++) {
         const t = model.texts[i]; if (!layerVis[t.layer] || !t.text) continue
-        drawText(t.text, ...P(t.x, t.y), t.h * sc * scale, t.rot + rot, hl ? SEL : colorOf(t.col, t.layer))
+        drawText(t.text, ...P(t.x, t.y), t.h * sc * scale, t.rot + rot, hl ? SEL : tint || colorOf(t.col, t.layer))
       }
     }
     const drawText = (text: string, x: number, y: number, px: number, rot: number, color: string) => {
@@ -810,7 +841,7 @@ export function CadLab() {
     main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(cache.cv, 0, 0); main.setTransform(dpr, 0, 0, dpr, 0, 0)
     // 4) movidos e cópias
     for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) drawInst(Number(k), v, selSet.has('o' + k)) }
-    for (const c of ed.cp) drawInst(c.src, c.xf, selSet.has('c' + c.id))
+    for (const c of ed.cp) drawInst(c.src, c.xf, selSet.has('c' + c.id), c.spec?.color || undefined)
     // atributos dos blocos da biblioteca (texto de cada campo, no valor preenchido ou padrão)
     for (const c of ed.cp) {
       const defs = model.objs[c.src]?.attdefs
@@ -850,6 +881,53 @@ export function CadLab() {
     }
     for (const s of ed.shapes) {
       const on = selSet.has('s' + s.id)
+      if (s.kind === 'legenda') {
+        const hh = s.h ?? 0.2
+        const list = items
+        const l = legendLayout(list, hh)
+        const [x0, y0] = s.pts
+        const S = (x: number, y: number) => toScreen(x, y, w, h)
+        const [ax, ay] = S(x0, y0), [bx, by] = S(x0 + l.width, y0 - l.height)
+        const color = on ? SEL : s.stroke
+        ctx.fillStyle = BG; ctx.fillRect(ax, ay, bx - ax, by - ay)
+        ctx.strokeStyle = color; ctx.lineWidth = on ? 2 : 1; ctx.strokeRect(ax, ay, bx - ax, by - ay)
+        const linha = (x1: number, y1: number, x2: number, y2: number) => { const [a, b] = S(x1, y1), [c, d] = S(x2, y2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke() }
+        const texto = (t: string, x: number, y: number, size: number) => { const [a, b] = S(x, y); drawText(t, a, b, size * scale, 0, color) }
+        texto('LEGENDA DE ILUMINAÇÃO', x0 + hh * 0.8, y0 - l.titleH * 0.68, hh * 1.25)
+        ctx.lineWidth = 1
+        linha(x0, y0 - l.titleH, x0 + l.width, y0 - l.titleH)
+        linha(x0, y0 - l.titleH - l.headH, x0 + l.width, y0 - l.titleH - l.headH)
+        let cx = x0
+        l.widths.forEach((cw, i) => {
+          texto(LEGEND_HEADERS[i], cx + hh * 0.5, y0 - l.titleH - l.headH * 0.68, hh * 0.85)
+          if (i > 0) linha(cx, y0 - l.titleH, cx, y0 - l.height)
+          cx += cw
+        })
+        if (!list.length) texto('Nenhum item adicionado ainda', x0 + l.widths[0] + hh * 0.5, y0 - l.titleH - l.headH - l.rowH * 0.6, hh)
+        list.forEach((it, r) => {
+          const top = y0 - l.titleH - l.headH - r * l.rowH, mid = top - l.rowH / 2
+          ctx.strokeStyle = color; ctx.lineWidth = 0.5; linha(x0, top - l.rowH, x0 + l.width, top - l.rowH)
+          let tx = x0 + l.widths[0]
+          l.rows[r].forEach((cell, i) => { texto(cell, tx + hh * 0.5, mid - hh * 0.35, hh); tx += l.widths[i + 1] })
+          // símbolo
+          const sw = l.widths[0] * 0.8, sh2 = l.rowH * 0.75, mx = x0 + l.widths[0] / 2
+          if (it.kind === 'bloco') {
+            const idx = model.objs.findIndex(o => o.kind === 'LIB' && o.name === it.block)
+            if (idx >= 0) {
+              const [p0, q0, p1, q1] = model.objs[idx].bbox
+              const k = Math.min(sw / Math.max(1e-9, p1 - p0), sh2 / Math.max(1e-9, q1 - q0))
+              drawInst(idx, [k, 0, 0, k, mx - (k * (p0 + p1)) / 2, mid - (k * (q0 + q1)) / 2], false, it.color || undefined)
+            }
+          } else {
+            const [a, b] = S(mx - sw / 2, mid), [c] = S(mx + sw / 2, mid)
+            const th = Math.max(4, hh * 1.1 * scale)
+            ctx.strokeStyle = it.color; ctx.lineWidth = 1.5
+            if (it.kind === 'perfil' || it.kind === 'fonte') ctx.strokeRect(a, b - th / 2, c - a, th)
+            if (it.kind !== 'fonte') { ctx.strokeStyle = it.kind === 'perfil' ? it.tapeColor ?? '#f43f5e' : it.color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.moveTo(a + 2, b); ctx.lineTo(c - 2, b); ctx.stroke(); ctx.setLineDash([]) }
+          }
+        })
+        continue
+      }
       if (isTape(s)) {
         const pt = (i: number) => toScreen(s.pts[i], s.pts[i + 1], w, h)
         if (s.kind === 'perfil') {
@@ -985,7 +1063,7 @@ export function CadLab() {
     if (tool === 'inserir' && placing && cur) {
       ctx.globalAlpha = 0.65
       const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
-      drawInst(placing.obj, [ps, 0, 0, ps, cur[0], cur[1]], false)
+      drawInst(placing.obj, [ps, 0, 0, ps, cur[0], cur[1]], false, placing.spec.color || undefined)
       ctx.globalAlpha = 1
     }
     if (box) { ctx.strokeStyle = SEL; ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.lineWidth = 1; ctx.setLineDash(box.x1 < box.x0 ? [5, 4] : []); ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.setLineDash([]) }
@@ -1172,7 +1250,7 @@ export function CadLab() {
     if (tool === 'inserir') {
       if (!placing) return
       const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
-      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [ps, 0, 0, ps, p[0], p[1]] }], next: e0.next + 1 })
+      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [ps, 0, 0, ps, p[0], p[1]], spec: placing.spec }], next: e0.next + 1 })
       setSel(['c' + e0.next]); return
     }
     if (tool === 'linha') {
@@ -1218,7 +1296,9 @@ export function CadLab() {
     if (hit && hit[0] === 'c' && edRef.current.cp.some(c => c.id === Number(hit.slice(1)) && modelRef.current?.objs[c.src]?.attdefs?.some(d => !d.constant))) {
       setSel([hit]); setTimeout(() => document.getElementById('attr-0')?.focus(), 60); return
     }
-    if (!hit || hit[0] !== 's') return
+    if (!hit) return
+    if (hit[0] === 'c' || (hit[0] === 's' && edRef.current.shapes.some(x => 's' + x.id === hit && (isTape(x) || x.kind === 'fonte')))) { setSel([hit]); openSpecs([hit]); return }
+    if (hit[0] !== 's') return
     const sh = edRef.current.shapes.find(x => x.id === Number(hit.slice(1)))
     if (!sh || (sh.kind !== 'text' && sh.kind !== 'arrow')) return
     setTextEdit({ kind: sh.kind, id: sh.id, x: sh.pts[0], y: sh.pts[1], value: sh.text ?? '' })
@@ -1259,10 +1339,46 @@ export function CadLab() {
     }
     return obj
   }
+  // ao escolher um bloco: primeiro as especificações, depois é só clicar na planta
   function startPlace(b: LibBlock) {
-    const m = modelRef.current
-    if (!m) return
-    setPlacing({ name: b.name, obj: ensureObj(b), s: b.unitToMeters / m.unitToMeters }); setTool('inserir')
+    if (!modelRef.current) return
+    setSpecModal({ block: b, title: b.name, form: { ...(lastSpec.current.get(b.name) ?? guessSpec(b.name)) }, showPower: true })
+  }
+  const specOfShape = (sh: Shape): Spec => sh.spec ?? { name: sh.kind === 'perfil' ? 'Perfil + Fita' : sh.kind === 'fita' ? 'Fita LED' : 'Fonte', mounting: '', power: '', light: '', color: sh.stroke }
+  // chaves selecionadas que aceitam especificação
+  function specKeys(keys: string[]) {
+    const e0 = edRef.current, m = modelRef.current
+    return keys.filter(k => {
+      const id = Number(k.slice(1))
+      if (k[0] === 'c') { const c = e0.cp.find(c => c.id === id); return !!c && m?.objs[c.src]?.kind === 'LIB' }
+      if (k[0] === 's') { const sh = e0.shapes.find(x => x.id === id); return !!sh && (isTape(sh) || sh.kind === 'fonte') }
+      return false
+    })
+  }
+  function openSpecs(all: string[]) {
+    const keys = specKeys(all); if (!keys.length) return
+    const e0 = edRef.current, first = keys[0], id = Number(first.slice(1))
+    let form: Spec
+    if (first[0] === 'c') { const c = e0.cp.find(c => c.id === id)!; form = { ...(c.spec ?? guessSpec(modelRef.current!.objs[c.src].name)) } }
+    else form = { ...specOfShape(e0.shapes.find(x => x.id === id)!) }
+    setSpecModal({ keys, title: keys.length > 1 ? `${keys.length} itens` : form.name, form, showPower: keys.some(k => k[0] === 'c') })
+  }
+  function confirmSpec() {
+    const sm = specModal; if (!sm) return
+    const form = { ...sm.form, name: sm.form.name.trim() || sm.title }
+    setSpecModal(null)
+    if (sm.block) {
+      const m = modelRef.current; if (!m) return
+      lastSpec.current.set(sm.block.name, form)
+      setPlacing({ name: sm.block.name, obj: ensureObj(sm.block), s: sm.block.unitToMeters / m.unitToMeters, spec: form }); setTool('inserir')
+      return
+    }
+    const set = new Set(sm.keys), e0 = edRef.current
+    commit({
+      ...e0,
+      cp: e0.cp.map(c => (set.has('c' + c.id) ? { ...c, spec: { ...form, power: form.power } } : c)),
+      shapes: e0.shapes.map(x => (set.has('s' + x.id) ? { ...x, spec: form, stroke: form.color || x.stroke } : x)),
+    })
   }
 
   // ── Famílias e estados ───────────────────────────────────────────────────
@@ -1305,7 +1421,17 @@ export function CadLab() {
     if (!stateInfo || !modelRef.current) return
     const obj = ensureObj(row.data)
     const ids = new Set(sel.map(k => Number(k.slice(1))))
-    commit({ ...edRef.current, cp: edRef.current.cp.map(c => (ids.has(c.id) ? { ...c, src: obj } : c)) })
+    const nu = guessSpec(row.name)
+    commit({ ...edRef.current, cp: edRef.current.cp.map(c => {
+      if (!ids.has(c.id)) return c
+      if (!c.spec) return { ...c, src: obj }
+      // o que veio do nome do estado antigo acompanha o novo; o que foi digitado fica
+      const old = guessSpec(modelRef.current!.objs[c.src].name)
+      return { ...c, src: obj, spec: { ...c.spec,
+        name: c.spec.name === old.name ? nu.name : c.spec.name,
+        power: c.spec.power === old.power && nu.power ? nu.power : c.spec.power,
+        mounting: c.spec.mounting === old.mounting && nu.mounting ? nu.mounting : c.spec.mounting } }
+    }) })
     setStateMenu(false)
   }
   async function renameFamily(r: CadLibRow) {
@@ -1356,7 +1482,7 @@ export function CadLab() {
       if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
       if (mod) return
       if (k === 'enter' && toolRef.current === 'fita') { ev.preventDefault(); finishRef.current(); return }
-      if (k === 'escape') { setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
+      if (k === 'escape') { setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
       else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
       else if (k === 'v') setTool('select')
       else if (k === 'h') setTool('pan')
@@ -1388,6 +1514,7 @@ export function CadLab() {
     return c && model.objs[c.src]?.attdefs?.some(d => !d.constant) ? c : null
   })()
   const tapeSel = sel.length === 1 ? ed.shapes.find(x => 's' + x.id === sel[0] && isTape(x)) ?? null : null
+  const legendShape = ed.shapes.find(x => x.kind === 'legenda') ?? null
   const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
   const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
   const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
@@ -1491,6 +1618,7 @@ export function CadLab() {
               <AB onClick={() => actMirror(true)} icon={<FlipHorizontal className="w-3.5 h-3.5" />} label="Espelhar ↔" disabled={!sel.length} />
               <AB onClick={() => actMirror(false)} icon={<FlipVertical className="w-3.5 h-3.5" />} label="Espelhar ↕" disabled={!sel.length} />
               <AB onClick={actDelete} icon={<Trash2 className="w-3.5 h-3.5" />} label="Apagar" disabled={!sel.length} />
+              <AB onClick={() => openSpecs(sel)} icon={<Tag className="w-3.5 h-3.5" />} label="Especificações" disabled={!specKeys(sel).length} />
               <span className="w-px h-5 bg-gray-200 mx-1" />
               <span className="text-[11px] text-navy-muted">Escala</span>
               <input value={scaleBy} onChange={e => setScaleBy(e.target.value)} className="w-12 text-xs border border-gray-200 rounded px-1.5 py-1 text-center" title="Fator: 2 = dobra o tamanho, 0.5 = metade" />
@@ -1573,11 +1701,16 @@ export function CadLab() {
                 const jaTem = ed.shapes.some(x => x.kind === 'fonte' && x.link === tape.id)
                 return (
                   <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-                    <form className="w-80 bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmFonte(true) }}>
-                      <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> Fonte da fita — {fmtM(comp)}</p>
+                    <form className="w-96 max-h-full overflow-y-auto bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmFonte(true) }}>
+                      <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> {tape.kind === 'perfil' ? 'Perfil + fita' : 'Fita'} — {fmtM(comp)}</p>
+                      <CadSpecFields value={fonteModal.spec} onChange={spec => setFonteModal({ ...fonteModal, spec })} showPower={false} />
+                      <div className="flex gap-4 text-[11px] text-gray-500">
+                        <label className="flex items-center gap-1.5">{tape.kind === 'perfil' ? 'Cor do perfil' : 'Cor da fita'} <input type="color" value={fonteModal.spec.color || '#e5e7eb'} onChange={e => setFonteModal({ ...fonteModal, spec: { ...fonteModal.spec, color: e.target.value } })} className="w-6 h-6 p-0 border-0" /></label>
+                        {tape.kind === 'perfil' && <label className="flex items-center gap-1.5">Cor da fita <input type="color" value={fonteModal.tapeColor} onChange={e => setFonteModal({ ...fonteModal, tapeColor: e.target.value })} className="w-6 h-6 p-0 border-0" /></label>}
+                      </div>
                       <div className="flex gap-2">
                         <label className="flex-1 text-[11px] text-gray-500">Potência da fita (W/m)
-                          <input autoFocus value={fonteModal.wm} onChange={e => setFonteModal({ ...fonteModal, wm: e.target.value })} onKeyDown={e => e.stopPropagation()} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800" /></label>
+                          <input value={fonteModal.wm} onChange={e => setFonteModal({ ...fonteModal, wm: e.target.value })} onKeyDown={e => e.stopPropagation()} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800" /></label>
                         <label className="w-24 text-[11px] text-gray-500">Tensão
                           <select value={fonteModal.volt} onChange={e => setFonteModal({ ...fonteModal, volt: Number(e.target.value) })} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800"><option value={12}>12 V</option><option value={24}>24 V</option></select></label>
                       </div>
@@ -1590,7 +1723,40 @@ export function CadLab() {
                       ) : <p className="text-xs text-amber-600">Informe a potência por metro.</p>}
                       <div className="flex gap-2">
                         <button type="submit" disabled={!r} className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-40">{jaTem ? 'Atualizar fonte na planta' : 'Incluir fonte na planta'}</button>
-                        <button type="button" onClick={() => confirmFonte(false)} className="text-xs text-gray-500 px-3">Agora não</button>
+                        <button type="button" onClick={() => confirmFonte(false)} className="text-xs text-gray-500 px-3">Salvar sem fonte</button>
+                      </div>
+                    </form>
+                  </div>
+                )
+              })()}
+              {specModal && (() => {
+                const familia = specModal.block ? groupOfName.get(specModal.block.name)?.key ?? specModal.block.name : null
+                const jaTem = familia ? items.filter(i => i.kind === 'bloco' && i.block === specModal.block!.name) : []
+                return (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    <form className="w-96 max-h-full overflow-y-auto bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmSpec() }}>
+                      <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Tag className="w-4 h-4 text-brand-500" /> Especificações — {specModal.title}</p>
+                      {jaTem.length > 0 && (
+                        <div>
+                          <p className="text-[11px] text-gray-500 mb-1">Já no projeto (clique pra continuar somando no mesmo item):</p>
+                          <div className="flex flex-wrap gap-1">
+                            {jaTem.map(i => (
+                              <button type="button" key={i.key} onClick={() => setSpecModal({ ...specModal, form: { name: i.name, mounting: i.mounting, power: i.power, light: i.light, color: i.color } })}
+                                className="flex items-center gap-1 text-[11px] border border-gray-200 rounded-full px-2 py-0.5 hover:border-brand-400 text-gray-700">
+                                <span className="w-2.5 h-2.5 rounded-sm border border-gray-300" style={{ background: i.color || 'transparent' }} />{i.name} {[i.mounting, i.power, i.light].filter(Boolean).join(' · ')} ({i.qty})
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <CadSpecFields value={specModal.form} onChange={form => setSpecModal({ ...specModal, form })} showPower={specModal.showPower} />
+                      <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                        <label className="flex items-center gap-1.5">Cor no desenho <input type="color" value={specModal.form.color || '#e5e7eb'} onChange={e => setSpecModal({ ...specModal, form: { ...specModal.form, color: e.target.value } })} className="w-6 h-6 p-0 border-0" /></label>
+                        {specModal.showPower && <label className="flex items-center gap-1"><input type="checkbox" checked={!specModal.form.color} onChange={e => setSpecModal({ ...specModal, form: { ...specModal.form, color: e.target.checked ? '' : '#ff69b4' } })} /> cores originais do bloco</label>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="submit" className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2">{specModal.block ? 'Colocar na planta' : 'Salvar'}</button>
+                        <button type="button" onClick={() => setSpecModal(null)} className="text-xs text-gray-500 px-3">Cancelar</button>
                       </div>
                     </form>
                   </div>
@@ -1666,6 +1832,35 @@ export function CadLab() {
                 </section>
               )
             })()}
+
+            <section className="border border-gray-200 rounded-xl bg-white p-3">
+              <p className="text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Itens do projeto ({items.reduce((a, i) => a + i.qty, 0)})</p>
+              {items.length === 0 && <p className="text-xs text-gray-400">Blocos da biblioteca, perfis, fitas e fontes que você colocar aparecem aqui, somados por especificação.</p>}
+              <div className="max-h-60 overflow-y-auto divide-y divide-gray-100">
+                {items.map(i => (
+                  <div key={i.key} className="flex items-center gap-2 py-1">
+                    <span className="w-3 h-3 rounded-sm border border-gray-300 shrink-0" style={{ background: i.color || 'transparent' }} title={i.color ? 'cor no desenho' : 'cores originais'} />
+                    <button onClick={() => setSel(i.keys)} title="Selecionar no desenho" className="flex-1 min-w-0 text-left">
+                      <span className="block text-xs font-medium text-gray-800 truncate">{describe(i)}</span>
+                      <span className="block text-[10px] text-gray-400 truncate">{[i.mounting, i.power, i.light].filter(Boolean).join(' · ') || 'sem especificações'}</span>
+                    </button>
+                    <b className="text-xs text-gray-800 whitespace-nowrap">{qtyLabel(i)}</b>
+                    <button onClick={() => openSpecs(i.keys)} className="text-[10px] text-brand-600 underline">editar</button>
+                  </div>
+                ))}
+              </div>
+              {legendShape ? (
+                <div className="flex items-center gap-2 mt-2 text-[11px] text-gray-600">
+                  <span className="flex-1">Legenda na planta</span>
+                  <button onClick={() => patchShape(legendShape.id, x => ({ ...x, h: (x.h ?? 0.2) / 1.25 }))} className="border border-gray-200 rounded px-2" title="Diminuir">A−</button>
+                  <button onClick={() => patchShape(legendShape.id, x => ({ ...x, h: (x.h ?? 0.2) * 1.25 }))} className="border border-gray-200 rounded px-2" title="Aumentar">A+</button>
+                  <button onClick={() => setSel(['s' + legendShape.id])} className="text-brand-600 underline">selecionar</button>
+                  <button onClick={() => { commit(deleteKeys(ed, ['s' + legendShape.id])); setSel([]) }} className="text-gray-400 hover:text-red-500 underline">remover</button>
+                </div>
+              ) : (
+                <button onClick={insertLegend} disabled={!items.length} className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs font-medium bg-brand-600 text-white rounded-lg py-1.5 disabled:opacity-40"><Table className="w-3.5 h-3.5" /> Inserir legenda na planta</button>
+              )}
+            </section>
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Cotas</p>

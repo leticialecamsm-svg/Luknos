@@ -5,9 +5,12 @@
 import { appendLibBlock, type CadModel, type LibBlock } from './cad'
 
 export type M6 = [number, number, number, number, number, number]
+/** Especificação de um item do projeto (vai pra contagem e legenda). */
+export interface Spec { name: string; mounting: string; power: string; light: string; color: string }
 export interface Shape {
+  spec?: Spec
   id: number
-  kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte'
+  kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte' | 'legenda'
   pts: number[]; stroke: string; fill: string | null
   text?: string; h?: number; rot?: number
   w?: number // espessura do perfil / largura da fonte (unidades do desenho)
@@ -17,14 +20,14 @@ export interface Shape {
   link?: number // fonte: id da fita/perfil que ela alimenta
 }
 export interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
-export interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string> }
+export interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string>; spec?: Spec }
 export interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
 export const EMPTY_EDITS: Edits = { ov: {}, cp: [], shapes: [], dims: [], next: 1 }
 
 export interface SavedState {
   v: 1
   ov: [string, M6 | null][]
-  cp: { id: number; ref: { h: string } | { lib: string }; xf: M6; attrs?: Record<string, string> }[]
+  cp: { id: number; ref: { h: string } | { lib: string }; xf: M6; attrs?: Record<string, string>; spec?: Spec }[]
   shapes: Shape[]
   dims: Dim[]
   next: number
@@ -37,7 +40,7 @@ export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], 
   const cp: SavedState['cp'] = ed.cp.map(c => {
     const o = model.objs[c.src]
     if (o.kind === 'LIB') used.add(o.name)
-    return { id: c.id, ref: o.kind === 'LIB' ? { lib: o.name } : { h: o.h }, xf: c.xf, attrs: c.attrs }
+    return { id: c.id, ref: o.kind === 'LIB' ? { lib: o.name } : { h: o.h }, xf: c.xf, attrs: c.attrs, spec: c.spec }
   })
   return {
     v: 1,
@@ -65,7 +68,7 @@ export function restoreState(base: CadModel, saved: SavedState) {
   const cp: Cp[] = []
   for (const c of saved.cp ?? []) {
     const src = 'lib' in c.ref ? libObj.get(c.ref.lib) : byHandle.get(c.ref.h)
-    if (src === undefined) lost++; else cp.push({ id: c.id, src, xf: c.xf, attrs: c.attrs })
+    if (src === undefined) lost++; else cp.push({ id: c.id, src, xf: c.xf, attrs: c.attrs, spec: c.spec })
   }
   const edits: Edits = { ov, cp, shapes: saved.shapes ?? [], dims: saved.dims ?? [], next: saved.next ?? 1 }
   const hidden = new Set(saved.hidden ?? [])
