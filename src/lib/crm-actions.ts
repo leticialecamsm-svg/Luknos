@@ -2766,6 +2766,8 @@ export async function getIncomingNotification(messageId: string): Promise<Incomi
     .eq('id', messageId)
     .maybeSingle()
   if (!m || m.direction !== 'inbound' || m.is_system || m.deleted_at) return null
+  // mensagem antiga recuperada depois de uma queda: entra na conversa sem aviso na tela
+  if (Date.now() - new Date(m.created_at).getTime() > 6 * 3600_000) return null
   const [{ data: c }, { data: shared }, { data: insts }] = await Promise.all([
     admin
       .from('crm_conversations')
