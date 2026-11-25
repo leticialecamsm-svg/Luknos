@@ -9,6 +9,7 @@ export type M6 = [number, number, number, number, number, number]
 export interface Spec { name: string; mounting: string; power: string; light: string; color: string }
 export interface Shape {
   spec?: Spec
+  dash?: boolean // linha de eixo (traço-ponto)
   id: number
   kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte' | 'legenda'
   pts: number[]; stroke: string; fill: string | null

@@ -5,9 +5,10 @@ import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normal
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, SeparatorHorizontal, GripHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
 import { isTape, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
@@ -15,7 +16,7 @@ import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
-type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
@@ -117,6 +118,15 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // centerline: primeira linha escolhida e a linha sob o cursor
+  const [centroA, setCentroA] = useState<Seg | null>(null)
+  const [segHover, setSegHover] = useState<Seg | null>(null)
+  // distribuir luz: pontos clicados e parâmetros
+  const [dist, setDist] = useState<{ pts: [number, number][]; escolhendo: boolean }>({ pts: [], escolhendo: false })
+  const [distAfast, setDistAfast] = useState('50')
+  const [distQtd, setDistQtd] = useState('4')
+  const [distCota, setDistCota] = useState('20')
+  const [aviso, setAviso] = useState<string | null>(null)
   // perfil + fita
   const [perfilCm, setPerfilCm] = useState('3') // espessura
   const [perfilM, setPerfilM] = useState('') // comprimento digitado (vazio = pelos cliques)
@@ -363,6 +373,68 @@ export function CadLab() {
     const e0 = edRef.current
     commit({ ...e0, shapes: e0.shapes.map(x => (x.id === id ? fn(x) : x)) })
   }
+  // ── Centerline e Distribuir Luz ──────────────────────────────────────────
+  // trecho reto mais próximo do cursor (do arquivo, movido, copiado ou desenhado)
+  function pickSegment(wx: number, wy: number): Seg | null {
+    const m = modelRef.current; if (!m) return null
+    const e0 = edRef.current, tol = 8 / view.current.scale
+    let best: Seg | null = null, bd = tol
+    const test = (a: number, b: number, c: number, d: number) => { const dist = distSeg(wx, wy, a, b, c, d); if (dist < bd) { bd = dist; best = [a, b, c, d] } }
+    for (let i = 0; i < m.segLayer.length; i++) {
+      if (!layerVis[m.segLayer[i]] || m.segObj[i] in e0.ov || m.objs[m.segObj[i]].kind === 'LIB') continue
+      const x1 = m.segs[i * 4], y1 = m.segs[i * 4 + 1], x2 = m.segs[i * 4 + 2], y2 = m.segs[i * 4 + 3]
+      if (wx < Math.min(x1, x2) - bd || wx > Math.max(x1, x2) + bd || wy < Math.min(y1, y2) - bd || wy > Math.max(y1, y2) + bd) continue
+      test(x1, y1, x2, y2)
+    }
+    const inst = (src: number, xf: M6) => {
+      const o = m.objs[src]
+      for (let i = o.s0; i < o.s1; i++) { const [a, b] = ap6(xf, m.segs[i * 4], m.segs[i * 4 + 1]), [c, d] = ap6(xf, m.segs[i * 4 + 2], m.segs[i * 4 + 3]); test(a, b, c, d) }
+    }
+    for (const k of Object.keys(e0.ov)) { const v = e0.ov[Number(k)]; if (v) inst(Number(k), v) }
+    for (const c of e0.cp) inst(c.src, c.xf)
+    for (const s of e0.shapes) {
+      const poly = s.kind === 'rect' ? s.pts : s.kind === 'perfil' ? perfilPoly(s) : null
+      if (poly) for (let i = 0; i < 8; i += 2) test(poly[i], poly[i + 1], poly[(i + 2) % 8], poly[(i + 3) % 8])
+      else if (s.kind === 'line' || s.kind === 'fita') for (let i = 0; i + 3 < s.pts.length; i += 2) test(s.pts[i], s.pts[i + 1], s.pts[i + 2], s.pts[i + 3])
+    }
+    return best
+  }
+  // cálculo atual da distribuição (usado na pré-visualização e ao aplicar)
+  function planoDistribuir() {
+    if (dist.pts.length < 3) return null
+    const [p1, p2, lado] = dist.pts
+    return distribuirLuz({ p1, p2, lado, afastamento: num(distAfast) / 100 / u2m, quantidade: num(distQtd), distCota: num(distCota, 20) / 100 / u2m })
+  }
+  function inverterLado() {
+    setDist(d => {
+      const [p1, p2, lado] = d.pts
+      const dx = p2[0] - p1[0], dy = p2[1] - p1[1], l2 = dx * dx + dy * dy || 1
+      const t = ((lado[0] - p1[0]) * dx + (lado[1] - p1[1]) * dy) / l2
+      const fx = p1[0] + t * dx, fy = p1[1] + t * dy
+      return { ...d, pts: [p1, p2, [2 * fx - lado[0], 2 * fy - lado[1]]] }
+    })
+  }
+  // copia a luminária modelo pra cada centro e cria as cotas (a modelo original continua onde está)
+  function aplicarDistribuir(modelos: string[]) {
+    const plano = planoDistribuir()
+    if (!plano) { setAviso('Confira a quantidade (pelo menos 1).'); return }
+    const e0 = edRef.current
+    const bb = unionBox(e0, modelos)
+    if (!bb) return
+    const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2
+    let acc = e0
+    const novos: string[] = []
+    for (const [x, y] of plano.centros) {
+      const r = cloneItems(e0, modelos, [1, 0, 0, 1, x - cx, y - cy], acc)
+      acc = r.ed; novos.push(...r.keys)
+    }
+    let next = acc.next
+    const dims = [...acc.dims, ...plano.cotas.map(c => ({ ...c, id: next++ }))]
+    commit({ ...acc, dims, next })
+    setTool('select'); setSel(novos)
+    setAviso(`Distribuídas ${plano.centros.length}: ${fmtM(plano.passo * u2m)} entre elas, ${fmtM((plano.passo * u2m) / 2)} nas pontas.`)
+  }
+  const modelaveis = (keys: string[]) => keys.filter(k => k[0] === 'o' || k[0] === 'c')
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
     const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
@@ -984,7 +1056,8 @@ export function CadLab() {
       }
       shapePath(s)
       if (s.fill && s.kind !== 'line') { ctx.fillStyle = s.fill; ctx.fill() }
-      ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
+      if (s.dash) ctx.setLineDash([14, 4, 3, 4])
+      ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke(); ctx.setLineDash([])
     }
 
     // alças de redimensionar e medida da fita/perfil selecionado
@@ -999,6 +1072,27 @@ export function CadLab() {
         const [x, y] = toScreen(s.pts[0], s.pts[1], w, h)
         const label = fmtM(polyLength(s.pts) * model.unitToMeters) + (s.kind === 'perfil' ? ` × ${((s.w ?? 0) * model.unitToMeters * 100).toFixed(1).replace('.', ',')} cm` : '')
         ctx.font = 'bold 12px sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, x + 8, y - 10); ctx.fillStyle = '#fbbf24'; ctx.fillText(label, x + 8, y - 10)
+      }
+    }
+    // centerline: linhas escolhidas em destaque
+    if (tool === 'centro') {
+      for (const [seg, color] of [[centroA, '#fbbf24'], [segHover, '#4ade80']] as const) {
+        if (!seg) continue
+        const [a, b] = toScreen(seg[0], seg[1], w, h), [c, d] = toScreen(seg[2], seg[3], w, h)
+        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke()
+      }
+    }
+    // distribuir luz: parede, fileira e posições antes de confirmar
+    if (tool === 'distribuir' && dist.pts.length) {
+      const P = (p: number[]) => toScreen(p[0], p[1], w, h)
+      const p2 = dist.pts[1] ?? (cursor ? [cursor.x, cursor.y] : dist.pts[0])
+      ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2
+      const [a, b] = P(dist.pts[0]), [c, d] = P(p2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke()
+      const plano = planoDistribuir()
+      if (plano) {
+        const [e1, f1] = P([plano.linha[0], plano.linha[1]]), [g1, h1] = P([plano.linha[2], plano.linha[3]])
+        ctx.setLineDash([6, 4]); ctx.beginPath(); ctx.moveTo(e1, f1); ctx.lineTo(g1, h1); ctx.stroke(); ctx.setLineDash([])
+        for (const centro of plano.centros) { const [x, y] = P(centro); ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke() }
       }
     }
     // 6) cotas
@@ -1194,6 +1288,7 @@ export function CadLab() {
       return
     }
     if (g?.type === 'box') { setBox({ x0: g.x, y0: g.y, x1: px, y1: py }); return }
+    setSegHover(tool === 'centro' ? pickSegment(wx, wy) : null)
     setCursor({ x: wx, y: wy })
     setHover(tool === 'pan' ? null : findSnap(wx, wy))
   }
@@ -1231,6 +1326,29 @@ export function CadLab() {
     const last = draft[draft.length - 1]
     const p = last && tool !== 'medir' ? ortho(raw, last, e.shiftKey) : raw
     const e0 = edRef.current
+    if (tool === 'centro') {
+      const { px, py, w, h } = pos(e)
+      const seg = pickSegment(...toWorld(px, py, w, h))
+      if (!seg) { setAviso('Clique em cima de uma linha.'); return }
+      if (!centroA) { setCentroA(seg); setAviso(null); return }
+      const c = centerline(centroA, seg)
+      setCentroA(null)
+      if (!c) { setAviso('Não deu pra criar a linha central com essas duas linhas.'); return }
+      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'line', pts: [...c], stroke: '#f87171', fill: null, dash: true }], next: e0.next + 1 })
+      setAviso(null); return
+    }
+    if (tool === 'distribuir') {
+      if (dist.escolhendo) {
+        const { px, py, w, h } = pos(e)
+        const hit = hitTest(...toWorld(px, py, w, h))
+        if (!hit || !modelaveis([hit]).length) { setAviso('Clique numa luminária (bloco) pra usar como modelo.'); return }
+        aplicarDistribuir([hit]); return
+      }
+      if (dist.pts.length >= 3) return
+      const q = (dist.pts.length === 1 ? ortho(p, dist.pts[0], e.shiftKey) : dist.pts.length === 2 ? raw : p) as [number, number]
+      if (dist.pts.length === 1 && Math.hypot(q[0] - dist.pts[0][0], q[1] - dist.pts[0][1]) < 1e-9) return
+      setAviso(null); setDist({ pts: [...dist.pts, q], escolhendo: false }); return
+    }
     if (tool === 'perfil') {
       if (!draft.length) { setDraft([p]); return }
       const d = Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1])
@@ -1283,6 +1401,7 @@ export function CadLab() {
   useEffect(() => { setStateMenu(false) }, [sel])
   useEffect(() => {
     setDraft([]); if (tool !== 'inserir') setPlacing(null)
+    setCentroA(null); setSegHover(null); setDist({ pts: [], escolhendo: false }); if (tool === 'centro' || tool === 'distribuir') setAviso(null)
     // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
     if ((tool === 'texto' || tool === 'seta') && model) setTextH(String(Number(((14 / view.current.scale) * model.unitToMeters).toPrecision(2))))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1490,6 +1609,8 @@ export function CadLab() {
       else if (k === 'l') setTool('linha')
       else if (k === 'r') setTool('retangulo')
       else if (k === 'c') setTool('circulo')
+      else if (k === 'e') setTool('centro')
+      else if (k === 'd') setTool('distribuir')
       else if (k === 'p') setTool('perfil')
       else if (k === 'f') setTool('fita')
       else if (k === 't') setTool('texto')
@@ -1595,6 +1716,8 @@ export function CadLab() {
               <TB id="circulo" icon={<CircleIcon className="w-3.5 h-3.5" />} label="Círculo" k="C" />
               <TB id="perfil" icon={<RectangleHorizontal className="w-3.5 h-3.5" />} label="Perfil + Fita" k="P" />
               <TB id="fita" icon={<MoreHorizontal className="w-3.5 h-3.5" />} label="Fita" k="F" />
+              <TB id="centro" icon={<SeparatorHorizontal className="w-3.5 h-3.5" />} label="Centerline" k="E" />
+              <TB id="distribuir" icon={<GripHorizontal className="w-3.5 h-3.5" />} label="Distribuir luz" k="D" />
               <TB id="texto" icon={<TypeIcon className="w-3.5 h-3.5" />} label="Texto" k="T" />
               <TB id="seta" icon={<ArrowUpRight className="w-3.5 h-3.5" />} label="Seta" k="A" />
               <span className="w-px h-5 bg-gray-200 mx-1" />
@@ -1676,10 +1799,36 @@ export function CadLab() {
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
                   {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : 'Perfil + fita: clique no ponto inicial')}
                   {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : 'Fita: clique no ponto inicial')}
+                  {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
+                  {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
+                </div>
+              )}
+              {tool === 'distribuir' && dist.pts.length === 3 && !dist.escolhendo && (() => {
+                const plano = planoDistribuir()
+                const sel2 = modelaveis(sel)
+                const campo = (label: string, v: string, set: (v: string) => void, un: string) => (
+                  <label className="flex items-center gap-2"><span className="flex-1">{label}</span><input value={v} onChange={e => set(e.target.value)} onKeyDown={e => e.stopPropagation()} className="w-16 text-xs border border-gray-200 rounded px-1.5 py-0.5 text-right" /><span className="w-5">{un}</span></label>
+                )
+                return (
+                  <div className="absolute right-2 top-2 z-10 w-64 space-y-1.5 text-xs bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-gray-600 cursor-default" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    <p className="font-bold text-navy">Distribuir luz</p>
+                    {campo('Afastamento da parede', distAfast, setDistAfast, 'cm')}
+                    {campo('Quantidade', distQtd, setDistQtd, '')}
+                    {campo('Cotas pra fora das luminárias', distCota, setDistCota, 'cm')}
+                    {plano ? <p className="text-[11px] bg-gray-50 rounded px-2 py-1">Entre elas: <b>{fmtM(plano.passo * u2m)}</b> · nas pontas: <b>{fmtM((plano.passo * u2m) / 2)}</b></p> : <p className="text-[11px] text-amber-600">Informe a quantidade.</p>}
+                    <button onClick={inverterLado} className="w-full border border-gray-200 rounded-lg py-1 hover:bg-gray-50">Inverter lado</button>
+                    {sel2.length > 0 && <button onClick={() => aplicarDistribuir(sel2)} disabled={!plano} className="w-full font-medium bg-brand-600 text-white rounded-lg py-1.5 disabled:opacity-40">Usar a luminária selecionada</button>}
+                    <button onClick={() => setDist(d => ({ ...d, escolhendo: true }))} disabled={!plano} className={cn('w-full font-medium rounded-lg py-1.5 disabled:opacity-40', sel2.length ? 'border border-brand-400 text-brand-600' : 'bg-brand-600 text-white')}>Clicar na luminária modelo</button>
+                  </div>
+                )
+              })()}
+              {aviso && (
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-2 z-10 flex items-center gap-2 text-[11px] bg-white border border-gray-200 rounded-lg shadow px-3 py-1.5 text-gray-700" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                  {aviso} <button onClick={() => setAviso(null)} className="text-gray-400">✕</button>
                 </div>
               )}
               {(tool === 'perfil' || tool === 'fita') && (
