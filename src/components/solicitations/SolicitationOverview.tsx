@@ -27,6 +27,8 @@ import { getInitials, formatDate, formatRelativeWithTime, cn } from '@/lib/utils
 import { ORIGIN_LABEL, CATEGORY_LABEL, SIZE_LABEL, PRIORITY_LABEL, PRIORITY_COLOR, TEMPERATURE_LABEL, TEMPERATURE_COLOR } from '@/types'
 import { addSolicitationNote, updateSolicitationDetails, getSolicitationDriveFolderUrl, getCrmConversationsForClient, getSolicitationDeleteImpact, deleteSolicitation, type CrmConversationOption, type SolicitationView } from '@/lib/solicitations/actions'
 import { searchContacts, createContact, updateContact } from '@/lib/actions'
+import { getCrmInstanceOptions, startCrmConversation } from '@/lib/crm-actions'
+import { instanceColor } from '@/lib/crm-ui'
 import { Portal } from '@/components/ui/Portal'
 import { useConfirm } from '@/components/ui/useConfirm'
 import { useToast } from '@/components/ui/Toast'
@@ -466,10 +468,6 @@ function Field({ icon: Icon, label, value }: { icon: any; label: string; value: 
   )
 }
 
-function waLink(phone: string): string {
-  const d = phone.replace(/\D/g, '')
-  return `https://wa.me/${d.length <= 11 ? '55' + d : d}`
-}
 
 function RoundAction({ href, title, icon: Icon, external }: { href: string; title: string; icon: any; external?: boolean }) {
   return (
@@ -506,40 +504,58 @@ const WORK_STAGE_OPTIONS = [
   ['delivered', 'Entregue'],
 ] as [string, string][]
 
-// WhatsApp do cliente: abre a conversa no CRM. Se o contato tem conversa em
-// mais de um WhatsApp da empresa, mostra as opções (com a última interação de
-// cada uma) para a pessoa identificar de onde está sendo o atendimento.
-// Sem conversa no CRM, cai no wa.me como antes.
-function WhatsAppCrmButton({ clientId, phone, extraConvIds }: { clientId: string; phone: string | null; extraConvIds?: string[] }) {
-  const router = useRouter()
+// WhatsApp do cliente: sempre abre a lista das conversas dele no CRM (uma por WhatsApp da empresa,
+// com a última interação) e o botão para iniciar em um número que ainda não tem conversa.
+function WhatsAppCrmButton({ clientId, clientName, phone, extraConvIds }: { clientId: string; clientName: string; phone: string | null; extraConvIds?: string[] }) {
+  const toast = useToast()
   const [convs, setConvs] = useState<CrmConversationOption[] | null>(null)
+  const [instances, setInstances] = useState<Awaited<ReturnType<typeof getCrmInstanceOptions>> | null>(null)
   const [open, setOpen] = useState(false)
+  const [choosing, setChoosing] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const extraKey = (extraConvIds ?? []).join(',')
 
   useEffect(() => {
     let alive = true
     getCrmConversationsForClient(clientId, extraConvIds ?? []).then(r => { if (alive) setConvs(r) }).catch(() => { if (alive) setConvs([]) })
     return () => { alive = false }
-  }, [clientId, (extraConvIds ?? []).join(',')])
+  }, [clientId, extraKey])
+
+  // os WhatsApps da pessoa só são buscados quando a janela abre
+  useEffect(() => {
+    if (!open || instances) return
+    getCrmInstanceOptions().then(setInstances).catch(() => setInstances([]))
+  }, [open, instances])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
 
   if (!phone && !(convs && convs.length)) return null
 
   const go = (id: string) => { setOpen(false); window.location.href = `/crm/conversas?c=${id}` }
-  function click() {
-    if (convs && convs.length === 1) return go(convs[0].id)
-    if (convs && convs.length > 1) return setOpen(true)
-    if (phone) window.open(waLink(phone), '_blank', 'noopener,noreferrer')
+  // números em que a pessoa pode iniciar e que ainda não têm conversa direta com o cliente (grupo não conta)
+  const used = new Set((convs ?? []).filter(c => !c.isGroup).map(c => c.instanceId))
+  const free = (instances ?? []).filter(i => i.can_start && !used.has(i.id))
+  const title = convs && convs.length > 1 ? `Conversas no CRM (${convs.length})` : 'Conversas no CRM'
+
+  async function start(instanceId: string) {
+    if (!phone) return
+    setBusyId(instanceId)
+    const r = await startCrmConversation({ phone, instanceId, contactId: clientId }).catch(() => ({ error: 'Falha ao iniciar a conversa' }))
+    if ('conversationId' in r && r.conversationId) return go(r.conversationId)
+    setBusyId(null)
+    toast.error('NÃO FOI POSSÍVEL', ('error' in r && r.error) || 'Falha ao iniciar a conversa')
   }
-  const title = !convs
-    ? 'WhatsApp'
-    : convs.length > 1 ? `Conversas no CRM (${convs.length} WhatsApps)`
-    : convs.length === 1 ? 'Abrir a conversa no CRM'
-    : 'WhatsApp (sem conversa no CRM)'
 
   return (
     <>
       <button
         type="button"
-        onClick={click}
+        onClick={() => { setChoosing(false); setOpen(true) }}
         title={title}
         aria-label={title}
         className="relative w-8 h-8 rounded-full bg-white flex items-center justify-center text-navy hover:bg-brand-500 hover:text-white transition-colors shadow-sm"
@@ -552,42 +568,81 @@ function WhatsAppCrmButton({ clientId, phone, extraConvIds }: { clientId: string
         )}
       </button>
 
-      {open && convs && (
+      {open && (
         <Portal>
           <div className="fixed inset-0 modal-backdrop z-[9999] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
-            <div role="dialog" aria-modal="true" aria-label="Escolher conversa" className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+            <div role="dialog" aria-modal="true" aria-label="Conversas no CRM" className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 max-h-[85vh] overflow-y-auto">
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div>
-                  <h2 className="text-base font-bold text-gray-900">Qual conversa abrir?</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Este contato tem conversa em {convs.length} WhatsApps da empresa.</p>
+                  <h2 className="text-base font-bold text-gray-900">Conversas com {clientName}</h2>
+                  {convs && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {convs.length === 0 ? 'Nenhuma conversa nos seus WhatsApps ainda.' : convs.length === 1 ? '1 conversa no CRM.' : `${convs.length} conversas no CRM.`}
+                    </p>
+                  )}
                 </div>
                 <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
               </div>
-              <ul className="mt-3 space-y-2 max-h-[60vh] overflow-y-auto">
-                {convs.map(c => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => go(c.id)}
-                      className="w-full text-left rounded-xl border border-surface-border hover:border-brand-400 hover:bg-brand-50/40 px-3 py-2.5 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-navy truncate">{c.instanceLabel}</span>
-                        {c.phone && <span className="text-[11px] text-gray-400 shrink-0">{c.phone}</span>}
-                        {c.lastAt && (
-                          <span className="ml-auto text-[11px] text-gray-400 shrink-0" title="Última interação">{formatRelativeWithTime(c.lastAt)}</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1 truncate">
-                        {c.lastBody
-                          ? <><span className="text-gray-400">{c.lastDirection === 'outbound' ? 'Nós: ' : 'Cliente: '}</span>{c.lastBody}</>
-                          : <span className="text-gray-400 italic">{c.lastType ? `[${c.lastType}]` : 'Sem mensagens'}</span>}
-                      </p>
-                      {c.assignedName && <p className="text-[11px] text-gray-400 mt-0.5">Atendente: {c.assignedName}</p>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+
+              {!convs || !instances ? (
+                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+              ) : (
+                <>
+                  <ul className="mt-3 space-y-2">
+                    {convs.map(c => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => go(c.id)}
+                          className="w-full text-left rounded-xl border border-surface-border hover:border-brand-400 hover:bg-brand-50/40 px-3 py-2.5 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-navy truncate">{c.instanceLabel}</span>
+                            {c.isGroup
+                              ? <span className="text-[11px] text-gray-400 truncate">Grupo{c.contactName ? ` · ${c.contactName}` : ''}</span>
+                              : c.phone && <span className="text-[11px] text-gray-400 shrink-0">{c.phone}</span>}
+                            {c.lastAt && (
+                              <span className="ml-auto text-[11px] text-gray-400 shrink-0" title="Última interação">{formatRelativeWithTime(c.lastAt)}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-600 mt-1 truncate">
+                            {c.lastBody
+                              ? <><span className="text-gray-400">{c.lastDirection === 'outbound' ? 'Nós: ' : 'Cliente: '}</span>{c.lastBody}</>
+                              : <span className="text-gray-400 italic">{c.lastType ? `[${c.lastType}]` : 'Sem mensagens'}</span>}
+                          </p>
+                          {c.assignedName && <p className="text-[11px] text-gray-400 mt-0.5">Atendente: {c.assignedName}</p>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-4 border-t border-surface-border pt-4">
+                    {!phone ? (
+                      <p className="text-xs text-gray-500 text-center">Cadastre o telefone do cliente para iniciar uma conversa.</p>
+                    ) : free.length === 0 ? (
+                      <p className="text-xs text-gray-500 text-center">{instances.some(i => i.can_start) ? 'Já há conversa em todos os WhatsApps a que você tem acesso.' : 'Você não tem um WhatsApp disponível para iniciar conversa.'}</p>
+                    ) : !choosing ? (
+                      <button type="button" onClick={() => setChoosing(true)} className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 transition-colors">
+                        <Plus className="w-4 h-4" /> Iniciar conversa em novo número
+                      </button>
+                    ) : (
+                      <>
+                        <p className="text-xs font-semibold text-gray-700 mb-2">Iniciar por qual WhatsApp?</p>
+                        <div className="space-y-1.5">
+                          {free.map(i => (
+                            <button key={i.id} type="button" disabled={!!busyId} onClick={() => start(i.id)} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left disabled:opacity-60">
+                              <span className={cn('inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border', instanceColor(i.color_index).chip)}>{i.label}</span>
+                              {i.is_private && <Lock className="w-3.5 h-3.5 text-amber-600" aria-label="Número privado" />}
+                              <span className="flex-1" />
+                              {busyId === i.id ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" /> : <span className="text-xs text-emerald-700 font-medium">Iniciar</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </Portal>
@@ -871,7 +926,7 @@ export function DetailsCard({ s, primaryQuote }: { s: SolicitationView; primaryQ
           </div>
         )}
         <div className="flex items-center gap-2 pt-1 flex-wrap">
-          <WhatsAppCrmButton clientId={s.clientId} phone={s.clientPhone} extraConvIds={s.crmConversationIds} />
+          <WhatsAppCrmButton clientId={s.clientId} clientName={s.clientName ?? 'o cliente'} phone={s.clientPhone} extraConvIds={s.crmConversationIds} />
           {s.clientPhone && <RoundAction href={`tel:${s.clientPhone.replace(/[^\d+]/g, '')}`} title="Ligar" icon={Phone} />}
           {s.clientEmail && <RoundAction href={`mailto:${s.clientEmail}`} title="Enviar e-mail" icon={Mail} />}
           <DriveFolderButton solicitationId={s.id} />

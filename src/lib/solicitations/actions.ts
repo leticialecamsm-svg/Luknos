@@ -41,6 +41,8 @@ export type SolicitationEvent = {
 
 export type CrmConversationOption = {
   id: string
+  instanceId: string
+  isGroup: boolean
   instanceLabel: string
   phone: string | null
   contactName: string | null
@@ -1293,6 +1295,8 @@ async function conversationOptions(convs: any[]): Promise<CrmConversationOption[
     const m = last[i]
     return {
       id: c.id,
+      instanceId: c.instance_id,
+      isGroup: String(c.remote_jid ?? '').endsWith('@g.us'),
       instanceLabel: instLabel.get(c.instance_id) ?? 'WhatsApp',
       phone: jidPhone(c.remote_jid),
       contactName: c.contact_name_cache ?? null,

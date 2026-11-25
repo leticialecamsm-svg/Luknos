@@ -483,7 +483,7 @@ async function conversationAccess(admin: Admin, userId: string, conversationId: 
 // WhatsApps que o usuário enxerga (para o seletor do Quadro e das Conversas).
 export async function getCrmInstanceOptions() {
   const auth = await ensureStaff()
-  if ('error' in auth) return [] as { id: string; label: string; is_private: boolean; color_index: number }[]
+  if ('error' in auth) return [] as { id: string; label: string; is_private: boolean; color_index: number; can_start: boolean }[]
   const admin = createAdminClient()
   const scope = await loadScope(admin, auth.userId)
   // número privado em que só tem conversas avulsas também aparece
@@ -504,7 +504,8 @@ export async function getCrmInstanceOptions() {
     .filter((i) => !blockedOpts.includes(i.id))
     .filter((i) => scope.instanceIds.includes(i.id) || extra.has(i.id))
     .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-    .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private, color_index: colorIndex.get(i.id) ?? 0 }))
+    // can_start: acesso ao número inteiro (não só a uma conversa liberada) e número ativo
+    .map((i) => ({ id: i.id, label: i.label, is_private: i.is_private, color_index: colorIndex.get(i.id) ?? 0, can_start: i.is_active && scope.instanceIds.includes(i.id) }))
 }
 
 export type AccessState = 'admin' | 'owner' | 'assigned' | 'shared' | 'number' | 'blocked' | 'none'
