@@ -5,7 +5,17 @@
 import { appendLibBlock, type CadModel, type LibBlock } from './cad'
 
 export type M6 = [number, number, number, number, number, number]
-export interface Shape { id: number; kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow'; pts: number[]; stroke: string; fill: string | null; text?: string; h?: number; rot?: number }
+export interface Shape {
+  id: number
+  kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte'
+  pts: number[]; stroke: string; fill: string | null
+  text?: string; h?: number; rot?: number
+  w?: number // espessura do perfil / largura da fonte (unidades do desenho)
+  tapeColor?: string // cor da fita dentro do perfil
+  wm?: number; volt?: number // fita: potência por metro e tensão
+  watts?: number // fonte
+  link?: number // fonte: id da fita/perfil que ela alimenta
+}
 export interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
 export interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string> }
 export interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }

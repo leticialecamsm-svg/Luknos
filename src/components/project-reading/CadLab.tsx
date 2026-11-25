@@ -1,18 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
+import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normalizeLibBlock, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isTape, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
-type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
@@ -76,6 +77,12 @@ function textPoly(s: Shape): number[] {
   const x0 = left ? s.pts[0] - gap - w : s.pts[0] + gap, x1 = x0 + w, y = s.pts[1]
   return [x0, y - 0.6 * h, x1, y - 0.6 * h, x1, y + 0.6 * h, x0, y + 0.6 * h]
 }
+// retângulo da fonte (centrado no ponto)
+function fontePoly(s: Shape): number[] {
+  const hw = (s.w ?? 0.4) / 2, hh = hw * 0.5, [x, y] = s.pts
+  return [x - hw, y - hh, x + hw, y - hh, x + hw, y + hh, x - hw, y + hh]
+}
+const polyOf = (s: Shape) => (s.kind === 'perfil' ? perfilPoly(s) : s.kind === 'fonte' ? fontePoly(s) : null)
 const fmtM = (v: number) => v.toFixed(2).replace('.', ',') + ' m'
 
 export function CadLab() {
@@ -108,6 +115,14 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // perfil + fita
+  const [perfilCm, setPerfilCm] = useState('3') // espessura
+  const [perfilM, setPerfilM] = useState('') // comprimento digitado (vazio = pelos cliques)
+  const [perfilCor, setPerfilCor] = useState('#e5e7eb')
+  const [fitaCor, setFitaCor] = useState('#f43f5e')
+  const [wmPadrao, setWmPadrao] = useState('9.6')
+  const [voltPadrao, setVoltPadrao] = useState(12)
+  const [fonteModal, setFonteModal] = useState<null | { id: number; wm: string; volt: number }>(null)
   const [placeScale, setPlaceScale] = useState('1') // multiplicador do tamanho ao colocar bloco
   const [scaleBy, setScaleBy] = useState('2') // fator do botão Escalar
   const [textH, setTextH] = useState('0.15') // altura do texto em metros
@@ -143,7 +158,8 @@ export function CadLab() {
   const baseRef = useRef<null | { sig: string; layerVis: boolean[]; model: CadModel; cv: HTMLCanvasElement }>(null)
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
   const gesture = useRef<null | {
-    type: 'pan' | 'move' | 'box' | 'dimdrag'
+    type: 'pan' | 'move' | 'box' | 'dimdrag' | 'grip'
+    grip?: number
     x: number; y: number; cx: number; cy: number
     base?: Edits; start?: [number, number]; moved?: boolean; keys?: string[]; dim?: number
     bx?: number; by?: number
@@ -190,6 +206,11 @@ export function CadLab() {
       if (s.kind === 'text' || s.kind === 'arrow') {
         const q = [...textPoly(s), ...(s.kind === 'arrow' ? s.pts : [])]
         const xs = q.filter((_, i) => i % 2 === 0), ys = q.filter((_, i) => i % 2 === 1)
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+      }
+      const poly = polyOf(s)
+      if (poly) {
+        const xs = poly.filter((_, i) => i % 2 === 0), ys = poly.filter((_, i) => i % 2 === 1)
         return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
       }
       if (s.kind === 'circle') return [s.pts[0] - s.pts[2], s.pts[1] - s.pts[2], s.pts[0] + s.pts[2], s.pts[1] + s.pts[2]]
@@ -243,7 +264,12 @@ export function CadLab() {
       else if (k[0] === 's') { const s = from.shapes.find(s => s.id === id); if (!s) continue; shapes.push({ ...xfShape(s, T), id: next }); nk.push('s' + next++) }
       else { const d = from.dims.find(d => d.id === id); if (!d) continue; dims.push({ ...xfDim(d, T), id: next }); nk.push('d' + next++) }
     }
-    return { ed: { ...into, cp, shapes, dims, next }, keys: nk }
+    // fonte copiada junto com a sua fita passa a apontar pra cópia
+    const remap = new Map<number, number>()
+    keys.filter(k => k[0] === 's').forEach(k => { const i = keys.indexOf(k); if (nk[i]) remap.set(Number(k.slice(1)), Number(nk[i].slice(1))) })
+    const made = new Set(nk.filter(k => k[0] === 's').map(k => Number(k.slice(1))))
+    const fixed = shapes.map(s => (made.has(s.id) && s.kind === 'fonte' && s.link !== undefined && remap.has(s.link) ? { ...s, link: remap.get(s.link) } : s))
+    return { ed: { ...into, cp, shapes: fixed, dims, next }, keys: nk }
   }
   function deleteKeys(e: Edits, keys: string[]): Edits {
     const ov = { ...e.ov }
@@ -251,7 +277,10 @@ export function CadLab() {
     for (const k of keys) if (k[0] === 'o') ov[Number(k.slice(1))] = null
     return {
       ...e, ov,
-      cp: e.cp.filter(c => !set.has('c' + c.id)), shapes: e.shapes.filter(s => !set.has('s' + s.id)), dims: e.dims.filter(d => !set.has('d' + d.id)),
+      cp: e.cp.filter(c => !set.has('c' + c.id)),
+      // apagar uma fita/perfil leva junto a fonte ligada a ela
+      shapes: e.shapes.filter(s => !set.has('s' + s.id) && !(s.kind === 'fonte' && s.link !== undefined && set.has('s' + s.link))),
+      dims: e.dims.filter(d => !set.has('d' + d.id)),
     }
   }
 
@@ -267,6 +296,54 @@ export function CadLab() {
     const b = unionBox(edRef.current, keys); if (!b || !keys.length || !(f > 0)) return
     const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
     commit(applyXf(edRef.current, keys, [f, 0, 0, f, cx - f * cx, cy - f * cy]))
+  }
+  // ── Perfil, fita e fonte ─────────────────────────────────────────────────
+  const num = (v: string, d = 0) => { const n = parseFloat(v.replace(',', '.')); return isNaN(n) ? d : n }
+  function openFonte(id: number, from: Edits = edRef.current) {
+    const s = from.shapes.find(x => x.id === id)
+    setFonteModal({ id, wm: s?.wm ? String(s.wm) : wmPadrao, volt: s?.volt ?? voltPadrao })
+  }
+  function addTape(shape: Omit<Shape, 'id'>) {
+    const e0 = edRef.current
+    const next: Edits = { ...e0, shapes: [...e0.shapes, { ...shape, id: e0.next }], next: e0.next + 1 }
+    commit(next); setSel(['s' + e0.next]); setDraft([])
+    openFonte(e0.next, next)
+  }
+  function finishFita() {
+    const pts = draft.filter((p, i) => i === 0 || Math.hypot(p[0] - draft[i - 1][0], p[1] - draft[i - 1][1]) > 1e-6)
+    if (pts.length < 2) { setDraft([]); return }
+    addTape({ kind: 'fita', pts: pts.flat(), stroke: fitaCor, fill: null })
+  }
+  // grava W/m e tensão na fita e, se pedido, cria (ou atualiza) a fonte ligada a ela
+  function confirmFonte(incluir: boolean) {
+    const m = fonteModal
+    if (!m) return
+    setFonteModal(null)
+    const e0 = edRef.current
+    const tape = e0.shapes.find(x => x.id === m.id)
+    if (!tape) return
+    const wm = num(m.wm)
+    if (!(wm > 0)) return
+    setWmPadrao(m.wm); setVoltPadrao(m.volt)
+    let shapes = e0.shapes.map(x => (x.id === m.id ? { ...x, wm, volt: m.volt } : x))
+    let next = e0.next
+    if (incluir) {
+      const r = dimensionarFonte(polyLength(tape.pts) * u2m, wm)
+      const antigas = shapes.filter(x => x.kind === 'fonte' && x.link === m.id)
+      shapes = shapes.filter(x => !(x.kind === 'fonte' && x.link === m.id))
+      const w = Math.max(0.4 / u2m, 90 / view.current.scale) // legível no zoom atual
+      const abaixo = tape.pts[1] - (tape.w ?? 0) / 2 - w * 0.8 // fora do perfil
+      for (let i = 0; i < r.quantidade; i++) {
+        const old = antigas[i]
+        const base = { watts: r.potencia, volt: m.volt, text: `Fonte ${r.potencia}W ${m.volt}V`, link: m.id }
+        shapes.push(old ? { ...old, ...base } : { ...base, id: next++, kind: 'fonte', pts: [tape.pts[0] + i * w * 1.2, abaixo], w, stroke: '#22d3ee', fill: null })
+      }
+    }
+    commit({ ...e0, shapes, next })
+  }
+  function patchShape(id: number, fn: (s: Shape) => Shape) {
+    const e0 = edRef.current
+    commit({ ...e0, shapes: e0.shapes.map(x => (x.id === id ? fn(x) : x)) })
   }
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
@@ -409,7 +486,12 @@ export function CadLab() {
     }
     for (const s of e.shapes) {
       let d = Infinity
-      if (s.kind === 'text' || s.kind === 'arrow') {
+      const box = polyOf(s)
+      if (box) {
+        d = inRings([Float64Array.from(box)], wx, wy) ? 0 : Math.min(...[0, 2, 4, 6].map(i => distSeg(wx, wy, box[i], box[i + 1], box[(i + 2) % 8], box[(i + 3) % 8])))
+      } else if (s.kind === 'fita') {
+        for (let i = 0; i + 3 < s.pts.length; i += 2) d = Math.min(d, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[i + 2], s.pts[i + 3]))
+      } else if (s.kind === 'text' || s.kind === 'arrow') {
         const poly = textPoly(s)
         d = inRings([Float64Array.from(poly)], wx, wy) ? 0 : Math.min(...[0, 2, 4, 6].map(i => distSeg(wx, wy, poly[i], poly[i + 1], poly[(i + 2) % 8], poly[(i + 3) % 8])))
         if (s.kind === 'arrow') d = Math.min(d, distSeg(wx, wy, s.pts[0], s.pts[1], s.pts[2], s.pts[3]))
@@ -768,6 +850,41 @@ export function CadLab() {
     }
     for (const s of ed.shapes) {
       const on = selSet.has('s' + s.id)
+      if (isTape(s)) {
+        const pt = (i: number) => toScreen(s.pts[i], s.pts[i + 1], w, h)
+        if (s.kind === 'perfil') {
+          const q = perfilPoly(s)
+          ctx.beginPath()
+          for (let i = 0; i < 8; i += 2) { const [x, y] = toScreen(q[i], q[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
+          ctx.closePath()
+          ctx.globalAlpha = 0.18; ctx.fillStyle = s.stroke; ctx.fill(); ctx.globalAlpha = 1
+          ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
+        }
+        // fita: linha pontilhada (no perfil, no meio dele)
+        ctx.beginPath()
+        for (let i = 0; i < s.pts.length; i += 2) { const [x, y] = pt(i); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
+        ctx.strokeStyle = on && s.kind === 'fita' ? SEL : s.kind === 'perfil' ? s.tapeColor ?? '#f43f5e' : s.stroke
+        ctx.lineWidth = 2; ctx.setLineDash([7, 5]); ctx.stroke(); ctx.setLineDash([])
+        continue
+      }
+      if (s.kind === 'fonte') {
+        const tape = ed.shapes.find(x => x.id === s.link)
+        const color = on ? SEL : s.stroke
+        if (tape) { // linha de conexão fonte → fita (acompanha quando qualquer uma se move)
+          const [tx, ty] = nearestOnTape(tape, s.pts[0], s.pts[1])
+          const [a, b] = toScreen(s.pts[0], s.pts[1], w, h), [c, d] = toScreen(tx, ty, w, h)
+          ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); ctx.setLineDash([])
+          ctx.fillStyle = color; ctx.beginPath(); ctx.arc(c, d, 3, 0, Math.PI * 2); ctx.fill()
+        }
+        const q = fontePoly(s)
+        const [x0, y0] = toScreen(q[0], q[5], w, h), [x1, y1] = toScreen(q[2], q[1], w, h)
+        ctx.fillStyle = BG; ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+        ctx.globalAlpha = 0.25; ctx.fillStyle = s.stroke; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1
+        ctx.strokeStyle = color; ctx.lineWidth = on ? 2.5 : 1.5; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
+        const px = Math.min((x1 - x0) / (Math.max(8, (s.text ?? '').length) * 0.58), (y1 - y0) * 0.55)
+        if (px >= 4) { ctx.fillStyle = '#ffffff'; ctx.font = `${px}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s.text ?? '', (x0 + x1) / 2, (y0 + y1) / 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic' }
+        continue
+      }
       if (s.kind === 'text' || s.kind === 'arrow') {
         const color = on ? SEL : s.stroke
         const px = (s.h ?? 0.1) * scale
@@ -792,6 +909,20 @@ export function CadLab() {
       ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
     }
 
+    // alças de redimensionar e medida da fita/perfil selecionado
+    if (tool === 'select' && sel.length === 1) {
+      const s = ed.shapes.find(x => 's' + x.id === sel[0])
+      if (s && isTape(s)) {
+        gripsOf(s).forEach(([gx, gy], i) => {
+          const [x, y] = toScreen(gx, gy, w, h)
+          ctx.fillStyle = s.kind === 'perfil' && i === 2 ? '#fbbf24' : '#2563eb'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1
+          ctx.fillRect(x - 5, y - 5, 10, 10); ctx.strokeRect(x - 5, y - 5, 10, 10)
+        })
+        const [x, y] = toScreen(s.pts[0], s.pts[1], w, h)
+        const label = fmtM(polyLength(s.pts) * model.unitToMeters) + (s.kind === 'perfil' ? ` × ${((s.w ?? 0) * model.unitToMeters * 100).toFixed(1).replace('.', ',')} cm` : '')
+        ctx.font = 'bold 12px sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, x + 8, y - 10); ctx.fillStyle = '#fbbf24'; ctx.fillText(label, x + 8, y - 10)
+      }
+    }
     // 6) cotas
     const drawDim = (d: Dim, color: string, lw: number) => {
       const g = dimGeom(d)
@@ -828,6 +959,16 @@ export function CadLab() {
     const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
     if (cur && draft.length) {
       if (tool === 'linha') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
+      if (tool === 'fita') guide(() => { ctx.beginPath(); [...draft, cur].forEach((p, i) => { const [x, y] = toScreen(p[0], p[1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }); ctx.stroke() })
+      if (tool === 'perfil') guide(() => {
+        const L = num(perfilM) / model.unitToMeters
+        const d = Math.hypot(cur[0] - draft[0][0], cur[1] - draft[0][1]) || 1
+        const end = L > 0 ? [draft[0][0] + ((cur[0] - draft[0][0]) / d) * L, draft[0][1] + ((cur[1] - draft[0][1]) / d) * L] : cur
+        const ghost: Shape = { id: 0, kind: 'perfil', pts: [draft[0][0], draft[0][1], end[0], end[1]], w: num(perfilCm, 3) / 100 / model.unitToMeters, stroke: '', fill: null }
+        const q = perfilPoly(ghost)
+        ctx.beginPath(); for (let i = 0; i < 8; i += 2) { const [x, y] = toScreen(q[i], q[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath(); ctx.stroke()
+        const [x, y] = toScreen(end[0], end[1], w, h); ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(fmtM(Math.hypot(end[0] - draft[0][0], end[1] - draft[0][1]) * model.unitToMeters), x + 8, y - 8)
+      })
       if (tool === 'seta') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
       if (tool === 'retangulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1) })
       if (tool === 'circulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h); ctx.beginPath(); ctx.arc(x1, y1, Math.hypot(cur[0] - draft[0][0], cur[1] - draft[0][1]) * scale, 0, Math.PI * 2); ctx.stroke() })
@@ -906,6 +1047,14 @@ export function CadLab() {
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
     if (e.button !== 0 || tool !== 'select') return
     const [wx, wy] = toWorld(px, py, w, h)
+    if (selRef.current.length === 1) { // alça do perfil/fita selecionado tem prioridade
+      const s = edRef.current.shapes.find(x => 's' + x.id === selRef.current[0])
+      if (s && isTape(s)) {
+        const tol = 8 / view.current.scale
+        const gi = gripsOf(s).findIndex(([gx, gy]) => Math.abs(gx - wx) <= tol && Math.abs(gy - wy) <= tol)
+        if (gi >= 0) { gesture.current = { type: 'grip', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: s.id, grip: gi, moved: false }; return }
+      }
+    }
     const hit = hitTest(wx, wy)
     if (hit) {
       let keys = selRef.current
@@ -944,6 +1093,20 @@ export function CadLab() {
       setEd(applyXf(g.base, g.keys, [1, 0, 0, 1, tx - g.start![0], ty - g.start![1]]))
       return
     }
+    if (g?.type === 'grip' && g.base) {
+      if (!g.moved && Math.hypot(px - g.x, py - g.y) < 3) return
+      g.moved = true
+      const snap = findSnap(wx, wy, new Set(['s' + g.dim]))
+      const [tx, ty] = snap ? [snap.x, snap.y] : [wx, wy]
+      setHover(snap)
+      setEd({ ...g.base, shapes: g.base.shapes.map(x => {
+        if (x.id !== g.dim) return x
+        let p = [tx, ty]
+        if (x.kind === 'fita' && e.shiftKey) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
+        return dragGrip(x, g.grip!, p[0], p[1], 0.01 / u2m, e.altKey)
+      }) })
+      return
+    }
     if (g?.type === 'dimdrag' && g.base) {
       g.moved = true
       const d = g.base.dims.find(d => d.id === g.dim)!
@@ -960,7 +1123,7 @@ export function CadLab() {
     const g = gesture.current
     gesture.current = null
     if (!g) return
-    if ((g.type === 'move' || g.type === 'dimdrag') && g.base) {
+    if ((g.type === 'move' || g.type === 'dimdrag' || g.type === 'grip') && g.base) {
       if (g.moved) { past.current.push(g.base); future.current = []; redraw() } else setEd(g.base)
     }
     const box = boxRef.current
@@ -990,6 +1153,16 @@ export function CadLab() {
     const last = draft[draft.length - 1]
     const p = last && tool !== 'medir' ? ortho(raw, last, e.shiftKey) : raw
     const e0 = edRef.current
+    if (tool === 'perfil') {
+      if (!draft.length) { setDraft([p]); return }
+      const d = Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1])
+      if (d < 1e-9) return
+      const L = num(perfilM) / u2m
+      const end = L > 0 ? [draft[0][0] + ((p[0] - draft[0][0]) / d) * L, draft[0][1] + ((p[1] - draft[0][1]) / d) * L] : p
+      addTape({ kind: 'perfil', pts: [draft[0][0], draft[0][1], end[0], end[1]], w: num(perfilCm, 3) / 100 / u2m, stroke: perfilCor, tapeColor: fitaCor, fill: null })
+      return
+    }
+    if (tool === 'fita') { if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) setDraft([...draft, p]); return }
     if (tool === 'texto') { setTextEdit({ kind: 'text', x: p[0], y: p[1], value: '' }); return }
     if (tool === 'seta') {
       if (!draft.length) { setDraft([p]); return }
@@ -1038,6 +1211,7 @@ export function CadLab() {
   }, [tool])
 
   function onDbl(e: React.MouseEvent) {
+    if (tool === 'fita') { finishFita(); return }
     if (tool !== 'select') { setDraft([]); return }
     const { px, py, w, h } = pos(e)
     const hit = hitTest(...toWorld(px, py, w, h))
@@ -1071,7 +1245,7 @@ export function CadLab() {
 
   // ── Biblioteca ───────────────────────────────────────────────────────────
   useEffect(() => {
-    listCadLibrary().then(r => { if (r.rows) setLib(r.rows); else if (r.error) setLibMsg(r.error) }).catch(() => {})
+    listCadLibrary().then(r => { if (r.rows) setLib(r.rows.map(x => ({ ...x, data: normalizeLibBlock(x.data) }))); else if (r.error) setLibMsg(r.error) }).catch(() => {})
   }, [])
   // coloca a definição do bloco no desenho aberto (uma vez por bloco) e devolve o índice do objeto
   function ensureObj(b: LibBlock): number {
@@ -1158,7 +1332,7 @@ export function CadLab() {
       const r = await saveCadLibraryBlock(b)
       if (r.error) fails.push(`${b.name}: ${r.error}`); else ok++
     }
-    const r = await listCadLibrary(); if (r.rows) setLib(r.rows)
+    const r = await listCadLibrary(); if (r.rows) setLib(r.rows.map(x => ({ ...x, data: normalizeLibBlock(x.data) })))
     setLibBusy(false)
     if (fails.length) setLibMsg(`${ok} salvo(s). Falhas: ${fails.slice(0, 3).join(' · ')}`); else { setLibMsg(`${ok} bloco(s) salvo(s) na biblioteca.`); setCand(null) }
   }
@@ -1168,6 +1342,8 @@ export function CadLab() {
     if (r.error) { setLibMsg(r.error); return }
     setLib(l => l.filter(x => x.id !== id))
   }
+  const toolRef = useRef(tool); toolRef.current = tool
+  const finishRef = useRef(finishFita); finishRef.current = finishFita
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return
@@ -1179,7 +1355,8 @@ export function CadLab() {
       if (mod && k === 'v') { ev.preventDefault(); actPaste(); return }
       if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
       if (mod) return
-      if (k === 'escape') { setDraft([]); setSel([]); setTool('select') }
+      if (k === 'enter' && toolRef.current === 'fita') { ev.preventDefault(); finishRef.current(); return }
+      if (k === 'escape') { setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
       else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
       else if (k === 'v') setTool('select')
       else if (k === 'h') setTool('pan')
@@ -1187,6 +1364,8 @@ export function CadLab() {
       else if (k === 'l') setTool('linha')
       else if (k === 'r') setTool('retangulo')
       else if (k === 'c') setTool('circulo')
+      else if (k === 'p') setTool('perfil')
+      else if (k === 'f') setTool('fita')
       else if (k === 't') setTool('texto')
       else if (k === 'a') setTool('seta')
     }
@@ -1208,6 +1387,7 @@ export function CadLab() {
     const c = ed.cp.find(c => c.id === Number(sel[0].slice(1)))
     return c && model.objs[c.src]?.attdefs?.some(d => !d.constant) ? c : null
   })()
+  const tapeSel = sel.length === 1 ? ed.shapes.find(x => 's' + x.id === sel[0] && isTape(x)) ?? null : null
   const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
   const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
   const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
@@ -1286,6 +1466,8 @@ export function CadLab() {
               <TB id="linha" icon={<Minus className="w-3.5 h-3.5 -rotate-45" />} label="Linha" k="L" />
               <TB id="retangulo" icon={<Square className="w-3.5 h-3.5" />} label="Retângulo" k="R" />
               <TB id="circulo" icon={<CircleIcon className="w-3.5 h-3.5" />} label="Círculo" k="C" />
+              <TB id="perfil" icon={<RectangleHorizontal className="w-3.5 h-3.5" />} label="Perfil + Fita" k="P" />
+              <TB id="fita" icon={<MoreHorizontal className="w-3.5 h-3.5" />} label="Fita" k="F" />
               <TB id="texto" icon={<TypeIcon className="w-3.5 h-3.5" />} label="Texto" k="T" />
               <TB id="seta" icon={<ArrowUpRight className="w-3.5 h-3.5" />} label="Seta" k="A" />
               <span className="w-px h-5 bg-gray-200 mx-1" />
@@ -1325,7 +1507,7 @@ export function CadLab() {
             </div>
             <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '66vh', cursor: gesture.current?.type === 'pan' ? 'grabbing' : cursorCss }}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}
-              onDoubleClick={onDbl} onContextMenu={e => { e.preventDefault(); setDraft([]) }}>
+              onDoubleClick={onDbl} onContextMenu={e => { e.preventDefault(); if (tool === 'fita') finishFita(); else setDraft([]) }}>
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
               {textEdit && (() => {
                 const el = wrapRef.current
@@ -1364,12 +1546,56 @@ export function CadLab() {
                   {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
                   {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
+                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : 'Perfil + fita: clique no ponto inicial')}
+                  {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : 'Fita: clique no ponto inicial')}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
                 </div>
               )}
+              {(tool === 'perfil' || tool === 'fita') && (
+                <div className="absolute right-2 top-2 z-10 flex items-center gap-2 text-[11px] bg-white/95 border border-gray-200 rounded px-2 py-1 text-gray-600" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                  {tool === 'perfil' && (<>
+                    <label className="flex items-center gap-1">Espessura <input value={perfilCm} onChange={e => setPerfilCm(e.target.value)} className="w-11 text-xs border border-gray-200 rounded px-1 py-0.5 text-center" /> cm</label>
+                    <label className="flex items-center gap-1">Comprimento <input value={perfilM} onChange={e => setPerfilM(e.target.value)} placeholder="livre" className="w-14 text-xs border border-gray-200 rounded px-1 py-0.5 text-center" /> m</label>
+                    <label className="flex items-center gap-1">Perfil <input type="color" value={perfilCor} onChange={e => setPerfilCor(e.target.value)} className="w-5 h-5 p-0 border-0" /></label>
+                  </>)}
+                  <label className="flex items-center gap-1">Fita <input type="color" value={fitaCor} onChange={e => setFitaCor(e.target.value)} className="w-5 h-5 p-0 border-0" /></label>
+                </div>
+              )}
+              {fonteModal && (() => {
+                const tape = ed.shapes.find(x => x.id === fonteModal.id)
+                if (!tape) return null
+                const comp = polyLength(tape.pts) * model.unitToMeters
+                const wm = num(fonteModal.wm)
+                const r = wm > 0 ? dimensionarFonte(comp, wm) : null
+                const jaTem = ed.shapes.some(x => x.kind === 'fonte' && x.link === tape.id)
+                return (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    <form className="w-80 bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmFonte(true) }}>
+                      <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> Fonte da fita — {fmtM(comp)}</p>
+                      <div className="flex gap-2">
+                        <label className="flex-1 text-[11px] text-gray-500">Potência da fita (W/m)
+                          <input autoFocus value={fonteModal.wm} onChange={e => setFonteModal({ ...fonteModal, wm: e.target.value })} onKeyDown={e => e.stopPropagation()} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800" /></label>
+                        <label className="w-24 text-[11px] text-gray-500">Tensão
+                          <select value={fonteModal.volt} onChange={e => setFonteModal({ ...fonteModal, volt: Number(e.target.value) })} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800"><option value={12}>12 V</option><option value={24}>24 V</option></select></label>
+                      </div>
+                      {r ? (
+                        <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 space-y-0.5">
+                          <p className="flex justify-between"><span>Consumo</span><b>{r.consumoW.toLocaleString('pt-BR')} W</b></p>
+                          <p className="flex justify-between"><span>Mínimo com 20% de folga</span><b>{r.minimaW.toLocaleString('pt-BR')} W</b></p>
+                          <p className="flex justify-between text-sm text-navy pt-1 border-t border-gray-200"><span>Fonte sugerida</span><b>{r.quantidade > 1 ? `${r.quantidade} × ` : ''}{r.potencia} W {fonteModal.volt}V</b></p>
+                        </div>
+                      ) : <p className="text-xs text-amber-600">Informe a potência por metro.</p>}
+                      <div className="flex gap-2">
+                        <button type="submit" disabled={!r} className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-40">{jaTem ? 'Atualizar fonte na planta' : 'Incluir fonte na planta'}</button>
+                        <button type="button" onClick={() => confirmFonte(false)} className="text-xs text-gray-500 px-3">Agora não</button>
+                      </div>
+                    </form>
+                  </div>
+                )
+              })()}
               {tool === 'inserir' && placing && (
                 <div className="absolute right-2 top-2 z-10 flex items-center gap-1 text-[11px] bg-white/95 border border-gray-200 rounded px-2 py-1 text-gray-600" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                   Tamanho ×
@@ -1407,6 +1633,39 @@ export function CadLab() {
                 </div>
               </section>
             )}
+
+            {tapeSel && (() => {
+              const comp = polyLength(tapeSel.pts) * model.unitToMeters
+              const fontes = ed.shapes.filter(x => x.kind === 'fonte' && x.link === tapeSel.id)
+              const r = tapeSel.wm ? dimensionarFonte(comp, tapeSel.wm) : null
+              const instalada = fontes.reduce((a, f) => a + (f.watts ?? 0), 0)
+              const campo = (label: string, valor: string, aplicar: (v: number) => void, unidade: string, chave: string) => (
+                <label key={`${tapeSel.id}:${chave}:${valor}`} className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <span className="flex-1">{label}</span>
+                  <input defaultValue={valor} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    onBlur={e => { const v = num(e.target.value); if (v > 0 && e.target.value !== valor) aplicar(v) }}
+                    className="w-20 text-xs border border-gray-200 rounded px-1.5 py-0.5 text-right bg-white" />
+                  <span className="w-6">{unidade}</span>
+                </label>
+              )
+              return (
+                <section className="border border-sky-200 rounded-xl bg-sky-50/40 p-3 space-y-1.5">
+                  <p className="text-xs font-bold text-sky-800 uppercase">{tapeSel.kind === 'perfil' ? 'Perfil + fita' : 'Fita'}</p>
+                  {tapeSel.pts.length === 4
+                    ? campo('Comprimento', comp.toFixed(2), v => patchShape(tapeSel.id, x => setLength(x, v / model.unitToMeters)), 'm', 'len')
+                    : <p className="flex justify-between text-xs text-gray-600"><span>Comprimento</span><b>{fmtM(comp)}</b></p>}
+                  {tapeSel.kind === 'perfil' && campo('Espessura', ((tapeSel.w ?? 0) * model.unitToMeters * 100).toFixed(1), v => patchShape(tapeSel.id, x => ({ ...x, w: v / 100 / model.unitToMeters })), 'cm', 'esp')}
+                  <div className="flex items-center gap-3 text-xs text-gray-600">
+                    {tapeSel.kind === 'perfil' && <label className="flex items-center gap-1">Cor do perfil <input type="color" value={tapeSel.stroke} onChange={e => patchShape(tapeSel.id, x => ({ ...x, stroke: e.target.value }))} className="w-6 h-6 p-0 border-0" /></label>}
+                    <label className="flex items-center gap-1">Cor da fita <input type="color" value={tapeSel.kind === 'perfil' ? tapeSel.tapeColor ?? '#f43f5e' : tapeSel.stroke} onChange={e => patchShape(tapeSel.id, x => (x.kind === 'perfil' ? { ...x, tapeColor: e.target.value } : { ...x, stroke: e.target.value }))} className="w-6 h-6 p-0 border-0" /></label>
+                  </div>
+                  <p className="text-xs text-gray-600">{tapeSel.wm ? `${String(tapeSel.wm).replace('.', ',')} W/m · ${tapeSel.volt ?? 12} V` : 'Potência da fita não informada'}{fontes.length > 0 && ` · fonte: ${fontes.length > 1 ? `${fontes.length} × ` : ''}${fontes[0].watts} W`}</p>
+                  {r && fontes.length > 0 && instalada < r.minimaW && <p className="text-[11px] text-red-600 bg-red-50 rounded px-2 py-1">A fonte ficou pequena: precisa de {r.minimaW.toLocaleString('pt-BR')} W. Recalcule.</p>}
+                  <button onClick={() => openFonte(tapeSel.id)} className="w-full text-xs font-medium bg-brand-600 text-white rounded-lg py-1.5">{fontes.length ? 'Recalcular fonte' : 'Calcular e incluir fonte'}</button>
+                  <p className="text-[10px] text-gray-400">{tapeSel.kind === 'perfil' ? 'No desenho: quadrados azuis esticam o comprimento (Alt gira), o amarelo muda a espessura.' : 'No desenho: arraste os quadrados azuis pra ajustar os pontos da fita.'}</p>
+                </section>
+              )
+            })()}
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Cotas</p>

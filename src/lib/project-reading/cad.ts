@@ -544,7 +544,7 @@ export function extractLibraryBlocks(db: any): LibBlock[] {
     const bu = UNITS[Number(b.insertionUnits ?? 0)]?.[1] ?? unit
     out.push({ name, unitToMeters: bu, cols, segs, segC, texts, fills, bbox: [x0, y0, x1, y1], attdefs: attdefs.length ? attdefs : undefined })
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  return out.map(normalizeLibBlock).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
 
 export async function loadCadLibraryFile(buf: ArrayBuffer): Promise<LibBlock[]> {
@@ -580,4 +580,29 @@ export function appendLibBlock(model: CadModel, b: LibBlock): { model: CadModel;
   const fills = [...model.fills, ...b.fills.map(f => ({ rings: f.rings.map(r => Float64Array.from(r)), col: colMap[f.c], layer: li, alpha: f.a, obj }))]
   const objs = [...model.objs, { h: `lib:${b.name}`, kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox, attdefs: b.attdefs }]
   return { model: { ...model, layers, palette, segs, segLayer, segObj, segCol, texts, fills, objs }, obj, layerAdded }
+}
+
+/**
+ * Conserta blocos de biblioteca mal definidos no arquivo de origem:
+ * unidade errada (desenho em metros marcado como mm/cm) e geometria desenhada
+ * muito longe do ponto de inserção (o bloco "sumia" do cursor).
+ */
+export function normalizeLibBlock(b: LibBlock): LibBlock {
+  const [x0, y0, x1, y1] = b.bbox
+  const size = Math.max(x1 - x0, y1 - y0)
+  if (!(size > 0)) return b
+  const unit = size * b.unitToMeters < 0.02 && size >= 0.02 && size <= 5 ? 1 : b.unitToMeters
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+  const far = Math.hypot(cx, cy) > size * 5
+  if (unit === b.unitToMeters && !far) return b
+  if (!far) return { ...b, unitToMeters: unit }
+  const sx = (v: number) => r5(v - cx), sy = (v: number) => r5(v - cy)
+  const pair = (a: number[]) => a.map((v, i) => (i % 2 === 0 ? sx(v) : sy(v)))
+  return {
+    ...b, unitToMeters: unit, segs: pair(b.segs),
+    texts: b.texts.map(t => ({ ...t, x: sx(t.x), y: sy(t.y) })),
+    fills: b.fills.map(f => ({ ...f, rings: f.rings.map(pair) })),
+    attdefs: b.attdefs?.map(d => ({ ...d, x: sx(d.x), y: sy(d.y) })),
+    bbox: [sx(x0), sy(y0), sx(x1), sy(y1)],
+  }
 }
