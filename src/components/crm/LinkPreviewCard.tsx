@@ -35,8 +35,9 @@ export function LinkPreviewCard({ url }: { url: string }) {
   if (!data) return null
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" className="block mb-1.5 -mx-0.5 rounded-lg overflow-hidden bg-black/5 hover:bg-black/10 transition-colors">
+      {/* banner de solicitação: só a faixa central (o cartão), sem as margens que o WhatsApp precisa */}
       {data.image && imgOk && (
-        <img src={data.image} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setImgOk(false)} className="block w-full max-h-64 object-cover" />
+        <img src={data.image} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setImgOk(false)} className={data.image.includes('/api/og/solicitacao/') ? 'block w-full aspect-[1200/315] object-cover' : 'block w-full max-h-64 object-cover'} />
       )}
       <div className="px-2.5 py-2">
         {data.title && <p className="text-sm font-semibold text-gray-900 line-clamp-2">{data.title}</p>}

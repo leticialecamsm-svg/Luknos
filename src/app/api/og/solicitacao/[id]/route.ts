@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const title = p ? `${p.title} · #${p.number}` : 'Luknos Iluminação'
   const description = p ? [p.client, p.stage ? `Etapa: ${p.stage}` : null].filter(Boolean).join(' · ') : 'Sistema de gestão Luknos'
   // o "v" muda com a etapa para o WhatsApp não reaproveitar um banner antigo
-  const image = p ? `${origin}/api/og/solicitacao/${params.id}/imagem?v=${encodeURIComponent(`2-${p.stage ?? '0'}-${p.team.length}`)}` : `${origin}/icons/icon-512.png`
+  const image = p ? `${origin}/api/og/solicitacao/${params.id}/imagem?v=${encodeURIComponent(`3-${p.stage ?? '0'}-${p.team.length}`)}` : `${origin}/icons/icon-512.png`
   const html = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:url" content="${esc(`${origin}/solicitacoes/${encodeURIComponent(params.id)}`)}">
 <meta property="og:image" content="${esc(image)}">
-${p ? '<meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="315">' : ''}
+${p ? '<meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' : ''}
 <meta name="twitter:card" content="summary_large_image">
 </head>
 <body style="font-family:system-ui,sans-serif;padding:32px">
