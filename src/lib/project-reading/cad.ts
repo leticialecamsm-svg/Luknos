@@ -9,7 +9,7 @@ export interface CadFill { rings: Float64Array[]; col: number; layer: number; al
 /** Objeto de nível superior do espaço-modelo (linha, bloco, hachura...) — a unidade que se seleciona/edita. */
 /** Campo de atributo de um bloco (ATTDEF): texto editável por bloco colocado. */
 export interface LibAttdef { tag: string; prompt: string; def: string; x: number; y: number; h: number; rot: number; ha: number; va: number; hidden: boolean; constant: boolean; col: string }
-export interface CadObj { kind: string; name: string; layer: number; s0: number; s1: number; t0: number; t1: number; f0: number; f1: number; bbox: [number, number, number, number]; attdefs?: LibAttdef[] }
+export interface CadObj { h: string; kind: string; name: string; layer: number; s0: number; s1: number; t0: number; t1: number; f0: number; f1: number; bbox: [number, number, number, number]; attdefs?: LibAttdef[] }
 export interface CadInsert { name: string; x: number; y: number; layer: number }
 export interface CadModel {
   layers: CadLayer[]
@@ -298,7 +298,7 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
           for (let i = s0; i < s1; i++) { ext(segs[i * 4], segs[i * 4 + 1]); ext(segs[i * 4 + 2], segs[i * 4 + 3]) }
           for (let i = t0; i < t1; i++) ext(texts[i].x, texts[i].y)
           for (let i = f0; i < f1; i++) for (const r of fills[i].rings) for (let k = 0; k < r.length; k += 2) ext(r[k], r[k + 1])
-          objs.push({ kind: String(e.type), name: String(e.name ?? ''), layer: li, s0, s1, t0, t1, f0, f1, bbox: [x0, y0, x1, y1] })
+          objs.push({ h: String(e.handle || `#${objs.length}`), kind: String(e.type), name: String(e.name ?? ''), layer: li, s0, s1, t0, t1, f0, f1, bbox: [x0, y0, x1, y1] })
         }
       }
       curCol = 0
@@ -578,6 +578,6 @@ export function appendLibBlock(model: CadModel, b: LibBlock): { model: CadModel;
   const t0 = model.texts.length, f0 = model.fills.length
   const texts = [...model.texts, ...b.texts.map(t => ({ x: t.x, y: t.y, h: t.h, rot: t.rot, text: t.text, layer: li, col: colMap[t.c], obj }))]
   const fills = [...model.fills, ...b.fills.map(f => ({ rings: f.rings.map(r => Float64Array.from(r)), col: colMap[f.c], layer: li, alpha: f.a, obj }))]
-  const objs = [...model.objs, { kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox, attdefs: b.attdefs }]
+  const objs = [...model.objs, { h: `lib:${b.name}`, kind: 'LIB', name: b.name, layer: li, s0, s1: s0 + n, t0, t1: texts.length, f0, f1: fills.length, bbox: b.bbox, attdefs: b.attdefs }]
   return { model: { ...model, layers, palette, segs, segLayer, segObj, segCol, texts, fills, objs }, obj, layerAdded }
 }

@@ -8,10 +8,12 @@ import {
   RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
+import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState } from '@/lib/project-reading/cad-state'
+import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
-type M6 = [number, number, number, number, number, number]
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
   p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1],
@@ -28,13 +30,6 @@ const rotAbout = (deg: number, cx: number, cy: number): M6 => {
   const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r)
   return [c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy]
 }
-
-// ── Estado editável (imutável, pra desfazer/refazer) ────────────────────────
-interface Shape { id: number; kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow'; pts: number[]; stroke: string; fill: string | null; text?: string; h?: number; rot?: number }
-interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
-interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string> }
-interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
-const EMPTY: Edits = { ov: {}, cp: [], shapes: [], dims: [], next: 1 }
 
 const BG = '#1b1d23'
 const SEL = '#38bdf8'
@@ -131,6 +126,19 @@ export function CadLab() {
   const libObj = useRef(new Map<string, number>())
   const modelRef = useRef<CadModel | null>(null); modelRef.current = model
   const needFit = useRef(false)
+  // desenhos salvos
+  const [drawings, setDrawings] = useState<CadDrawingRow[] | null>(null)
+  const [drawing, setDrawing] = useState<{ id: string | null; name: string } | null>(null)
+  const [saveStatus, setSaveStatus] = useState<{ kind: 'salvo' | 'salvando' | 'pendente' | 'erro'; msg?: string } | null>(null)
+  const libDefs = useRef(new Map<string, LibBlock>())
+  const lastSaved = useRef('')
+  const dirty = useRef(false)
+  const inflight = useRef(0)
+  const drawingRef = useRef(drawing); drawingRef.current = drawing
+  const layerVisRef = useRef(layerVis); layerVisRef.current = layerVis
+  const asLoaded = useRef<null | { ed: Edits; vis: boolean[] }>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadSeq = useRef(0)
 
   const baseRef = useRef<null | { sig: string; layerVis: boolean[]; model: CadModel; cv: HTMLCanvasElement }>(null)
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
@@ -423,24 +431,166 @@ export function CadLab() {
   }
 
   // ── Carregar arquivo ─────────────────────────────────────────────────────
-  async function handleFile(file: File) {
-    setError(null); setLoading(true); setModel(null); setSelBlock(null); setEd(EMPTY); setSel([]); setDraft([])
+  // ── Abrir, enviar e salvar ───────────────────────────────────────────────
+  const refreshDrawings = useCallback(() => {
+    listCadDrawings().then(r => { if (r.rows) setDrawings(r.rows); else { setDrawings([]); setError(r.error ?? null) } }).catch(() => setDrawings([]))
+  }, [])
+
+  function setUrlDrawing(id: string | null) {
+    const u = new URL(window.location.href)
+    if (id) u.searchParams.set('d', id); else u.searchParams.delete('d')
+    window.history.replaceState(window.history.state, '', u.toString())
+  }
+
+  // grava agora o que estiver pendente (usado antes de trocar de desenho e pelo botão Salvar).
+  // O estado só é montado aqui, não a cada movimento do mouse.
+  async function flushSave() {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const m = modelRef.current, id = drawingRef.current?.id, vis = layerVisRef.current
+    if (!dirty.current || !m || !id || vis.length !== m.layers.length) return true
+    const state = serializeState(m, edRef.current, vis, libDefs.current)
+    const json = JSON.stringify(state)
+    dirty.current = false
+    const salvo = () => setSaveStatus({ kind: 'salvo', msg: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })
+    if (json === lastSaved.current) { salvo(); return true }
+    setSaveStatus({ kind: 'salvando' })
+    inflight.current++
+    let err: string | undefined
+    try { err = (await saveCadDrawingState(id, state)).error } catch { err = 'sem conexão ou desenho grande demais' }
+    inflight.current--
+    if (drawingRef.current?.id !== id) return !err
+    if (err) { dirty.current = true; setSaveStatus({ kind: 'erro', msg: err }); return false }
+    lastSaved.current = json
+    if (!dirty.current) salvo()
+    return true
+  }
+
+  function resetEditor() {
+    setError(null); setModel(null); setSelBlock(null); setEd(EMPTY); setSel([]); setDraft([]); setPlacing(null)
     past.current = []; future.current = []
-    setFileName(file.name)
+    libObj.current = new Map(); libDefs.current = new Map()
+    dirty.current = false; asLoaded.current = null; lastSaved.current = ''; setSaveStatus(null); setDrawing(null)
+  }
+
+  async function loadDrawing(buf: ArrayBuffer, saved: SavedState | null | undefined) {
+    const t0 = performance.now()
+    let m = await loadCadFile(buf)
+    setTempo(Math.round(performance.now() - t0))
+    let edits = EMPTY
+    let vis = m.layers.map(l => l.visible)
+    if (saved) {
+      const r = restoreState(m, saved)
+      m = r.model; edits = r.edits; vis = r.layerVis
+      libObj.current = r.libObj; libDefs.current = r.libDefs
+      if (r.lost) setError(`${r.lost} alteração(ões) não puderam ser reaplicadas neste arquivo.`)
+    }
+    lastSaved.current = JSON.stringify(serializeState(m, edits, vis, libDefs.current))
+    asLoaded.current = { ed: edits, vis }
+    needFit.current = true
+    setEd(edits); setLayerVis(vis); setModel(m)
+  }
+
+  async function handleFile(file: File) {
+    if (!(await flushSave()) && !window.confirm('As últimas alterações do desenho atual não foram salvas. Continuar mesmo assim?')) return
+    const seq = ++loadSeq.current
+    resetEditor(); setLoading(true); setFileName(file.name)
     try {
-      const t0 = performance.now()
-      const m = await loadCadFile(await file.arrayBuffer())
-      setTempo(Math.round(performance.now() - t0))
-      setLayerVis(m.layers.map(l => l.visible))
-      libObj.current = new Map(); setPlacing(null)
-      needFit.current = true
-      setModel(m)
+      const buf = await file.arrayBuffer()
+      await loadDrawing(buf.slice(0), null)
+      setLoading(false)
+      // guarda o arquivo original pra poder reabrir depois
+      setDrawing({ id: null, name: file.name })
+      setSaveStatus({ kind: 'salvando', msg: 'enviando o arquivo' })
+      const prep = await createCadUpload(file.name, file.size)
+      if (prep.error || !prep.path || !prep.token) throw new Error(prep.error ?? 'falha ao preparar o envio')
+      const up = await createClient().storage.from('cad-drawings').uploadToSignedUrl(prep.path, prep.token, file, { contentType: 'application/octet-stream' })
+      if (up.error) throw new Error(up.error.message)
+      const fin = await finalizeCadDrawing({ path: prep.path, fileName: file.name, sizeBytes: file.size })
+      if (fin.error || !fin.id) throw new Error(fin.error ?? 'falha ao registrar o desenho')
+      if (seq !== loadSeq.current) { refreshDrawings(); return }
+      lastSaved.current = '' // força salvar o que já foi feito durante o envio
+      asLoaded.current = null
+      setDrawing({ id: fin.id, name: file.name.replace(/\.(dwg|dxf)$/i, '') })
+      setUrlDrawing(fin.id)
+      refreshDrawings()
     } catch (e: any) {
+      if (seq !== loadSeq.current) return
+      if (modelRef.current) setSaveStatus({ kind: 'erro', msg: `este desenho NÃO está salvo (${e?.message ?? 'falha no envio'})` })
       setError(e?.message ?? 'Falha ao ler o arquivo.')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }
+
+  async function openSaved(id: string) {
+    const seq = ++loadSeq.current
+    resetEditor(); setLoading(true)
+    try {
+      const r = await openCadDrawing(id)
+      if (r.error || !r.url) throw new Error(r.error ?? 'Falha ao abrir')
+      setFileName(r.fileName ?? '')
+      const res = await fetch(r.url)
+      if (!res.ok) throw new Error('Não foi possível baixar o arquivo salvo.')
+      const buf = await res.arrayBuffer()
+      if (seq !== loadSeq.current) return
+      await loadDrawing(buf, r.state)
+      setDrawing({ id, name: r.name ?? '' }); setSaveStatus({ kind: 'salvo' })
+      setUrlDrawing(id)
+    } catch (e: any) {
+      if (seq === loadSeq.current) { setError(e?.message ?? 'Falha ao abrir o desenho.'); setUrlDrawing(null) }
+    } finally {
+      if (seq === loadSeq.current) setLoading(false)
+    }
+  }
+
+  async function closeDrawing() {
+    if (!(await flushSave()) && !window.confirm('As últimas alterações não foram salvas. Fechar mesmo assim?')) return
+    if (!drawing?.id && modelRef.current && !window.confirm('Este desenho não está salvo. Fechar mesmo assim?')) return
+    loadSeq.current++
+    resetEditor(); setLoading(false); setUrlDrawing(null); refreshDrawings()
+  }
+  async function renameDrawing(id: string, atual: string) {
+    const v = window.prompt('Nome do desenho:', atual)
+    if (!v?.trim()) return
+    const r = await renameCadDrawing(id, v)
+    if (r.error) { setError(r.error); return }
+    setDrawing(d => (d?.id === id ? { id, name: v.trim() } : d)); refreshDrawings()
+  }
+  async function removeDrawing(id: string, nome: string) {
+    if (!window.confirm(`Apagar o desenho "${nome}" e todas as alterações dele? Não dá pra desfazer.`)) return
+    const r = await deleteCadDrawing(id)
+    if (r.error) setError(r.error); else refreshDrawings()
+  }
+
+  // ao entrar na tela: lista os desenhos e reabre o que estava aberto (?d=)
+  useEffect(() => {
+    refreshDrawings()
+    const id = new URL(window.location.href).searchParams.get('d')
+    if (id) openSaved(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // salvamento automático: 1,5 s depois da última alteração
+  useEffect(() => {
+    if (!model || !drawing?.id) return
+    // recém-aberto e sem mudança: não há o que salvar
+    if (asLoaded.current && asLoaded.current.ed === ed && asLoaded.current.vis === layerVis) return
+    asLoaded.current = null
+    dirty.current = true
+    setSaveStatus({ kind: 'pendente' })
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => { flushSave() }, 1500)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ed, layerVis, drawing?.id])
+
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (dirty.current || inflight.current) { e.preventDefault(); e.returnValue = '' } }
+    const hidden = () => { if (document.visibilityState === 'hidden') flushSave() }
+    window.addEventListener('beforeunload', warn)
+    document.addEventListener('visibilitychange', hidden)
+    return () => { window.removeEventListener('beforeunload', warn); document.removeEventListener('visibilitychange', hidden); flushSave() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const regioes = useMemo(() => (model ? computeRegions(model) : []), [model])
 
@@ -931,7 +1081,7 @@ export function CadLab() {
       const r = appendLibBlock(m, b)
       modelRef.current = r.model; setModel(r.model)
       if (r.layerAdded) setLayerVis(v => [...v, true])
-      obj = r.obj; libObj.current.set(b.name, obj)
+      obj = r.obj; libObj.current.set(b.name, obj); libDefs.current.set(b.name, b)
     }
     return obj
   }
@@ -1075,17 +1225,55 @@ export function CadLab() {
     <div className="space-y-3">
       <div>
         <h1 className="text-2xl font-bold text-navy">Laboratório CAD <span className="text-xs font-semibold align-middle bg-amber-100 text-amber-700 rounded px-2 py-0.5">protótipo · só você vê</span></h1>
-        <p className="text-sm text-navy-muted">Abre DWG ou DXF direto no navegador (o arquivo não é enviado pra lugar nenhum). Camadas, blocos, snap, cotas, e edição: selecionar, mover, copiar, girar, espelhar, apagar, desenhar linhas, retângulos e círculos.</p>
+        <p className="text-sm text-navy-muted">Abre DWG ou DXF no navegador. O arquivo e as suas alterações ficam salvos na sua conta. Camadas, blocos, snap, cotas, e edição: selecionar, mover, copiar, girar, espelhar, apagar, desenhar linhas, retângulos e círculos.</p>
       </div>
 
       <label className="flex items-center gap-3 border-2 border-dashed border-surface-border hover:border-brand-400 rounded-card px-4 py-3 cursor-pointer bg-gradient-card shadow-card">
-        <input type="file" accept=".dwg,.dxf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+        <input type="file" accept=".dwg,.dxf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
         {loading ? <Loader2 className="w-5 h-5 text-brand-500 animate-spin" /> : <Upload className="w-5 h-5 text-navy-muted/60" />}
         <span className="text-sm font-medium text-navy-muted">
           {loading ? 'Lendo o desenho (arquivos grandes levam alguns segundos)...' : fileName ? `${fileName} — clique pra trocar o arquivo` : 'Clique pra escolher um arquivo .dwg ou .dxf'}
         </span>
       </label>
       {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+
+      {drawing && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <button onClick={closeDrawing} className="text-brand-600 font-medium hover:underline">← Meus desenhos</button>
+          <span className="font-semibold text-navy truncate max-w-[40ch]">{drawing.name}</span>
+          {drawing.id && <button onClick={() => renameDrawing(drawing.id!, drawing.name)} className="text-xs text-gray-400 hover:text-gray-700 underline">renomear</button>}
+          {saveStatus && (
+            <span className={cn('ml-auto text-xs rounded-full px-2.5 py-1', saveStatus.kind === 'erro' ? 'bg-red-50 text-red-600' : saveStatus.kind === 'salvo' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
+              {saveStatus.kind === 'salvo' && `✓ Salvo${saveStatus.msg ? ` às ${saveStatus.msg}` : ''}`}
+              {saveStatus.kind === 'salvando' && `Salvando${saveStatus.msg ? ` (${saveStatus.msg})` : ''}...`}
+              {saveStatus.kind === 'pendente' && 'Alterações a salvar...'}
+              {saveStatus.kind === 'erro' && `Não salvou: ${saveStatus.msg}`}
+            </span>
+          )}
+          {saveStatus?.kind === 'erro' && drawing.id && <button onClick={() => flushSave()} className="text-xs font-medium bg-brand-600 text-white rounded-lg px-3 py-1">Tentar de novo</button>}
+        </div>
+      )}
+
+      {!model && !loading && (
+        <section className="border border-surface-border rounded-card bg-white p-4">
+          <p className="text-sm font-bold text-navy mb-2">Meus desenhos</p>
+          {drawings === null && <p className="text-sm text-gray-400">Carregando...</p>}
+          {drawings?.length === 0 && <p className="text-sm text-gray-400">Nenhum desenho salvo ainda. O que você abrir acima fica guardado aqui.</p>}
+          <div className="divide-y divide-gray-100">
+            {drawings?.map(d => (
+              <div key={d.id} className="flex items-center gap-3 py-2">
+                <button onClick={() => openSaved(d.id)} className="flex-1 min-w-0 text-left">
+                  <span className="block text-sm font-medium text-navy truncate hover:text-brand-600">{d.name}</span>
+                  <span className="block text-xs text-gray-400 truncate">{d.file_name} · {(d.size_bytes / 1e6).toFixed(1)} MB · alterado em {new Date(d.updated_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                </button>
+                <button onClick={() => openSaved(d.id)} className="text-xs font-medium bg-brand-600 text-white rounded-lg px-3 py-1.5">Abrir</button>
+                <button onClick={() => renameDrawing(d.id, d.name)} className="text-xs text-gray-500 underline">renomear</button>
+                <button onClick={() => removeDrawing(d.id, d.name)} title="Apagar desenho" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {model && (
         <div className="flex gap-3 items-start">
