@@ -15,10 +15,14 @@ export interface PlotInfo {
   papel: Papel; escala: number; legenda: boolean
   ambientes: boolean // escreve nome e área dos ambientes marcados
   area?: [number, number, number, number] // x0, y0, x1, y1 no desenho
+  cores: Cores
+  zoom?: number // tamanho da planta em relação ao ajuste (só com escala livre)
+  desloc?: [number, number] // posição da planta na folha, em pontos de A4
 }
+export type Cores = 'ajustadas' | 'originais' | 'pb'
 export const plotPadrao = (): PlotInfo => ({
   endereco: '', proprietario: '', escritorio: '', data: new Date().toLocaleDateString('pt-BR'),
-  pavimento: 'TÉRREO', desenho: '01/01', papel: 'A4', escala: 0, legenda: true, ambientes: true,
+  pavimento: 'TÉRREO', desenho: '01/01', papel: 'A4', escala: 0, legenda: true, ambientes: true, cores: 'ajustadas',
 })
 
 const EMPRESA = ['Av. Menino Marcelo, 7737A - Serraria, Maceió - AL,', '57046-000 |', '82 9117-9279 | comercial@luknoseletrica.com.br']
@@ -46,7 +50,7 @@ const LEG_COLS = [['Símbolo', 28], ['Descrição', 94], ['Instalação', 36], [
 const LEG_W = LEG_COLS.reduce((s, c) => s + c[1], 0)
 
 /** Divisão da folha e escala da planta (medidas em pontos de A4). */
-export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
+export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' | 'zoom'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
   const [W, H] = PAPEIS[info.papel]
   const f = W / 842
   const linhas = info.legenda ? nItens : 0
@@ -60,11 +64,11 @@ export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda'>,
   const aw = Math.max(1e-9, area[2] - area[0]), ah = Math.max(1e-9, area[3] - area[1])
   // pontos (na folha final) por unidade do desenho
   const ajuste = Math.min((regiao.w * f) / aw, (regiao.h * f) / ah)
-  const ptPorUnidade = info.escala ? (unitToMeters * 1000) / (info.escala * MM_POR_PT) : ajuste
+  const ptPorUnidade = info.escala ? (unitToMeters * 1000) / (info.escala * MM_POR_PT) : ajuste * (info.zoom ?? 1)
   const denom = (unitToMeters * 1000) / (ptPorUnidade * MM_POR_PT)
   return {
     W, H, f, regiao, tabelas, porTabela, rowH, legendaTop, ptPorUnidade, denom,
-    cabe: ptPorUnidade <= ajuste * 1.001,
+    cabe: !info.escala || ptPorUnidade <= ajuste * 1.001,
     rotuloEscala: info.escala ? `1/${info.escala}` : `ajustada (~1/${Math.round(denom)})`,
   }
 }
@@ -96,10 +100,25 @@ export function parseColor(c: string): RGB {
   const r = /^rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)/.exec(c)
   return r ? [Number(r[1]) / 255, Number(r[2]) / 255, Number(r[3]) / 255] : [0, 0, 0]
 }
-/** Linhas e textos claros (feitos pro fundo escuro) viram tinta escura no papel. */
-export function ink([r, g, b]: RGB): RGB {
-  const lum = 0.299 * r + 0.587 * g + 0.114 * b
-  return Math.max(r, g, b) - Math.min(r, g, b) < 0.14 && lum > 0.6 ? [0.08, 0.08, 0.08] : [r, g, b]
+const lumOf = ([r, g, b]: RGB) => 0.299 * r + 0.587 * g + 0.114 * b
+const escurecer = (c: RGB, ate: number): RGB => { const k = Math.min(1, ate / (lumOf(c) || 1)); return [c[0] * k, c[1] * k, c[2] * k] }
+/**
+ * Cor de linhas e textos no papel. Cinzas claros (feitos pro fundo escuro) viram
+ * preto; em "ajustadas", cores claras como amarelo e ciano escurecem sem mudar
+ * de tom; "pb" imprime tudo em preto.
+ */
+export function ink(c: RGB, modo: Cores = 'ajustadas'): RGB {
+  if (modo === 'pb') return [0.08, 0.08, 0.08]
+  const [r, g, b] = c
+  if (Math.max(r, g, b) - Math.min(r, g, b) < 0.14 && lumOf(c) > 0.6) return [0.08, 0.08, 0.08]
+  return modo === 'ajustadas' ? escurecer(c, 0.46) : c
+}
+/** Cor de preenchimento no papel (só os tons claros demais ganham corpo). */
+export function paper(c: RGB, modo: Cores = 'ajustadas'): RGB {
+  if (modo === 'pb') { const l = lumOf(c); return [l, l, l] }
+  if (modo === 'originais') return c
+  const colorido = Math.max(...c) - Math.min(...c) > 0.14
+  return colorido && lumOf(c) > 0.72 ? escurecer(c, 0.72) : c
 }
 /** As fontes padrão do PDF só têm o alfabeto latino. */
 export const safeText = (t: string) => t.replace(/≈/g, '~').replace(/[^\x20-\x7E\xA0-\xFF—–‘’“”•…€]/g, '?')
@@ -116,7 +135,7 @@ export class PdfCanvas {
   private dash: number[] = []
   private alphas = new Map<number, any>()
   // lineScale: espessuras pensadas pra tela ficam finas no papel
-  constructor(private doc: PDFDocument, private page: PDFPage, private fonts: { normal: PDFFont; bold: PDFFont }, private ox: number, private oy: number, private lineScale: number) {}
+  constructor(private doc: PDFDocument, private page: PDFPage, private fonts: { normal: PDFFont; bold: PDFFont }, private ox: number, private oy: number, private lineScale: number, private cores: Cores = 'ajustadas') {}
 
   private pt(x: number, y: number): [number, number] {
     const [a, b, c, d, e, f] = this.m
@@ -152,14 +171,14 @@ export class PdfCanvas {
   }
   stroke() {
     if (!this.path.length) return
-    const [r, g, b] = ink(parseColor(this.strokeStyle))
+    const [r, g, b] = ink(parseColor(this.strokeStyle), this.cores)
     this.push(pushGraphicsState(), this.alpha(this.globalAlpha), setStrokingRgbColor(r, g, b), setLineWidth(Math.max(0.1, this.lineWidth * this.lineScale)), setLineCap(LineCapStyle.Round), setDashPattern(this.dash.map(v => v * this.lineScale * 1.4), 0))
     this.pushList(this.path)
     this.push(stroke(), popGraphicsState())
   }
   fill(rule?: string) {
     if (!this.path.length) return
-    const [r, g, b] = parseColor(this.fillStyle)
+    const [r, g, b] = paper(parseColor(this.fillStyle), this.cores)
     this.push(pushGraphicsState(), this.alpha(this.globalAlpha), setFillingRgbColor(r, g, b))
     this.pushList(this.path)
     this.push(rule === 'evenodd' ? PDFOperator.of(Op.FillEvenOdd) : fill(), popGraphicsState())
@@ -177,10 +196,27 @@ export class PdfCanvas {
     const dx = this.textAlign === 'center' ? -w / 2 : this.textAlign === 'right' ? -w : 0
     const dy = this.textBaseline === 'middle' ? size * 0.35 : this.textBaseline === 'top' ? size * 0.76 : this.textBaseline === 'bottom' ? -size * 0.2 : 0
     const [px, py] = this.pt(x + dx, y + dy)
-    const [r, g, b] = ink(parseColor(this.fillStyle))
+    const [r, g, b] = ink(parseColor(this.fillStyle), this.cores)
     this.flush()
     this.page.drawText(text, { x: px, y: py, size, font, color: rgb(r, g, b), opacity: this.globalAlpha, rotate: degrees((-Math.atan2(this.m[1], this.m[0]) * 180) / Math.PI) })
   }
+}
+
+/**
+ * Encolhe a área marcada até o que existe de desenho dentro dela (com uma folga),
+ * pra planta ocupar o máximo da folha.
+ */
+export function trimArea(area: [number, number, number, number], boxes: Iterable<[number, number, number, number]>): [number, number, number, number] {
+  const [ax0, ay0, ax1, ay1] = area
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const [a, b, c, d] of Array.from(boxes)) {
+    if (c < ax0 || a > ax1 || d < ay0 || b > ay1) continue
+    x0 = Math.min(x0, Math.max(a, ax0)); y0 = Math.min(y0, Math.max(b, ay0))
+    x1 = Math.max(x1, Math.min(c, ax1)); y1 = Math.max(y1, Math.min(d, ay1))
+  }
+  if (!(x1 > x0) || !(y1 > y0)) return area
+  const m = Math.max(x1 - x0, y1 - y0) * 0.012
+  return [Math.max(ax0, x0 - m), Math.max(ay0, y0 - m), Math.min(ax1, x1 + m), Math.min(ay1, y1 + m)]
 }
 
 // ── Montagem da prancha ──────────────────────────────────────────────────────
@@ -210,10 +246,19 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
   // só a área marcada vai pro papel, centralizada no espaço da planta
   const area = { w: L.regiao.w * f, h: L.regiao.h * f }
   const cw = Math.min(area.w, (p.area[2] - p.area[0]) * L.ptPorUnidade), ch = Math.min(area.h, (p.area[3] - p.area[1]) * L.ptPorUnidade)
-  const R = { x: L.regiao.x * f + (area.w - cw) / 2, y: L.regiao.y * f + (area.h - ch) / 2, w: cw, h: ch }
-  const plan = new PdfCanvas(doc, page, fonts, R.x, R.y, 0.28 * f)
+  // posição escolhida na prévia: planta menor que o espaço anda pela folha; maior, desliza dentro dele
+  const [dx, dy] = (info.desloc ?? [0, 0]).map(v => v * f)
+  const folgaX = (area.w - cw) / 2, folgaY = (area.h - ch) / 2
+  const entre = (v: number, m: number) => Math.max(-m, Math.min(m, v))
+  const R = { x: L.regiao.x * f + folgaX + entre(dx, folgaX), y: L.regiao.y * f + folgaY + entre(dy, folgaY), w: cw, h: ch }
+  const sobraX = Math.max(0, ((p.area[2] - p.area[0]) * L.ptPorUnidade - cw) / 2), sobraY = Math.max(0, ((p.area[3] - p.area[1]) * L.ptPorUnidade - ch) / 2)
+  const centro = {
+    cx: (p.area[0] + p.area[2]) / 2 - entre(dx, sobraX) / L.ptPorUnidade,
+    cy: (p.area[1] + p.area[3]) / 2 + entre(dy, sobraY) / L.ptPorUnidade,
+  }
+  const plan = new PdfCanvas(doc, page, fonts, R.x, R.y, 0.28 * f, info.cores)
   plan.clipRect(R.x, R.y, R.w, R.h)
-  p.drawPlan(plan as unknown as CanvasRenderingContext2D, { cx: (p.area[0] + p.area[2]) / 2, cy: (p.area[1] + p.area[3]) / 2, scale: L.ptPorUnidade }, R.w, R.h)
+  p.drawPlan(plan as unknown as CanvasRenderingContext2D, { ...centro, scale: L.ptPorUnidade }, R.w, R.h)
   plan.endClip()
 
   // helpers em coordenadas de A4 (origem no topo), escaladas por f
@@ -251,13 +296,19 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
       let cx = x
       for (const [nome, w] of LEG_COLS) { line(cx, y0, cx, y0 + h, 0.25); text(nome, cx + w / 2, y0 + 6, 3.8, { align: 'center' }); cx += w }
       line(cx, y0, cx, y0 + h, 0.25)
-      const sym = new PdfCanvas(doc, page, fonts, 0, 0, 0.28 * f)
+      const sym = new PdfCanvas(doc, page, fonts, 0, 0, 0.28 * f, info.cores)
       linhas.forEach((it, r) => {
         const my = y0 + headH + r * L.rowH + L.rowH / 2
         const size = Math.min(3.6, L.rowH * 0.45)
         const cells = [describe(it), it.mounting || '-', qtyLabel(it), it.power || '-', it.light || '-']
         let c = x + LEG_COLS[0][1]
-        cells.forEach((v, i) => { const w = LEG_COLS[i + 1][1]; text(v, c + w / 2, my + size * 0.36, size, { align: 'center', max: w - 3 }); c += w })
+        cells.forEach((v, i) => {
+          const w = LEG_COLS[i + 1][1]
+          // perfil: o modelo da fita vai na segunda linha da descrição
+          const linhas2 = i === 0 && it.tapeModel ? [v, `Fita: ${it.tapeModel}`] : [v]
+          linhas2.forEach((l, k) => text(l, c + w / 2, my + size * 0.36 + (k - (linhas2.length - 1) / 2) * size * 1.05, size, { align: 'center', max: w - 3 }))
+          c += w
+        })
         // ambientes: lista longa quebra em duas linhas
         const wA = LEG_COLS[LEG_COLS.length - 1][1]
         const linhasAmb = duasLinhas(it.rooms || '-', t => fonts.normal.widthOfTextAtSize(safeText(t), size) <= wA - 3)

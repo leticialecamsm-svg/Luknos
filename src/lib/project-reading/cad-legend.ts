@@ -2,7 +2,7 @@
 // desenho), agrupados por variação, e o desenho da tabela de legenda.
 import type { CadModel } from './cad'
 import type { Edits, Shape, Spec } from './cad-state'
-import { polyLength } from './cad-tape'
+import { tapeMeters } from './cad-tape'
 import { roomAt, midOfPath } from './cad-rooms'
 
 export const MONTAGENS = ['', 'Embutir', 'Sobrepor', 'Pendente', 'Arandela', 'Trilho']
@@ -23,6 +23,7 @@ export interface Item {
   meters: number
   keys: string[] // chaves de seleção no desenho
   rooms: string // ambientes onde o item aparece
+  tapeModel?: string // modelo da fita dentro do perfil
 }
 
 const br = (n: number, d = 2) => n.toFixed(d).replace('.', ',')
@@ -41,7 +42,7 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
   const map = new Map<string, Item>()
   const rooms = new Map<string, Set<string>>()
   const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
-    const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.thickness ?? ''].join('|').toLowerCase()
+    const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.thickness ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
     let cur = map.get(key)
     if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '' }; map.set(key, cur); rooms.set(key, new Set()) }
     cur.qty++; cur.meters += meters; cur.keys.push(selKey)
@@ -64,7 +65,8 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
         mounting: sp?.mounting ?? '', power: s.wm ? `${String(s.wm).replace('.', ',')} W/m` : '', light: sp?.light ?? '',
         color: s.stroke, tapeColor: s.kind === 'perfil' ? s.tapeColor : undefined,
         thickness: s.kind === 'perfil' ? Math.round((s.w ?? 0) * unitToMeters * 1000) / 10 : undefined,
-      }, 's' + s.id, midOfPath(s.pts), sp?.rooms, polyLength(s.pts) * unitToMeters)
+        tapeModel: s.kind === 'perfil' ? sp?.tapeModel?.trim() || undefined : undefined,
+      }, 's' + s.id, midOfPath(s.pts), sp?.rooms, tapeMeters(s, unitToMeters))
     } else if (s.kind === 'fonte') {
       const sp = s.spec
       add({ kind: 'fonte', name: sp?.name || 'Fonte', mounting: sp?.mounting ?? '', power: `${s.watts ?? 0}W ${s.volt ?? 12}V`, light: '', color: s.stroke }, 's' + s.id, [s.pts[0], s.pts[1]], sp?.rooms)
@@ -85,7 +87,7 @@ export function describe(it: Item) {
 }
 
 export const LEGEND_HEADERS = ['Símbolo', 'Descrição', 'Instalação', 'Potência', 'Cor da luz', 'Qtd.', 'Ambientes']
-export const legendCells = (it: Item) => [describe(it), it.mounting || '—', it.power || '—', it.light || '—', qtyLabel(it), it.rooms || '—']
+export const legendCells = (it: Item) => [describe(it) + (it.tapeModel ? ` · Fita ${it.tapeModel}` : ''), it.mounting || '—', it.power || '—', it.light || '—', qtyLabel(it), it.rooms || '—']
 
 /**
  * Medidas da tabela em unidades do desenho, a partir da altura do texto `h`.

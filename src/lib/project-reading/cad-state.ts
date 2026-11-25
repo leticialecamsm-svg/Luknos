@@ -7,7 +7,7 @@ import type { PlotInfo } from './cad-plot'
 
 export type M6 = [number, number, number, number, number, number]
 /** Especificação de um item do projeto (vai pra contagem e legenda). */
-export interface Spec { name: string; mounting: string; power: string; light: string; color: string; rooms?: string /* ambientes digitados; vazio = automático */ }
+export interface Spec { name: string; mounting: string; power: string; light: string; color: string; rooms?: string /* ambientes digitados; vazio = automático */; tapeModel?: string /* perfil: modelo da fita */ }
 export interface Shape {
   spec?: Spec
   dash?: boolean // linha de eixo (traço-ponto)
@@ -19,6 +19,7 @@ export interface Shape {
   tapeColor?: string // cor da fita dentro do perfil
   wm?: number; volt?: number // fita: potência por metro e tensão
   watts?: number // fonte
+  metros?: number // fita/perfil: metragem informada à mão (quando o desenho não mostra tudo)
   link?: number // fonte: id da fita/perfil que ela alimenta
 }
 export interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }

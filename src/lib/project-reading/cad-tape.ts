@@ -10,6 +10,9 @@ export function polyLength(pts: number[]) {
   return l
 }
 
+/** Metragem do trecho: a informada à mão, ou a do desenho. */
+export const tapeMeters = (s: Shape, unitToMeters: number) => s.metros ?? polyLength(s.pts) * unitToMeters
+
 /** Eixo do perfil: comprimento, direção e normal. */
 export function axis(s: Shape) {
   const dx = s.pts[2] - s.pts[0], dy = s.pts[3] - s.pts[1]
@@ -84,10 +87,13 @@ export function nearestOnTape(s: Shape, x: number, y: number): [number, number] 
 }
 
 /** Fonte(s) pra um trecho de fita; passando do maior modelo, divide em várias iguais. */
-export function dimensionarFonte(comprimentoM: number, wPorM: number) {
+export function dimensionarFonte(comprimentoM: number, wPorM: number, escolhida?: number) {
   const { consumoW, fonteMinimaW } = calcularFita(comprimentoM, wPorM)
   const maior = CATALOGO_FONTES_12V[CATALOGO_FONTES_12V.length - 1]
-  const quantidade = Math.max(1, Math.ceil(fonteMinimaW / maior))
-  const potencia = sugerirFonte(fonteMinimaW / quantidade) ?? maior
-  return { consumoW, minimaW: fonteMinimaW, quantidade, potencia }
+  const n = Math.max(1, Math.ceil(fonteMinimaW / maior))
+  const sugerida = sugerirFonte(fonteMinimaW / n) ?? maior
+  // modelo escolhido à mão: vão quantas forem precisas pra cobrir o mínimo
+  const potencia = escolhida || sugerida
+  const quantidade = Math.max(1, Math.ceil(fonteMinimaW / potencia - 1e-9))
+  return { consumoW, minimaW: fonteMinimaW, quantidade, potencia, sugerida, quantidadeSugerida: n }
 }

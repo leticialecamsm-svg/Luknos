@@ -9,11 +9,13 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isRoom, polyArea, labelPoint, roomAt } from '@/lib/project-reading/cad-rooms'
-import { buildPlotPdf, plotLayout, plotPadrao, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
+import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
-import { isTape, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
+import { CadPlotPreview } from './CadPlotPreview'
+import { CATALOGO_FONTES_12V } from '@/lib/project-reading/calculations'
+import { isTape, tapeMeters, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
@@ -127,7 +129,6 @@ export function CadLab() {
   const [plot, setPlot] = useState<PlotInfo>(plotPadrao)
   const plotRef = useRef(plot); plotRef.current = plot
   const [plotUi, setPlotUi] = useState(false)
-  const [gerando, setGerando] = useState(false)
   // centerline: primeira linha escolhida e a linha sob o cursor
   const [centroA, setCentroA] = useState<Seg | null>(null)
   const [segHover, setSegHover] = useState<Seg | null>(null)
@@ -144,7 +145,7 @@ export function CadLab() {
   const [fitaCor, setFitaCor] = useState('#f43f5e')
   const [wmPadrao, setWmPadrao] = useState('9.6')
   const [voltPadrao, setVoltPadrao] = useState(12)
-  const [fonteModal, setFonteModal] = useState<null | { id: number; wm: string; volt: number; spec: Spec; tapeColor: string }>(null)
+  const [fonteModal, setFonteModal] = useState<null | { id: number; wm: string; volt: number; spec: Spec; tapeColor: string; len: string; watts: number }>(null)
   const [specModal, setSpecModal] = useState<null | { block?: LibBlock; keys?: string[]; title: string; form: Spec; showPower: boolean }>(null)
   const lastSpec = useRef(new Map<string, Spec>())
   const [placeScale, setPlaceScale] = useState('1') // multiplicador do tamanho ao colocar bloco
@@ -340,7 +341,10 @@ export function CadLab() {
   function openFonte(id: number, from: Edits = edRef.current) {
     const s = from.shapes.find(x => x.id === id)
     if (!s) return
-    setFonteModal({ id, wm: s.wm ? String(s.wm) : wmPadrao, volt: s.volt ?? voltPadrao, spec: { ...specOfShape(s), color: s.stroke }, tapeColor: s.tapeColor ?? fitaCor })
+    const fontes = from.shapes.filter(x => x.kind === 'fonte' && x.link === id)
+    const sug = s.wm && fontes[0]?.watts ? dimensionarFonte(tapeMeters(s, u2m), s.wm).sugerida : 0
+    setFonteModal({ id, wm: s.wm ? String(s.wm) : wmPadrao, volt: s.volt ?? voltPadrao, spec: { ...specOfShape(s), color: s.stroke }, tapeColor: s.tapeColor ?? fitaCor,
+      len: tapeMeters(s, u2m).toFixed(2).replace('.', ','), watts: fontes[0]?.watts && fontes[0].watts !== sug ? fontes[0].watts : 0 })
   }
   function addTape(shape: Omit<Shape, 'id'>) {
     const e0 = edRef.current
@@ -364,13 +368,18 @@ export function CadLab() {
     const wm = num(m.wm)
     const spec = { ...m.spec, name: m.spec.name.trim() || specOfShape(tape).name }
     if (wm > 0) { setWmPadrao(m.wm); setVoltPadrao(m.volt) }
-    let shapes = e0.shapes.map(x => (x.id === m.id ? { ...x, wm: wm > 0 ? wm : x.wm, volt: m.volt, spec, stroke: spec.color || x.stroke, tapeColor: x.kind === 'perfil' ? m.tapeColor : x.tapeColor } : x))
+    // metragem digitada: trecho reto muda no desenho; fita com cantos guarda o valor informado
+    const len = num(m.len)
+    let medida = tape
+    if (len > 0 && Math.abs(len - tapeMeters(tape, u2m)) > 0.005) medida = tape.pts.length === 4 ? { ...setLength(tape, len / u2m), metros: undefined } : { ...tape, metros: len }
+    let shapes = e0.shapes.map(x => (x.id === m.id ? { ...medida, wm: wm > 0 ? wm : x.wm, volt: m.volt, spec, stroke: spec.color || x.stroke, tapeColor: x.kind === 'perfil' ? m.tapeColor : x.tapeColor } : x))
     let next = e0.next
     if (incluir && wm > 0) {
-      const r = dimensionarFonte(polyLength(tape.pts) * u2m, wm)
+      const r = dimensionarFonte(tapeMeters(medida, u2m), wm, m.watts || undefined)
       const antigas = shapes.filter(x => x.kind === 'fonte' && x.link === m.id)
       shapes = shapes.filter(x => !(x.kind === 'fonte' && x.link === m.id))
-      const w = Math.max(0.4 / u2m, 90 / view.current.scale) // legível no zoom atual
+      // legível no zoom atual, sem passar de 90 cm (senão toma conta da folha impressa)
+      const w = Math.min(0.9 / u2m, Math.max(0.4 / u2m, 90 / view.current.scale))
       const abaixo = tape.pts[1] - (tape.w ?? 0) / 2 - w * 0.8 // fora do perfil
       for (let i = 0; i < r.quantidade; i++) {
         const old = antigas[i]
@@ -447,33 +456,38 @@ export function CadLab() {
   }
   const modelaveis = (keys: string[]) => keys.filter(k => k[0] === 'o' || k[0] === 'c')
   // ── PDF ──────────────────────────────────────────────────────────────────
-  async function gerarPdf() {
-    const m = modelRef.current, area = plot.area
-    if (!m || !area) return
-    const L = plotLayout(plot, items.length, area, m.unitToMeters)
-    if (!L.cabe && !window.confirm(`A área marcada não cabe na escala 1/${plot.escala} nessa folha: o que passar das bordas fica cortado. Gerar mesmo assim?`)) return
-    setGerando(true)
-    await new Promise(r => setTimeout(r, 30)) // deixa a tela mostrar "Gerando..."
-    try {
-      const logo = await fetch('/cad/carimbo-logo.png').then(r => (r.ok ? r.arrayBuffer() : null)).catch(() => null)
-      // desenha com uma vista própria e devolve a vista da tela em seguida (tudo síncrono)
-      const comVista = (v: { cx: number; cy: number; scale: number }, fn: () => void) => { const tela = view.current; view.current = v; try { fn() } finally { view.current = tela } }
-      const bytes = await buildPlotPdf({
-        info: plot, area, unitToMeters: m.unitToMeters, items, logo,
-        drawPlan: (ctx, v, w, h) => comVista(v, () => paint({ ctx, w, h })),
-        drawSymbol: (ctx, item, x, y, w, h) => comVista({ cx: 0, cy: 0, scale: 1 }, () => paint({ ctx, w: 0, h: 0, symbol: { item, x, y, w, h } })),
-      })
-      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
-      const a = document.createElement('a')
-      a.href = url; a.download = `${drawing?.name || 'planta'} - ${plot.pavimento || 'iluminacao'}.pdf`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-      setPlotUi(false); setAviso('PDF gerado — está nos seus downloads.')
-    } catch (e: any) {
-      setAviso(`Não consegui gerar o PDF: ${e?.message ?? 'erro desconhecido'}`)
-    } finally {
-      setGerando(false)
+  // caixas de tudo que aparece, pra aparar o vazio em volta da área marcada
+  function* caixasDoDesenho(): Generator<[number, number, number, number]> {
+    const m = modelRef.current; if (!m) return
+    const e0 = edRef.current
+    for (let i = 0; i < m.segLayer.length; i++) {
+      if (!layerVis[m.segLayer[i]] || m.segObj[i] in e0.ov || m.objs[m.segObj[i]].kind === 'LIB') continue
+      const x1 = m.segs[i * 4], y1 = m.segs[i * 4 + 1], x2 = m.segs[i * 4 + 2], y2 = m.segs[i * 4 + 3]
+      yield [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]
     }
+    const chaves = [...Object.keys(e0.ov).map(k => 'o' + k), ...e0.cp.map(c => 'c' + c.id), ...e0.dims.map(d => 'd' + d.id),
+      ...e0.shapes.filter(x => !(x.kind === 'legenda' && plotRef.current.legenda)).map(x => 's' + x.id)]
+    for (const k of chaves) { const bb = bboxOf(e0, k); if (bb) yield bb }
+  }
+  async function montarPdf(): Promise<Uint8Array | null> {
+    const m = modelRef.current, area = plotRef.current.area
+    if (!m || !area) return null
+    const logo = await fetch('/cad/carimbo-logo.png').then(r => (r.ok ? r.arrayBuffer() : null)).catch(() => null)
+    // desenha com uma vista própria e devolve a vista da tela em seguida (tudo síncrono)
+    const comVista = (v: { cx: number; cy: number; scale: number }, fn: () => void) => { const tela = view.current; view.current = v; try { fn() } finally { view.current = tela } }
+    return buildPlotPdf({
+      info: plotRef.current, area, unitToMeters: m.unitToMeters, items, logo,
+      drawPlan: (ctx, v, w, h) => comVista(v, () => paint({ ctx, w, h })),
+      drawSymbol: (ctx, item, x, y, w, h) => comVista({ cx: 0, cy: 0, scale: 1 }, () => paint({ ctx, w: 0, h: 0, symbol: { item, x, y, w, h } })),
+    })
+  }
+  function baixarPdf(bytes: Uint8Array) {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `${drawing?.name || 'planta'} - ${plot.pavimento || 'iluminacao'}.pdf`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    setPlotUi(false); setAviso('PDF gerado — está nos seus downloads.')
   }
   // ── Ambientes ────────────────────────────────────────────────────────────
   const CORES_AMB = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c']
@@ -998,6 +1012,7 @@ export function CadLab() {
       const [a, b] = toScreen(mx - sw / 2, mid, w, h), [c] = toScreen(mx + sw / 2, mid, w, h)
       const th = Math.max(4 * ui, sh2 * 0.6 * view.current.scale)
       ctx.strokeStyle = it.color; ctx.lineWidth = 1.5
+      if (it.kind === 'perfil') { ctx.globalAlpha = 0.5; ctx.fillStyle = it.color; ctx.fillRect(a, b - th / 2, c - a, th); ctx.globalAlpha = 1 }
       if (it.kind === 'perfil' || it.kind === 'fonte') ctx.strokeRect(a, b - th / 2, c - a, th)
       if (it.kind !== 'fonte') { ctx.strokeStyle = it.kind === 'perfil' ? it.tapeColor ?? '#f43f5e' : it.color; ctx.lineWidth = 2; ctx.setLineDash([5 * ui, 3 * ui]); ctx.beginPath(); ctx.moveTo(a + 2 * ui, b); ctx.lineTo(c - 2 * ui, b); ctx.stroke(); ctx.setLineDash([]) }
     }
@@ -1131,7 +1146,7 @@ export function CadLab() {
           ctx.beginPath()
           for (let i = 0; i < 8; i += 2) { const [x, y] = toScreen(q[i], q[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
           ctx.closePath()
-          ctx.globalAlpha = 0.18; ctx.fillStyle = s.stroke; ctx.fill(); ctx.globalAlpha = 1
+          ctx.globalAlpha = 0.5; ctx.fillStyle = s.stroke; ctx.fill(); ctx.globalAlpha = 1
           ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2.5 : 1.5; ctx.stroke()
         }
         // fita: linha pontilhada (no perfil, no meio dele)
@@ -1195,7 +1210,7 @@ export function CadLab() {
         })
         if (isTape(s)) {
         const [x, y] = toScreen(s.pts[0], s.pts[1], w, h)
-        const label = fmtM(polyLength(s.pts) * model.unitToMeters) + (s.kind === 'perfil' ? ` × ${((s.w ?? 0) * model.unitToMeters * 100).toFixed(1).replace('.', ',')} cm` : '')
+        const label = fmtM(tapeMeters(s, model.unitToMeters)) + (s.kind === 'perfil' ? ` × ${((s.w ?? 0) * model.unitToMeters * 100).toFixed(1).replace('.', ',')} cm` : '')
         ctx.font = 'bold 12px sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, x + 8, y - 10); ctx.fillStyle = '#fbbf24'; ctx.fillText(label, x + 8, y - 10)
         }
       }
@@ -1411,7 +1426,8 @@ export function CadLab() {
         if (x.id !== g.dim) return x
         let p = [tx, ty]
         if ((x.kind === 'fita' || x.kind === 'ambiente') && e.shiftKey) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
-        return dragGrip(x, g.grip!, p[0], p[1], 0.01 / u2m, e.altKey)
+        // mexer no desenho volta a valer a medida desenhada
+        return { ...dragGrip(x, g.grip!, p[0], p[1], 0.01 / u2m, e.altKey), metros: g.grip === 2 && x.kind === 'perfil' ? x.metros : undefined }
       }) })
       return
     }
@@ -1445,7 +1461,8 @@ export function CadLab() {
       const cw = wrapRef.current.clientWidth, ch = wrapRef.current.clientHeight
       const [ax, ay] = toWorld(Math.min(box.x0, box.x1), Math.max(box.y0, box.y1), cw, ch)
       const [bx, by] = toWorld(Math.max(box.x0, box.x1), Math.min(box.y0, box.y1), cw, ch)
-      setPlot(p => ({ ...p, area: [ax, ay, bx, by] })); setTool('select'); setPlotUi(true)
+      const area = trimArea([ax, ay, bx, by], caixasDoDesenho())
+      setPlot(p => ({ ...p, area, zoom: 1, desloc: [0, 0] })); setTool('select'); setPlotUi(true)
       return
     }
     if (g.type === 'box' && box && model && wrapRef.current) {
@@ -1867,6 +1884,12 @@ export function CadLab() {
         </section>
       )}
 
+      {model && plotUi && (
+        <CadPlotPreview plot={plot} setPlot={setPlot} unitToMeters={model.unitToMeters} nItens={items.length} temAmbientes={ed.shapes.some(isRoom)}
+          conteudo={ed} build={montarPdf} onDownload={baixarPdf} onClose={() => setPlotUi(false)}
+          onMarcar={() => { setPlotUi(false); setTool('plotar') }} />
+      )}
+
       {model && (
         <div className="flex gap-3 items-start">
           <div className="flex-1 min-w-0">
@@ -1980,7 +2003,7 @@ export function CadLab() {
                 </div>
               )}
               {roomModal && (
-                <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                <div data-nozoom className="fixed inset-0 z-[70] p-3 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
                   <form className="w-80 bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmRoom() }}>
                     <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Shapes className="w-4 h-4 text-brand-500" /> {roomModal.id ? 'Editar ambiente' : 'Novo ambiente'}</p>
                     <label className="block text-[11px] text-gray-500">Nome
@@ -1994,40 +2017,6 @@ export function CadLab() {
                   </form>
                 </div>
               )}
-              {plotUi && (() => {
-                const L = plot.area ? plotLayout(plot, items.length, plot.area, model.unitToMeters) : null
-                const set = (p: Partial<PlotInfo>) => setPlot(v => ({ ...v, ...p }))
-                const input = 'w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white'
-                const area2 = (label: string, k: 'endereco' | 'proprietario' | 'escritorio', ph: string) => (
-                  <label className="block text-[11px] text-gray-500">{label}
-                    <textarea rows={2} value={plot[k]} onChange={e => set({ [k]: e.target.value })} onKeyDown={e => e.stopPropagation()} placeholder={ph} className={`${input} resize-none`} /></label>
-                )
-                return (
-                  <div data-nozoom className="absolute inset-y-2 right-2 z-30 w-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-2xl p-4 space-y-2 cursor-default" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-                    <p className="text-sm font-bold text-navy flex items-center gap-1.5"><FileDown className="w-4 h-4 text-brand-500" /> Gerar PDF</p>
-                    {area2('Endereço da obra', 'endereco', 'Condomínio, quadra, lote, cidade')}
-                    {area2('Proprietário', 'proprietario', 'Nome do cliente')}
-                    {area2('Escritório responsável', 'escritorio', 'Escritório e telefone')}
-                    <div className="grid grid-cols-3 gap-2">
-                      <label className="text-[11px] text-gray-500">Data<input value={plot.data} onChange={e => set({ data: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
-                      <label className="text-[11px] text-gray-500">Pavimento<input value={plot.pavimento} onChange={e => set({ pavimento: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
-                      <label className="text-[11px] text-gray-500">Desenho<input value={plot.desenho} onChange={e => set({ desenho: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
-                      <label className="text-[11px] text-gray-500">Folha<select value={plot.papel} onChange={e => set({ papel: e.target.value as Papel })} className={input}>{Object.keys(PAPEIS).map(p => <option key={p}>{p}</option>)}</select></label>
-                      <label className="col-span-2 text-[11px] text-gray-500">Escala<select value={plot.escala} onChange={e => set({ escala: Number(e.target.value) })} className={input}>{ESCALAS.map(v => <option key={v} value={v}>{v ? `1/${v}` : 'Ajustar à folha'}</option>)}</select></label>
-                    </div>
-                    <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Incluir a legenda ({items.length} {items.length === 1 ? 'item' : 'itens'})</label>
-                    {ed.shapes.some(isRoom) && <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.ambientes} onChange={e => set({ ambientes: e.target.checked })} /> Escrever nome e área dos ambientes</label>}
-                    {L && plot.area ? (
-                      <p className={cn('text-[11px] rounded px-2 py-1', L.cabe ? 'bg-gray-50 text-gray-600' : 'bg-red-50 text-red-600')}>
-                        Área marcada: {fmtM((plot.area[2] - plot.area[0]) * model.unitToMeters)} × {fmtM((plot.area[3] - plot.area[1]) * model.unitToMeters)} · escala {L.rotuloEscala}{!L.cabe && ' — não cabe: use uma folha maior ou outra escala'}
-                      </p>
-                    ) : <p className="text-[11px] bg-amber-50 text-amber-700 rounded px-2 py-1">Marque no desenho a área que vai pro PDF.</p>}
-                    <button onClick={() => { setPlotUi(false); setTool('plotar') }} className={cn('w-full text-xs font-medium rounded-lg py-2', plot.area ? 'border border-brand-400 text-brand-600' : 'bg-brand-600 text-white')}>{plot.area ? 'Marcar outra área' : 'Marcar área na planta'}</button>
-                    {plot.area && <button onClick={gerarPdf} disabled={gerando} className="w-full text-xs font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-50">{gerando ? 'Gerando...' : 'Gerar PDF'}</button>}
-                    <button onClick={() => setPlotUi(false)} className="w-full text-xs text-gray-400">fechar</button>
-                  </div>
-                )
-              })()}
               {tool === 'distribuir' && dist.pts.length === 3 && !dist.escolhendo && (() => {
                 const plano = planoDistribuir()
                 const sel2 = modelaveis(sel)
@@ -2065,15 +2054,18 @@ export function CadLab() {
               {fonteModal && (() => {
                 const tape = ed.shapes.find(x => x.id === fonteModal.id)
                 if (!tape) return null
-                const comp = polyLength(tape.pts) * model.unitToMeters
+                const comp = num(fonteModal.len) || tapeMeters(tape, model.unitToMeters)
                 const wm = num(fonteModal.wm)
-                const r = wm > 0 ? dimensionarFonte(comp, wm) : null
+                const r = wm > 0 ? dimensionarFonte(comp, wm, fonteModal.watts || undefined) : null
                 const jaTem = ed.shapes.some(x => x.kind === 'fonte' && x.link === tape.id)
                 return (
-                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                  <div data-nozoom className="fixed inset-0 z-[70] p-3 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
                     <form className="w-96 max-h-full overflow-y-auto bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmFonte(true) }}>
                       <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> {tape.kind === 'perfil' ? 'Perfil + fita' : 'Fita'} — {fmtM(comp)}</p>
-                      <CadSpecFields value={fonteModal.spec} onChange={spec => setFonteModal({ ...fonteModal, spec })} showPower={false} />
+                      <CadSpecFields value={fonteModal.spec} onChange={spec => setFonteModal({ ...fonteModal, spec })} showPower={false} nameLabel={tape.kind === 'perfil' ? 'Nome do perfil' : 'Modelo da fita'} tapeField={tape.kind === 'perfil'} />
+                      <label className="block text-[11px] text-gray-500">Metragem total (m)
+                        <input value={fonteModal.len} onChange={e => setFonteModal({ ...fonteModal, len: e.target.value })} onKeyDown={e => e.stopPropagation()} className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800" />
+                        <span className="text-[10px] text-gray-400">{tape.pts.length === 4 ? 'Alterar muda também o comprimento no desenho.' : 'Alterar vale pra legenda e pra fonte; o desenho não muda.'}</span></label>
                       <div className="flex gap-4 text-[11px] text-gray-500">
                         <label className="flex items-center gap-1.5">{tape.kind === 'perfil' ? 'Cor do perfil' : 'Cor da fita'} <input type="color" value={fonteModal.spec.color || '#e5e7eb'} onChange={e => setFonteModal({ ...fonteModal, spec: { ...fonteModal.spec, color: e.target.value } })} className="w-6 h-6 p-0 border-0" /></label>
                         {tape.kind === 'perfil' && <label className="flex items-center gap-1.5">Cor da fita <input type="color" value={fonteModal.tapeColor} onChange={e => setFonteModal({ ...fonteModal, tapeColor: e.target.value })} className="w-6 h-6 p-0 border-0" /></label>}
@@ -2088,7 +2080,12 @@ export function CadLab() {
                         <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 space-y-0.5">
                           <p className="flex justify-between"><span>Consumo</span><b>{r.consumoW.toLocaleString('pt-BR')} W</b></p>
                           <p className="flex justify-between"><span>Mínimo com 20% de folga</span><b>{r.minimaW.toLocaleString('pt-BR')} W</b></p>
-                          <p className="flex justify-between text-sm text-navy pt-1 border-t border-gray-200"><span>Fonte sugerida</span><b>{r.quantidade > 1 ? `${r.quantidade} × ` : ''}{r.potencia} W {fonteModal.volt}V</b></p>
+                          <label className="flex items-center gap-2 text-sm text-navy pt-1 border-t border-gray-200"><span className="flex-1">Fonte</span>
+                            <select value={fonteModal.watts} onChange={e => setFonteModal({ ...fonteModal, watts: Number(e.target.value) })} className="text-sm font-semibold border border-gray-200 rounded px-2 py-1 bg-white">
+                              <option value={0}>{r.quantidadeSugerida > 1 ? `${r.quantidadeSugerida} × ` : ''}{r.sugerida} W {fonteModal.volt}V (sugerida)</option>
+                              {CATALOGO_FONTES_12V.map(v => { const q = dimensionarFonte(comp, wm, v).quantidade; return <option key={v} value={v}>{q > 1 ? `${q} × ` : ''}{v} W {fonteModal.volt}V</option> })}
+                            </select></label>
+                          {r.quantidade > 1 && <p className="text-[11px] text-amber-600">Com esse modelo são {r.quantidade} fontes pra cobrir o mínimo.</p>}
                         </div>
                       ) : <p className="text-xs text-amber-600">Informe a potência por metro.</p>}
                       <div className="flex gap-2">
@@ -2103,7 +2100,7 @@ export function CadLab() {
                 const familia = specModal.block ? groupOfName.get(specModal.block.name)?.key ?? specModal.block.name : null
                 const jaTem = familia ? items.filter(i => i.kind === 'bloco' && i.block === specModal.block!.name) : []
                 return (
-                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                  <div data-nozoom className="fixed inset-0 z-[70] p-3 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
                     <form className="w-96 max-h-full overflow-y-auto bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmSpec() }}>
                       <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Tag className="w-4 h-4 text-brand-500" /> Especificações — {specModal.title}</p>
                       {jaTem.length > 0 && (
@@ -2119,7 +2116,8 @@ export function CadLab() {
                           </div>
                         </div>
                       )}
-                      <CadSpecFields value={specModal.form} onChange={form => setSpecModal({ ...specModal, form })} showPower={specModal.showPower} />
+                      <CadSpecFields value={specModal.form} onChange={form => setSpecModal({ ...specModal, form })} showPower={specModal.showPower}
+                        tapeField={!!specModal.keys?.length && specModal.keys.every(k => ed.shapes.some(x => 's' + x.id === k && x.kind === 'perfil'))} />
                       <div className="flex items-center gap-3 text-[11px] text-gray-500">
                         <label className="flex items-center gap-1.5">Cor no desenho <input type="color" value={specModal.form.color || '#e5e7eb'} onChange={e => setSpecModal({ ...specModal, form: { ...specModal.form, color: e.target.value } })} className="w-6 h-6 p-0 border-0" /></label>
                         {specModal.showPower && <label className="flex items-center gap-1"><input type="checkbox" checked={!specModal.form.color} onChange={e => setSpecModal({ ...specModal, form: { ...specModal.form, color: e.target.checked ? '' : '#ff69b4' } })} /> cores originais do bloco</label>}
@@ -2171,7 +2169,7 @@ export function CadLab() {
             )}
 
             {tapeSel && (() => {
-              const comp = polyLength(tapeSel.pts) * model.unitToMeters
+              const comp = tapeMeters(tapeSel, model.unitToMeters)
               const fontes = ed.shapes.filter(x => x.kind === 'fonte' && x.link === tapeSel.id)
               const r = tapeSel.wm ? dimensionarFonte(comp, tapeSel.wm) : null
               const instalada = fontes.reduce((a, f) => a + (f.watts ?? 0), 0)
@@ -2187,9 +2185,7 @@ export function CadLab() {
               return (
                 <section className="border border-sky-200 rounded-xl bg-sky-50/40 p-3 space-y-1.5">
                   <p className="text-xs font-bold text-sky-800 uppercase">{tapeSel.kind === 'perfil' ? 'Perfil + fita' : 'Fita'}</p>
-                  {tapeSel.pts.length === 4
-                    ? campo('Comprimento', comp.toFixed(2), v => patchShape(tapeSel.id, x => setLength(x, v / model.unitToMeters)), 'm', 'len')
-                    : <p className="flex justify-between text-xs text-gray-600"><span>Comprimento</span><b>{fmtM(comp)}</b></p>}
+                  {campo('Metragem', comp.toFixed(2), v => patchShape(tapeSel.id, x => (x.pts.length === 4 ? { ...setLength(x, v / model.unitToMeters), metros: undefined } : { ...x, metros: v })), 'm', 'len')}
                   {tapeSel.kind === 'perfil' && campo('Espessura', ((tapeSel.w ?? 0) * model.unitToMeters * 100).toFixed(1), v => patchShape(tapeSel.id, x => ({ ...x, w: v / 100 / model.unitToMeters })), 'cm', 'esp')}
                   <div className="flex items-center gap-3 text-xs text-gray-600">
                     {tapeSel.kind === 'perfil' && <label className="flex items-center gap-1">Cor do perfil <input type="color" value={tapeSel.stroke} onChange={e => patchShape(tapeSel.id, x => ({ ...x, stroke: e.target.value }))} className="w-6 h-6 p-0 border-0" /></label>}

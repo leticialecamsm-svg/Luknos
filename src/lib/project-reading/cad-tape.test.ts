@@ -25,6 +25,9 @@ describe('perfil e fita', () => {
   it('dimensiona a fonte com 20% de folga e divide quando passa do maior modelo', () => {
     expect(dimensionarFonte(4, 9.6)).toMatchObject({ quantidade: 1, potencia: 48 })
     expect(dimensionarFonte(60, 9.6)).toMatchObject({ quantidade: 2, potencia: 400 })
+    // modelo trocado à mão
+    expect(dimensionarFonte(4, 9.6, 100)).toMatchObject({ quantidade: 1, potencia: 100, sugerida: 48 })
+    expect(dimensionarFonte(4, 9.6, 24)).toMatchObject({ quantidade: 2, potencia: 24 })
   })
 })
 
