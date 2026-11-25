@@ -38,7 +38,7 @@ export function gripsOf(s: Shape): [number, number][] {
     const { nx, ny } = axis(s), h = (s.w ?? 0) / 2
     return [[s.pts[0], s.pts[1]], [s.pts[2], s.pts[3]], [(s.pts[0] + s.pts[2]) / 2 + nx * h, (s.pts[1] + s.pts[3]) / 2 + ny * h]]
   }
-  if (s.kind !== 'fita') return []
+  if (s.kind !== 'fita' && s.kind !== 'ambiente') return []
   const out: [number, number][] = []
   for (let i = 0; i < s.pts.length; i += 2) out.push([s.pts[i], s.pts[i + 1]])
   return out
@@ -49,7 +49,7 @@ export function gripsOf(s: Shape): [number, number][] {
  * eixo (com `livre`, a ponta vai pra qualquer lugar, girando o perfil).
  */
 export function dragGrip(s: Shape, grip: number, x: number, y: number, min: number, livre = false): Shape {
-  if (s.kind === 'fita') {
+  if (s.kind === 'fita' || s.kind === 'ambiente') {
     const pts = [...s.pts]; pts[grip * 2] = x; pts[grip * 2 + 1] = y
     return { ...s, pts }
   }

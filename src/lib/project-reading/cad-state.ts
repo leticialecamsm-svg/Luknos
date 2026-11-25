@@ -7,12 +7,12 @@ import type { PlotInfo } from './cad-plot'
 
 export type M6 = [number, number, number, number, number, number]
 /** Especificação de um item do projeto (vai pra contagem e legenda). */
-export interface Spec { name: string; mounting: string; power: string; light: string; color: string }
+export interface Spec { name: string; mounting: string; power: string; light: string; color: string; rooms?: string /* ambientes digitados; vazio = automático */ }
 export interface Shape {
   spec?: Spec
   dash?: boolean // linha de eixo (traço-ponto)
   id: number
-  kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte' | 'legenda'
+  kind: 'line' | 'rect' | 'circle' | 'text' | 'arrow' | 'perfil' | 'fita' | 'fonte' | 'legenda' | 'ambiente'
   pts: number[]; stroke: string; fill: string | null
   text?: string; h?: number; rot?: number
   w?: number // espessura do perfil / largura da fonte (unidades do desenho)

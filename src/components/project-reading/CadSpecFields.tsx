@@ -25,6 +25,8 @@ export function CadSpecFields({ value, onChange, showPower = true }: { value: Sp
           <input list="cad-cores-luz" value={value.light} onChange={e => set({ light: e.target.value })} onKeyDown={e => e.stopPropagation()} placeholder="ex. 3000K" className={campo} />
           <datalist id="cad-cores-luz">{CORES_LUZ.filter(Boolean).map(c => <option key={c} value={c} />)}</datalist></label>
       </div>
+      <label className="block text-[11px] text-gray-500">Ambientes
+        <input value={value.rooms ?? ''} onChange={e => set({ rooms: e.target.value })} onKeyDown={e => e.stopPropagation()} placeholder="automático, pelos ambientes marcados" className={campo} /></label>
     </div>
   )
 }

@@ -13,11 +13,12 @@ export interface PlotInfo {
   endereco: string; proprietario: string; escritorio: string; data: string
   pavimento: string; desenho: string
   papel: Papel; escala: number; legenda: boolean
+  ambientes: boolean // escreve nome e área dos ambientes marcados
   area?: [number, number, number, number] // x0, y0, x1, y1 no desenho
 }
 export const plotPadrao = (): PlotInfo => ({
   endereco: '', proprietario: '', escritorio: '', data: new Date().toLocaleDateString('pt-BR'),
-  pavimento: 'TÉRREO', desenho: '01/01', papel: 'A4', escala: 0, legenda: true,
+  pavimento: 'TÉRREO', desenho: '01/01', papel: 'A4', escala: 0, legenda: true, ambientes: true,
 })
 
 const EMPRESA = ['Av. Menino Marcelo, 7737A - Serraria, Maceió - AL,', '57046-000 |', '82 9117-9279 | comercial@luknoseletrica.com.br']
@@ -41,7 +42,7 @@ export const OBSERVACOES = [
 
 const FRAME = { x0: 56.4, x1: 813.4, y0: 28.2, banda: 472.8, y1: 566 }
 const MM_POR_PT = 25.4 / 72
-const LEG_COLS = [['Símbolo', 32], ['Descrição', 112], ['Instalação', 40], ['Quantidade', 48], ['Lâmp./Fita', 44], ['Temp.', 32]] as const
+const LEG_COLS = [['Símbolo', 28], ['Descrição', 94], ['Instalação', 36], ['Quantidade', 46], ['Lâmp./Fita', 38], ['Temp.', 28], ['Ambientes', 90]] as const
 const LEG_W = LEG_COLS.reduce((s, c) => s + c[1], 0)
 
 /** Divisão da folha e escala da planta (medidas em pontos de A4). */
@@ -66,6 +67,16 @@ export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda'>,
     cabe: ptPorUnidade <= ajuste * 1.001,
     rotuloEscala: info.escala ? `1/${info.escala}` : `ajustada (~1/${Math.round(denom)})`,
   }
+}
+
+/** Quebra uma lista separada por vírgulas em até duas linhas. */
+export function duasLinhas(t: string, cabe: (s: string) => boolean): string[] {
+  if (cabe(t)) return [t]
+  const partes = t.split(', ')
+  if (partes.length < 2) return [t]
+  let corte = 1
+  while (corte < partes.length - 1 && cabe(partes.slice(0, corte + 1).join(', ') + ',')) corte++
+  return [partes.slice(0, corte).join(', ') + ',', partes.slice(corte).join(', ')]
 }
 
 // ── Contexto "canvas" que escreve no PDF ─────────────────────────────────────
@@ -229,7 +240,7 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
   if (L.tabelas) {
     const top = L.legendaTop
     for (let t = 0; t < L.tabelas; t++) {
-      const x = FRAME.x0 + 24 + t * (LEG_W + 12)
+      const x = FRAME.x0 + 8 + t * (LEG_W + 10)
       const linhas = items.slice(t * L.porTabela, (t + 1) * L.porTabela)
       if (!linhas.length) continue
       if (t === 0) text(`LEGENDA ${info.pavimento.toUpperCase()}`, x, top + 8, 7)
@@ -247,6 +258,10 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
         const cells = [describe(it), it.mounting || '-', qtyLabel(it), it.power || '-', it.light || '-']
         let c = x + LEG_COLS[0][1]
         cells.forEach((v, i) => { const w = LEG_COLS[i + 1][1]; text(v, c + w / 2, my + size * 0.36, size, { align: 'center', max: w - 3 }); c += w })
+        // ambientes: lista longa quebra em duas linhas
+        const wA = LEG_COLS[LEG_COLS.length - 1][1]
+        const linhasAmb = duasLinhas(it.rooms || '-', t => fonts.normal.widthOfTextAtSize(safeText(t), size) <= wA - 3)
+        linhasAmb.forEach((l, i) => text(l, c + wA / 2, my + size * 0.36 + (i - (linhasAmb.length - 1) / 2) * size * 1.05, size, { align: 'center', max: wA - 3 }))
         p.drawSymbol(sym as unknown as CanvasRenderingContext2D, it, (x + LEG_COLS[0][1] / 2) * f, my * f, (LEG_COLS[0][1] - 6) * f, (L.rowH * 0.75) * f)
       })
       sym.flush()

@@ -3,6 +3,7 @@
 import type { CadModel } from './cad'
 import type { Edits, Shape, Spec } from './cad-state'
 import { polyLength } from './cad-tape'
+import { roomAt, midOfPath } from './cad-rooms'
 
 export const MONTAGENS = ['', 'Embutir', 'Sobrepor', 'Pendente', 'Arandela', 'Trilho']
 export const CORES_LUZ = ['', '2400K', '2700K', '3000K', '4000K', '5000K', '6500K', 'RGB']
@@ -21,6 +22,7 @@ export interface Item {
   qty: number
   meters: number
   keys: string[] // chaves de seleção no desenho
+  rooms: string // ambientes onde o item aparece
 }
 
 const br = (n: number, d = 2) => n.toFixed(d).replace('.', ',')
@@ -37,17 +39,22 @@ export function guessSpec(name: string): Spec {
 
 export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): Item[] {
   const map = new Map<string, Item>()
-  const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys'>, selKey: string, meters = 0) => {
+  const rooms = new Map<string, Set<string>>()
+  const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
     const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.thickness ?? ''].join('|').toLowerCase()
     let cur = map.get(key)
-    if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [] }; map.set(key, cur) }
+    if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '' }; map.set(key, cur); rooms.set(key, new Set()) }
     cur.qty++; cur.meters += meters; cur.keys.push(selKey)
+    const names = typed?.trim() ? typed.split(',') : [roomAt(ed.shapes, where[0], where[1])]
+    for (const n of names) if (n.trim()) rooms.get(key)!.add(n.trim())
   }
   for (const c of ed.cp) {
     const o = model.objs[c.src]
     if (!o || o.kind !== 'LIB') continue
     const s = c.spec ?? guessSpec(o.name)
-    add({ kind: 'bloco', block: o.name, name: s.name || o.name, mounting: s.mounting, power: s.power, light: s.light, color: s.color }, 'c' + c.id)
+    const [x0, y0, x1, y1] = o.bbox, mx = (x0 + x1) / 2, my = (y0 + y1) / 2, m = c.xf
+    add({ kind: 'bloco', block: o.name, name: s.name || o.name, mounting: s.mounting, power: s.power, light: s.light, color: s.color }, 'c' + c.id,
+      [m[0] * mx + m[2] * my + m[4], m[1] * mx + m[3] * my + m[5]], s.rooms)
   }
   for (const s of ed.shapes) {
     if (s.kind === 'perfil' || s.kind === 'fita') {
@@ -57,12 +64,13 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
         mounting: sp?.mounting ?? '', power: s.wm ? `${String(s.wm).replace('.', ',')} W/m` : '', light: sp?.light ?? '',
         color: s.stroke, tapeColor: s.kind === 'perfil' ? s.tapeColor : undefined,
         thickness: s.kind === 'perfil' ? Math.round((s.w ?? 0) * unitToMeters * 1000) / 10 : undefined,
-      }, 's' + s.id, polyLength(s.pts) * unitToMeters)
+      }, 's' + s.id, midOfPath(s.pts), sp?.rooms, polyLength(s.pts) * unitToMeters)
     } else if (s.kind === 'fonte') {
       const sp = s.spec
-      add({ kind: 'fonte', name: sp?.name || 'Fonte', mounting: sp?.mounting ?? '', power: `${s.watts ?? 0}W ${s.volt ?? 12}V`, light: '', color: s.stroke }, 's' + s.id)
+      add({ kind: 'fonte', name: sp?.name || 'Fonte', mounting: sp?.mounting ?? '', power: `${s.watts ?? 0}W ${s.volt ?? 12}V`, light: '', color: s.stroke }, 's' + s.id, [s.pts[0], s.pts[1]], sp?.rooms)
     }
   }
+  rooms.forEach((set, key) => { map.get(key)!.rooms = Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })).join(', ') })
   const ordem = { bloco: 0, perfil: 1, fita: 2, fonte: 3 }
   return Array.from(map.values()).sort((a, b) => ordem[a.kind] - ordem[b.kind] || a.name.localeCompare(b.name, 'pt-BR', { numeric: true }))
 }
@@ -76,8 +84,8 @@ export function describe(it: Item) {
   return parts.join(' ')
 }
 
-export const LEGEND_HEADERS = ['Símbolo', 'Descrição', 'Instalação', 'Potência', 'Cor da luz', 'Qtd.']
-export const legendCells = (it: Item) => [describe(it), it.mounting || '—', it.power || '—', it.light || '—', qtyLabel(it)]
+export const LEGEND_HEADERS = ['Símbolo', 'Descrição', 'Instalação', 'Potência', 'Cor da luz', 'Qtd.', 'Ambientes']
+export const legendCells = (it: Item) => [describe(it), it.mounting || '—', it.power || '—', it.light || '—', qtyLabel(it), it.rooms || '—']
 
 /**
  * Medidas da tabela em unidades do desenho, a partir da altura do texto `h`.

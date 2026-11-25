@@ -5,9 +5,10 @@ import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normal
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, SeparatorHorizontal, GripHorizontal,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, Shapes, SeparatorHorizontal, GripHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isRoom, polyArea, labelPoint, roomAt } from '@/lib/project-reading/cad-rooms'
 import { buildPlotPdf, plotLayout, plotPadrao, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
@@ -17,7 +18,7 @@ import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
-type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
@@ -119,6 +120,9 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // ambientes
+  const [roomModal, setRoomModal] = useState<null | { id?: number; pts?: number[]; name: string; color: string }>(null)
+  const [verAmbientes, setVerAmbientes] = useState(true)
   // plotagem: dados do carimbo (salvos junto com o desenho) e janela aberta
   const [plot, setPlot] = useState<PlotInfo>(plotPadrao)
   const plotRef = useRef(plot); plotRef.current = plot
@@ -470,6 +474,24 @@ export function CadLab() {
       setGerando(false)
     }
   }
+  // ── Ambientes ────────────────────────────────────────────────────────────
+  const CORES_AMB = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c']
+  function finishRoom(points: number[][] = draft) {
+    const pts = points.filter((p, i) => i === 0 || Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]) > 4 / view.current.scale)
+    setDraft([])
+    if (pts.length < 3) { if (points.length) setAviso('O ambiente precisa de pelo menos 3 cantos.'); return }
+    setAviso(null)
+    setRoomModal({ pts: pts.flat(), name: '', color: CORES_AMB[edRef.current.shapes.filter(isRoom).length % CORES_AMB.length] })
+  }
+  function confirmRoom() {
+    const m = roomModal; if (!m) return
+    const e0 = edRef.current
+    const name = m.name.trim() || `Ambiente ${e0.shapes.filter(isRoom).length + (m.id ? 0 : 1)}`
+    setRoomModal(null); setVerAmbientes(true)
+    if (m.id !== undefined) commit({ ...e0, shapes: e0.shapes.map(x => (x.id === m.id ? { ...x, text: name, stroke: m.color } : x)) })
+    else commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'ambiente', pts: m.pts!, text: name, stroke: m.color, fill: null }], next: e0.next + 1 })
+  }
+  const renameRoom = (r: Shape) => setRoomModal({ id: r.id, name: r.text ?? '', color: r.stroke })
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
     const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
@@ -618,7 +640,17 @@ export function CadLab() {
     for (const s of e.shapes) {
       let d = Infinity
       const box = polyOf(s)
-      if (s.kind === 'legenda') {
+      if (isRoom(s)) {
+        // ambiente só é pego pela borda ou pelo nome, pra não atrapalhar o que está dentro
+        if (!verAmbientes) continue
+        const n = s.pts.length
+        let dr = Infinity
+        for (let i = 0; i < n; i += 2) dr = Math.min(dr, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[(i + 2) % n], s.pts[(i + 3) % n]))
+        const [lx, ly] = labelPoint(s.pts)
+        if (Math.abs(wx - lx) < tol * 5 && Math.abs(wy - ly) < tol * 2.2) dr = Math.min(dr, tol * 0.5)
+        if (dr <= tol) consider('s' + s.id, tol * 0.6 + dr * 0.4)
+        continue
+      } else if (s.kind === 'legenda') {
         // prioridade baixa: o que estiver em cima da legenda é selecionado antes
         if (inRings([Float64Array.from(legendBox(s, e))], wx, wy)) consider('s' + s.id, tol * 0.95)
         continue
@@ -1022,8 +1054,31 @@ export function CadLab() {
         if (s.kind === 'rect') ctx.closePath()
       }
     }
-    for (const s of ed.shapes) {
+    // ambientes por baixo de tudo que foi desenhado
+    for (const s of [...ed.shapes].sort((a, b) => Number(isRoom(b)) - Number(isRoom(a)))) {
       const on = selSet.has('s' + s.id)
+      if (isRoom(s)) {
+        if (printing ? !plot.ambientes : !verAmbientes && !on) continue
+        const [lx, ly] = labelPoint(s.pts)
+        const [tx, ty] = toScreen(lx, ly, w, h)
+        const m2 = `${(polyArea(s.pts) * model.unitToMeters ** 2).toFixed(2).replace('.', ',')} m²`
+        const px = printing ? 5.5 : 12
+        if (!printing) { // no papel sai só o nome e a área, como nas pranchas
+          ctx.beginPath()
+          for (let i = 0; i < s.pts.length; i += 2) { const [x, y] = toScreen(s.pts[i], s.pts[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
+          ctx.closePath()
+          ctx.globalAlpha = on ? 0.22 : 0.1; ctx.fillStyle = s.stroke; ctx.fill(); ctx.globalAlpha = 1
+          ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2 : 1; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([])
+        }
+        ctx.textAlign = 'center'
+        for (const [t, dy, size] of [[(s.text ?? '').toUpperCase(), -px * 0.15, px], [m2, px * 0.95, px * 0.8]] as const) {
+          ctx.font = `${printing ? '' : 'bold '}${size}px sans-serif`
+          if (!printing) { ctx.lineWidth = 3; ctx.strokeStyle = BG; ctx.strokeText(t, tx, ty + dy) }
+          ctx.fillStyle = printing ? '#111111' : on ? SEL : s.stroke; ctx.fillText(t, tx, ty + dy)
+        }
+        ctx.textAlign = 'start'
+        continue
+      }
       if (s.kind === 'legenda') {
         if (printing && plot.legenda) continue // a folha já tem a legenda
         const hh = s.h ?? 0.2
@@ -1121,15 +1176,17 @@ export function CadLab() {
     // alças de redimensionar e medida da fita/perfil selecionado
     if (!printing && tool === 'select' && sel.length === 1) {
       const s = ed.shapes.find(x => 's' + x.id === sel[0])
-      if (s && isTape(s)) {
+      if (s && (isTape(s) || isRoom(s))) {
         gripsOf(s).forEach(([gx, gy], i) => {
           const [x, y] = toScreen(gx, gy, w, h)
           ctx.fillStyle = s.kind === 'perfil' && i === 2 ? '#fbbf24' : '#2563eb'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1
           ctx.fillRect(x - 5, y - 5, 10, 10); ctx.strokeRect(x - 5, y - 5, 10, 10)
         })
+        if (isTape(s)) {
         const [x, y] = toScreen(s.pts[0], s.pts[1], w, h)
         const label = fmtM(polyLength(s.pts) * model.unitToMeters) + (s.kind === 'perfil' ? ` × ${((s.w ?? 0) * model.unitToMeters * 100).toFixed(1).replace('.', ',')} cm` : '')
         ctx.font = 'bold 12px sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, x + 8, y - 10); ctx.fillStyle = '#fbbf24'; ctx.fillText(label, x + 8, y - 10)
+        }
       }
     }
     // centerline: linhas escolhidas em destaque
@@ -1204,6 +1261,7 @@ export function CadLab() {
         ctx.beginPath(); for (let i = 0; i < 8; i += 2) { const [x, y] = toScreen(q[i], q[i + 1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) } ctx.closePath(); ctx.stroke()
         const [x, y] = toScreen(end[0], end[1], w, h); ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(fmtM(Math.hypot(end[0] - draft[0][0], end[1] - draft[0][1]) * model.unitToMeters), x + 8, y - 8)
       })
+      if (tool === 'ambiente') guide(() => { ctx.beginPath(); [...draft, cur].forEach((p, i) => { const [x, y] = toScreen(p[0], p[1], w, h); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }); if (draft.length > 1) ctx.closePath(); ctx.stroke(); const [fx, fy] = toScreen(draft[0][0], draft[0][1], w, h); ctx.strokeRect(fx - 6, fy - 6, 12, 12) })
       if (tool === 'seta') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
       if (tool === 'retangulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1) })
       if (tool === 'circulo') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h); ctx.beginPath(); ctx.arc(x1, y1, Math.hypot(cur[0] - draft[0][0], cur[1] - draft[0][1]) * scale, 0, Math.PI * 2); ctx.stroke() })
@@ -1287,7 +1345,7 @@ export function CadLab() {
     const [wx, wy] = toWorld(px, py, w, h)
     if (selRef.current.length === 1) { // alça do perfil/fita selecionado tem prioridade
       const s = edRef.current.shapes.find(x => 's' + x.id === selRef.current[0])
-      if (s && isTape(s)) {
+      if (s && (isTape(s) || isRoom(s))) {
         const tol = 8 / view.current.scale
         const gi = gripsOf(s).findIndex(([gx, gy]) => Math.abs(gx - wx) <= tol && Math.abs(gy - wy) <= tol)
         if (gi >= 0) { gesture.current = { type: 'grip', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: s.id, grip: gi, moved: false }; return }
@@ -1340,7 +1398,7 @@ export function CadLab() {
       setEd({ ...g.base, shapes: g.base.shapes.map(x => {
         if (x.id !== g.dim) return x
         let p = [tx, ty]
-        if (x.kind === 'fita' && e.shiftKey) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
+        if ((x.kind === 'fita' || x.kind === 'ambiente') && e.shiftKey) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
         return dragGrip(x, g.grip!, p[0], p[1], 0.01 / u2m, e.altKey)
       }) })
       return
@@ -1389,7 +1447,7 @@ export function CadLab() {
         if (crossing ? touch : inside) keys.push(k)
       }
       for (let i = 0; i < model.objs.length; i++) if (layerVis[model.objs[i].layer]) test('o' + i)
-      e0.cp.forEach(c => test('c' + c.id)); e0.shapes.forEach(s => test('s' + s.id)); e0.dims.forEach(d => test('d' + d.id))
+      e0.cp.forEach(c => test('c' + c.id)); e0.shapes.forEach(s => { if (!(crossing && isRoom(s))) test('s' + s.id) }); e0.dims.forEach(d => test('d' + d.id))
       setSel(prev => (e?.shiftKey ? Array.from(new Set([...prev, ...keys])) : keys))
     }
     setBox(null)
@@ -1423,6 +1481,12 @@ export function CadLab() {
       const q = (dist.pts.length === 1 ? ortho(p, dist.pts[0], e.shiftKey) : dist.pts.length === 2 ? raw : p) as [number, number]
       if (dist.pts.length === 1 && Math.hypot(q[0] - dist.pts[0][0], q[1] - dist.pts[0][1]) < 1e-9) return
       setAviso(null); setDist({ pts: [...dist.pts, q], escolhendo: false }); return
+    }
+    if (tool === 'ambiente') {
+      if (roomModal) return
+      if (draft.length >= 3 && Math.hypot(raw[0] - draft[0][0], raw[1] - draft[0][1]) <= 10 / view.current.scale) { finishRoom(); return }
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 4 / view.current.scale) setDraft([...draft, p])
+      return
     }
     if (tool === 'perfil') {
       if (!draft.length) { setDraft([p]); return }
@@ -1484,6 +1548,7 @@ export function CadLab() {
 
   function onDbl(e: React.MouseEvent) {
     if (tool === 'fita') { finishFita(); return }
+    if (tool === 'ambiente') { finishRoom(); return }
     if (tool !== 'select') { setDraft([]); return }
     const { px, py, w, h } = pos(e)
     const hit = hitTest(...toWorld(px, py, w, h))
@@ -1491,6 +1556,8 @@ export function CadLab() {
       setSel([hit]); setTimeout(() => document.getElementById('attr-0')?.focus(), 60); return
     }
     if (!hit) return
+    const room = edRef.current.shapes.find(x => 's' + x.id === hit && isRoom(x))
+    if (room) { setSel([hit]); renameRoom(room); return }
     if (hit[0] === 'c' || (hit[0] === 's' && edRef.current.shapes.some(x => 's' + x.id === hit && (isTape(x) || x.kind === 'fonte')))) { setSel([hit]); openSpecs([hit]); return }
     if (hit[0] !== 's') return
     const sh = edRef.current.shapes.find(x => x.id === Number(hit.slice(1)))
@@ -1663,7 +1730,7 @@ export function CadLab() {
     setLib(l => l.filter(x => x.id !== id))
   }
   const toolRef = useRef(tool); toolRef.current = tool
-  const finishRef = useRef(finishFita); finishRef.current = finishFita
+  const finishRef = useRef<() => void>(finishFita); finishRef.current = tool === 'ambiente' ? () => finishRoom() : finishFita
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return
@@ -1675,8 +1742,8 @@ export function CadLab() {
       if (mod && k === 'v') { ev.preventDefault(); actPaste(); return }
       if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
       if (mod) return
-      if (k === 'enter' && toolRef.current === 'fita') { ev.preventDefault(); finishRef.current(); return }
-      if (k === 'escape') { setPlotUi(false); setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
+      if (k === 'enter' && (toolRef.current === 'fita' || toolRef.current === 'ambiente')) { ev.preventDefault(); finishRef.current(); return }
+      if (k === 'escape') { setRoomModal(null); setPlotUi(false); setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
       else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
       else if (k === 'v') setTool('select')
       else if (k === 'h') setTool('pan')
@@ -1686,6 +1753,7 @@ export function CadLab() {
       else if (k === 'c') setTool('circulo')
       else if (k === 'e') setTool('centro')
       else if (k === 'd') setTool('distribuir')
+      else if (k === 'n') setTool('ambiente')
       else if (k === 'p') setTool('perfil')
       else if (k === 'f') setTool('fita')
       else if (k === 't') setTool('texto')
@@ -1711,6 +1779,12 @@ export function CadLab() {
   })()
   const tapeSel = sel.length === 1 ? ed.shapes.find(x => 's' + x.id === sel[0] && isTape(x)) ?? null : null
   const legendShape = ed.shapes.find(x => x.kind === 'legenda') ?? null
+  const rooms = ed.shapes.filter(isRoom)
+  // em qual ambiente está cada item (pra listar o conteúdo de cada um)
+  const roomOfKey = new Map<string, string>()
+  if (model && rooms.length) for (const it of items) for (const k of it.keys) {
+    const b = bboxOf(ed, k); if (b) roomOfKey.set(k, roomAt(ed.shapes, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+  }
   const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
   const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
   const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
@@ -1784,6 +1858,7 @@ export function CadLab() {
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1 mb-1">
               <TB id="select" icon={<MousePointer className="w-3.5 h-3.5" />} label="Selecionar" k="V" />
               <TB id="pan" icon={<Hand className="w-3.5 h-3.5" />} label="Pan" k="H" />
+              <TB id="ambiente" icon={<Shapes className="w-3.5 h-3.5" />} label="Ambiente" k="N" />
               <TB id="medir" icon={<Ruler className="w-3.5 h-3.5" />} label="Cota" k="M" />
               <span className="w-px h-5 bg-gray-200 mx-1" />
               <TB id="linha" icon={<Minus className="w-3.5 h-3.5 -rotate-45" />} label="Linha" k="L" />
@@ -1834,7 +1909,7 @@ export function CadLab() {
             </div>
             <div ref={wrapRef} className="relative w-full border border-surface-border rounded-xl overflow-hidden" style={{ background: BG, height: '66vh', cursor: gesture.current?.type === 'pan' ? 'grabbing' : cursorCss }}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { onUp(); setHover(null) }} onClick={onClick}
-              onDoubleClick={onDbl} onContextMenu={e => { e.preventDefault(); if (tool === 'fita') finishFita(); else setDraft([]) }}>
+              onDoubleClick={onDbl} onContextMenu={e => { e.preventDefault(); if (tool === 'fita') finishFita(); else if (tool === 'ambiente') finishRoom(); else setDraft([]) }}>
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
               {textEdit && (() => {
                 const el = wrapRef.current
@@ -1878,10 +1953,26 @@ export function CadLab() {
                   {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
                   {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
                   {tool === 'plotar' && 'Arraste um retângulo em volta da área que vai pro PDF (Esc cancela)'}
+                  {tool === 'ambiente' && (draft.length < 3 ? 'Ambiente: clique nos cantos (Shift = reto)' : 'Continue nos cantos — clique no 1º ponto, Enter ou duplo clique pra fechar')}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
+                </div>
+              )}
+              {roomModal && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                  <form className="w-80 bg-white rounded-xl shadow-2xl p-4 space-y-3 cursor-default" onSubmit={e => { e.preventDefault(); confirmRoom() }}>
+                    <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Shapes className="w-4 h-4 text-brand-500" /> {roomModal.id ? 'Editar ambiente' : 'Novo ambiente'}</p>
+                    <label className="block text-[11px] text-gray-500">Nome
+                      <input autoFocus list="cad-ambientes" value={roomModal.name} onChange={e => setRoomModal({ ...roomModal, name: e.target.value })} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') setRoomModal(null) }} placeholder="ex. Sala de estar" className="w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800" />
+                      <datalist id="cad-ambientes">{['Sala de estar', 'Sala de jantar', 'Cozinha', 'Área gourmet', 'Suíte master', 'Suíte', 'Quarto', 'Closet', 'BWC', 'Lavabo', 'Circulação', 'Varanda', 'Área de serviço', 'Garagem', 'Escritório', 'Fachada', 'Jardim', 'Deck', 'Escada', 'Hall'].map(n => <option key={n} value={n} />)}</datalist></label>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-500">Cor na tela <input type="color" value={roomModal.color} onChange={e => setRoomModal({ ...roomModal, color: e.target.value })} className="w-6 h-6 p-0 border-0" /></label>
+                    <div className="flex gap-2">
+                      <button type="submit" className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2">Salvar</button>
+                      <button type="button" onClick={() => setRoomModal(null)} className="text-xs text-gray-500 px-3">Cancelar</button>
+                    </div>
+                  </form>
                 </div>
               )}
               {plotUi && (() => {
@@ -1906,6 +1997,7 @@ export function CadLab() {
                       <label className="col-span-2 text-[11px] text-gray-500">Escala<select value={plot.escala} onChange={e => set({ escala: Number(e.target.value) })} className={input}>{ESCALAS.map(v => <option key={v} value={v}>{v ? `1/${v}` : 'Ajustar à folha'}</option>)}</select></label>
                     </div>
                     <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Incluir a legenda ({items.length} {items.length === 1 ? 'item' : 'itens'})</label>
+                    {ed.shapes.some(isRoom) && <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.ambientes} onChange={e => set({ ambientes: e.target.checked })} /> Escrever nome e área dos ambientes</label>}
                     {L && plot.area ? (
                       <p className={cn('text-[11px] rounded px-2 py-1', L.cabe ? 'bg-gray-50 text-gray-600' : 'bg-red-50 text-red-600')}>
                         Área marcada: {fmtM((plot.area[2] - plot.area[0]) * model.unitToMeters)} × {fmtM((plot.area[3] - plot.area[1]) * model.unitToMeters)} · escala {L.rotuloEscala}{!L.cabe && ' — não cabe: use uma folha maior ou outra escala'}
@@ -2091,6 +2183,31 @@ export function CadLab() {
                 </section>
               )
             })()}
+
+            <section className="border border-gray-200 rounded-xl bg-white p-3">
+              <div className="flex items-center gap-1 mb-1">
+                <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Shapes className="w-3.5 h-3.5" /> Ambientes ({rooms.length})</p>
+                {rooms.length > 0 && <label className="ml-auto flex items-center gap-1 text-[10px] text-gray-500"><input type="checkbox" checked={verAmbientes} onChange={e => setVerAmbientes(e.target.checked)} /> mostrar</label>}
+              </div>
+              {rooms.length === 0 && <p className="text-xs text-gray-400">Use "Ambiente" e contorne cada cômodo. O que estiver dentro já sai com o nome dele na legenda.</p>}
+              <div className="max-h-52 overflow-y-auto divide-y divide-gray-100">
+                {rooms.map(r => {
+                  const dentro = items.map(i => ({ i, n: i.keys.filter(k => roomOfKey.get(k) === r.text).length })).filter(x => x.n > 0)
+                  return (
+                    <div key={r.id} className={cn('py-1', sel.includes('s' + r.id) && 'bg-sky-50 rounded')}>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: r.stroke }} />
+                        <button onClick={() => setSel(['s' + r.id])} className="flex-1 min-w-0 truncate text-left font-medium text-gray-800">{r.text}</button>
+                        <span className="text-[10px] text-gray-400 whitespace-nowrap">{(polyArea(r.pts) * model.unitToMeters ** 2).toFixed(2).replace('.', ',')} m²</span>
+                        <button onClick={() => renameRoom(r)} className="text-[10px] text-brand-600 underline">editar</button>
+                        <button onClick={() => { commit(deleteKeys(ed, ['s' + r.id])); setSel([]) }} title="Apagar ambiente" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                      {dentro.map(({ i, n }) => <p key={i.key} className="text-[10px] text-gray-500 pl-4.5 ml-3 truncate">{n} × {describe(i)}</p>)}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
 
             <section className="border border-gray-200 rounded-xl bg-white p-3">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Itens do projeto ({items.reduce((a, i) => a + i.qty, 0)})</p>
