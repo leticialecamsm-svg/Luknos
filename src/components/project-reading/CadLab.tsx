@@ -477,7 +477,7 @@ export function CadLab() {
     const comVista = (v: { cx: number; cy: number; scale: number }, fn: () => void) => { const tela = view.current; view.current = v; try { fn() } finally { view.current = tela } }
     return buildPlotPdf({
       info: plotRef.current, area, unitToMeters: m.unitToMeters, items, logo,
-      drawPlan: (ctx, v, w, h) => comVista(v, () => paint({ ctx, w, h })),
+      drawPlan: (ctx, v, w, h, giro) => comVista(v, () => paint({ ctx, w, h, giro })),
       drawSymbol: (ctx, item, x, y, w, h) => comVista({ cx: 0, cy: 0, scale: 1 }, () => paint({ ctx, w: 0, h: 0, symbol: { item, x, y, w, h } })),
     })
   }
@@ -899,7 +899,7 @@ export function CadLab() {
   // ── Desenho ──────────────────────────────────────────────────────────────
   // A mesma função pinta a tela e o PDF (`print`): no papel não há seleção,
   // guias nem barrinhas no lugar de texto pequeno.
-  function paint(print?: { ctx: CanvasRenderingContext2D; w: number; h: number; symbol?: { item: Item; x: number; y: number; w: number; h: number } }) {
+  function paint(print?: { ctx: CanvasRenderingContext2D; w: number; h: number; giro?: number; symbol?: { item: Item; x: number; y: number; w: number; h: number } }) {
     const printing = !!print
     const el = wrapRef.current, canvas = canvasRef.current
     if (!print && (!el || !canvas)) return
@@ -1097,11 +1097,14 @@ export function CadLab() {
           ctx.strokeStyle = on ? SEL : s.stroke; ctx.lineWidth = on ? 2 : 1; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([])
         }
         ctx.textAlign = 'center'
+        ctx.save(); ctx.translate(tx, ty)
+        if (print?.giro) ctx.rotate((-print.giro * Math.PI) / 180) // com a planta girada, o nome do ambiente continua em pé
         for (const [t, dy, size] of [[(s.text ?? '').toUpperCase(), -px * 0.15, px], [m2, px * 0.95, px * 0.8]] as const) {
           ctx.font = `${printing ? '' : 'bold '}${size}px sans-serif`
-          if (!printing) { ctx.lineWidth = 3; ctx.strokeStyle = BG; ctx.strokeText(t, tx, ty + dy) }
-          ctx.fillStyle = printing ? '#111111' : on ? SEL : s.stroke; ctx.fillText(t, tx, ty + dy)
+          if (!printing) { ctx.lineWidth = 3; ctx.strokeStyle = BG; ctx.strokeText(t, 0, dy) }
+          ctx.fillStyle = printing ? '#111111' : on ? SEL : s.stroke; ctx.fillText(t, 0, dy)
         }
+        ctx.restore()
         ctx.textAlign = 'start'
         continue
       }

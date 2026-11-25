@@ -3,9 +3,9 @@
 // Prévia da plotagem: mostra a folha exatamente como vai sair, com os dados do
 // carimbo e os ajustes de tamanho e posição da planta.
 import { useEffect, useRef, useState } from 'react'
-import { FileDown, Loader2, Minus, Plus, X } from 'lucide-react'
+import { FileDown, Loader2, Minus, Plus, RotateCcw, RotateCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { plotLayout, PAPEIS, ESCALAS, type PlotInfo, type Papel, type Cores } from '@/lib/project-reading/cad-plot'
+import { plotLayout, PAPEIS, ESCALAS, type PlotInfo, type Papel, type Cores, type Giro } from '@/lib/project-reading/cad-plot'
 
 interface Props {
   plot: PlotInfo
@@ -36,7 +36,7 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
 
   // textos esperam a digitação parar; ajustes da folha atualizam logo
   const textos = [plot.endereco, plot.proprietario, plot.escritorio, plot.data, plot.pavimento, plot.desenho].join('|')
-  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc])
+  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc, plot.giro])
   const textosAntes = useRef(textos)
   useEffect(() => {
     if (!plot.area) return
@@ -77,6 +77,10 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
 
   const zoom = plot.zoom ?? 1
   const setZoom = (z: number) => set({ zoom: Math.round(Math.max(0.3, Math.min(4, z)) * 100) / 100 })
+  const giro = plot.giro ?? 0
+  const girar = (d: number) => set({ giro: ((giro + d + 360) % 360) as Giro, zoom: 1, desloc: [0, 0] })
+  // quanto a planta cresceria virada de lado (só faz sentido com escala livre)
+  const ganho = L && plot.area && !plot.escala ? plotLayout({ ...plot, giro: ((giro + 90) % 360) as Giro }, nItens, plot.area, unitToMeters).ptPorUnidade / plotLayout(plot, nItens, plot.area, unitToMeters).ptPorUnidade : 1
   function soltar() {
     if (!arrasto || !canvasRef.current || !L) return
     if (!arrasto.dx && !arrasto.dy) { setArrasto(null); return }
@@ -124,6 +128,13 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
                 <button onClick={() => setZoom(zoom * 1.1)} className="border border-gray-200 rounded p-1"><Plus className="w-3 h-3" /></button>
               </>)}
             </div>
+            <div className="flex items-center gap-2 text-xs text-gray-600">
+              <span className="flex-1">Girar planta</span>
+              <button onClick={() => girar(-90)} className="border border-gray-200 rounded p-1" title="Girar 90° pra esquerda"><RotateCcw className="w-3 h-3" /></button>
+              <b className="w-10 text-center">{giro}°</b>
+              <button onClick={() => girar(90)} className="border border-gray-200 rounded p-1" title="Girar 90° pra direita"><RotateCw className="w-3 h-3" /></button>
+            </div>
+            {ganho > 1.1 && <button onClick={() => girar(90)} className="w-full text-[11px] bg-amber-50 text-amber-700 rounded px-2 py-1 text-left">Girando, a planta fica {Math.round((ganho - 1) * 100)}% maior. <u>Girar</u></button>}
             <div className="flex gap-2">
               <button onClick={() => set({ zoom: 1, desloc: [0, 0] })} className="flex-1 text-[11px] border border-gray-200 rounded py-1 text-gray-600">Ajustar e centralizar</button>
               <button onClick={onMarcar} className="flex-1 text-[11px] border border-brand-400 text-brand-600 rounded py-1">Marcar outra área</button>

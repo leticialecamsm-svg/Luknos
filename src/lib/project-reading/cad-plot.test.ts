@@ -52,4 +52,25 @@ describe('plotagem', () => {
     const base = { papel: 'A4' as const, escala: 0, legenda: false }
     expect(plotLayout({ ...base, zoom: 1.5 }, 0, a, 1).ptPorUnidade).toBeCloseTo(plotLayout(base, 0, a, 1).ptPorUnidade * 1.5)
   })
+  it('girar a planta de lado aproveita a folha e o desenho continua dentro do quadro', async () => {
+    const alta: [number, number, number, number] = [0, 0, 5, 10]
+    const base = { papel: 'A4' as const, escala: 0, legenda: false }
+    expect(plotLayout({ ...base, giro: 90 }, 0, alta, 1).ptPorUnidade).toBeGreaterThan(plotLayout(base, 0, alta, 1).ptPorUnidade * 1.5)
+    for (const giro of [0, 90, 180, 270] as const) {
+      const L = plotLayout({ ...base, giro }, 0, alta, 1)
+      const cantos: [number, number][] = []
+      let quadro: [number, number] = [0, 0]
+      await buildPlotPdf({
+        info: { ...plotPadrao(), legenda: false, giro }, area: alta, unitToMeters: 1, logo: null, items: [], drawSymbol: () => {},
+        drawPlan: (ctx, v, w, h) => {
+          quadro = [w, h]
+          for (const [x, y] of [[0, 0], [5, 10]]) cantos.push([(x - v.cx) * v.scale + w / 2, h / 2 - (y - v.cy) * v.scale])
+        },
+      })
+      // a área inteira cabe no quadro, que mantém a proporção do desenho em pé
+      expect(quadro[0] / quadro[1]).toBeCloseTo(0.5)
+      expect(Math.abs(cantos[1][0] - cantos[0][0])).toBeCloseTo(5 * L.ptPorUnidade)
+      expect(cantos[0][0]).toBeCloseTo(0); expect(cantos[1][1]).toBeCloseTo(0)
+    }
+  })
 })

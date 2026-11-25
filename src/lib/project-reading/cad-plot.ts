@@ -18,8 +18,10 @@ export interface PlotInfo {
   cores: Cores
   zoom?: number // tamanho da planta em relação ao ajuste (só com escala livre)
   desloc?: [number, number] // posição da planta na folha, em pontos de A4
+  giro?: Giro // planta girada no papel (graus, sentido horário)
 }
 export type Cores = 'ajustadas' | 'originais' | 'pb'
+export type Giro = 0 | 90 | 180 | 270
 export const plotPadrao = (): PlotInfo => ({
   endereco: '', proprietario: '', escritorio: '', data: new Date().toLocaleDateString('pt-BR'),
   pavimento: 'TÉRREO', desenho: '01/01', papel: 'A4', escala: 0, legenda: true, ambientes: true, cores: 'ajustadas',
@@ -50,7 +52,7 @@ const LEG_COLS = [['Símbolo', 28], ['Descrição', 94], ['Instalação', 36], [
 const LEG_W = LEG_COLS.reduce((s, c) => s + c[1], 0)
 
 /** Divisão da folha e escala da planta (medidas em pontos de A4). */
-export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' | 'zoom'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
+export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' | 'zoom' | 'giro'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
   const [W, H] = PAPEIS[info.papel]
   const f = W / 842
   const linhas = info.legenda ? nItens : 0
@@ -61,13 +63,17 @@ export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' |
   const legendaTop = FRAME.banda - 5 - legendaH
   // a planta ocupa do topo da moldura até o título da planta (26 pt) acima da legenda
   const regiao = { x: FRAME.x0 + 2, y: FRAME.y0 + 2, w: FRAME.x1 - FRAME.x0 - 4, h: (legendaH ? legendaTop : FRAME.banda) - FRAME.y0 - 30 }
-  const aw = Math.max(1e-9, area[2] - area[0]), ah = Math.max(1e-9, area[3] - area[1])
+  // girada de lado, a largura da área ocupa a altura da folha e vice-versa
+  const deLado = (info.giro ?? 0) % 180 !== 0
+  const larg = Math.max(1e-9, area[2] - area[0]), alt = Math.max(1e-9, area[3] - area[1])
+  const aw = deLado ? alt : larg, ah = deLado ? larg : alt
   // pontos (na folha final) por unidade do desenho
   const ajuste = Math.min((regiao.w * f) / aw, (regiao.h * f) / ah)
   const ptPorUnidade = info.escala ? (unitToMeters * 1000) / (info.escala * MM_POR_PT) : ajuste * (info.zoom ?? 1)
   const denom = (unitToMeters * 1000) / (ptPorUnidade * MM_POR_PT)
   return {
     W, H, f, regiao, tabelas, porTabela, rowH, legendaTop, ptPorUnidade, denom,
+    aw, ah, // largura e altura da área como saem no papel (unidades do desenho)
     cabe: !info.escala || ptPorUnidade <= ajuste * 1.001,
     rotuloEscala: info.escala ? `1/${info.escala}` : `ajustada (~1/${Math.round(denom)})`,
   }
@@ -227,7 +233,7 @@ export interface PlotInput {
   items: Item[]
   logo: ArrayBuffer | Uint8Array | null
   /** Desenha a planta num "canvas" de w×h com `scale` pontos por unidade, centrado em (cx, cy). */
-  drawPlan: (ctx: CanvasRenderingContext2D, view: { cx: number; cy: number; scale: number }, w: number, h: number) => void
+  drawPlan: (ctx: CanvasRenderingContext2D, view: { cx: number; cy: number; scale: number }, w: number, h: number, giro: number) => void
   /** Desenha o símbolo do item numa célula centrada em (x, y), em pontos a partir do canto superior esquerdo da folha. */
   drawSymbol: (ctx: CanvasRenderingContext2D, item: Item, x: number, y: number, w: number, h: number) => void
 }
@@ -245,20 +251,31 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
   // planta, recortada na região
   // só a área marcada vai pro papel, centralizada no espaço da planta
   const area = { w: L.regiao.w * f, h: L.regiao.h * f }
-  const cw = Math.min(area.w, (p.area[2] - p.area[0]) * L.ptPorUnidade), ch = Math.min(area.h, (p.area[3] - p.area[1]) * L.ptPorUnidade)
+  const cw = Math.min(area.w, L.aw * L.ptPorUnidade), ch = Math.min(area.h, L.ah * L.ptPorUnidade)
   // posição escolhida na prévia: planta menor que o espaço anda pela folha; maior, desliza dentro dele
   const [dx, dy] = (info.desloc ?? [0, 0]).map(v => v * f)
   const folgaX = (area.w - cw) / 2, folgaY = (area.h - ch) / 2
   const entre = (v: number, m: number) => Math.max(-m, Math.min(m, v))
   const R = { x: L.regiao.x * f + folgaX + entre(dx, folgaX), y: L.regiao.y * f + folgaY + entre(dy, folgaY), w: cw, h: ch }
-  const sobraX = Math.max(0, ((p.area[2] - p.area[0]) * L.ptPorUnidade - cw) / 2), sobraY = Math.max(0, ((p.area[3] - p.area[1]) * L.ptPorUnidade - ch) / 2)
+  const sobraX = Math.max(0, (L.aw * L.ptPorUnidade - cw) / 2), sobraY = Math.max(0, (L.ah * L.ptPorUnidade - ch) / 2)
+  // o deslize é medido na folha; desfaz o giro pra saber pra onde vai a vista no desenho
+  const rad = ((info.giro ?? 0) * Math.PI) / 180, cos = Math.round(Math.cos(rad)), sin = Math.round(Math.sin(rad))
+  const px = entre(dx, sobraX), py = entre(dy, sobraY)
   const centro = {
-    cx: (p.area[0] + p.area[2]) / 2 - entre(dx, sobraX) / L.ptPorUnidade,
-    cy: (p.area[1] + p.area[3]) / 2 + entre(dy, sobraY) / L.ptPorUnidade,
+    cx: (p.area[0] + p.area[2]) / 2 - (cos * px + sin * py) / L.ptPorUnidade,
+    cy: (p.area[1] + p.area[3]) / 2 + (-sin * px + cos * py) / L.ptPorUnidade,
   }
   const plan = new PdfCanvas(doc, page, fonts, R.x, R.y, 0.28 * f, info.cores)
   plan.clipRect(R.x, R.y, R.w, R.h)
-  p.drawPlan(plan as unknown as CanvasRenderingContext2D, { ...centro, scale: L.ptPorUnidade }, R.w, R.h)
+  // a planta é desenhada "em pé" num quadro que depois é girado pra dentro da região
+  const giro = info.giro ?? 0, deLado = giro % 180 !== 0
+  plan.save()
+  if (giro === 90) plan.translate(R.w, 0)
+  else if (giro === 180) plan.translate(R.w, R.h)
+  else if (giro === 270) plan.translate(0, R.h)
+  plan.rotate(rad)
+  p.drawPlan(plan as unknown as CanvasRenderingContext2D, { ...centro, scale: L.ptPorUnidade }, deLado ? R.h : R.w, deLado ? R.w : R.h, giro)
+  plan.restore()
   plan.endClip()
 
   // helpers em coordenadas de A4 (origem no topo), escaladas por f
