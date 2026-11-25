@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normalizeLibBlock, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
+import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normalizeLibBlock, UNIDADES, unitName, type CadModel, type LibBlock } from '@/lib/project-reading/cad'
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
@@ -15,7 +15,7 @@ import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, 
 import { CadSpecFields } from './CadSpecFields'
 import { isTape, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
-import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
+import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
@@ -181,6 +181,7 @@ export function CadLab() {
 
   const baseRef = useRef<null | { sig: string; layerVis: boolean[]; model: CadModel; cv: HTMLCanvasElement }>(null)
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
+  const arrasto = useRef<null | { px: number; py: number; p: number[] }>(null) // perfil: segurar e arrastar
   const gesture = useRef<null | {
     type: 'pan' | 'move' | 'box' | 'dimdrag' | 'grip'
     grip?: number
@@ -492,6 +493,14 @@ export function CadLab() {
     else commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'ambiente', pts: m.pts!, text: name, stroke: m.color, fill: null }], next: e0.next + 1 })
   }
   const renameRoom = (r: Shape) => setRoomModal({ id: r.id, name: r.text ?? '', color: r.stroke })
+  // troca manual da unidade: blocos voltam ao tamanho real e as medidas acompanham
+  function trocarUnidade(v: number) {
+    const m = modelRef.current
+    if (!m || v === m.unitToMeters) return
+    const next = { ...m, unitToMeters: v, unitName: unitName(v), unitKnown: true }
+    modelRef.current = next; setModel(next); setPlacing(null); setTool('select'); setPlaceScale('1')
+    commit(refitSizes(next, edRef.current, libDefs.current, m.unitToMeters))
+  }
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
     const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
@@ -734,6 +743,8 @@ export function CadLab() {
       if (r.lost) setError(`${r.lost} alteração(ões) não puderam ser reaplicadas neste arquivo.`)
     }
     const info = { ...plotPadrao(), ...(saved?.plot ?? {}) }
+    setPlaceScale('1')
+    if (m.unitGuessed && m.unitToMeters !== m.declaredUnitToMeters) setAviso(`O arquivo informa ${unitName(m.declaredUnitToMeters ?? 1)}, mas foi desenhado em ${unitName(m.unitToMeters)}: usei ${unitName(m.unitToMeters)}. Dá pra trocar no alto da tela.`)
     setPlot(info)
     lastSaved.current = JSON.stringify(serializeState(m, edits, vis, libDefs.current, info))
     asLoaded.current = { ed: edits, vis, plot: info }
@@ -1340,6 +1351,7 @@ export function CadLab() {
   function onDown(e: React.MouseEvent) {
     const { px, py, w, h } = pos(e)
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
+    if (e.button === 0 && tool === 'perfil' && !draft.length) { arrasto.current = { px, py, p: point(e).p }; return }
     if (e.button === 0 && tool === 'plotar') { gesture.current = { type: 'box', x: px, y: py, cx: 0, cy: 0, bx: px, by: py }; return }
     if (e.button !== 0 || tool !== 'select') return
     const [wx, wy] = toWorld(px, py, w, h)
@@ -1411,12 +1423,15 @@ export function CadLab() {
       setEd({ ...g.base, dims: g.base.dims.map(x => (x.id === d.id ? { ...x, off } : x)) })
       return
     }
+    const ar = arrasto.current
+    if (ar && e.buttons & 1 && !draft.length && Math.hypot(px - ar.px, py - ar.py) > 8) setDraft([ar.p])
     if (g?.type === 'box') { setBox({ x0: g.x, y0: g.y, x1: px, y1: py }); return }
     setSegHover(tool === 'centro' ? pickSegment(wx, wy) : null)
     setCursor({ x: wx, y: wy })
     setHover(tool === 'pan' ? null : findSnap(wx, wy))
   }
   function onUp(e?: React.MouseEvent) {
+    arrasto.current = null
     const g = gesture.current
     gesture.current = null
     if (!g) return
@@ -1874,7 +1889,11 @@ export function CadLab() {
               <button onClick={() => { setTool('select'); setPlotUi(true) }} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-brand-400 text-brand-600 hover:bg-brand-50"><FileDown className="w-3.5 h-3.5" /> Gerar PDF</button>
               <button onClick={() => fit(0)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary"><Maximize className="w-3.5 h-3.5" /> Ajustar</button>
               <span className="ml-auto text-[11px] text-gray-400">
-                {tempo != null && `lido em ${(tempo / 1000).toFixed(1)}s · `}{(model.segLayer.length).toLocaleString('pt-BR')} traços · unidade: {model.unitName}
+                {tempo != null && `lido em ${(tempo / 1000).toFixed(1)}s · `}{(model.segLayer.length).toLocaleString('pt-BR')} traços · unidade:{' '}
+                <select value={model.unitToMeters} onChange={e => trocarUnidade(Number(e.target.value))} title="Em que unidade o desenho foi feito" className="text-[11px] border border-gray-200 rounded px-1 py-0.5 text-gray-700 bg-white">
+                  {UNIDADES.map(([n, v]) => <option key={n} value={v}>{n}</option>)}
+                  {!UNIDADES.some(u => u[1] === model.unitToMeters) && <option value={model.unitToMeters}>{model.unitName}</option>}
+                </select>
                 {cursor && ` · x ${cursor.x.toFixed(2)} y ${cursor.y.toFixed(2)}`}
               </span>
             </div>
@@ -1948,7 +1967,7 @@ export function CadLab() {
                   {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
                   {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
-                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : 'Perfil + fita: clique no ponto inicial')}
+                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : 'Perfil + fita: clique no início (ou segure e arraste até o fim)')}
                   {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : 'Fita: clique no ponto inicial')}
                   {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
                   {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}

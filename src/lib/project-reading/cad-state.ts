@@ -2,7 +2,7 @@
 // Os objetos do arquivo são referenciados pelo "handle" do CAD (estável), e não
 // pela posição na lista — assim um desenho salvo continua certo mesmo se o
 // leitor passar a enxergar mais objetos numa versão futura.
-import { appendLibBlock, type CadModel, type LibBlock } from './cad'
+import { appendLibBlock, unitName, type CadModel, type LibBlock } from './cad'
 import type { PlotInfo } from './cad-plot'
 
 export type M6 = [number, number, number, number, number, number]
@@ -36,6 +36,32 @@ export interface SavedState {
   libs: LibBlock[] // definições usadas, guardadas junto pra não depender da biblioteca
   hidden: string[] // camadas desligadas
   plot?: PlotInfo // dados do carimbo e área da última plotagem
+  unit?: number // metros por unidade do desenho usados neste trabalho
+}
+
+/**
+ * Reajusta o que foi colocado depois de uma troca de unidade: blocos voltam ao
+ * tamanho real (mantendo giro e espelho) e medidas digitadas (espessura,
+ * fonte, textos) acompanham a nova unidade. Pontos clicados não mudam.
+ */
+export function refitSizes(model: CadModel, ed: Edits, libDefs: Map<string, LibBlock>, oldUnit: number): Edits {
+  const k = oldUnit / model.unitToMeters
+  return {
+    ...ed,
+    cp: ed.cp.map(c => {
+      const o = model.objs[c.src]
+      const def = o?.kind === 'LIB' ? libDefs.get(o.name) : undefined
+      if (!def) return c
+      const [a, b, cc, d, e, f] = c.xf
+      const r = def.unitToMeters / model.unitToMeters / (Math.hypot(a, b) || 1)
+      return { ...c, xf: [a * r, b * r, cc * r, d * r, e, f] as M6 }
+    }),
+    shapes: ed.shapes.map(s => {
+      if (s.kind === 'perfil' || s.kind === 'fonte') return { ...s, w: (s.w ?? 0) * k }
+      if (s.kind === 'text' || s.kind === 'arrow') return { ...s, h: (s.h ?? 0) * k }
+      return s
+    }),
+  }
 }
 
 export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], libDefs: Map<string, LibBlock>, plot?: PlotInfo): SavedState {
@@ -52,11 +78,13 @@ export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], 
     libs: Array.from(used).map(n => libDefs.get(n)).filter((b): b is LibBlock => !!b),
     hidden: model.layers.filter((_, i) => !layerVis[i]).map(l => l.name),
     plot,
+    unit: model.unitToMeters,
   }
 }
 
 export function restoreState(base: CadModel, saved: SavedState) {
-  let model = base
+  const unit = saved.unit ?? base.unitToMeters
+  let model: CadModel = unit === base.unitToMeters ? base : { ...base, unitToMeters: unit, unitName: unitName(unit) }
   const libObj = new Map<string, number>()
   const libDefs = new Map<string, LibBlock>()
   for (const b of saved.libs ?? []) {
@@ -74,7 +102,10 @@ export function restoreState(base: CadModel, saved: SavedState) {
     const src = 'lib' in c.ref ? libObj.get(c.ref.lib) : byHandle.get(c.ref.h)
     if (src === undefined) lost++; else cp.push({ id: c.id, src, xf: c.xf, attrs: c.attrs, spec: c.spec })
   }
-  const edits: Edits = { ov, cp, shapes: saved.shapes ?? [], dims: saved.dims ?? [], next: saved.next ?? 1 }
+  let edits: Edits = { ov, cp, shapes: saved.shapes ?? [], dims: saved.dims ?? [], next: saved.next ?? 1 }
+  // trabalho salvo antes da correção de unidade: ajusta o tamanho do que foi colocado
+  const antes = base.declaredUnitToMeters
+  if (saved.unit === undefined && antes !== undefined && antes !== unit) edits = refitSizes(model, edits, libDefs, antes)
   const hidden = new Set(saved.hidden ?? [])
   const layerVis = model.layers.map(l => !hidden.has(l.name))
   return { model, edits, layerVis, libObj, libDefs, lost }

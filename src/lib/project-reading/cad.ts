@@ -25,6 +25,8 @@ export interface CadModel {
   unitName: string
   unitToMeters: number
   unitKnown: boolean
+  declaredUnitToMeters?: number // o que o arquivo informa
+  unitGuessed?: boolean // unidade trocada porque a informada não bate com o desenho
 }
 
 const UNITS: Record<number, [string, number]> = {
@@ -53,6 +55,25 @@ const mul = (p: M, q: M): M => [
   p[0] * q[4] + p[2] * q[5] + p[4], p[1] * q[4] + p[3] * q[5] + p[5],
 ]
 const ap = (m: M, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+
+export const UNIDADES: [string, number][] = [['m', 1], ['cm', 0.01], ['mm', 0.001]]
+export const unitName = (meters: number) => Object.values(UNITS).find(u => u[1] === meters)?.[0] ?? 'unidades'
+
+/**
+ * Muito arquivo diz uma unidade e foi desenhado em outra. A altura dos textos
+ * entrega: numa planta, letra tem de 2 cm a 80 cm. Se a unidade informada
+ * levar a textos fora disso, vale a que deixa a letra típica perto de 12 cm.
+ */
+export function detectUnit(textHeights: number[], declared: number): number {
+  const hs = textHeights.filter(h => h > 0).sort((a, b) => a - b)
+  if (hs.length < 8) return declared
+  const typical = hs[Math.floor(hs.length / 2)]
+  const plausible = (u: number) => typical * u >= 0.02 && typical * u <= 0.8
+  if (plausible(declared)) return declared
+  const options = UNIDADES.map(x => x[1]).filter(plausible)
+  options.sort((a, b) => Math.abs(Math.log((typical * a) / 0.12)) - Math.abs(Math.log((typical * b) / 0.12)))
+  return options[0] ?? declared
+}
 
 export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: number; y: number } }): CadModel {
   const blocks = new Map<string, { base: { x: number; y: number }; entities: any[] }>()
@@ -309,10 +330,15 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
 
   const code = Number(db.header?.INSUNITS ?? 0)
   const u = UNITS[code]
+  const declared = u ? u[1] : 1
+  // só no desenho principal (na leitura de blocos cada um tem a sua unidade)
+  const real = opts?.entities ? declared : detectUnit(texts.map(t => t.h), declared)
+  const guessed = real !== declared
   return {
     layers, segs: Float64Array.from(segs), segLayer: Uint16Array.from(segLayer), texts, inserts, fills, objs,
     segObj: Uint32Array.from(segObjA), segCol: Uint16Array.from(segColA), palette,
-    unitName: u ? u[0] : 'unidades (não informado)', unitToMeters: u ? u[1] : 1, unitKnown: !!u,
+    unitName: guessed ? unitName(real) : u ? u[0] : 'unidades (não informado)', unitToMeters: real, unitKnown: !!u || guessed,
+    declaredUnitToMeters: declared, unitGuessed: guessed,
   }
 }
 
