@@ -3,6 +3,7 @@
 // pela posição na lista — assim um desenho salvo continua certo mesmo se o
 // leitor passar a enxergar mais objetos numa versão futura.
 import { appendLibBlock, type CadModel, type LibBlock } from './cad'
+import type { PlotInfo } from './cad-plot'
 
 export type M6 = [number, number, number, number, number, number]
 /** Especificação de um item do projeto (vai pra contagem e legenda). */
@@ -34,9 +35,10 @@ export interface SavedState {
   next: number
   libs: LibBlock[] // definições usadas, guardadas junto pra não depender da biblioteca
   hidden: string[] // camadas desligadas
+  plot?: PlotInfo // dados do carimbo e área da última plotagem
 }
 
-export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], libDefs: Map<string, LibBlock>): SavedState {
+export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], libDefs: Map<string, LibBlock>, plot?: PlotInfo): SavedState {
   const used = new Set<string>()
   const cp: SavedState['cp'] = ed.cp.map(c => {
     const o = model.objs[c.src]
@@ -49,6 +51,7 @@ export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], 
     cp, shapes: ed.shapes, dims: ed.dims, next: ed.next,
     libs: Array.from(used).map(n => libDefs.get(n)).filter((b): b is LibBlock => !!b),
     hidden: model.layers.filter((_, i) => !layerVis[i]).map(l => l.name),
+    plot,
   }
 }
 

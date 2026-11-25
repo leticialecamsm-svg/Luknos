@@ -159,6 +159,7 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
     return out
   }
   const cleanText = (t: string) => String(t ?? '')
+    .replace(/\\p[^;\\{}]*;/g, '') // códigos de parágrafo (\pxqc; etc.)
     .replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\\\/g, '\\').trim()
 
   function walk(entities: any[], m: M, depth: number, inherited: string | null, top: boolean, inhCol = 0) {
@@ -495,7 +496,7 @@ export interface LibBlock {
   attdefs?: LibAttdef[]
 }
 const r5 = (v: number) => Math.round(v * 1e5) / 1e5
-const cleanTextLib = (t: string) => String(t ?? '').replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').trim()
+const cleanTextLib = (t: string) => String(t ?? '').replace(/\\p[^;\\{}]*;/g, '').replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').trim()
 
 /** Lê TODAS as definições de bloco de um arquivo (não só as que estão inseridas no desenho). */
 export function extractLibraryBlocks(db: any): LibBlock[] {

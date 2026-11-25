@@ -5,9 +5,10 @@ import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normal
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, SeparatorHorizontal, GripHorizontal,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, SeparatorHorizontal, GripHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { buildPlotPdf, plotLayout, plotPadrao, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
@@ -16,7 +17,7 @@ import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
-type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir'
+type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
@@ -118,6 +119,11 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // plotagem: dados do carimbo (salvos junto com o desenho) e janela aberta
+  const [plot, setPlot] = useState<PlotInfo>(plotPadrao)
+  const plotRef = useRef(plot); plotRef.current = plot
+  const [plotUi, setPlotUi] = useState(false)
+  const [gerando, setGerando] = useState(false)
   // centerline: primeira linha escolhida e a linha sob o cursor
   const [centroA, setCentroA] = useState<Seg | null>(null)
   const [segHover, setSegHover] = useState<Seg | null>(null)
@@ -165,7 +171,7 @@ export function CadLab() {
   const inflight = useRef(0)
   const drawingRef = useRef(drawing); drawingRef.current = drawing
   const layerVisRef = useRef(layerVis); layerVisRef.current = layerVis
-  const asLoaded = useRef<null | { ed: Edits; vis: boolean[] }>(null)
+  const asLoaded = useRef<null | { ed: Edits; vis: boolean[]; plot: PlotInfo }>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadSeq = useRef(0)
 
@@ -435,6 +441,35 @@ export function CadLab() {
     setAviso(`Distribuídas ${plano.centros.length}: ${fmtM(plano.passo * u2m)} entre elas, ${fmtM((plano.passo * u2m) / 2)} nas pontas.`)
   }
   const modelaveis = (keys: string[]) => keys.filter(k => k[0] === 'o' || k[0] === 'c')
+  // ── PDF ──────────────────────────────────────────────────────────────────
+  async function gerarPdf() {
+    const m = modelRef.current, area = plot.area
+    if (!m || !area) return
+    const L = plotLayout(plot, items.length, area, m.unitToMeters)
+    if (!L.cabe && !window.confirm(`A área marcada não cabe na escala 1/${plot.escala} nessa folha: o que passar das bordas fica cortado. Gerar mesmo assim?`)) return
+    setGerando(true)
+    await new Promise(r => setTimeout(r, 30)) // deixa a tela mostrar "Gerando..."
+    try {
+      const logo = await fetch('/cad/carimbo-logo.png').then(r => (r.ok ? r.arrayBuffer() : null)).catch(() => null)
+      // desenha com uma vista própria e devolve a vista da tela em seguida (tudo síncrono)
+      const comVista = (v: { cx: number; cy: number; scale: number }, fn: () => void) => { const tela = view.current; view.current = v; try { fn() } finally { view.current = tela } }
+      const bytes = await buildPlotPdf({
+        info: plot, area, unitToMeters: m.unitToMeters, items, logo,
+        drawPlan: (ctx, v, w, h) => comVista(v, () => paint({ ctx, w, h })),
+        drawSymbol: (ctx, item, x, y, w, h) => comVista({ cx: 0, cy: 0, scale: 1 }, () => paint({ ctx, w: 0, h: 0, symbol: { item, x, y, w, h } })),
+      })
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
+      const a = document.createElement('a')
+      a.href = url; a.download = `${drawing?.name || 'planta'} - ${plot.pavimento || 'iluminacao'}.pdf`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      setPlotUi(false); setAviso('PDF gerado — está nos seus downloads.')
+    } catch (e: any) {
+      setAviso(`Não consegui gerar o PDF: ${e?.message ?? 'erro desconhecido'}`)
+    } finally {
+      setGerando(false)
+    }
+  }
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
     const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2
@@ -630,7 +665,7 @@ export function CadLab() {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const m = modelRef.current, id = drawingRef.current?.id, vis = layerVisRef.current
     if (!dirty.current || !m || !id || vis.length !== m.layers.length) return true
-    const state = serializeState(m, edRef.current, vis, libDefs.current)
+    const state = serializeState(m, edRef.current, vis, libDefs.current, plotRef.current)
     const json = JSON.stringify(state)
     dirty.current = false
     const salvo = () => setSaveStatus({ kind: 'salvo', msg: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })
@@ -648,7 +683,7 @@ export function CadLab() {
   }
 
   function resetEditor() {
-    setError(null); setModel(null); setSelBlock(null); setEd(EMPTY); setSel([]); setDraft([]); setPlacing(null)
+    setError(null); setModel(null); setSelBlock(null); setEd(EMPTY); setSel([]); setDraft([]); setPlacing(null); setPlot(plotPadrao()); setPlotUi(false)
     past.current = []; future.current = []
     libObj.current = new Map(); libDefs.current = new Map()
     dirty.current = false; asLoaded.current = null; lastSaved.current = ''; setSaveStatus(null); setDrawing(null)
@@ -666,8 +701,10 @@ export function CadLab() {
       libObj.current = r.libObj; libDefs.current = r.libDefs
       if (r.lost) setError(`${r.lost} alteração(ões) não puderam ser reaplicadas neste arquivo.`)
     }
-    lastSaved.current = JSON.stringify(serializeState(m, edits, vis, libDefs.current))
-    asLoaded.current = { ed: edits, vis }
+    const info = { ...plotPadrao(), ...(saved?.plot ?? {}) }
+    setPlot(info)
+    lastSaved.current = JSON.stringify(serializeState(m, edits, vis, libDefs.current, info))
+    asLoaded.current = { ed: edits, vis, plot: info }
     needFit.current = true
     setEd(edits); setLayerVis(vis); setModel(m)
   }
@@ -756,14 +793,14 @@ export function CadLab() {
   useEffect(() => {
     if (!model || !drawing?.id) return
     // recém-aberto e sem mudança: não há o que salvar
-    if (asLoaded.current && asLoaded.current.ed === ed && asLoaded.current.vis === layerVis) return
+    if (asLoaded.current && asLoaded.current.ed === ed && asLoaded.current.vis === layerVis && asLoaded.current.plot === plot) return
     asLoaded.current = null
     dirty.current = true
     setSaveStatus({ kind: 'pendente' })
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { flushSave() }, 1500)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ed, layerVis, drawing?.id])
+  }, [ed, layerVis, plot, drawing?.id])
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirty.current || inflight.current) { e.preventDefault(); e.returnValue = '' } }
@@ -803,23 +840,30 @@ export function CadLab() {
   useEffect(() => { if (model && regioes.length && needFit.current) { needFit.current = false; fit(0) } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [model, regioes])
 
   // ── Desenho ──────────────────────────────────────────────────────────────
-  useEffect(() => {
+  // A mesma função pinta a tela e o PDF (`print`): no papel não há seleção,
+  // guias nem barrinhas no lugar de texto pequeno.
+  function paint(print?: { ctx: CanvasRenderingContext2D; w: number; h: number; symbol?: { item: Item; x: number; y: number; w: number; h: number } }) {
+    const printing = !!print
     const el = wrapRef.current, canvas = canvasRef.current
-    if (!el || !canvas) return
-    const dpr = window.devicePixelRatio || 1
-    const w = el.clientWidth, h = el.clientHeight
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr }
-    const main = canvas.getContext('2d')!
+    if (!print && (!el || !canvas)) return
+    const dpr = print ? 1 : window.devicePixelRatio || 1
+    const w = print ? print.w : el!.clientWidth, h = print ? print.h : el!.clientHeight
+    if (!print && (canvas!.width !== w * dpr || canvas!.height !== h * dpr)) { canvas!.width = w * dpr; canvas!.height = h * dpr }
+    const main = print ? print.ctx : canvas!.getContext('2d')!
     let ctx = main
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
+    const bg = printing ? '#ffffff' : BG
+    const ui = printing ? 0.4 : 1 // elementos de tamanho fixo ficam menores no papel
+    const minLegivel = printing ? 0.3 : 4
+    if (!printing) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h) }
     if (!model) return
     const { scale } = view.current
     const [wx0, wy1] = toWorld(0, 0, w, h), [wx1, wy0] = toWorld(w, h, w, h)
-    const colorOf = (col: number, layer: number) => cor(col ? model.palette[col] : model.layers[layer].color)
+    // na tela, cores escuras clareiam pro fundo preto; no papel valem as originais
+    const naFolha = (c: string) => (printing ? c : cor(c))
+    const colorOf = (col: number, layer: number) => naFolha(col ? model.palette[col] : model.layers[layer].color)
     const inView = (b: number[]) => !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1)
     const dirty = (o: number) => o in ed.ov
-    const selSet = new Set(sel)
+    const selSet = new Set(printing ? [] : sel)
 
     // pinta um objeto (original, movido ou cópia) com transformação opcional
     const drawInst = (idx: number, xf: M6, hl: boolean, tint?: string) => {
@@ -853,9 +897,9 @@ export function CadLab() {
       }
     }
     const drawText = (text: string, x: number, y: number, px: number, rot: number, color: string) => {
-      if (px < 0.4 || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100) return
+      if (!print?.symbol && (px < (printing ? 0.2 : 0.4) || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100)) return
       ctx.save(); ctx.translate(x, y); ctx.rotate(-rot)
-      if (px < 4) { // texto minúsculo: vira barrinha, como no AutoCAD
+      if (px < minLegivel) { // texto minúsculo: vira barrinha, como no AutoCAD
         ctx.globalAlpha = 0.55; ctx.fillStyle = color
         ctx.fillRect(0, -Math.max(1, px * 0.8), Math.max(2, text.length * px * 0.55), Math.max(1, px * 0.8))
         ctx.globalAlpha = 1
@@ -863,16 +907,7 @@ export function CadLab() {
       ctx.restore()
     }
 
-    // Desenho base (originais não movidos) em cache: só refaz quando muda vista, camadas ou objetos mexidos
-    const sig = [view.current.cx, view.current.cy, view.current.scale, w, h, dpr, Object.keys(ed.ov).join(',')].join('|')
-    let cache = baseRef.current
-    if (!cache || cache.sig !== sig || cache.layerVis !== layerVis || cache.model !== model) {
-      const cv = cache?.cv ?? document.createElement('canvas')
-      cv.width = canvas.width; cv.height = canvas.height
-      const bc = cv.getContext('2d')!
-      bc.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx = bc
-      ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
+    const paintBase = () => {
       // 1) preenchimentos originais
     for (const f of model.fills) {
       if (!layerVis[f.layer] || dirty(f.obj) || !inView(model.objs[f.obj].bbox)) continue
@@ -906,11 +941,47 @@ export function CadLab() {
       const [x, y] = toScreen(t.x, t.y, w, h)
       drawText(t.text, x, y, t.h * scale, t.rot, colorOf(t.col, t.layer))
     }
-      ctx = main
-      cache = { sig, layerVis, model, cv }
-      baseRef.current = cache
     }
-    main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(cache.cv, 0, 0); main.setTransform(dpr, 0, 0, dpr, 0, 0)
+    // símbolo avulso (legenda do PDF)
+    const drawSymbol = (it: Item, mx: number, mid: number, sw: number, sh2: number) => {
+      if (it.kind === 'bloco') {
+        const idx = model.objs.findIndex(o => o.kind === 'LIB' && o.name === it.block)
+        if (idx < 0) return
+        const [p0, q0, p1, q1] = model.objs[idx].bbox
+        const k = Math.min(sw / Math.max(1e-9, p1 - p0), sh2 / Math.max(1e-9, q1 - q0))
+        drawInst(idx, [k, 0, 0, k, mx - (k * (p0 + p1)) / 2, mid - (k * (q0 + q1)) / 2], false, it.color || undefined)
+        return
+      }
+      const [a, b] = toScreen(mx - sw / 2, mid, w, h), [c] = toScreen(mx + sw / 2, mid, w, h)
+      const th = Math.max(4 * ui, sh2 * 0.6 * view.current.scale)
+      ctx.strokeStyle = it.color; ctx.lineWidth = 1.5
+      if (it.kind === 'perfil' || it.kind === 'fonte') ctx.strokeRect(a, b - th / 2, c - a, th)
+      if (it.kind !== 'fonte') { ctx.strokeStyle = it.kind === 'perfil' ? it.tapeColor ?? '#f43f5e' : it.color; ctx.lineWidth = 2; ctx.setLineDash([5 * ui, 3 * ui]); ctx.beginPath(); ctx.moveTo(a + 2 * ui, b); ctx.lineTo(c - 2 * ui, b); ctx.stroke(); ctx.setLineDash([]) }
+    }
+    if (print?.symbol) {
+      // coordenadas da folha: com vista neutra, o "mundo" (x, −y) cai no ponto (x, y)
+      drawSymbol(print.symbol.item, print.symbol.x, -print.symbol.y, print.symbol.w, print.symbol.h)
+      return
+    }
+    if (printing) paintBase()
+    else {
+      // Desenho base (originais não movidos) em cache: só refaz quando muda vista, camadas ou objetos mexidos
+      const sig = [view.current.cx, view.current.cy, view.current.scale, w, h, dpr, Object.keys(ed.ov).join(',')].join('|')
+      let cache = baseRef.current
+      if (!cache || cache.sig !== sig || cache.layerVis !== layerVis || cache.model !== model) {
+        const cv = cache?.cv ?? document.createElement('canvas')
+        cv.width = canvas!.width; cv.height = canvas!.height
+        const bc = cv.getContext('2d')!
+        bc.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx = bc
+        ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h)
+        paintBase()
+        ctx = main
+        cache = { sig, layerVis, model, cv }
+        baseRef.current = cache
+      }
+      main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(cache.cv, 0, 0); main.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
     // 4) movidos e cópias
     for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) drawInst(Number(k), v, selSet.has('o' + k)) }
     for (const c of ed.cp) drawInst(c.src, c.xf, selSet.has('c' + c.id), c.spec?.color || undefined)
@@ -927,9 +998,9 @@ export function CadLab() {
         const px = d.h * sc * scale
         if (px < 0.4 || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100) continue
         ctx.save(); ctx.translate(x, y); ctx.rotate(-(d.rot + rot0))
-        const color = selSet.has('c' + c.id) ? SEL : cor(d.col)
+        const color = selSet.has('c' + c.id) ? SEL : naFolha(d.col)
         ctx.fillStyle = color
-        if (px < 4) { ctx.globalAlpha = 0.55; const bw = Math.max(2, text.length * px * 0.55); ctx.fillRect(d.ha === 1 || d.ha === 4 ? -bw / 2 : d.ha === 2 ? -bw : 0, -Math.max(1, px * 0.8), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
+        if (px < minLegivel) { ctx.globalAlpha = 0.55; const bw = Math.max(2, text.length * px * 0.55); ctx.fillRect(d.ha === 1 || d.ha === 4 ? -bw / 2 : d.ha === 2 ? -bw : 0, -Math.max(1, px * 0.8), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
         else {
           ctx.font = `${px}px sans-serif`
           ctx.textAlign = d.ha === 1 || d.ha === 4 ? 'center' : d.ha === 2 ? 'right' : 'left'
@@ -940,7 +1011,7 @@ export function CadLab() {
       }
     }
     // seleção de objetos ainda no lugar
-    for (const k of sel) if (k[0] === 'o' && !dirty(Number(k.slice(1)))) drawInst(Number(k.slice(1)), ID6, true)
+    for (const k of Array.from(selSet)) if (k[0] === 'o' && !dirty(Number(k.slice(1)))) drawInst(Number(k.slice(1)), ID6, true)
 
     // 5) formas desenhadas
     const shapePath = (s: Shape) => {
@@ -954,6 +1025,7 @@ export function CadLab() {
     for (const s of ed.shapes) {
       const on = selSet.has('s' + s.id)
       if (s.kind === 'legenda') {
+        if (printing && plot.legenda) continue // a folha já tem a legenda
         const hh = s.h ?? 0.2
         const list = items
         const l = legendLayout(list, hh)
@@ -961,7 +1033,7 @@ export function CadLab() {
         const S = (x: number, y: number) => toScreen(x, y, w, h)
         const [ax, ay] = S(x0, y0), [bx, by] = S(x0 + l.width, y0 - l.height)
         const color = on ? SEL : s.stroke
-        ctx.fillStyle = BG; ctx.fillRect(ax, ay, bx - ax, by - ay)
+        ctx.fillStyle = bg; ctx.fillRect(ax, ay, bx - ax, by - ay)
         ctx.strokeStyle = color; ctx.lineWidth = on ? 2 : 1; ctx.strokeRect(ax, ay, bx - ax, by - ay)
         const linha = (x1: number, y1: number, x2: number, y2: number) => { const [a, b] = S(x1, y1), [c, d] = S(x2, y2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke() }
         const texto = (t: string, x: number, y: number, size: number) => { const [a, b] = S(x, y); drawText(t, a, b, size * scale, 0, color) }
@@ -981,22 +1053,8 @@ export function CadLab() {
           ctx.strokeStyle = color; ctx.lineWidth = 0.5; linha(x0, top - l.rowH, x0 + l.width, top - l.rowH)
           let tx = x0 + l.widths[0]
           l.rows[r].forEach((cell, i) => { texto(cell, tx + hh * 0.5, mid - hh * 0.35, hh); tx += l.widths[i + 1] })
-          // símbolo
-          const sw = l.widths[0] * 0.8, sh2 = l.rowH * 0.75, mx = x0 + l.widths[0] / 2
-          if (it.kind === 'bloco') {
-            const idx = model.objs.findIndex(o => o.kind === 'LIB' && o.name === it.block)
-            if (idx >= 0) {
-              const [p0, q0, p1, q1] = model.objs[idx].bbox
-              const k = Math.min(sw / Math.max(1e-9, p1 - p0), sh2 / Math.max(1e-9, q1 - q0))
-              drawInst(idx, [k, 0, 0, k, mx - (k * (p0 + p1)) / 2, mid - (k * (q0 + q1)) / 2], false, it.color || undefined)
-            }
-          } else {
-            const [a, b] = S(mx - sw / 2, mid), [c] = S(mx + sw / 2, mid)
-            const th = Math.max(4, hh * 1.1 * scale)
-            ctx.strokeStyle = it.color; ctx.lineWidth = 1.5
-            if (it.kind === 'perfil' || it.kind === 'fonte') ctx.strokeRect(a, b - th / 2, c - a, th)
-            if (it.kind !== 'fonte') { ctx.strokeStyle = it.kind === 'perfil' ? it.tapeColor ?? '#f43f5e' : it.color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.moveTo(a + 2, b); ctx.lineTo(c - 2, b); ctx.stroke(); ctx.setLineDash([]) }
-          }
+          ctx.lineWidth = 1
+          drawSymbol(it, x0 + l.widths[0] / 2, mid, l.widths[0] * 0.8, l.rowH * 0.75)
         })
         continue
       }
@@ -1023,16 +1081,16 @@ export function CadLab() {
         if (tape) { // linha de conexão fonte → fita (acompanha quando qualquer uma se move)
           const [tx, ty] = nearestOnTape(tape, s.pts[0], s.pts[1])
           const [a, b] = toScreen(s.pts[0], s.pts[1], w, h), [c, d] = toScreen(tx, ty, w, h)
-          ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); ctx.setLineDash([])
-          ctx.fillStyle = color; ctx.beginPath(); ctx.arc(c, d, 3, 0, Math.PI * 2); ctx.fill()
+          ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4 * ui, 4 * ui]); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); ctx.setLineDash([])
+          ctx.fillStyle = color; ctx.beginPath(); ctx.arc(c, d, 3 * ui, 0, Math.PI * 2); ctx.fill()
         }
         const q = fontePoly(s)
         const [x0, y0] = toScreen(q[0], q[5], w, h), [x1, y1] = toScreen(q[2], q[1], w, h)
-        ctx.fillStyle = BG; ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+        ctx.fillStyle = bg; ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
         ctx.globalAlpha = 0.25; ctx.fillStyle = s.stroke; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1
         ctx.strokeStyle = color; ctx.lineWidth = on ? 2.5 : 1.5; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
         const px = Math.min((x1 - x0) / (Math.max(8, (s.text ?? '').length) * 0.58), (y1 - y0) * 0.55)
-        if (px >= 4) { ctx.fillStyle = '#ffffff'; ctx.font = `${px}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s.text ?? '', (x0 + x1) / 2, (y0 + y1) / 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic' }
+        if (px >= minLegivel) { ctx.fillStyle = '#ffffff'; ctx.font = `${px}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s.text ?? '', (x0 + x1) / 2, (y0 + y1) / 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic' }
         continue
       }
       if (s.kind === 'text' || s.kind === 'arrow') {
@@ -1042,13 +1100,13 @@ export function CadLab() {
         const [tx, ty] = toScreen(s.pts[0], s.pts[1], w, h), [ax, ay] = toScreen(s.pts[2], s.pts[3], w, h)
         ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = on ? 2.5 : 1.5
         ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(ax, ay); ctx.stroke()
-        const ang = Math.atan2(ay - ty, ax - tx), L = Math.max(7, px * 0.9)
+        const ang = Math.atan2(ay - ty, ax - tx), L = Math.max(7 * ui, px * 0.9)
         ctx.beginPath(); ctx.moveTo(ax, ay)
         ctx.lineTo(ax - L * Math.cos(ang - 0.35), ay - L * Math.sin(ang - 0.35)); ctx.lineTo(ax - L * Math.cos(ang + 0.35), ay - L * Math.sin(ang + 0.35)); ctx.closePath(); ctx.fill()
         if (s.text) {
           const left = s.pts[0] < s.pts[2], gap = px * 0.3
           ctx.save(); ctx.translate(tx + (left ? -gap : gap), ty)
-          if (px < 4) { ctx.globalAlpha = 0.55; const bw = Math.max(2, s.text.length * px * 0.55); ctx.fillRect(left ? -bw : 0, -Math.max(1, px * 0.4), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
+          if (px < minLegivel) { ctx.globalAlpha = 0.55; const bw = Math.max(2, s.text.length * px * 0.55); ctx.fillRect(left ? -bw : 0, -Math.max(1, px * 0.4), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
           else { ctx.font = `${px}px sans-serif`; ctx.textAlign = left ? 'right' : 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s.text, 0, 0) }
           ctx.restore()
         }
@@ -1061,7 +1119,7 @@ export function CadLab() {
     }
 
     // alças de redimensionar e medida da fita/perfil selecionado
-    if (tool === 'select' && sel.length === 1) {
+    if (!printing && tool === 'select' && sel.length === 1) {
       const s = ed.shapes.find(x => 's' + x.id === sel[0])
       if (s && isTape(s)) {
         gripsOf(s).forEach(([gx, gy], i) => {
@@ -1075,7 +1133,7 @@ export function CadLab() {
       }
     }
     // centerline: linhas escolhidas em destaque
-    if (tool === 'centro') {
+    if (!printing && tool === 'centro') {
       for (const [seg, color] of [[centroA, '#fbbf24'], [segHover, '#4ade80']] as const) {
         if (!seg) continue
         const [a, b] = toScreen(seg[0], seg[1], w, h), [c, d] = toScreen(seg[2], seg[3], w, h)
@@ -1083,7 +1141,7 @@ export function CadLab() {
       }
     }
     // distribuir luz: parede, fileira e posições antes de confirmar
-    if (tool === 'distribuir' && dist.pts.length) {
+    if (!printing && tool === 'distribuir' && dist.pts.length) {
       const P = (p: number[]) => toScreen(p[0], p[1], w, h)
       const p2 = dist.pts[1] ?? (cursor ? [cursor.x, cursor.y] : dist.pts[0])
       ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2
@@ -1108,23 +1166,28 @@ export function CadLab() {
       ctx.beginPath()
       for (const [P, Q] of [[A, P1], [B, P2]] as const) {
         const dx = Q[0] - P[0], dy = Q[1] - P[1], l = Math.hypot(dx, dy) || 1
-        ctx.moveTo(P[0] + (dx / l) * 3, P[1] + (dy / l) * 3); ctx.lineTo(Q[0] + (dx / l) * 5 * Math.sign(d.off || 1), Q[1] + (dy / l) * 5 * Math.sign(d.off || 1))
+        ctx.moveTo(P[0] + (dx / l) * 3 * ui, P[1] + (dy / l) * 3 * ui); ctx.lineTo(Q[0] + (dx / l) * 5 * ui * Math.sign(d.off || 1), Q[1] + (dy / l) * 5 * ui * Math.sign(d.off || 1))
       }
-      ctx.moveTo(P1[0] - ux * 5, P1[1] - uy * 5); ctx.lineTo(P2[0] + ux * 5, P2[1] + uy * 5)
-      for (const P of [P1, P2]) { ctx.moveTo(P[0] - 4, P[1] + 4); ctx.lineTo(P[0] + 4, P[1] - 4) } // tique oblíquo
+      ctx.moveTo(P1[0] - ux * 5 * ui, P1[1] - uy * 5 * ui); ctx.lineTo(P2[0] + ux * 5 * ui, P2[1] + uy * 5 * ui)
+      for (const P of [P1, P2]) { ctx.moveTo(P[0] - 4 * ui, P[1] + 4 * ui); ctx.lineTo(P[0] + 4 * ui, P[1] - 4 * ui) } // tique oblíquo
       ctx.stroke()
       void side; void nxs; void nys
       let ta = ang
       if (ta > Math.PI / 2 || ta < -Math.PI / 2) ta += Math.PI
       ctx.save()
       ctx.translate((P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2); ctx.rotate(ta)
-      ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'
+      ctx.font = `bold ${12 * ui}px sans-serif`; ctx.textAlign = 'center'
       const label = fmtM(g.len * model.unitToMeters)
-      ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(label, 0, -4)
-      ctx.fillStyle = color; ctx.fillText(label, 0, -4)
+      ctx.lineWidth = 4; ctx.strokeStyle = bg; ctx.strokeText(label, 0, -4 * ui)
+      ctx.fillStyle = color; ctx.fillText(label, 0, -4 * ui)
       ctx.restore()
     }
-    for (const d of ed.dims) drawDim(d, selSet.has('d' + d.id) ? SEL : '#f87171', selSet.has('d' + d.id) ? 2 : 1.25)
+    for (const d of ed.dims) drawDim(d, selSet.has('d' + d.id) ? SEL : printing ? '#1f2937' : '#f87171', selSet.has('d' + d.id) ? 2 : 1.25)
+    if (printing) return
+    if (plotUi && plot.area) { // área escolhida pra plotagem
+      const [a, b] = toScreen(plot.area[0], plot.area[3], w, h), [c, d] = toScreen(plot.area[2], plot.area[1], w, h)
+      ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2; ctx.setLineDash([8, 5]); ctx.strokeRect(a, b, c - a, d - b); ctx.setLineDash([])
+    }
 
     // 7) rascunho da ferramenta atual
     const cur = hover ? [hover.x, hover.y] : cursor ? [cursor.x, cursor.y] : null
@@ -1176,13 +1239,15 @@ export function CadLab() {
       else if (hover.kind === 'bloco') { ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke() }
       else ctx.strokeRect(x - 6, y - 6, 12, 12)
     }
-  })
+  }
+  useEffect(() => { paint() })
 
   // zoom com a rodinha
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement).closest('[data-nozoom]')) return // rolar painéis sobre o desenho
       e.preventDefault()
       const r = el.getBoundingClientRect()
       const px = e.clientX - r.left, py = e.clientY - r.top
@@ -1217,6 +1282,7 @@ export function CadLab() {
   function onDown(e: React.MouseEvent) {
     const { px, py, w, h } = pos(e)
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
+    if (e.button === 0 && tool === 'plotar') { gesture.current = { type: 'box', x: px, y: py, cx: 0, cy: 0, bx: px, by: py }; return }
     if (e.button !== 0 || tool !== 'select') return
     const [wx, wy] = toWorld(px, py, w, h)
     if (selRef.current.length === 1) { // alça do perfil/fita selecionado tem prioridade
@@ -1300,6 +1366,15 @@ export function CadLab() {
       if (g.moved) { past.current.push(g.base); future.current = []; redraw() } else setEd(g.base)
     }
     const box = boxRef.current
+    if (g.type === 'box' && tool === 'plotar') {
+      setBox(null)
+      if (!box || !wrapRef.current || Math.abs(box.x1 - box.x0) < 8 || Math.abs(box.y1 - box.y0) < 8) return
+      const cw = wrapRef.current.clientWidth, ch = wrapRef.current.clientHeight
+      const [ax, ay] = toWorld(Math.min(box.x0, box.x1), Math.max(box.y0, box.y1), cw, ch)
+      const [bx, by] = toWorld(Math.max(box.x0, box.x1), Math.min(box.y0, box.y1), cw, ch)
+      setPlot(p => ({ ...p, area: [ax, ay, bx, by] })); setTool('select'); setPlotUi(true)
+      return
+    }
     if (g.type === 'box' && box && model && wrapRef.current) {
       const { w, h } = { w: wrapRef.current.clientWidth, h: wrapRef.current.clientHeight }
       const [ax, ay] = toWorld(Math.min(box.x0, box.x1), Math.max(box.y0, box.y1), w, h)
@@ -1320,7 +1395,7 @@ export function CadLab() {
     setBox(null)
   }
   function onClick(e: React.MouseEvent) {
-    if (tool === 'select' || tool === 'pan') return
+    if (tool === 'select' || tool === 'pan' || tool === 'plotar') return
     if (textEditRef.current) return // o campo de texto está aberto (o blur confirma)
     const { p: raw } = point(e)
     const last = draft[draft.length - 1]
@@ -1601,7 +1676,7 @@ export function CadLab() {
       if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
       if (mod) return
       if (k === 'enter' && toolRef.current === 'fita') { ev.preventDefault(); finishRef.current(); return }
-      if (k === 'escape') { setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
+      if (k === 'escape') { setPlotUi(false); setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
       else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
       else if (k === 'v') setTool('select')
       else if (k === 'h') setTool('pan')
@@ -1721,6 +1796,7 @@ export function CadLab() {
               <TB id="texto" icon={<TypeIcon className="w-3.5 h-3.5" />} label="Texto" k="T" />
               <TB id="seta" icon={<ArrowUpRight className="w-3.5 h-3.5" />} label="Seta" k="A" />
               <span className="w-px h-5 bg-gray-200 mx-1" />
+              <button onClick={() => { setTool('select'); setPlotUi(true) }} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-brand-400 text-brand-600 hover:bg-brand-50"><FileDown className="w-3.5 h-3.5" /> Gerar PDF</button>
               <button onClick={() => fit(0)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-navy-muted hover:bg-surface-secondary"><Maximize className="w-3.5 h-3.5" /> Ajustar</button>
               <span className="ml-auto text-[11px] text-gray-400">
                 {tempo != null && `lido em ${(tempo / 1000).toFixed(1)}s · `}{(model.segLayer.length).toLocaleString('pt-BR')} traços · unidade: {model.unitName}
@@ -1801,12 +1877,46 @@ export function CadLab() {
                   {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : 'Fita: clique no ponto inicial')}
                   {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
                   {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
+                  {tool === 'plotar' && 'Arraste um retângulo em volta da área que vai pro PDF (Esc cancela)'}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
                 </div>
               )}
+              {plotUi && (() => {
+                const L = plot.area ? plotLayout(plot, items.length, plot.area, model.unitToMeters) : null
+                const set = (p: Partial<PlotInfo>) => setPlot(v => ({ ...v, ...p }))
+                const input = 'w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white'
+                const area2 = (label: string, k: 'endereco' | 'proprietario' | 'escritorio', ph: string) => (
+                  <label className="block text-[11px] text-gray-500">{label}
+                    <textarea rows={2} value={plot[k]} onChange={e => set({ [k]: e.target.value })} onKeyDown={e => e.stopPropagation()} placeholder={ph} className={`${input} resize-none`} /></label>
+                )
+                return (
+                  <div data-nozoom className="absolute inset-y-2 right-2 z-30 w-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-2xl p-4 space-y-2 cursor-default" onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    <p className="text-sm font-bold text-navy flex items-center gap-1.5"><FileDown className="w-4 h-4 text-brand-500" /> Gerar PDF</p>
+                    {area2('Endereço da obra', 'endereco', 'Condomínio, quadra, lote, cidade')}
+                    {area2('Proprietário', 'proprietario', 'Nome do cliente')}
+                    {area2('Escritório responsável', 'escritorio', 'Escritório e telefone')}
+                    <div className="grid grid-cols-3 gap-2">
+                      <label className="text-[11px] text-gray-500">Data<input value={plot.data} onChange={e => set({ data: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
+                      <label className="text-[11px] text-gray-500">Pavimento<input value={plot.pavimento} onChange={e => set({ pavimento: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
+                      <label className="text-[11px] text-gray-500">Desenho<input value={plot.desenho} onChange={e => set({ desenho: e.target.value })} onKeyDown={e => e.stopPropagation()} className={input} /></label>
+                      <label className="text-[11px] text-gray-500">Folha<select value={plot.papel} onChange={e => set({ papel: e.target.value as Papel })} className={input}>{Object.keys(PAPEIS).map(p => <option key={p}>{p}</option>)}</select></label>
+                      <label className="col-span-2 text-[11px] text-gray-500">Escala<select value={plot.escala} onChange={e => set({ escala: Number(e.target.value) })} className={input}>{ESCALAS.map(v => <option key={v} value={v}>{v ? `1/${v}` : 'Ajustar à folha'}</option>)}</select></label>
+                    </div>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Incluir a legenda ({items.length} {items.length === 1 ? 'item' : 'itens'})</label>
+                    {L && plot.area ? (
+                      <p className={cn('text-[11px] rounded px-2 py-1', L.cabe ? 'bg-gray-50 text-gray-600' : 'bg-red-50 text-red-600')}>
+                        Área marcada: {fmtM((plot.area[2] - plot.area[0]) * model.unitToMeters)} × {fmtM((plot.area[3] - plot.area[1]) * model.unitToMeters)} · escala {L.rotuloEscala}{!L.cabe && ' — não cabe: use uma folha maior ou outra escala'}
+                      </p>
+                    ) : <p className="text-[11px] bg-amber-50 text-amber-700 rounded px-2 py-1">Marque no desenho a área que vai pro PDF.</p>}
+                    <button onClick={() => { setPlotUi(false); setTool('plotar') }} className={cn('w-full text-xs font-medium rounded-lg py-2', plot.area ? 'border border-brand-400 text-brand-600' : 'bg-brand-600 text-white')}>{plot.area ? 'Marcar outra área' : 'Marcar área na planta'}</button>
+                    {plot.area && <button onClick={gerarPdf} disabled={gerando} className="w-full text-xs font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-50">{gerando ? 'Gerando...' : 'Gerar PDF'}</button>}
+                    <button onClick={() => setPlotUi(false)} className="w-full text-xs text-gray-400">fechar</button>
+                  </div>
+                )
+              })()}
               {tool === 'distribuir' && dist.pts.length === 3 && !dist.escolhendo && (() => {
                 const plano = planoDistribuir()
                 const sel2 = modelaveis(sel)
