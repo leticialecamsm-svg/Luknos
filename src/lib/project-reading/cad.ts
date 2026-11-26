@@ -179,6 +179,11 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
     for (let i = 0; i <= n; i++) { const a = a0 + (theta * i) / n; out.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]) }
     return out
   }
+  // o MTEXT (usado nas cotas) costuma informar a inclinação por um vetor, não por ângulo
+  const mtextAngle = (e: any) => {
+    const d = e.direction
+    return d && (d.x || d.y) && !(Math.abs(d.y) < 1e-9 && d.x > 0) ? Math.atan2(d.y, d.x) : e.rotation ?? 0
+  }
   const cleanText = (t: string) => String(t ?? '')
     .replace(/\\p[^;\\{}]*;/g, '') // códigos de parágrafo (\pxqc; etc.)
     .replace(/\\[Pp]/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\\\/g, '\\').trim()
@@ -282,7 +287,7 @@ export function buildCadModel(db: any, opts?: { entities?: any[]; base?: { x: nu
         case 'MTEXT': {
           const [x, y] = ap(m, e.insertionPoint.x, e.insertionPoint.y)
           const sc = Math.hypot(m[0], m[1])
-          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: (e.rotation ?? 0) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li, col: curCol, obj: objs.length })
+          texts.push({ x, y, h: (e.textHeight ?? 0.1) * sc, rot: mtextAngle(e) + Math.atan2(m[1], m[0]), text: cleanText(e.text), layer: li, col: curCol, obj: objs.length })
           layers[li].texts++; break
         }
         case 'DIMENSION': {

@@ -5,7 +5,7 @@ import { loadCadFile, computeRegions, appendLibBlock, loadCadLibraryFile, normal
 import { listCadLibrary, saveCadLibraryBlock, deleteCadLibraryBlock, setCadLibraryFamily, type CadLibRow } from '@/lib/project-reading/cad-library-actions'
 import {
   Loader2, Upload, Ruler, Hand, Maximize, MousePointer, Minus, Square, Circle as CircleIcon, Copy, ClipboardPaste,
-  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, Shapes, SeparatorHorizontal, GripHorizontal,
+  RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, Shapes, Plus, SeparatorHorizontal, GripHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isRoom, polyArea, labelPoint, roomAt } from '@/lib/project-reading/cad-rooms'
@@ -13,6 +13,7 @@ import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type P
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
+import { deCabecaPraBaixo } from '@/lib/project-reading/cad-text'
 import { CadPlotPreview } from './CadPlotPreview'
 import { CATALOGO_FONTES_12V } from '@/lib/project-reading/calculations'
 import { isTape, tapeMeters, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
@@ -162,7 +163,9 @@ export function CadLab() {
   const [cand, setCand] = useState<LibBlock[] | null>(null)
   const [candSel, setCandSel] = useState<Set<string>>(new Set())
   const [libBusy, setLibBusy] = useState(false)
-  const [placing, setPlacing] = useState<null | { name: string; obj: number; s: number; spec: Spec }>(null)
+  const [placing, setPlacing] = useState<null | { name: string; obj: number; s: number; spec: Spec; lin?: [number, number, number, number] }>(null)
+  // perfil/fita repetido a partir de um item já especificado
+  const modeloTape = useRef<null | { kind: 'perfil' | 'fita'; spec?: Spec; wm?: number; volt?: number; nome: string }>(null)
   const libObj = useRef(new Map<string, number>())
   const modelRef = useRef<CadModel | null>(null); modelRef.current = model
   const needFit = useRef(false)
@@ -348,7 +351,9 @@ export function CadLab() {
   }
   function addTape(shape: Omit<Shape, 'id'>) {
     const e0 = edRef.current
-    const next: Edits = { ...e0, shapes: [...e0.shapes, { ...shape, id: e0.next }], next: e0.next + 1 }
+    const t = modeloTape.current
+    const repetido = t && t.kind === shape.kind ? { spec: t.spec && { ...t.spec, color: shape.stroke }, wm: t.wm, volt: t.volt } : {}
+    const next: Edits = { ...e0, shapes: [...e0.shapes, { ...shape, ...repetido, id: e0.next }], next: e0.next + 1 }
     commit(next); setSel(['s' + e0.next]); setDraft([])
     openFonte(e0.next, next)
   }
@@ -514,6 +519,29 @@ export function CadLab() {
     const next = { ...m, unitToMeters: v, unitName: unitName(v), unitKnown: true }
     modelRef.current = next; setModel(next); setPlacing(null); setTool('select'); setPlaceScale('1')
     commit(refitSizes(next, edRef.current, libDefs.current, m.unitToMeters))
+  }
+  // coloca mais um do mesmo item, com as especificações (e o tamanho/giro) já preenchidos
+  function repetirItem(it: Item) {
+    const e0 = edRef.current, m = modelRef.current; if (!m) return
+    const id = Number(it.keys[0].slice(1))
+    if (it.kind === 'bloco') {
+      const c = e0.cp.find(c => c.id === id); if (!c) return
+      const o = m.objs[c.src], [a, b, cc, d] = c.xf
+      setPlaceScale('1'); setSel([])
+      setPlacing({ name: o.name, obj: c.src, s: Math.hypot(a, b), lin: [a, b, cc, d], spec: { ...(c.spec ?? guessSpec(o.name)) } })
+      setTool('inserir')
+    } else if (it.kind === 'perfil' || it.kind === 'fita') {
+      const s = e0.shapes.find(x => x.id === id); if (!s) return
+      modeloTape.current = { kind: it.kind, spec: s.spec, wm: s.wm, volt: s.volt, nome: it.name }
+      if (it.kind === 'perfil') { setPerfilCm(String(Number(((s.w ?? 0) * m.unitToMeters * 100).toFixed(2)))); setPerfilCor(s.stroke); setFitaCor(s.tapeColor ?? fitaCor); setPerfilM('') }
+      else setFitaCor(s.stroke)
+      setSel([]); setDraft([]); setTool(it.kind)
+    }
+  }
+  const matrizDeColocacao = (p: number[]): M6 => {
+    const k = parseFloat(placeScale.replace(',', '.')) || 1
+    const l = placing!.lin ?? [placing!.s, 0, 0, placing!.s]
+    return [l[0] * k, l[1] * k, l[2] * k, l[3] * k, p[0], p[1]]
   }
   function actMirror(h: boolean) {
     const b = unionBox(edRef.current, selRef.current); if (!b || !selRef.current.length) return
@@ -953,6 +981,16 @@ export function CadLab() {
         drawText(t.text, ...P(t.x, t.y), t.h * sc * scale, t.rot + rot, hl ? SEL : tint || colorOf(t.col, t.layer))
       }
     }
+    // escreve na origem atual; com a planta girada, vira o texto que ficaria de cabeça pra baixo
+    const escrever = (text: string, px: number, angulo: number) => {
+      if (print?.giro && deCabecaPraBaixo(angulo, print.giro)) {
+        const largura = ctx.measureText(text).width
+        const mx = ctx.textAlign === 'center' ? 0 : ctx.textAlign === 'right' ? -largura / 2 : largura / 2
+        const my = ctx.textBaseline === 'middle' ? 0 : ctx.textBaseline === 'top' ? px * 0.4 : -px * 0.35
+        ctx.translate(mx, my); ctx.rotate(Math.PI); ctx.translate(-mx, -my)
+      }
+      ctx.fillText(text, 0, 0)
+    }
     const drawText = (text: string, x: number, y: number, px: number, rot: number, color: string) => {
       if (!print?.symbol && (px < (printing ? 0.2 : 0.4) || px > 600 || x < -300 || x > w + 300 || y < -100 || y > h + 100)) return
       ctx.save(); ctx.translate(x, y); ctx.rotate(-rot)
@@ -960,7 +998,7 @@ export function CadLab() {
         ctx.globalAlpha = 0.55; ctx.fillStyle = color
         ctx.fillRect(0, -Math.max(1, px * 0.8), Math.max(2, text.length * px * 0.55), Math.max(1, px * 0.8))
         ctx.globalAlpha = 1
-      } else { ctx.fillStyle = color; ctx.font = `${px}px sans-serif`; ctx.fillText(text, 0, 0) }
+      } else { ctx.fillStyle = color; ctx.font = `${px}px sans-serif`; escrever(text, px, -rot) }
       ctx.restore()
     }
 
@@ -1063,7 +1101,7 @@ export function CadLab() {
           ctx.font = `${px}px sans-serif`
           ctx.textAlign = d.ha === 1 || d.ha === 4 ? 'center' : d.ha === 2 ? 'right' : 'left'
           ctx.textBaseline = d.ha === 4 || d.va === 2 ? 'middle' : d.va === 3 ? 'top' : d.va === 1 ? 'bottom' : 'alphabetic'
-          ctx.fillText(text, 0, 0)
+          escrever(text, px, -(d.rot + rot0))
         }
         ctx.restore()
       }
@@ -1174,7 +1212,7 @@ export function CadLab() {
         ctx.globalAlpha = 0.25; ctx.fillStyle = s.stroke; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1
         ctx.strokeStyle = color; ctx.lineWidth = on ? 2.5 : 1.5; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
         const px = Math.min((x1 - x0) / (Math.max(8, (s.text ?? '').length) * 0.58), (y1 - y0) * 0.55)
-        if (px >= minLegivel) { ctx.fillStyle = '#ffffff'; ctx.font = `${px}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s.text ?? '', (x0 + x1) / 2, (y0 + y1) / 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic' }
+        if (px >= minLegivel) { ctx.fillStyle = '#ffffff'; ctx.font = `${px}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.save(); ctx.translate((x0 + x1) / 2, (y0 + y1) / 2); escrever(s.text ?? '', px, 0); ctx.restore(); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic' }
         continue
       }
       if (s.kind === 'text' || s.kind === 'arrow') {
@@ -1191,7 +1229,7 @@ export function CadLab() {
           const left = s.pts[0] < s.pts[2], gap = px * 0.3
           ctx.save(); ctx.translate(tx + (left ? -gap : gap), ty)
           if (px < minLegivel) { ctx.globalAlpha = 0.55; const bw = Math.max(2, s.text.length * px * 0.55); ctx.fillRect(left ? -bw : 0, -Math.max(1, px * 0.4), bw, Math.max(1, px * 0.8)); ctx.globalAlpha = 1 }
-          else { ctx.font = `${px}px sans-serif`; ctx.textAlign = left ? 'right' : 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s.text, 0, 0) }
+          else { ctx.font = `${px}px sans-serif`; ctx.textAlign = left ? 'right' : 'left'; ctx.textBaseline = 'middle'; escrever(s.text, px, 0) }
           ctx.restore()
         }
         continue
@@ -1259,7 +1297,7 @@ export function CadLab() {
       ctx.stroke()
       void side; void nxs; void nys
       let ta = ang
-      if (ta > Math.PI / 2 || ta < -Math.PI / 2) ta += Math.PI
+      if (print?.giro ? deCabecaPraBaixo(ta, print.giro) : ta > Math.PI / 2 || ta < -Math.PI / 2) ta += Math.PI
       ctx.save()
       ctx.translate((P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2); ctx.rotate(ta)
       ctx.font = `bold ${12 * ui}px sans-serif`; ctx.textAlign = 'center'
@@ -1306,8 +1344,7 @@ export function CadLab() {
     }
     if (tool === 'inserir' && placing && cur) {
       ctx.globalAlpha = 0.65
-      const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
-      drawInst(placing.obj, [ps, 0, 0, ps, cur[0], cur[1]], false, placing.spec.color || undefined)
+      drawInst(placing.obj, matrizDeColocacao(cur), false, placing.spec.color || undefined)
       ctx.globalAlpha = 1
     }
     if (box) { ctx.strokeStyle = SEL; ctx.fillStyle = 'rgba(56,189,248,0.12)'; ctx.lineWidth = 1; ctx.setLineDash(box.x1 < box.x0 ? [5, 4] : []); ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); ctx.setLineDash([]) }
@@ -1541,8 +1578,7 @@ export function CadLab() {
     }
     if (tool === 'inserir') {
       if (!placing) return
-      const ps = placing.s * (parseFloat(placeScale.replace(',', '.')) || 1)
-      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: [ps, 0, 0, ps, p[0], p[1]], spec: placing.spec }], next: e0.next + 1 })
+      commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: matrizDeColocacao(p), spec: placing.spec }], next: e0.next + 1 })
       setSel(['c' + e0.next]); return
     }
     if (tool === 'linha') {
@@ -1575,6 +1611,7 @@ export function CadLab() {
   useEffect(() => { setStateMenu(false) }, [sel])
   useEffect(() => {
     setDraft([]); if (tool !== 'inserir') setPlacing(null)
+    if (tool !== 'perfil' && tool !== 'fita') modeloTape.current = null
     setCentroA(null); setSegHover(null); setDist({ pts: [], escolhendo: false }); if (tool === 'centro' || tool === 'distribuir') setAviso(null)
     // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
     if ((tool === 'texto' || tool === 'seta') && model) setTextH(String(Number(((14 / view.current.scale) * model.unitToMeters).toPrecision(2))))
@@ -1789,8 +1826,8 @@ export function CadLab() {
       else if (k === 'e') setTool('centro')
       else if (k === 'd') setTool('distribuir')
       else if (k === 'n') setTool('ambiente')
-      else if (k === 'p') setTool('perfil')
-      else if (k === 'f') setTool('fita')
+      else if (k === 'p') { modeloTape.current = null; setTool('perfil') }
+      else if (k === 'f') { modeloTape.current = null; setTool('fita') }
       else if (k === 't') setTool('texto')
       else if (k === 'a') setTool('seta')
     }
@@ -1825,7 +1862,7 @@ export function CadLab() {
   const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
 
   const TB = ({ id, icon, label, k }: { id: Tool; icon: React.ReactNode; label: string; k: string }) => (
-    <button onClick={() => setTool(id)} title={`${label} (${k})`}
+    <button onClick={() => { modeloTape.current = null; setTool(id) }} title={`${label} (${k})`}
       className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium', tool === id ? 'bg-brand-600 text-white' : 'text-navy-muted hover:bg-surface-secondary')}>{icon} {label}</button>
   )
   const AB = ({ onClick, icon, label, disabled }: { onClick: () => void; icon: React.ReactNode; label: string; disabled?: boolean }) => (
@@ -1993,15 +2030,15 @@ export function CadLab() {
                   {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
                   {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
-                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : 'Perfil + fita: clique no início (ou segure e arraste até o fim)')}
-                  {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : 'Fita: clique no ponto inicial')}
+                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : (modeloTape.current ? `Mais um "${modeloTape.current.nome}": ` : 'Perfil + fita: ') + 'clique no início (ou segure e arraste até o fim)')}
+                  {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : (modeloTape.current ? `Mais uma "${modeloTape.current.nome}": ` : 'Fita: ') + 'clique no ponto inicial')}
                   {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
                   {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
                   {tool === 'plotar' && 'Arraste um retângulo em volta da área que vai pro PDF (Esc cancela)'}
                   {tool === 'ambiente' && (draft.length < 3 ? 'Ambiente: clique nos cantos (Shift = reto)' : 'Continue nos cantos — clique no 1º ponto, Enter ou duplo clique pra fechar')}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
-                  {tool === 'inserir' && (placing ? `Inserindo "${placing.name}" — clique pra colocar (Esc termina)` : '')}
+                  {tool === 'inserir' && (placing ? `Inserindo "${placing.spec.name}" — clique pra colocar (Esc termina)` : '')}
                   {tool === 'medir' && (draft.length === 0 ? 'Cota: clique no 1º ponto' : draft.length === 1 ? 'Clique no 2º ponto' : 'Clique onde a cota deve ficar (distância da linha)')}
                 </div>
               )}
@@ -2239,6 +2276,7 @@ export function CadLab() {
                       <span className="block text-[10px] text-gray-400 truncate">{[i.mounting, i.power, i.light].filter(Boolean).join(' · ') || 'sem especificações'}</span>
                     </button>
                     <b className="text-xs text-gray-800 whitespace-nowrap">{qtyLabel(i)}</b>
+                    {i.kind !== 'fonte' && <button onClick={() => repetirItem(i)} title="Colocar mais um, com as mesmas especificações" className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-brand-600 text-white hover:bg-brand-700"><Plus className="w-3.5 h-3.5" /></button>}
                     <button onClick={() => openSpecs(i.keys)} className="text-[10px] text-brand-600 underline">editar</button>
                   </div>
                 ))}

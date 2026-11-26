@@ -73,4 +73,9 @@ describe('plotagem', () => {
       expect(cantos[0][0]).toBeCloseTo(0); expect(cantos[1][1]).toBeCloseTo(0)
     }
   })
+  it('texto de cota segue a direção informada no MTEXT', () => {
+    const mt = (extra: object) => ({ type: 'MTEXT', layer: '0', insertionPoint: { x: 0, y: 0 }, textHeight: 1, text: '4,15', ...extra })
+    const m = buildCadModel({ header: {}, tables: { LAYER: { entries: [] }, BLOCK_RECORD: { entries: [{ name: '*Model_Space', entities: [mt({ rotation: 0, direction: { x: 0, y: 1 } }), mt({ rotation: 0.5, direction: { x: 1, y: 0 } }), mt({ rotation: 0.25 })] }] } } })
+    expect(m.texts.map(t => Number(t.rot.toFixed(4)))).toEqual([1.5708, 0.5, 0.25])
+  })
 })

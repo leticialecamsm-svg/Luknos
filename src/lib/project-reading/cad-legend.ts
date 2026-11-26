@@ -80,8 +80,7 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
 export const qtyLabel = (it: Item) => (it.kind === 'perfil' || it.kind === 'fita' ? `${br(it.meters)} m (${it.qty} pç)` : `${it.qty} un`)
 
 export function describe(it: Item) {
-  const parts = [it.name]
-  if (it.kind === 'bloco' && it.block && it.block.toLowerCase() !== it.name.toLowerCase()) parts.push(`(${it.block})`)
+  const parts = [it.name] // o nome digitado vale; o do bloco original não aparece
   if (it.thickness) parts.push(`${br(it.thickness, 1)} cm`)
   return parts.join(' ')
 }
