@@ -21,6 +21,7 @@ export interface Shape {
   watts?: number // fonte
   metros?: number // fita/perfil: metragem informada à mão (quando o desenho não mostra tudo)
   link?: number // fonte: id da fita/perfil que ela alimenta
+  rotulo?: [number, number] // ambiente: onde o nome foi arrastado (padrão: no centro)
 }
 export interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
 export interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string>; spec?: Spec }

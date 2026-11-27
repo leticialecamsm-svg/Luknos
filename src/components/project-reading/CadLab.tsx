@@ -8,7 +8,7 @@ import {
   RotateCw, FlipHorizontal, FlipVertical, Trash2, Undo2, Redo2, CopyPlus, Type as TypeIcon, ArrowUpRight, Boxes, RectangleHorizontal, MoreHorizontal, Zap, Tag, Table, FileDown, Shapes, Plus, SeparatorHorizontal, GripHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { isRoom, polyArea, labelPoint, roomAt } from '@/lib/project-reading/cad-rooms'
+import { isRoom, polyArea, roomLabel, roomAt } from '@/lib/project-reading/cad-rooms'
 import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { alinhar, type Guia } from '@/lib/project-reading/cad-align'
@@ -195,7 +195,7 @@ export function CadLab() {
   const view = useRef({ cx: 0, cy: 0, scale: 1 })
   const arrasto = useRef<null | { px: number; py: number; p: number[] }>(null) // perfil: segurar e arrastar
   const gesture = useRef<null | {
-    type: 'pan' | 'move' | 'box' | 'dimdrag' | 'grip'
+    type: 'pan' | 'move' | 'box' | 'dimdrag' | 'grip' | 'rotulo'
     grip?: number
     x: number; y: number; cx: number; cy: number
     base?: Edits; start?: [number, number]; moved?: boolean; keys?: string[]; dim?: number
@@ -284,7 +284,7 @@ export function CadLab() {
     if (s.kind === 'circle') { const [x, y] = ap6(T, s.pts[0], s.pts[1]); return { ...s, pts: [x, y, s.pts[2]] } }
     const out: number[] = []
     for (let i = 0; i < s.pts.length; i += 2) out.push(...ap6(T, s.pts[i], s.pts[i + 1]))
-    return { ...s, pts: out, rot: s.kind === 'text' ? (s.rot ?? 0) + Math.atan2(T[1], T[0]) : s.rot }
+    return { ...s, pts: out, rotulo: s.rotulo ? ap6(T, ...s.rotulo) : undefined, rot: s.kind === 'text' ? (s.rot ?? 0) + Math.atan2(T[1], T[0]) : s.rot }
   }
   const xfDim = (d: Dim, T: M6): Dim => {
     const [ax, ay] = ap6(T, d.ax, d.ay), [bx, by] = ap6(T, d.bx, d.by)
@@ -705,7 +705,7 @@ export function CadLab() {
         const n = s.pts.length
         let dr = Infinity
         for (let i = 0; i < n; i += 2) dr = Math.min(dr, distSeg(wx, wy, s.pts[i], s.pts[i + 1], s.pts[(i + 2) % n], s.pts[(i + 3) % n]))
-        const [lx, ly] = labelPoint(s.pts)
+        const [lx, ly] = roomLabel(s)
         if (Math.abs(wx - lx) < tol * 5 && Math.abs(wy - ly) < tol * 2.2) dr = Math.min(dr, tol * 0.5)
         if (dr <= tol) consider('s' + s.id, tol * 0.6 + dr * 0.4)
         continue
@@ -1143,7 +1143,7 @@ export function CadLab() {
       const on = selSet.has('s' + s.id)
       if (isRoom(s)) {
         if (printing ? !plot.ambientes : !verAmbientes && !on) continue
-        const [lx, ly] = labelPoint(s.pts)
+        const [lx, ly] = roomLabel(s)
         const [tx, ty] = toScreen(lx, ly, w, h)
         const m2 = `${(polyArea(s.pts) * model.unitToMeters ** 2).toFixed(2).replace('.', ',')} m²`
         const px = printing ? 5.5 : 12
@@ -1486,6 +1486,18 @@ export function CadLab() {
     return { p: s ? [s.x, s.y] : [wx, wy], snap: s }
   }
 
+  /** Ambiente cujo nome (texto com a área) está sob o ponto. */
+  function nomeDeAmbienteEm(wx: number, wy: number): Shape | null {
+    if (!verAmbientes) return null
+    const k = view.current.scale
+    for (const s of [...edRef.current.shapes].reverse()) {
+      if (!isRoom(s)) continue
+      const [lx, ly] = roomLabel(s)
+      const meia = Math.max(30, (s.text ?? '').length * 4.5) / k
+      if (Math.abs(wx - lx) <= meia && wy - ly <= 14 / k && ly - wy <= 20 / k) return s
+    }
+    return null
+  }
   function onDown(e: React.MouseEvent) {
     const { px, py, w, h } = pos(e)
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
@@ -1500,6 +1512,12 @@ export function CadLab() {
         const gi = gripsOf(s).findIndex(([gx, gy]) => Math.abs(gx - wx) <= tol && Math.abs(gy - wy) <= tol)
         if (gi >= 0) { gesture.current = { type: 'grip', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: s.id, grip: gi, moved: false }; return }
       }
+    }
+    const nome = e.shiftKey ? null : nomeDeAmbienteEm(wx, wy)
+    if (nome) { // o nome do ambiente se arrasta sozinho, sem mover a área
+      setSel(['s' + nome.id])
+      gesture.current = { type: 'rotulo', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: nome.id, start: [wx, wy], moved: false }
+      return
     }
     const hit = hitTest(wx, wy)
     if (hit) {
@@ -1554,6 +1572,16 @@ export function CadLab() {
       }) })
       return
     }
+    if (g?.type === 'rotulo' && g.base) {
+      if (!g.moved && Math.hypot(px - g.x, py - g.y) < 4) return
+      g.moved = true
+      setEd({ ...g.base, shapes: g.base.shapes.map(x => {
+        if (x.id !== g.dim) return x
+        const [lx, ly] = roomLabel(x)
+        return { ...x, rotulo: [lx + wx - g.start![0], ly + wy - g.start![1]] }
+      }) })
+      return
+    }
     if (g?.type === 'dimdrag' && g.base) {
       g.moved = true
       const d = g.base.dims.find(d => d.id === g.dim)!
@@ -1576,7 +1604,7 @@ export function CadLab() {
     const g = gesture.current
     gesture.current = null
     if (!g) return
-    if ((g.type === 'move' || g.type === 'dimdrag' || g.type === 'grip') && g.base) {
+    if ((g.type === 'move' || g.type === 'dimdrag' || g.type === 'grip' || g.type === 'rotulo') && g.base) {
       if (g.moved) { past.current.push(g.base); future.current = []; redraw() } else setEd(g.base)
     }
     const box = boxRef.current
@@ -1947,7 +1975,8 @@ export function CadLab() {
   }
   const selShapes = ed.shapes.filter(s => sel.includes('s' + s.id))
   const totalCotas = model ? ed.dims.reduce((s, d) => s + dimGeom(d).len * model.unitToMeters, 0) : 0
-  const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
+  const sobreNome = tool === 'select' && !!cursor && !!model && !!nomeDeAmbienteEm(cursor.x, cursor.y)
+  const cursorCss = tool === 'pan' ? 'grab' : tool === 'select' ? (sobreNome ? 'move' : 'default') : 'crosshair'
 
   const TB = ({ id, icon, label, k }: { id: Tool; icon: React.ReactNode; label: string; k: string }) => (
     <button onClick={() => { modeloTape.current = null; setTool(id) }} title={`${label} (${k})`}
@@ -2144,6 +2173,9 @@ export function CadLab() {
                       <button type="submit" className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2">Salvar</button>
                       <button type="button" onClick={() => setRoomModal(null)} className="text-xs text-gray-500 px-3">Cancelar</button>
                     </div>
+                    {ed.shapes.some(x => x.id === roomModal.id && x.rotulo) && (
+                      <button type="button" onClick={() => { commit({ ...ed, shapes: ed.shapes.map(x => (x.id === roomModal.id ? { ...x, rotulo: undefined } : x)) }); setRoomModal(null) }} className="w-full text-[11px] text-brand-600 underline">Voltar o nome pro centro</button>
+                    )}
                   </form>
                 </div>
               )}

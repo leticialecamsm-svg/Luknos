@@ -31,6 +31,9 @@ export function labelPoint(pts: number[]): [number, number] {
   return [pts.filter((_, i) => i % 2 === 0).reduce((s, v) => s + v, 0) / n, pts.filter((_, i) => i % 2 === 1).reduce((s, v) => s + v, 0) / n]
 }
 
+/** Onde o nome do ambiente aparece: onde foi arrastado ou, por padrão, no centro. */
+export const roomLabel = (s: Shape): [number, number] => s.rotulo ?? labelPoint(s.pts)
+
 /** Nome do ambiente que contém o ponto; havendo um dentro do outro, vale o menor. */
 export function roomAt(shapes: Shape[], x: number, y: number): string {
   let best = '', area = Infinity
