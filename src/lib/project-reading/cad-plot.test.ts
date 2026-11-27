@@ -32,7 +32,7 @@ describe('plotagem', () => {
   it('gera um PDF de uma página no tamanho escolhido', async () => {
     const bytes = await buildPlotPdf({
       info: { ...plotPadrao(), papel: 'A3', proprietario: 'Fulano', endereco: 'Rua A\nMaceió' }, area: [0, 0, 10, 8], unitToMeters: 1, logo: null,
-      items: [{ key: 'a', kind: 'bloco', block: 'Vigo', name: 'Vigo', mounting: 'Embutir', power: '3W', light: '3000K', color: '', qty: 2, meters: 0, keys: [], rooms: 'Sala, Cozinha' }],
+      items: [{ key: 'a', kind: 'bloco', block: 'Vigo', name: 'Vigo', mounting: 'Embutir', power: '3W', light: '3000K', color: '', qty: 2, meters: 0, keys: [], rooms: 'Sala, Cozinha', porAmbiente: {} }],
       drawPlan: ctx => { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(50, 50); ctx.stroke(); ctx.save(); ctx.translate(10, 10); ctx.rotate(1); ctx.font = '8px sans-serif'; ctx.fillText('oi', 0, 0); ctx.restore(); ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(20, 20, 5, 0, 6.28); ctx.fill('evenodd') },
       drawSymbol: () => {},
     })

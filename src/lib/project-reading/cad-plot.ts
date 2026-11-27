@@ -4,6 +4,9 @@
 import { PDFDocument, PDFFont, PDFPage, PDFOperator, PDFOperatorNames as Op, StandardFonts, degrees, rgb, moveTo, lineTo, closePath, stroke, fill, setFillingRgbColor, setStrokingRgbColor, setLineWidth, setDashPattern, pushGraphicsState, popGraphicsState, setGraphicsState, setLineCap, LineCapStyle, rectangle, clip, endPath } from 'pdf-lib'
 import type { Item } from './cad-legend'
 import { describe, qtyLabel } from './cad-legend'
+import { safeText } from './cad-text'
+import { addSummaryPages } from './cad-summary'
+export { safeText }
 
 export const PAPEIS = { A4: [842, 595], A3: [1191, 842], A2: [1684, 1191], A1: [2384, 1684] } as const
 export type Papel = keyof typeof PAPEIS
@@ -19,6 +22,7 @@ export interface PlotInfo {
   zoom?: number // tamanho da planta em relação ao ajuste (só com escala livre)
   desloc?: [number, number] // posição da planta na folha, em pontos de A4
   giro?: Giro // planta girada no papel (graus, sentido horário)
+  resumo?: boolean // acrescenta a página de resumo para o orçamentista
 }
 export type Cores = 'ajustadas' | 'originais' | 'pb'
 export type Giro = 0 | 90 | 180 | 270
@@ -126,8 +130,6 @@ export function paper(c: RGB, modo: Cores = 'ajustadas'): RGB {
   const colorido = Math.max(...c) - Math.min(...c) > 0.14
   return colorido && lumOf(c) > 0.72 ? escurecer(c, 0.72) : c
 }
-/** As fontes padrão do PDF só têm o alfabeto latino. */
-export const safeText = (t: string) => t.replace(/≈/g, '~').replace(/[^\x20-\x7E\xA0-\xFF—–‘’“”•…€]/g, '?')
 
 type M = [number, number, number, number, number, number]
 
@@ -371,6 +373,8 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
     text(`${i + 1}.`, 480, y, 3.6, { align: 'right' })
     text(o, 484, y, 3.6, { max: x1 - 484 - 3 })
   })
+
+  if (info.resumo) await addSummaryPages(doc, info, items)
 
   return doc.save()
 }

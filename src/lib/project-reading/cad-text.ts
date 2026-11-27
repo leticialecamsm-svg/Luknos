@@ -11,3 +11,6 @@ export function deCabecaPraBaixo(angulo: number, giro: number) {
   if (a <= -Math.PI) a += 2 * Math.PI
   return a >= Math.PI / 2 - 0.01 || a < -Math.PI / 2 - 0.01
 }
+
+/** As fontes padrão do PDF só têm o alfabeto latino. */
+export const safeText = (t: string) => t.replace(/≈/g, '~').replace(/[^\x20-\x7E\xA0-\xFF—–‘’“”•…€]/g, '?')

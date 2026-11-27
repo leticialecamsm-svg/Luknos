@@ -30,13 +30,15 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
   const buildRef = useRef(build); buildRef.current = build
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [pagina, setPagina] = useState(1)
+  const [total, setTotal] = useState(1)
   const [arrasto, setArrasto] = useState<null | { x: number; y: number; dx: number; dy: number }>(null)
   const set = (p: Partial<PlotInfo>) => setPlot(v => ({ ...v, ...p }))
   const L = plot.area ? plotLayout(plot, nItens, plot.area, unitToMeters) : null
 
   // textos esperam a digitação parar; ajustes da folha atualizam logo
   const textos = [plot.endereco, plot.proprietario, plot.escritorio, plot.data, plot.pavimento, plot.desenho].join('|')
-  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc, plot.giro])
+  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc, plot.giro, plot.resumo])
   const textosAntes = useRef(textos)
   useEffect(() => {
     if (!plot.area) return
@@ -51,7 +53,9 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
         const pdfjs = await import('pdfjs-dist')
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
         const doc = await pdfjs.getDocument({ data: out.slice() }).promise
-        const page = await doc.getPage(1)
+        const mostrar = Math.min(pagina, doc.numPages)
+        setTotal(doc.numPages)
+        const page = await doc.getPage(mostrar)
         const el = boxRef.current, cv = canvasRef.current
         if (n !== seq.current || !el || !cv) return
         const base = page.getViewport({ scale: 1 })
@@ -73,7 +77,7 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
     }, digitando ? 1100 : 250)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textos, folha, conteudo, nItens])
+  }, [textos, folha, conteudo, nItens, pagina])
 
   const zoom = plot.zoom ?? 1
   const setZoom = (z: number) => set({ zoom: Math.round(Math.max(0.3, Math.min(4, z)) * 100) / 100 })
@@ -101,16 +105,27 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
   return (
     <div className="fixed inset-0 z-[80] bg-black/70 p-3 flex gap-3">
       <div ref={boxRef} className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden rounded-xl bg-gray-600"
-        onWheel={e => { if (plot.area && !plot.escala) setZoom(zoom * (e.deltaY < 0 ? 1.06 : 1 / 1.06)) }}>
+        onWheel={e => { if (plot.area && !plot.escala && pagina === 1) setZoom(zoom * (e.deltaY < 0 ? 1.06 : 1 / 1.06)) }}>
         {!plot.area && <button onClick={onMarcar} className="text-sm font-medium bg-brand-600 text-white rounded-lg px-5 py-3">Marcar área na planta</button>}
         <canvas ref={canvasRef} className={cn('bg-white shadow-2xl select-none', !plot.area && 'hidden', arrasto ? 'cursor-grabbing' : 'cursor-grab')}
           style={{ transform: arrasto ? `translate(${arrasto.dx * 0.15}px, ${arrasto.dy * 0.15}px)` : undefined }}
-          onPointerDown={e => { (e.target as HTMLElement).setPointerCapture(e.pointerId); setArrasto({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 }) }}
+          onPointerDown={e => { if (pagina > 1) return; (e.target as HTMLElement).setPointerCapture(e.pointerId); setArrasto({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 }) }}
           onPointerMove={e => { if (arrasto && e.buttons & 1) setArrasto({ ...arrasto, dx: e.clientX - arrasto.x, dy: e.clientY - arrasto.y }) }}
           onPointerUp={soltar} />
         {busy && plot.area && <span className="absolute top-3 left-3 flex items-center gap-1.5 text-xs bg-white/95 rounded-full px-3 py-1 text-gray-600"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Atualizando a prévia...</span>}
+        {total > 1 && plot.area && (
+          <div className="absolute top-3 right-3 flex items-center gap-2 text-xs bg-white/95 rounded-full px-2 py-1 text-gray-700">
+            <button onClick={() => setPagina(1)} className={cn('rounded-full px-2.5 py-0.5', pagina === 1 && 'bg-brand-600 text-white')}>Planta</button>
+            <button onClick={() => setPagina(2)} className={cn('rounded-full px-2.5 py-0.5', pagina === 2 && 'bg-brand-600 text-white')}>Resumo</button>
+            {total > 2 && pagina > 1 && <>
+              <button disabled={pagina <= 2} onClick={() => setPagina(p => p - 1)} className="px-1 disabled:opacity-30">‹</button>
+              <span>{Math.min(pagina, total) - 1}/{total - 1}</span>
+              <button disabled={pagina >= total} onClick={() => setPagina(p => p + 1)} className="px-1 disabled:opacity-30">›</button>
+            </>}
+          </div>
+        )}
         {erro && <span className="absolute bottom-3 text-xs bg-red-50 text-red-600 rounded px-3 py-1">{erro}</span>}
-        {plot.area && <span className="absolute bottom-3 right-3 text-[11px] text-white/80">Arraste a folha pra posicionar a planta · rodinha muda o tamanho</span>}
+        {plot.area && pagina === 1 && <span className="absolute bottom-3 right-3 text-[11px] text-white/80">Arraste a folha pra posicionar a planta · rodinha muda o tamanho</span>}
       </div>
 
       <div className="w-80 shrink-0 overflow-y-auto bg-white rounded-xl p-4 space-y-2">
@@ -154,6 +169,10 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
         </div>
         <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Legenda embaixo ({nItens} {nItens === 1 ? 'item' : 'itens'})</label>
         {temAmbientes && <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.ambientes} onChange={e => set({ ambientes: e.target.checked })} /> Escrever nome e área dos ambientes</label>}
+        <label className={cn('flex items-start gap-1.5 text-xs rounded-lg border p-2 cursor-pointer', plot.resumo ? 'border-brand-400 bg-brand-50 text-navy' : 'border-gray-200 text-gray-600', !nItens && 'opacity-50')}>
+          <input type="checkbox" className="mt-0.5" disabled={!nItens} checked={!!plot.resumo} onChange={e => { set({ resumo: e.target.checked }); setPagina(e.target.checked ? 2 : 1) }} />
+          <span><b className="block">Incluir resumo para o orçamentista</b>Página extra com quantidades por ambiente e total geral{!nItens && ' (adicione itens ao projeto)'}</span>
+        </label>
         {area2('Endereço da obra', 'endereco', 'Condomínio, quadra, lote, cidade')}
         {area2('Proprietário', 'proprietario', 'Nome do cliente')}
         {area2('Escritório responsável', 'escritorio', 'Escritório e telefone')}

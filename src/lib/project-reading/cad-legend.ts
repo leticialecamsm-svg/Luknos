@@ -23,6 +23,7 @@ export interface Item {
   keys: string[] // chaves de seleção no desenho
   rooms: string // ambientes onde o item aparece
   tapeModel?: string // modelo da fita dentro do perfil
+  porAmbiente: Record<string, { qty: number; meters: number }> // chave '' = fora de ambiente
 }
 
 const br = (n: number, d = 2) => n.toFixed(d).replace('.', ',')
@@ -40,13 +41,17 @@ export function guessSpec(name: string): Spec {
 export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): Item[] {
   const map = new Map<string, Item>()
   const rooms = new Map<string, Set<string>>()
-  const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
+  const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms' | 'porAmbiente'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
     const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
     let cur = map.get(key)
-    if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '' }; map.set(key, cur); rooms.set(key, new Set()) }
+    if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '', porAmbiente: {} }; map.set(key, cur); rooms.set(key, new Set()) }
     cur.qty++; cur.meters += meters; cur.keys.push(selKey)
     const names = typed?.trim() ? typed.split(',') : [roomAt(ed.shapes, where[0], where[1])]
     for (const n of names) if (n.trim()) rooms.get(key)!.add(n.trim())
+    // vários ambientes digitados no mesmo item não dá pra repartir: ficam como um grupo só
+    const grupo = names.map(n => n.trim()).filter(Boolean).join(', ')
+    const parte = (cur.porAmbiente[grupo] ??= { qty: 0, meters: 0 })
+    parte.qty++; parte.meters += meters
   }
   for (const c of ed.cp) {
     const o = model.objs[c.src]
@@ -67,7 +72,10 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
       }, 's' + s.id, midOfPath(s.pts), sp?.rooms, tapeMeters(s, unitToMeters))
     } else if (s.kind === 'fonte') {
       const sp = s.spec
-      add({ kind: 'fonte', name: sp?.name || 'Fonte', mounting: sp?.mounting ?? '', power: `${s.watts ?? 0}W ${s.volt ?? 12}V`, light: '', color: s.stroke }, 's' + s.id, [s.pts[0], s.pts[1]], sp?.rooms)
+      // fonte guardada fora dos ambientes conta no ambiente da fita que ela alimenta
+      const fita = ed.shapes.find(x => x.id === s.link)
+      const onde: [number, number] = fita && !roomAt(ed.shapes, s.pts[0], s.pts[1]) ? midOfPath(fita.pts) : [s.pts[0], s.pts[1]]
+      add({ kind: 'fonte', name: sp?.name || 'Fonte', mounting: sp?.mounting ?? '', power: `${s.watts ?? 0}W ${s.volt ?? 12}V`, light: '', color: s.stroke }, 's' + s.id, onde, sp?.rooms)
     }
   }
   rooms.forEach((set, key) => { map.get(key)!.rooms = Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })).join(', ') })
