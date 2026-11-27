@@ -302,7 +302,7 @@ export function CadLab() {
     for (const k of keys) {
       const id = Number(k.slice(1))
       if (k[0] === 'o') { const v = from.ov[id]; if (v === null) continue; cp.push({ id: next, src: id, xf: mul6(T, v ?? ID6) }); nk.push('c' + next++) }
-      else if (k[0] === 'c') { const c = from.cp.find(c => c.id === id); if (!c) continue; cp.push({ id: next, src: c.src, xf: mul6(T, c.xf), attrs: c.attrs }); nk.push('c' + next++) }
+      else if (k[0] === 'c') { const c = from.cp.find(c => c.id === id); if (!c) continue; cp.push({ ...c, id: next, xf: mul6(T, c.xf) }); nk.push('c' + next++) }
       else if (k[0] === 's') { const s = from.shapes.find(s => s.id === id); if (!s) continue; shapes.push({ ...xfShape(s, T), id: next }); nk.push('s' + next++) }
       else { const d = from.dims.find(d => d.id === id); if (!d) continue; dims.push({ ...xfDim(d, T), id: next }); nk.push('d' + next++) }
     }
