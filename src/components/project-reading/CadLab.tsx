@@ -12,6 +12,7 @@ import { isRoom, polyArea, roomLabel, roomAt } from '@/lib/project-reading/cad-r
 import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
 import { alinhar, type Guia } from '@/lib/project-reading/cad-align'
+import { itensDoDesenho } from '@/lib/project-reading/cad-models'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
 import { deCabecaPraBaixo } from '@/lib/project-reading/cad-text'
@@ -19,7 +20,7 @@ import { CadPlotPreview } from './CadPlotPreview'
 import { CATALOGO_FONTES_12V } from '@/lib/project-reading/calculations'
 import { isTape, tapeMeters, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
-import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
+import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec, type ItemModelo } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, duplicateCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
@@ -227,6 +228,10 @@ export function CadLab() {
   // ── Geometria das chaves de seleção ──────────────────────────────────────
   // chaves: o<n> = objeto do arquivo, c<id> = cópia, s<id> = forma, d<id> = cota
   const items = useMemo(() => (model ? collectItems(model, ed, model.unitToMeters) : []), [model, ed])
+  // itens trazidos de outro desenho que ainda não foram colocados neste
+  const prontos = (ed.modelos ?? []).filter(m => !items.some(i => i.key === m.key))
+  // janela "trazer itens de outro desenho"
+  const [trazer, setTrazer] = useState<null | { origem?: string; carregando?: boolean; erro?: string; itens?: ItemModelo[]; marcados: string[] }>(null)
   // cantos da legenda (o tamanho depende dos itens do projeto)
   function legendBox(sh: Shape, e: Edits) {
     const l = legendLayout(collectItems(model!, e, model!.unitToMeters), sh.h ?? 0.2)
@@ -543,6 +548,42 @@ export function CadLab() {
       modeloTape.current = { kind: it.kind, spec: s.spec, wm: s.wm, volt: s.volt, nome: it.name }
       if (it.kind === 'perfil') { setPerfilCm(String(Number(((s.w ?? 0) * m.unitToMeters * 100).toFixed(2)))); setPerfilCor(s.stroke); setFitaCor(s.tapeColor ?? fitaCor); setPerfilM('') }
       else setFitaCor(s.stroke)
+      setSel([]); setDraft([]); setTool(it.kind)
+    }
+  }
+  function abrirTrazer() {
+    setTrazer({ marcados: [] })
+    if (drawings === null) refreshDrawings(); else listCadDrawings().then(r => { if (r.rows) setDrawings(r.rows) }).catch(() => {})
+  }
+  async function escolherOrigem(id: string) {
+    if (!id) { setTrazer({ marcados: [] }); return }
+    setTrazer({ origem: id, carregando: true, marcados: [] })
+    const r = await openCadDrawing(id).catch(() => ({ error: 'Sem conexão', state: null }))
+    const ja = new Set([...items.map(i => i.key), ...(edRef.current.modelos ?? []).map(m => m.key)])
+    const itens = itensDoDesenho(r.state).filter(m => !ja.has(m.key))
+    setTrazer(t => (t?.origem === id ? { origem: id, erro: r.error, itens, marcados: itens.map(m => m.key) } : t))
+  }
+  function confirmarTrazer() {
+    const novos = (trazer?.itens ?? []).filter(m => trazer!.marcados.includes(m.key))
+    setTrazer(null)
+    if (!novos.length) return
+    commit({ ...edRef.current, modelos: [...(edRef.current.modelos ?? []), ...novos] })
+    setAviso(`${novos.length} ${novos.length === 1 ? 'item trazido' : 'itens trazidos'}. Clique no + de cada um pra colocar na planta.`)
+  }
+  function usarPronto(it: ItemModelo) {
+    if (!modelRef.current) return
+    if (it.kind === 'bloco') {
+      if (!it.lib) return
+      const obj = ensureObj(it.lib)
+      const k = it.lib.unitToMeters / modelRef.current.unitToMeters
+      const lin = (it.lin ?? [1, 0, 0, 1]).map(v => v * k) as [number, number, number, number]
+      setPlaceScale('1'); setSel([])
+      setPlacing({ name: it.lib.name, obj, s: Math.hypot(lin[0], lin[1]), lin, spec: { ...it.spec } })
+      setTool('inserir')
+    } else {
+      modeloTape.current = { kind: it.kind, spec: it.spec, wm: it.wm, volt: it.volt, nome: it.nome }
+      if (it.kind === 'perfil') { if (it.espessura) setPerfilCm(String(Number((it.espessura * 100).toFixed(2)))); setPerfilCor(it.stroke ?? perfilCor); setFitaCor(it.tapeColor ?? fitaCor); setPerfilM('') }
+      else setFitaCor(it.stroke ?? fitaCor)
       setSel([]); setDraft([]); setTool(it.kind)
     }
   }
@@ -2403,6 +2444,58 @@ export function CadLab() {
                   </div>
                 ))}
               </div>
+              {prontos.length > 0 && (
+                <div className="mt-2 border-t border-gray-100 pt-1">
+                  <p className="text-[10px] font-semibold text-gray-500">Prontos pra colocar (trazidos de outro desenho)</p>
+                  <div className="max-h-60 overflow-y-auto divide-y divide-gray-100">
+                    {prontos.map(m => (
+                      <div key={m.key} className="flex items-center gap-2 py-1">
+                        <span className="w-3 h-3 rounded-sm border border-gray-300 shrink-0" style={{ background: m.spec.color || m.stroke || 'transparent' }} />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-xs font-medium text-gray-800 truncate" title={m.nome}>{m.nome}</span>
+                          <span className="block text-[10px] text-gray-400 truncate">{[m.spec.mounting, m.kind === 'bloco' ? m.spec.power : m.wm ? `${String(m.wm).replace('.', ',')} W/m` : '', m.spec.light].filter(Boolean).join(' · ') || 'sem especificações'}</span>
+                        </span>
+                        <button onClick={() => usarPronto(m)} title="Colocar na planta" className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-brand-600 text-white hover:bg-brand-700"><Plus className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => commit({ ...ed, modelos: (ed.modelos ?? []).filter(x => x.key !== m.key) })} title="Tirar da lista" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={abrirTrazer} className="w-full mt-2 text-xs font-medium border border-brand-400 text-brand-600 rounded-lg py-1.5 hover:bg-brand-50">Trazer itens de outro desenho</button>
+              {trazer && (
+                <div data-nozoom className="fixed inset-0 z-[70] p-3 flex items-center justify-center bg-black/40" onClick={() => setTrazer(null)}>
+                  <div className="w-96 max-h-full overflow-y-auto bg-white rounded-xl shadow-2xl p-4 space-y-3" onClick={e => e.stopPropagation()} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') setTrazer(null) }}>
+                    <p className="text-sm font-bold text-navy">Trazer itens de outro desenho</p>
+                    <p className="text-[11px] text-gray-500">Vêm os modelos com nome, instalação, potência, cor, tamanho e giro. As posições na planta não vêm.</p>
+                    <select autoFocus value={trazer.origem ?? ''} onChange={e => escolherOrigem(e.target.value)} className="w-full text-sm border border-gray-200 rounded px-2 py-1 bg-white text-gray-800">
+                      <option value="">{drawings === null ? 'Carregando desenhos...' : 'Escolha o desenho de origem'}</option>
+                      {(drawings ?? []).filter(d => d.id !== drawing?.id).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                    {trazer.carregando && <p className="text-xs text-gray-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Lendo os itens...</p>}
+                    {trazer.erro && <p className="text-xs text-red-600">{trazer.erro}</p>}
+                    {trazer.itens && !trazer.erro && trazer.itens.length === 0 && <p className="text-xs text-gray-400">Nada novo: esse desenho não tem itens que já não estejam aqui.</p>}
+                    {!!trazer.itens?.length && (
+                      <div className="max-h-64 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+                        {trazer.itens.map(m => (
+                          <label key={m.key} className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-gray-50">
+                            <input type="checkbox" checked={trazer.marcados.includes(m.key)} onChange={e => setTrazer({ ...trazer, marcados: e.target.checked ? [...trazer.marcados, m.key] : trazer.marcados.filter(k => k !== m.key) })} />
+                            <span className="w-3 h-3 rounded-sm border border-gray-300 shrink-0" style={{ background: m.spec.color || m.stroke || 'transparent' }} />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-xs font-medium text-gray-800 truncate">{m.nome}</span>
+                              <span className="block text-[10px] text-gray-400 truncate">{[m.spec.mounting, m.kind === 'bloco' ? m.spec.power : m.wm ? `${String(m.wm).replace('.', ',')} W/m` : '', m.spec.light, m.spec.tapeModel].filter(Boolean).join(' · ') || 'sem especificações'}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={confirmarTrazer} disabled={!trazer.marcados.length} className="flex-1 text-xs font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-40">Trazer {trazer.marcados.length || ''} {trazer.marcados.length === 1 ? 'item' : 'itens'}</button>
+                      <button onClick={() => setTrazer(null)} className="text-xs text-gray-500 px-3">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {legendShape ? (
                 <div className="flex items-center gap-2 mt-2 text-[11px] text-gray-600">
                   <span className="flex-1">Legenda na planta</span>

@@ -38,11 +38,16 @@ export function guessSpec(name: string): Spec {
   }
 }
 
+/** O que diferencia uma linha da legenda da outra. */
+export const chaveDoItem = (it: Pick<Item, 'kind' | 'block' | 'name' | 'mounting' | 'power' | 'light' | 'color' | 'tapeColor' | 'tapeModel'>) =>
+  [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
+export const nomePadrao = (kind: 'perfil' | 'fita') => (kind === 'perfil' ? 'Perfil + Fita' : 'Fita LED')
+
 export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): Item[] {
   const map = new Map<string, Item>()
   const rooms = new Map<string, Set<string>>()
   const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms' | 'porAmbiente'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
-    const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
+    const key = chaveDoItem(it)
     let cur = map.get(key)
     if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '', porAmbiente: {} }; map.set(key, cur); rooms.set(key, new Set()) }
     cur.qty++; cur.meters += meters; cur.keys.push(selKey)
@@ -65,7 +70,7 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
     if (s.kind === 'perfil' || s.kind === 'fita') {
       const sp = s.spec
       add({
-        kind: s.kind, name: sp?.name || (s.kind === 'perfil' ? 'Perfil + Fita' : 'Fita LED'),
+        kind: s.kind, name: sp?.name || nomePadrao(s.kind),
         mounting: sp?.mounting ?? '', power: s.wm ? `${String(s.wm).replace('.', ',')} W/m` : '', light: sp?.light ?? '',
         color: s.stroke, tapeColor: s.kind === 'perfil' ? s.tapeColor : undefined,
         tapeModel: s.kind === 'perfil' ? sp?.tapeModel?.trim() || undefined : undefined,

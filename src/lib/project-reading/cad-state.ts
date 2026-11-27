@@ -25,7 +25,13 @@ export interface Shape {
 }
 export interface Dim { id: number; ax: number; ay: number; bx: number; by: number; off: number }
 export interface Cp { id: number; src: number; xf: M6; attrs?: Record<string, string>; spec?: Spec }
-export interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number }
+/** Item trazido de outro desenho, pronto pra colocar. */
+export interface ItemModelo {
+  key: string; kind: 'bloco' | 'perfil' | 'fita'; nome: string; spec: Spec
+  lib?: LibBlock; lin?: [number, number, number, number] // bloco: definição e giro/escala relativos ao tamanho real
+  stroke?: string; tapeColor?: string; wm?: number; volt?: number; espessura?: number /* perfil, em metros */
+}
+export interface Edits { ov: Record<number, M6 | null>; cp: Cp[]; shapes: Shape[]; dims: Dim[]; next: number; modelos?: ItemModelo[] }
 export const EMPTY_EDITS: Edits = { ov: {}, cp: [], shapes: [], dims: [], next: 1 }
 
 export interface SavedState {
@@ -35,6 +41,7 @@ export interface SavedState {
   shapes: Shape[]
   dims: Dim[]
   next: number
+  modelos?: ItemModelo[] // itens trazidos de outros desenhos
   libs: LibBlock[] // definições usadas, guardadas junto pra não depender da biblioteca
   hidden: string[] // camadas desligadas
   plot?: PlotInfo // dados do carimbo e área da última plotagem
@@ -76,7 +83,7 @@ export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], 
   return {
     v: 1,
     ov: Object.entries(ed.ov).map(([i, xf]) => [model.objs[Number(i)].h, xf]),
-    cp, shapes: ed.shapes, dims: ed.dims, next: ed.next,
+    cp, shapes: ed.shapes, dims: ed.dims, next: ed.next, modelos: ed.modelos,
     libs: Array.from(used).map(n => libDefs.get(n)).filter((b): b is LibBlock => !!b),
     hidden: model.layers.filter((_, i) => !layerVis[i]).map(l => l.name),
     plot,
@@ -104,7 +111,7 @@ export function restoreState(base: CadModel, saved: SavedState) {
     const src = 'lib' in c.ref ? libObj.get(c.ref.lib) : byHandle.get(c.ref.h)
     if (src === undefined) lost++; else cp.push({ id: c.id, src, xf: c.xf, attrs: c.attrs, spec: c.spec })
   }
-  let edits: Edits = { ov, cp, shapes: saved.shapes ?? [], dims: saved.dims ?? [], next: saved.next ?? 1 }
+  let edits: Edits = { ov, cp, shapes: saved.shapes ?? [], dims: saved.dims ?? [], next: saved.next ?? 1, modelos: saved.modelos }
   // trabalho salvo antes da correção de unidade: ajusta o tamanho do que foi colocado
   const antes = base.declaredUnitToMeters
   if (saved.unit === undefined && antes !== undefined && antes !== unit) edits = refitSizes(model, edits, libDefs, antes)
