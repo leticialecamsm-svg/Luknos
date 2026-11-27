@@ -24,6 +24,7 @@ export interface PlotInfo {
   giro?: Giro // planta girada no papel (graus, sentido horário)
   resumo?: boolean // acrescenta a página de resumo para o orçamentista
   legendaPos?: 'baixo' | 'lado' // onde fica a legenda (padrão: embaixo)
+  anexo?: { id: string; label: string; cliente?: string; etapa: string } // solicitação onde o PDF é anexado
 }
 export type Cores = 'ajustadas' | 'originais' | 'pb'
 export type Giro = 0 | 90 | 180 | 270

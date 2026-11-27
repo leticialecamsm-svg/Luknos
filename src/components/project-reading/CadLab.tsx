@@ -504,13 +504,14 @@ export function CadLab() {
       drawSymbol: (ctx, item, x, y, w, h) => comVista({ cx: 0, cy: 0, scale: 1 }, () => paint({ ctx, w: 0, h: 0, symbol: { item, x, y, w, h } })),
     })
   }
-  function baixarPdf(bytes: Uint8Array) {
+  const nomeDoPdf = () => `${drawing?.name || 'planta'} - ${plot.pavimento || 'iluminacao'}`
+  function baixarPdf(bytes: Uint8Array, manterAberto?: boolean) {
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
     const a = document.createElement('a')
-    a.href = url; a.download = `${drawing?.name || 'planta'} - ${plot.pavimento || 'iluminacao'}.pdf`
+    a.href = url; a.download = `${nomeDoPdf()}.pdf`
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    setPlotUi(false); setAviso('PDF gerado — está nos seus downloads.')
+    if (!manterAberto) { setPlotUi(false); setAviso('PDF gerado — está nos seus downloads.') }
   }
   // ── Ambientes ────────────────────────────────────────────────────────────
   const CORES_AMB = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c']
@@ -2162,7 +2163,7 @@ export function CadLab() {
 
       {model && plotUi && (
         <CadPlotPreview plot={plot} setPlot={setPlot} unitToMeters={model.unitToMeters} nItens={items.length} temAmbientes={ed.shapes.some(isRoom)}
-          conteudo={ed} build={montarPdf} onDownload={baixarPdf} onClose={() => setPlotUi(false)}
+          conteudo={ed} build={montarPdf} onDownload={baixarPdf} nomeArquivo={nomeDoPdf()} onClose={() => setPlotUi(false)}
           onMarcar={() => { setPlotUi(false); setTool('plotar') }} />
       )}
 

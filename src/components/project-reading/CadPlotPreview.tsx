@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileDown, Loader2, Minus, Plus, RotateCcw, RotateCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CadAttach, AvisoAnexo, anexarPdf, nomeDaEtapa, type Anexo } from './CadAttach'
 import { plotLayout, PAPEIS, ESCALAS, type PlotInfo, type Papel, type Cores, type Giro } from '@/lib/project-reading/cad-plot'
 
 interface Props {
@@ -15,14 +16,19 @@ interface Props {
   temAmbientes: boolean
   conteudo: unknown // muda quando o desenho muda
   build: () => Promise<Uint8Array | null>
-  onDownload: (bytes: Uint8Array) => void
+  onDownload: (bytes: Uint8Array, manterAberto?: boolean) => void
+  nomeArquivo: string
   onClose: () => void
   onMarcar: () => void
 }
 
 const input = 'w-full text-sm border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white'
 
-export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbientes, conteudo, build, onDownload, onClose, onMarcar }: Props) {
+export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbientes, conteudo, build, onDownload, nomeArquivo, onClose, onMarcar }: Props) {
+  // anexar começa desligado a cada vez; a solicitação escolhida fica guardada no desenho
+  const [anexar, setAnexar] = useState(false)
+  const [envio, setEnvio] = useState<null | { pct?: number; erro?: string; feito?: Anexo }>(null)
+  const enviando = envio?.pct !== undefined
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const bytes = useRef<Uint8Array | null>(null)
@@ -79,6 +85,23 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textos, folha, conteudo, nItens, pagina])
 
+  async function baixar() {
+    const pdf = bytes.current
+    if (!pdf || enviando) return
+    const alvo = anexar ? plot.anexo : undefined
+    onDownload(pdf, !!alvo)
+    if (!alvo) return
+    // data e hora no nome: cada envio fica como uma versão, sem se confundir com a anterior
+    const agora = new Date()
+    const quando = `${agora.toLocaleDateString('pt-BR').replace(/\//g, '-')} ${String(agora.getHours()).padStart(2, '0')}h${String(agora.getMinutes()).padStart(2, '0')}`
+    setEnvio({ pct: 0 })
+    try {
+      await anexarPdf(alvo, `${nomeArquivo} - ${quando}.pdf`.replace(/[\\/:*?"<>|]+/g, '-'), pdf, pct => setEnvio({ pct }))
+      setEnvio({ feito: alvo })
+    } catch (e: any) {
+      setEnvio({ erro: e?.message ?? 'Não foi possível anexar o PDF.' })
+    }
+  }
   const zoom = plot.zoom ?? 1
   const setZoom = (z: number) => set({ zoom: Math.round(Math.max(0.3, Math.min(4, z)) * 100) / 100 })
   const giro = plot.giro ?? 0
@@ -191,7 +214,12 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
         {area2('Proprietário', 'proprietario', 'Nome do cliente')}
         {area2('Escritório responsável', 'escritorio', 'Escritório e telefone')}
         <div className="grid grid-cols-3 gap-2">{campo('Data', 'data')}{campo('Pavimento', 'pavimento')}{campo('Desenho', 'desenho')}</div>
-        <button onClick={() => bytes.current && onDownload(bytes.current)} disabled={!plot.area || busy} className="w-full text-sm font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-50">{busy && plot.area ? 'Preparando...' : 'Baixar PDF'}</button>
+        <CadAttach ativo={anexar} setAtivo={v => { setAnexar(v); setEnvio(null) }} anexo={plot.anexo} setAnexo={a => { set({ anexo: a }); setEnvio(null) }} />
+        <button onClick={baixar} disabled={!plot.area || busy || enviando || (anexar && !plot.anexo)} className="w-full text-sm font-medium bg-brand-600 text-white rounded-lg py-2 disabled:opacity-50">
+          {enviando ? `Anexando... ${envio!.pct}%` : busy && plot.area ? 'Preparando...' : !anexar ? 'Baixar PDF' : plot.anexo ? `Baixar e anexar em ${nomeDaEtapa(plot.anexo.etapa)}` : 'Escolha a solicitação'}
+        </button>
+        {envio?.erro && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">O PDF foi baixado, mas não anexou: {envio.erro} Clique no botão pra tentar de novo.</p>}
+        {envio?.feito && <AvisoAnexo anexo={envio.feito} />}
       </div>
     </div>
   )

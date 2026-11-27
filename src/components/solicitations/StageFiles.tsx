@@ -77,7 +77,7 @@ async function queryCommitted(uploadUrl: string, total: number): Promise<number 
   return null
 }
 
-async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void, alreadyUploaded?: () => Promise<boolean>): Promise<void> {
+export async function putDirectToDrive(uploadUrl: string, file: File, onProgress: (stats: UploadStats) => void, alreadyUploaded?: () => Promise<boolean>): Promise<void> {
   const total = file.size
   let offset = 0
   const t0 = Date.now()
