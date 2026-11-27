@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { isRoom, polyArea, labelPoint, roomAt } from '@/lib/project-reading/cad-rooms'
 import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
+import { alinhar, type Guia } from '@/lib/project-reading/cad-align'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
 import { deCabecaPraBaixo } from '@/lib/project-reading/cad-text'
@@ -22,6 +23,9 @@ import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, duplicateCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
+// ferramentas que usam guias de alinhamento; nas de RETAS o traço já sai reto (Shift solta)
+const COM_GUIAS: string[] = ['linha', 'retangulo', 'circulo', 'perfil', 'fita', 'ambiente', 'texto', 'seta', 'inserir', 'medir', 'distribuir']
+const RETAS: string[] = ['linha', 'perfil', 'fita', 'ambiente', 'seta', 'medir', 'distribuir']
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
@@ -123,6 +127,10 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // alinhamento: Shift solta o traço; referências são pontos/linhas em que o mouse parou
+  const [shift, setShift] = useState(false)
+  const refs = useRef<{ pontos: [number, number][]; linhas: Seg[] }>({ pontos: [], linhas: [] })
+  const parada = useRef<ReturnType<typeof setTimeout> | null>(null)
   // ambientes
   const [roomModal, setRoomModal] = useState<null | { id?: number; pts?: number[]; name: string; color: string }>(null)
   const [verAmbientes, setVerAmbientes] = useState(true)
@@ -1279,7 +1287,7 @@ export function CadLab() {
     // distribuir luz: parede, fileira e posições antes de confirmar
     if (!printing && tool === 'distribuir' && dist.pts.length) {
       const P = (p: number[]) => toScreen(p[0], p[1], w, h)
-      const p2 = dist.pts[1] ?? (cursor ? [cursor.x, cursor.y] : dist.pts[0])
+      const p2 = dist.pts[1] ?? (cursor ? mirar(cursor.x, cursor.y, shift).p : dist.pts[0])
       ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2
       const [a, b] = P(dist.pts[0]), [c, d] = P(p2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke()
       const plano = planoDistribuir()
@@ -1288,6 +1296,23 @@ export function CadLab() {
         ctx.setLineDash([6, 4]); ctx.beginPath(); ctx.moveTo(e1, f1); ctx.lineTo(g1, h1); ctx.stroke(); ctx.setLineDash([])
         for (const centro of plano.centros) { const [x, y] = P(centro); ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke() }
       }
+    }
+    // guias verdes de alinhamento e as referências marcadas
+    function desenharGuias(mira: ReturnType<typeof mirar> | null) {
+      const r = refs.current
+      ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 1.5
+      for (const [x0, y0, x1, y1] of r.linhas) { const [a, b] = toScreen(x0, y0, w, h), [c, d] = toScreen(x1, y1, w, h); ctx.globalAlpha = 0.8; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); ctx.globalAlpha = 1 }
+      ctx.lineWidth = 1.5
+      for (const [px, py] of r.pontos) { const [x, y] = toScreen(px, py, w, h); ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y); ctx.moveTo(x, y - 6); ctx.lineTo(x, y + 6); ctx.stroke() }
+      if (!mira?.guias.length) return
+      const [mx, my] = toScreen(mira.p[0], mira.p[1], w, h)
+      const longe = 2 * (w + h)
+      ctx.lineWidth = 1; ctx.setLineDash([3, 4])
+      for (const g of mira.guias) { const [x, y] = toScreen(g.x, g.y, w, h); ctx.beginPath(); ctx.moveTo(x - g.ux * longe, y + g.uy * longe); ctx.lineTo(x + g.ux * longe, y - g.uy * longe); ctx.stroke() }
+      ctx.setLineDash([])
+      ctx.beginPath(); ctx.moveTo(mx - 4, my - 4); ctx.lineTo(mx + 4, my + 4); ctx.moveTo(mx + 4, my - 4); ctx.lineTo(mx - 4, my + 4); ctx.stroke()
+      const nomes = mira.guias.map(g => g.tipo).filter(t => t !== 'reto')
+      if (nomes.length) { const texto = Array.from(new Set(nomes)).join(' + '); ctx.font = '11px sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = BG; ctx.strokeText(texto, mx + 10, my + 18); ctx.fillStyle = '#4ade80'; ctx.fillText(texto, mx + 10, my + 18) }
     }
     // 6) cotas
     const drawDim = (d: Dim, color: string, lw: number) => {
@@ -1326,7 +1351,9 @@ export function CadLab() {
     }
 
     // 7) rascunho da ferramenta atual
-    const cur = hover ? [hover.x, hover.y] : cursor ? [cursor.x, cursor.y] : null
+    const mira = cursor ? mirar(cursor.x, cursor.y, shift) : null
+    const cur = hover ? [hover.x, hover.y] : mira ? mira.p : null
+    if (COM_GUIAS.includes(tool)) desenharGuias(mira)
     const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
     if (cur && draft.length) {
       if (tool === 'linha') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
@@ -1378,6 +1405,13 @@ export function CadLab() {
   }
   useEffect(() => { paint() })
 
+  // segurar ou soltar o Shift atualiza a prévia mesmo com o mouse parado
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => { if (ev.key === 'Shift') setShift(ev.type === 'keydown') }
+    window.addEventListener('keydown', k); window.addEventListener('keyup', k)
+    return () => { window.removeEventListener('keydown', k); window.removeEventListener('keyup', k); if (parada.current) clearTimeout(parada.current) }
+  }, [])
+
   // zoom com a rodinha
   useEffect(() => {
     const el = wrapRef.current
@@ -1404,6 +1438,43 @@ export function CadLab() {
     const r = wrapRef.current!.getBoundingClientRect()
     return { px: e.clientX - r.left, py: e.clientY - r.top, w: r.width, h: r.height }
   }
+  /** Ponto de onde o traço atual está saindo. */
+  function origemDoTraco(): [number, number] | undefined {
+    if (tool === 'distribuir') return dist.pts.length === 1 ? dist.pts[0] : undefined
+    if (tool === 'retangulo' || tool === 'circulo' || tool === 'texto' || tool === 'inserir') return undefined
+    return draft.length ? (draft[draft.length - 1] as [number, number]) : undefined
+  }
+  /** Onde o próximo ponto vai cair: captura (snap), traço reto e guias de referência. */
+  function mirar(wx: number, wy: number, solto: boolean) {
+    const snap = findSnap(wx, wy)
+    // posicionamento da cota e do lado do distribuir luz são livres
+    const livre = !COM_GUIAS.includes(tool) || (tool === 'medir' && draft.length >= 2) || (tool === 'distribuir' && dist.pts.length >= 2)
+    if (snap) return { p: [snap.x, snap.y], snap, guias: [] as Guia[] }
+    if (livre) return { p: [wx, wy], snap, guias: [] as Guia[] }
+    const r = alinhar({ cursor: [wx, wy], de: origemDoTraco(), reto: !solto && RETAS.includes(tool), pontos: refs.current.pontos, linhas: refs.current.linhas, tol: 9 / view.current.scale })
+    return { p: r.p as number[], snap, guias: r.guias }
+  }
+  // mouse parado em cima de um ponto ou de uma linha: vira referência
+  function agendarReferencia(wx: number, wy: number) {
+    if (parada.current) clearTimeout(parada.current)
+    if (!COM_GUIAS.includes(tool)) return
+    parada.current = setTimeout(() => {
+      const r = refs.current, s = findSnap(wx, wy)
+      if (s) {
+        if (r.pontos.some(p => Math.hypot(p[0] - s.x, p[1] - s.y) < 1e-9)) return
+        r.pontos = [...r.pontos, [s.x, s.y] as [number, number]].slice(-3)
+      } else {
+        const seg = pickSegment(wx, wy)
+        if (!seg || r.linhas.some(l => l.every((v, i) => Math.abs(v - seg[i]) < 1e-9))) return
+        r.linhas = [...r.linhas, seg].slice(-2)
+      }
+      redraw()
+    }, 450)
+  }
+  function limparReferencias() {
+    if (parada.current) clearTimeout(parada.current)
+    refs.current = { pontos: [], linhas: [] }
+  }
   const ortho = (p: number[], from: number[], shift: boolean) => {
     if (!shift) return p
     return Math.abs(p[0] - from[0]) > Math.abs(p[1] - from[1]) ? [p[0], from[1]] : [from[0], p[1]]
@@ -1418,7 +1489,7 @@ export function CadLab() {
   function onDown(e: React.MouseEvent) {
     const { px, py, w, h } = pos(e)
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) { gesture.current = { type: 'pan', x: px, y: py, cx: view.current.cx, cy: view.current.cy }; return }
-    if (e.button === 0 && tool === 'perfil' && !draft.length) { arrasto.current = { px, py, p: point(e).p }; return }
+    if (e.button === 0 && tool === 'perfil' && !draft.length) { arrasto.current = { px, py, p: mirar(...toWorld(px, py, w, h), e.shiftKey).p }; return }
     if (e.button === 0 && tool === 'plotar') { gesture.current = { type: 'box', x: px, y: py, cx: 0, cy: 0, bx: px, by: py }; return }
     if (e.button !== 0 || tool !== 'select') return
     const [wx, wy] = toWorld(px, py, w, h)
@@ -1477,7 +1548,7 @@ export function CadLab() {
       setEd({ ...g.base, shapes: g.base.shapes.map(x => {
         if (x.id !== g.dim) return x
         let p = [tx, ty]
-        if ((x.kind === 'fita' || x.kind === 'ambiente') && e.shiftKey) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
+        if ((x.kind === 'fita' || x.kind === 'ambiente') && !e.shiftKey && !snap) { const j = g.grip! > 0 ? g.grip! - 1 : 1; p = ortho(p, [x.pts[j * 2], x.pts[j * 2 + 1]], true) }
         // mexer no desenho volta a valer a medida desenhada
         return { ...dragGrip(x, g.grip!, p[0], p[1], 0.01 / u2m, e.altKey), metros: g.grip === 2 && x.kind === 'perfil' ? x.metros : undefined }
       }) })
@@ -1496,6 +1567,8 @@ export function CadLab() {
     if (g?.type === 'box') { setBox({ x0: g.x, y0: g.y, x1: px, y1: py }); return }
     setSegHover(tool === 'centro' ? pickSegment(wx, wy) : null)
     setCursor({ x: wx, y: wy })
+    setShift(e.shiftKey)
+    agendarReferencia(wx, wy)
     setHover(tool === 'pan' ? null : findSnap(wx, wy))
   }
   function onUp(e?: React.MouseEvent) {
@@ -1540,8 +1613,10 @@ export function CadLab() {
     if (tool === 'select' || tool === 'pan' || tool === 'plotar') return
     if (textEditRef.current) return // o campo de texto está aberto (o blur confirma)
     const { p: raw } = point(e)
+    const { px: cx, py: cy, w: cw, h: ch } = pos(e)
+    const { p } = mirar(...toWorld(cx, cy, cw, ch), e.shiftKey)
     const last = draft[draft.length - 1]
-    const p = last && tool !== 'medir' ? ortho(raw, last, e.shiftKey) : raw
+    limparReferencias() // cada ponto colocado começa sem referências, como no AutoCAD
     const e0 = edRef.current
     if (tool === 'centro') {
       const { px, py, w, h } = pos(e)
@@ -1562,7 +1637,7 @@ export function CadLab() {
         aplicarDistribuir([hit]); return
       }
       if (dist.pts.length >= 3) return
-      const q = (dist.pts.length === 1 ? ortho(p, dist.pts[0], e.shiftKey) : dist.pts.length === 2 ? raw : p) as [number, number]
+      const q = (dist.pts.length === 2 ? raw : p) as [number, number]
       if (dist.pts.length === 1 && Math.hypot(q[0] - dist.pts[0][0], q[1] - dist.pts[0][1]) < 1e-9) return
       setAviso(null); setDist({ pts: [...dist.pts, q], escolhendo: false }); return
     }
@@ -1623,6 +1698,7 @@ export function CadLab() {
   useEffect(() => { setStateMenu(false) }, [sel])
   useEffect(() => {
     setDraft([]); if (tool !== 'inserir') setPlacing(null)
+    limparReferencias()
     if (tool !== 'perfil' && tool !== 'fita') modeloTape.current = null
     setCentroA(null); setSegHover(null); setDist({ pts: [], escolhendo: false }); if (tool === 'centro' || tool === 'distribuir') setAviso(null)
     // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
@@ -1827,7 +1903,7 @@ export function CadLab() {
       if (mod && k === 'd') { ev.preventDefault(); actDuplicate(); return }
       if (mod) return
       if (k === 'enter' && (toolRef.current === 'fita' || toolRef.current === 'ambiente')) { ev.preventDefault(); finishRef.current(); return }
-      if (k === 'escape') { setRoomModal(null); setPlotUi(false); setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
+      if (k === 'escape') { limparReferencias(); setRoomModal(null); setPlotUi(false); setSpecModal(null); setFonteModal(null); setDraft([]); setSel([]); setTool('select') }
       else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); actDelete() }
       else if (k === 'v') setTool('select')
       else if (k === 'h') setTool('pan')
@@ -2041,15 +2117,15 @@ export function CadLab() {
               {hover && <div className="absolute left-2 bottom-2 text-[11px] bg-white/90 border border-gray-200 rounded px-2 py-0.5 text-green-700 font-medium">snap: {hover.kind}</div>}
               {tool !== 'select' && tool !== 'pan' && (
                 <div className="absolute left-2 top-2 text-[11px] bg-amber-50 border border-amber-200 rounded px-2 py-0.5 text-amber-700">
-                  {tool === 'linha' && (draft.length ? 'Próximo ponto (Shift = reto; Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
+                  {tool === 'linha' && (draft.length ? 'Próximo ponto (sai reto; segure Shift pra soltar. Esc ou botão direito termina)' : 'Clique no ponto inicial da linha')}
                   {tool === 'retangulo' && (draft.length ? 'Clique no canto oposto' : 'Clique no primeiro canto')}
                   {tool === 'circulo' && (draft.length ? 'Clique pra definir o raio' : 'Clique no centro')}
-                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (Shift = reto)' : (modeloTape.current ? `Mais um "${modeloTape.current.nome}": ` : 'Perfil + fita: ') + 'clique no início (ou segure e arraste até o fim)')}
+                  {tool === 'perfil' && (draft.length ? 'Clique pra definir a direção/fim do perfil (sai reto; Shift solta)' : (modeloTape.current ? `Mais um "${modeloTape.current.nome}": ` : 'Perfil + fita: ') + 'clique no início (ou segure e arraste até o fim)')}
                   {tool === 'fita' && (draft.length ? 'Clique os próximos pontos — Enter, botão direito ou duplo clique termina' : (modeloTape.current ? `Mais uma "${modeloTape.current.nome}": ` : 'Fita: ') + 'clique no ponto inicial')}
                   {tool === 'centro' && (centroA ? 'Centerline: clique na SEGUNDA linha' : 'Centerline: clique na PRIMEIRA linha')}
-                  {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift = reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
+                  {tool === 'distribuir' && (dist.escolhendo ? 'Clique na luminária modelo' : ['Distribuir luz: clique na 1ª extremidade da parede', 'Clique na 2ª extremidade da parede (Shift solta o reto)', 'Clique no LADO onde as luminárias devem ficar', 'Confira os valores na caixa à direita'][dist.pts.length])}
                   {tool === 'plotar' && 'Arraste um retângulo em volta da área que vai pro PDF (Esc cancela)'}
-                  {tool === 'ambiente' && (draft.length < 3 ? 'Ambiente: clique nos cantos (Shift = reto)' : 'Continue nos cantos — clique no 1º ponto, Enter ou duplo clique pra fechar')}
+                  {tool === 'ambiente' && (draft.length < 3 ? 'Ambiente: clique nos cantos (sai reto; Shift solta)' : 'Continue nos cantos — clique no 1º ponto, Enter ou duplo clique pra fechar')}
                   {tool === 'texto' && 'Clique onde o texto começa e digite (Enter confirma). Duplo clique num texto edita.'}
                   {tool === 'seta' && (draft.length ? 'Clique onde o texto da seta vai ficar' : 'Seta com texto: clique na PONTA da seta')}
                   {tool === 'inserir' && (placing ? `Inserindo "${placing.spec.name}" — clique pra colocar (Esc termina)` : '')}
