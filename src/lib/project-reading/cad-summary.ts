@@ -2,7 +2,7 @@
 // por ambiente, seguido do total geral. Folha A4 em pé.
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib'
 import { describe, type Item } from './cad-legend'
-import { safeText } from './cad-text'
+import { safeText, quebrarLinhas } from './cad-text'
 
 export interface LinhaResumo { qtd: string; un: string; descricao: string; detalhe?: string; instalacao: string; potencia: string; temp: string }
 export interface GrupoResumo { titulo: string; linhas: LinhaResumo[] }
@@ -46,24 +46,7 @@ export async function addSummaryPages(doc: PDFDocument, info: CabecalhoResumo, i
   let page!: PDFPage, y = 0
 
   const texto = (t: string, x: number, yy: number, size: number, font: PDFFont = normal, gray = 0.08) => page.drawText(safeText(t), { x, y: H - yy, size, font, color: rgb(gray, gray, gray) })
-  /** Quebra em linhas que cabem na largura. */
-  const quebrar = (t: string, size: number, max: number, font: PDFFont = normal) => {
-    const out: string[] = []
-    let atual = ''
-    for (let palavra of safeText(t).split(/\s+/).filter(Boolean)) {
-      const junto = atual ? `${atual} ${palavra}` : palavra
-      if (font.widthOfTextAtSize(junto, size) <= max) { atual = junto; continue }
-      if (atual) out.push(atual)
-      while (palavra.length > 1 && font.widthOfTextAtSize(palavra, size) > max) {
-        let n = palavra.length - 1
-        while (n > 1 && font.widthOfTextAtSize(palavra.slice(0, n), size) > max) n--
-        out.push(palavra.slice(0, n)); palavra = palavra.slice(n)
-      }
-      atual = palavra
-    }
-    if (atual) out.push(atual)
-    return out.length ? out : ['-']
-  }
+  const quebrar = (t: string, size: number, max: number, font: PDFFont = normal) => quebrarLinhas(t, v => font.widthOfTextAtSize(v, size), max)
   const traco = (x0: number, y0: number, x1: number, y1: number, gray = 0.75) => page.drawLine({ start: { x: x0, y: H - y0 }, end: { x: x1, y: H - y1 }, thickness: 0.5, color: rgb(gray, gray, gray) })
   const faixa = (yy: number, h: number, gray: number) => page.drawRectangle({ x: M, y: H - yy - h, width: LARG, height: h, color: rgb(gray, gray, gray) })
 

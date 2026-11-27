@@ -4,7 +4,7 @@
 import { PDFDocument, PDFFont, PDFPage, PDFOperator, PDFOperatorNames as Op, StandardFonts, degrees, rgb, moveTo, lineTo, closePath, stroke, fill, setFillingRgbColor, setStrokingRgbColor, setLineWidth, setDashPattern, pushGraphicsState, popGraphicsState, setGraphicsState, setLineCap, LineCapStyle, rectangle, clip, endPath } from 'pdf-lib'
 import type { Item } from './cad-legend'
 import { describe, qtyLabel } from './cad-legend'
-import { safeText } from './cad-text'
+import { safeText, quebrarLinhas } from './cad-text'
 import { addSummaryPages } from './cad-summary'
 export { safeText }
 
@@ -23,6 +23,7 @@ export interface PlotInfo {
   desloc?: [number, number] // posição da planta na folha, em pontos de A4
   giro?: Giro // planta girada no papel (graus, sentido horário)
   resumo?: boolean // acrescenta a página de resumo para o orçamentista
+  legendaPos?: 'baixo' | 'lado' // onde fica a legenda (padrão: embaixo)
 }
 export type Cores = 'ajustadas' | 'originais' | 'pb'
 export type Giro = 0 | 90 | 180 | 270
@@ -54,19 +55,26 @@ const FRAME = { x0: 56.4, x1: 813.4, y0: 28.2, banda: 472.8, y1: 566 }
 const MM_POR_PT = 25.4 / 72
 const LEG_COLS = [['Símbolo', 28], ['Descrição', 94], ['Instalação', 36], ['Quantidade', 46], ['Lâmp./Fita', 38], ['Temp.', 28], ['Ambientes', 90]] as const
 const LEG_W = LEG_COLS.reduce((s, c) => s + c[1], 0)
+// legenda na lateral direita: símbolo, descrição (com os detalhes embaixo) e quantidade
+const LADO_COLS = [['Símbolo', 28], ['Descrição', 128], ['Qtd.', 34]] as const
+export const LADO_W = LADO_COLS.reduce((s, c) => s + c[1], 0)
 
 /** Divisão da folha e escala da planta (medidas em pontos de A4). */
-export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' | 'zoom' | 'giro'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
+export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' | 'zoom' | 'giro' | 'legendaPos'>, nItens: number, area: [number, number, number, number], unitToMeters: number) {
   const [W, H] = PAPEIS[info.papel]
   const f = W / 842
-  const linhas = info.legenda ? nItens : 0
+  const lateral = info.legenda && nItens > 0 && info.legendaPos === 'lado'
+  const linhas = info.legenda && !lateral ? nItens : 0
   const tabelas = linhas > 7 ? 2 : linhas > 0 ? 1 : 0
   const porTabela = tabelas ? Math.ceil(linhas / tabelas) : 0
   const rowH = porTabela ? Math.min(9.5, 130 / porTabela) : 0
   const legendaH = porTabela ? 12 + 9 + porTabela * rowH : 0
   const legendaTop = FRAME.banda - 5 - legendaH
   // a planta ocupa do topo da moldura até o título da planta (26 pt) acima da legenda
-  const regiao = { x: FRAME.x0 + 2, y: FRAME.y0 + 2, w: FRAME.x1 - FRAME.x0 - 4, h: (legendaH ? legendaTop : FRAME.banda) - FRAME.y0 - 30 }
+  // com a legenda ao lado, a planta usa a altura toda (o título vai pro pé da coluna da direita)
+  const regiao = lateral
+    ? { x: FRAME.x0 + 2, y: FRAME.y0 + 2, w: FRAME.x1 - FRAME.x0 - LADO_W - 14, h: FRAME.banda - FRAME.y0 - 4 }
+    : { x: FRAME.x0 + 2, y: FRAME.y0 + 2, w: FRAME.x1 - FRAME.x0 - 4, h: (legendaH ? legendaTop : FRAME.banda) - FRAME.y0 - 30 }
   // girada de lado, a largura da área ocupa a altura da folha e vice-versa
   const deLado = (info.giro ?? 0) % 180 !== 0
   const larg = Math.max(1e-9, area[2] - area[0]), alt = Math.max(1e-9, area[3] - area[1])
@@ -76,7 +84,7 @@ export function plotLayout(info: Pick<PlotInfo, 'papel' | 'escala' | 'legenda' |
   const ptPorUnidade = info.escala ? (unitToMeters * 1000) / (info.escala * MM_POR_PT) : ajuste * (info.zoom ?? 1)
   const denom = (unitToMeters * 1000) / (ptPorUnidade * MM_POR_PT)
   return {
-    W, H, f, regiao, tabelas, porTabela, rowH, legendaTop, ptPorUnidade, denom,
+    W, H, f, lateral, regiao, tabelas, porTabela, rowH, legendaTop, ptPorUnidade, denom,
     aw, ah, // largura e altura da área como saem no papel (unidades do desenho)
     cabe: !info.escala || ptPorUnidade <= ajuste * 1.001,
     rotuloEscala: info.escala ? `1/${info.escala}` : `ajustada (~1/${Math.round(denom)})`,
@@ -295,7 +303,7 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
   }
 
   // título da planta (à direita, abaixo do desenho)
-  const baseTit = L.regiao.y + L.regiao.h + 8
+  const baseTit = L.lateral ? FRAME.banda - 22 : L.regiao.y + L.regiao.h + 8
   text('PLANTA DE LUMINÁRIAS', FRAME.x1 - 6, baseTit, 6.5, { align: 'right' })
   text(`PLANTA BAIXA - ${info.pavimento.toUpperCase()}`, FRAME.x1 - 6, baseTit + 8, 6.5, { align: 'right' })
   text(`ESCALA ______________ ${L.rotuloEscala}`, FRAME.x1 - 6, baseTit + 16, 5.5, { align: 'right' })
@@ -336,6 +344,54 @@ export async function buildPlotPdf(p: PlotInput): Promise<Uint8Array> {
       })
       sym.flush()
     }
+  }
+
+  // legenda na lateral direita: cada item numa linha com os detalhes empilhados
+  if (L.lateral) {
+    const x = FRAME.x1 - LADO_W - 6, topo = FRAME.y0 + 8, headH = 9
+    const disponivel = baseTit - 12 - (topo + 12 + headH)
+    const montar = (k: number) => items.map(it => {
+      const bloco = (t: string, size: number, bold = false, gray = 0.05) =>
+        quebrarLinhas(t, v => (bold ? fonts.bold : fonts.normal).widthOfTextAtSize(v, size * k), LADO_COLS[1][1] - 6).map(l => ({ l, size: size * k, bold, gray }))
+      const linhas = [
+        ...bloco(describe(it), 4.8, true),
+        ...(it.tapeModel ? bloco(`Fita: ${it.tapeModel}`, 4.2) : []),
+        ...([it.mounting, it.power, it.light].some(Boolean) ? bloco([it.mounting, it.power, it.light].filter(Boolean).join(' · '), 4.2) : []),
+        ...(it.rooms ? bloco(it.rooms, 3.9, false, 0.35) : []),
+      ]
+      const texto = linhas.reduce((s, l) => s + l.size * 1.2, 0)
+      return { it, linhas, texto, alto: Math.max(texto + 5 * k, 17 * k) }
+    })
+    // muitos itens: a letra diminui até a tabela caber na folha
+    let k = 1, rows = montar(k)
+    for (let n = 0; n < 8 && rows.reduce((s, r) => s + r.alto, 0) > disponivel; n++) {
+      k *= Math.min(0.95, disponivel / rows.reduce((s, r) => s + r.alto, 0))
+      rows = montar(k)
+    }
+    const h = headH + rows.reduce((s, r) => s + r.alto, 0)
+    text(`LEGENDA ${info.pavimento.toUpperCase()}`, x, topo + 8, 7, { max: LADO_W })
+    const y0 = topo + 12
+    box(x, y0, LADO_W, h, 1)
+    line(x, y0, x + LADO_W, y0, 0.25); line(x, y0 + headH, x + LADO_W, y0 + headH, 0.25)
+    let cx = x
+    for (const [nome, w] of LADO_COLS) { line(cx, y0, cx, y0 + h, 0.25); text(nome, cx + w / 2, y0 + 6, 3.8, { align: 'center' }); cx += w }
+    line(cx, y0, cx, y0 + h, 0.25)
+    const sym = new PdfCanvas(doc, page, fonts, 0, 0, 0.28 * f, info.cores)
+    let y = y0 + headH
+    for (const r of rows) {
+      const my = y + r.alto / 2
+      let ty = my - r.texto / 2
+      for (const l of r.linhas) { text(l.l, x + LADO_COLS[0][1] + 3, ty + l.size * 0.95, l.size, { bold: l.bold, color: [l.gray, l.gray, l.gray] }); ty += l.size * 1.2 }
+      // metragem: "3,50 m" em cima e as peças embaixo
+      const [qtd, pecas] = qtyLabel(r.it).split(' (')
+      const wq = LADO_COLS[2][1], qx = x + LADO_W - wq / 2
+      text(qtd, qx, my + (pecas ? -0.6 : 1.7) * k, 4.8 * k, { align: 'center', bold: true, max: wq - 3 })
+      if (pecas) text(`(${pecas}`, qx, my + 4.8 * k, 3.8 * k, { align: 'center', max: wq - 3 })
+      p.drawSymbol(sym as unknown as CanvasRenderingContext2D, r.it, (x + LADO_COLS[0][1] / 2) * f, my * f, (LADO_COLS[0][1] - 6) * f, Math.min(r.alto * 0.7, 18 * k) * f)
+      y += r.alto
+      line(x, y, x + LADO_W, y, 0.25)
+    }
+    sym.flush()
   }
 
   // moldura e carimbo

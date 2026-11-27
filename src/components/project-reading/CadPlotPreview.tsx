@@ -38,7 +38,7 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
 
   // textos esperam a digitação parar; ajustes da folha atualizam logo
   const textos = [plot.endereco, plot.proprietario, plot.escritorio, plot.data, plot.pavimento, plot.desenho].join('|')
-  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc, plot.giro, plot.resumo])
+  const folha = JSON.stringify([plot.area, plot.papel, plot.escala, plot.legenda, plot.ambientes, plot.cores, plot.zoom, plot.desloc, plot.giro, plot.resumo, plot.legendaPos])
   const textosAntes = useRef(textos)
   useEffect(() => {
     if (!plot.area) return
@@ -85,6 +85,10 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
   const girar = (d: number) => set({ giro: ((giro + d + 360) % 360) as Giro, zoom: 1, desloc: [0, 0] })
   // quanto a planta cresceria virada de lado (só faz sentido com escala livre)
   const ganho = L && plot.area && !plot.escala ? plotLayout({ ...plot, giro: ((giro + 90) % 360) as Giro }, nItens, plot.area, unitToMeters).ptPorUnidade / plotLayout(plot, nItens, plot.area, unitToMeters).ptPorUnidade : 1
+  // quanto a planta cresceria com a legenda no outro lugar
+  const outraPos = plot.legendaPos === 'lado' ? 'baixo' : 'lado'
+  const ganhoLegenda = L && plot.area && !plot.escala && plot.legenda && nItens ? plotLayout({ ...plot, legendaPos: outraPos }, nItens, plot.area, unitToMeters).ptPorUnidade / plotLayout(plot, nItens, plot.area, unitToMeters).ptPorUnidade : 1
+  const porLegenda = (legendaPos: 'baixo' | 'lado') => set({ legendaPos, zoom: 1, desloc: [0, 0] })
   function soltar() {
     if (!arrasto || !canvasRef.current || !L) return
     if (!arrasto.dx && !arrasto.dy) { setArrasto(null); return }
@@ -167,7 +171,17 @@ export function CadPlotPreview({ plot, setPlot, unitToMeters, nItens, temAmbient
               <option value="pb">Preto e branco</option>
             </select></label>
         </div>
-        <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Legenda embaixo ({nItens} {nItens === 1 ? 'item' : 'itens'})</label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.legenda} onChange={e => set({ legenda: e.target.checked })} /> Legenda na prancha ({nItens} {nItens === 1 ? 'item' : 'itens'})</label>
+        {plot.legenda && nItens > 0 && (
+          <div className="pl-5 space-y-1">
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[11px]">
+              {([['baixo', 'Embaixo'], ['lado', 'Lado direito']] as const).map(([v, nome]) => (
+                <button key={v} onClick={() => porLegenda(v)} className={cn('flex-1 py-1', (plot.legendaPos ?? 'baixo') === v ? 'bg-brand-600 text-white font-medium' : 'text-gray-600 hover:bg-gray-50')}>{nome}</button>
+              ))}
+            </div>
+            {ganhoLegenda > 1.1 && <button onClick={() => porLegenda(outraPos)} className="w-full text-[11px] bg-amber-50 text-amber-700 rounded px-2 py-1 text-left">Com a legenda {outraPos === 'lado' ? 'ao lado' : 'embaixo'}, a planta fica {Math.round((ganhoLegenda - 1) * 100)}% maior. <u>Mudar</u></button>}
+          </div>
+        )}
         {temAmbientes && <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={plot.ambientes} onChange={e => set({ ambientes: e.target.checked })} /> Escrever nome e área dos ambientes</label>}
         <label className={cn('flex items-start gap-1.5 text-xs rounded-lg border p-2 cursor-pointer', plot.resumo ? 'border-brand-400 bg-brand-50 text-navy' : 'border-gray-200 text-gray-600', !nItens && 'opacity-50')}>
           <input type="checkbox" className="mt-0.5" disabled={!nItens} checked={!!plot.resumo} onChange={e => { set({ resumo: e.target.checked }); setPagina(e.target.checked ? 2 : 1) }} />

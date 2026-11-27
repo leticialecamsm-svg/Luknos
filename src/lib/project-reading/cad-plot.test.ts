@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import { buildCadModel } from './cad'
-import { plotLayout, buildPlotPdf, parseColor, ink, safeText, plotPadrao, trimArea } from './cad-plot'
+import { plotLayout, buildPlotPdf, parseColor, ink, safeText, plotPadrao, trimArea, LADO_W } from './cad-plot'
 
 describe('plotagem', () => {
   it('escala fixa vale no papel: 10 m em 1/100 ocupam 100 mm', () => {
@@ -77,5 +77,20 @@ describe('plotagem', () => {
     const mt = (extra: object) => ({ type: 'MTEXT', layer: '0', insertionPoint: { x: 0, y: 0 }, textHeight: 1, text: '4,15', ...extra })
     const m = buildCadModel({ header: {}, tables: { LAYER: { entries: [] }, BLOCK_RECORD: { entries: [{ name: '*Model_Space', entities: [mt({ rotation: 0, direction: { x: 0, y: 1 } }), mt({ rotation: 0.5, direction: { x: 1, y: 0 } }), mt({ rotation: 0.25 })] }] } } })
     expect(m.texts.map(t => Number(t.rot.toFixed(4)))).toEqual([1.5708, 0.5, 0.25])
+  })
+})
+
+describe('legenda no lado direito', () => {
+  const quadrada: [number, number, number, number] = [0, 0, 10, 10]
+  const base = { papel: 'A4' as const, escala: 0, legenda: true }
+  it('dá mais tamanho à planta quadrada e a área dela não invade a legenda', () => {
+    const baixo = plotLayout(base, 7, quadrada, 1), lado = plotLayout({ ...base, legendaPos: 'lado' as const }, 7, quadrada, 1)
+    expect(lado.ptPorUnidade).toBeGreaterThan(baixo.ptPorUnidade * 1.3)
+    expect(lado.tabelas).toBe(0)
+    expect(lado.regiao.x + lado.regiao.w).toBeLessThanOrEqual(813.4 - LADO_W - 6)
+  })
+  it('sem itens ou sem legenda, não reserva a lateral', () => {
+    expect(plotLayout({ ...base, legendaPos: 'lado' as const }, 0, quadrada, 1).lateral).toBe(false)
+    expect(plotLayout({ ...base, legenda: false, legendaPos: 'lado' as const }, 7, quadrada, 1).lateral).toBe(false)
   })
 })
