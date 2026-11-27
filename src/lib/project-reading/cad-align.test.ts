@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alinhar, retasDaCota } from './cad-align'
+import { alinhar, retasDaCota, comMedidas } from './cad-align'
 
 const base = { pontos: [] as [number, number][], linhas: [] as [number, number, number, number][], tol: 0.2, reto: true }
 const perto = (p: number[], q: number[]) => { expect(p[0]).toBeCloseTo(q[0]); expect(p[1]).toBeCloseTo(q[1]) }
@@ -54,5 +54,23 @@ describe('centro do bloco atraído pelas cotas', () => {
   })
   it('cota encostada na linha continua dando os eixos', () => {
     expect(retasDaCota({ ax: 0, ay: 0, bx: 5, by: 0, off: 0 })).toHaveLength(3)
+  })
+})
+
+describe('medidas digitadas', () => {
+  it('linha usa o comprimento na direção do mouse', () => {
+    perto(comMedidas('linha', [1, 1], [1, 9], 2.5), [1, 3.5])
+    perto(comMedidas('linha', [0, 0], [0, 0], 3), [3, 0])
+  })
+  it('retângulo vai pro lado em que o mouse está e o campo vazio fica livre', () => {
+    perto(comMedidas('retangulo', [0, 0], [-0.2, -5], 2, 1), [-2, -1])
+    perto(comMedidas('retangulo', [0, 0], [4, 3], 2, 0), [2, 3])
+  })
+  it('círculo usa o diâmetro', () => {
+    perto(comMedidas('circulo', [0, 0], [10, 0], 3), [1.5, 0])
+  })
+  it('sem medida, segue o mouse', () => {
+    perto(comMedidas('linha', [0, 0], [4, 2], 0), [4, 2])
+    perto(comMedidas('retangulo', [0, 0], [4, 2], 0, 0), [4, 2])
   })
 })

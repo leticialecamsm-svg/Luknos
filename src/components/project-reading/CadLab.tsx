@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { isRoom, polyArea, roomLabel, roomAt } from '@/lib/project-reading/cad-rooms'
 import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
-import { alinhar, retasDaCota, type Guia } from '@/lib/project-reading/cad-align'
+import { alinhar, comMedidas, retasDaCota, type Guia } from '@/lib/project-reading/cad-align'
 import { itensDoDesenho } from '@/lib/project-reading/cad-models'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
@@ -128,6 +128,8 @@ export function CadLab() {
   const [fill, setFill] = useState('#f59e0b')
   const [useFill, setUseFill] = useState(false)
   const [angulo, setAngulo] = useState('45')
+  // medidas digitadas depois do primeiro clique (linha, retângulo, círculo), em metros
+  const [medidas, setMedidas] = useState({ a: '', b: '' })
   // alinhamento: Shift solta o traço; referências são pontos/linhas em que o mouse parou
   const [shift, setShift] = useState(false)
   const refs = useRef<{ pontos: [number, number][]; linhas: Seg[] }>({ pontos: [], linhas: [] })
@@ -1429,7 +1431,8 @@ export function CadLab() {
 
     // 7) rascunho da ferramenta atual
     const mira = cursor ? mirar(cursor.x, cursor.y, shift) : null
-    const cur = hover ? [hover.x, hover.y] : mira ? mira.p : null
+    const livre = hover ? [hover.x, hover.y] : mira ? mira.p : null
+    const cur = livre ? comMedida(livre) : null
     if (COM_GUIAS.includes(tool)) desenharGuias(mira)
     else if (guiasDoMovimento.current) desenharGuias(guiasDoMovimento.current)
     const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
@@ -1728,6 +1731,32 @@ export function CadLab() {
     }
     setBox(null)
   }
+  const comForma = tool === 'linha' || tool === 'retangulo' || tool === 'circulo'
+  /** Aplica o que foi digitado ao ponto indicado pelo mouse. */
+  function comMedida(p: number[]): number[] {
+    if (!comForma || !draft.length) return p
+    return comMedidas(tool as 'linha' | 'retangulo' | 'circulo', draft[0], p, num(medidas.a) / u2m, num(medidas.b) / u2m)
+  }
+  function criarForma(p: number[]) {
+    const e0 = edRef.current, de = draft[0]
+    if (!de) return
+    const [x0, y0] = de, [x1, y1] = p
+    let nova: Omit<Shape, 'id'>
+    if (tool === 'linha') {
+      if (Math.hypot(x1 - x0, y1 - y0) < 1e-9) return
+      nova = { kind: 'line', pts: [x0, y0, x1, y1], stroke, fill: null }
+    } else if (tool === 'retangulo') {
+      if (Math.abs(x1 - x0) < 1e-9 || Math.abs(y1 - y0) < 1e-9) return
+      nova = { kind: 'rect', pts: [x0, y0, x1, y0, x1, y1, x0, y1], stroke, fill: useFill ? fill : null }
+    } else {
+      const r = Math.hypot(x1 - x0, y1 - y0)
+      if (r < 1e-9) return
+      nova = { kind: 'circle', pts: [x0, y0, r], stroke, fill: useFill ? fill : null }
+    }
+    commit({ ...e0, shapes: [...e0.shapes, { ...nova, id: e0.next }], next: e0.next + 1 })
+    setMedidas({ a: '', b: '' })
+    setDraft(tool === 'linha' ? [p] : []) // a linha continua do último ponto; Esc / botão direito termina
+  }
   function onClick(e: React.MouseEvent) {
     if (tool === 'select' || tool === 'pan' || tool === 'plotar') return
     if (textEditRef.current) return // o campo de texto está aberto (o blur confirma)
@@ -1787,23 +1816,9 @@ export function CadLab() {
       commit({ ...e0, cp: [...e0.cp, { id: e0.next, src: placing.obj, xf: matrizDeColocacao(p), spec: placing.spec }], next: e0.next + 1 })
       setSel(['c' + e0.next]); return
     }
-    if (tool === 'linha') {
-      if (!draft.length) { setDraft([p]); return }
-      if (Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return
-      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'line', pts: [draft[0][0], draft[0][1], p[0], p[1]], stroke, fill: null }], next: e0.next + 1 })
-      setDraft([p]) // continua a partir do último ponto; Esc / botão direito termina
-    } else if (tool === 'retangulo') {
-      if (!draft.length) { setDraft([p]); return }
-      const [x0, y0] = draft[0], [x1, y1] = p
-      if (Math.abs(x1 - x0) < 1e-9 || Math.abs(y1 - y0) < 1e-9) return
-      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'rect', pts: [x0, y0, x1, y0, x1, y1, x0, y1], stroke, fill: useFill ? fill : null }], next: e0.next + 1 })
-      setDraft([])
-    } else if (tool === 'circulo') {
-      if (!draft.length) { setDraft([p]); return }
-      const r = Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1])
-      if (r < 1e-9) return
-      commit({ ...e0, shapes: [...e0.shapes, { id: e0.next, kind: 'circle', pts: [draft[0][0], draft[0][1], r], stroke, fill: useFill ? fill : null }], next: e0.next + 1 })
-      setDraft([])
+    if (tool === 'linha' || tool === 'retangulo' || tool === 'circulo') {
+      if (!draft.length) { setMedidas({ a: '', b: '' }); setDraft([p]); return }
+      criarForma(comMedida(p))
     } else if (tool === 'medir') {
       if (draft.length < 2) { if (draft.length === 1 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) < 1e-9) return; setDraft([...draft, p]); return }
       const d: Dim = { id: e0.next, ax: draft[0][0], ay: draft[0][1], bx: draft[1][0], by: draft[1][1], off: 0 }
@@ -1817,7 +1832,7 @@ export function CadLab() {
   useEffect(() => { setStateMenu(false) }, [sel])
   useEffect(() => {
     setDraft([]); if (tool !== 'inserir') setPlacing(null)
-    limparReferencias()
+    limparReferencias(); setMedidas({ a: '', b: '' })
     if (tool !== 'perfil' && tool !== 'fita') modeloTape.current = null
     setCentroA(null); setSegHover(null); setDist({ pts: [], escolhendo: false }); if (tool === 'centro' || tool === 'distribuir') setAviso(null)
     // texto novo nasce legível no zoom atual (~14 px de altura); dá pra ajustar no campo "Texto"
@@ -2294,6 +2309,32 @@ export function CadLab() {
                   {aviso} <button onClick={() => setAviso(null)} className="text-gray-400">✕</button>
                 </div>
               )}
+              {comForma && draft.length > 0 && (() => {
+                // o que está em branco mostra a medida que o mouse está desenhando
+                const alvo = cursor ? comMedida(mirar(cursor.x, cursor.y, shift).p) : draft[0]
+                const dx = alvo[0] - draft[0][0], dy = alvo[1] - draft[0][1]
+                const m2 = (v: number) => (v * u2m).toFixed(2).replace('.', ',')
+                const campos = tool === 'retangulo'
+                  ? [['a', 'Largura ↔', m2(Math.abs(dx))], ['b', 'Comprimento ↕', m2(Math.abs(dy))]] as const
+                  : tool === 'circulo'
+                    ? [['a', 'Diâmetro', m2(Math.hypot(dx, dy) * 2)]] as const
+                    : [['a', 'Comprimento', m2(Math.hypot(dx, dy))]] as const
+                return (
+                  <form key={`${tool}|${draft[0].join(',')}`} className="absolute right-2 top-2 z-10 w-60 space-y-1.5 text-xs bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-gray-600 cursor-default"
+                    onSubmit={e => { e.preventDefault(); criarForma(comMedida(cursor ? mirar(cursor.x, cursor.y, shift).p : draft[0])) }}
+                    onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()} onMouseMove={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                    {campos.map(([k, nome, atual], i) => (
+                      <label key={k} className="flex items-center gap-2"><span className="flex-1 whitespace-nowrap">{nome}</span>
+                        <input autoFocus={i === 0} inputMode="decimal" value={medidas[k]} placeholder={atual} onChange={e => setMedidas(v => ({ ...v, [k]: e.target.value }))}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') { setDraft([]); setMedidas({ a: '', b: '' }) } }}
+                          className="w-20 text-xs border border-gray-200 rounded px-1.5 py-0.5 text-right text-gray-800" />
+                        <span>m</span></label>
+                    ))}
+                    <button type="submit" className="w-full font-medium bg-brand-600 text-white rounded-lg py-1">Criar (Enter)</button>
+                    <p className="text-[10px] text-gray-400">Digite a medida, aponte a direção com o mouse e clique, ou desenhe à mão livre.</p>
+                  </form>
+                )
+              })()}
               {(tool === 'perfil' || tool === 'fita') && (
                 <div className="absolute right-2 top-2 z-10 flex items-center gap-2 text-[11px] bg-white/95 border border-gray-200 rounded px-2 py-1 text-gray-600" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
                   {tool === 'perfil' && (<>

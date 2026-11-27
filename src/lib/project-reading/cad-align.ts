@@ -82,3 +82,17 @@ export function retasDaCota(d: { ax: number; ay: number; bx: number; by: number;
     [d.bx, d.by, d.bx + nx, d.by + ny],
   ]
 }
+
+/**
+ * Segundo ponto de uma linha, retângulo ou círculo quando a medida foi digitada:
+ * o mouse dá só a direção; o que ficou em branco continua livre.
+ * `largura` é o comprimento da linha ou o diâmetro do círculo.
+ */
+export function comMedidas(forma: 'linha' | 'retangulo' | 'circulo', de: number[], mouse: number[], largura: number, altura = 0): [number, number] {
+  const dx = mouse[0] - de[0], dy = mouse[1] - de[1]
+  if (forma === 'retangulo') return [de[0] + (largura > 0 ? (dx < 0 ? -largura : largura) : dx), de[1] + (altura > 0 ? (dy < 0 ? -altura : altura) : dy)]
+  const alvo = forma === 'circulo' ? largura / 2 : largura
+  if (!(alvo > 0)) return [mouse[0], mouse[1]]
+  const d = Math.hypot(dx, dy)
+  return d > 1e-9 ? [de[0] + (dx / d) * alvo, de[1] + (dy / d) * alvo] : [de[0] + alvo, de[1]]
+}
