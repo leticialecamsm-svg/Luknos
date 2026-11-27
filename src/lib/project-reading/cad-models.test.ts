@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { itensDoDesenho } from './cad-models'
 import { collectItems } from './cad-legend'
-import { EMPTY_EDITS, serializeState, restoreState, type Edits } from './cad-state'
+import { EMPTY_EDITS, serializeState, restoreState, atualizarBlocos, type Edits } from './cad-state'
 import { buildCadModel, appendLibBlock, type LibBlock } from './cad'
 
 const spot: LibBlock = { name: 'Spot', unitToMeters: 1, cols: ['#fff'], segs: [-0.1, -0.1, 0.1, 0.1], segC: [0], texts: [], fills: [], bbox: [-0.1, -0.1, 0.1, 0.1] }
@@ -39,5 +39,17 @@ describe('itens prontos de outro desenho', () => {
     const s = JSON.parse(JSON.stringify(serializeState(base, { ...EMPTY_EDITS, modelos }, [], new Map())))
     expect(restoreState(base, s).edits.modelos).toEqual(modelos)
     expect(itensDoDesenho(s)).toEqual(modelos)
+  })
+})
+
+describe('bloco consertado na biblioteca', () => {
+  it('substitui a definição antiga guardada no desenho e nos itens prontos', () => {
+    const novo: LibBlock = { ...spot, cols: ['#dc2626'] }
+    const comPronto = { ...salvo, modelos: itensDoDesenho(salvo) }
+    const r = atualizarBlocos(comPronto, new Map([[novo.name, novo]]))
+    expect(r.libs[0].cols).toEqual(['#dc2626'])
+    expect(r.modelos![0].lib!.cols).toEqual(['#dc2626'])
+    expect(r.cp).toBe(comPronto.cp)
+    expect(atualizarBlocos(salvo, new Map()).libs).toEqual(salvo.libs)
   })
 })

@@ -20,7 +20,7 @@ import { CadPlotPreview } from './CadPlotPreview'
 import { CATALOGO_FONTES_12V } from '@/lib/project-reading/calculations'
 import { isTape, tapeMeters, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
-import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec, type ItemModelo } from '@/lib/project-reading/cad-state'
+import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec, type ItemModelo, atualizarBlocos } from '@/lib/project-reading/cad-state'
 import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, duplicateCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
@@ -565,7 +565,7 @@ export function CadLab() {
     setTrazer({ origem: id, carregando: true, marcados: [] })
     const r = await openCadDrawing(id).catch(() => ({ error: 'Sem conexão', state: null }))
     const ja = new Set([...items.map(i => i.key), ...(edRef.current.modelos ?? []).map(m => m.key)])
-    const itens = itensDoDesenho(r.state).filter(m => !ja.has(m.key))
+    const itens = itensDoDesenho(await comBlocosAtuais(r.state)).filter(m => !ja.has(m.key))
     setTrazer(t => (t?.origem === id ? { origem: id, erro: r.error, itens, marcados: itens.map(m => m.key) } : t))
   }
   function confirmarTrazer() {
@@ -911,6 +911,15 @@ export function CadLab() {
     }
   }
 
+  // os painéis foram redesenhados na biblioteca: o desenho aberto usa sempre a versão atual deles
+  async function comBlocosAtuais(state: SavedState | null | undefined) {
+    if (!state) return state
+    try {
+      const r = await listCadLibrary()
+      const paineis = (r.rows ?? []).filter(x => x.family?.startsWith('Painel'))
+      return atualizarBlocos(state, new Map(paineis.map(x => [x.name, normalizeLibBlock(x.data)])))
+    } catch { return state }
+  }
   async function openSaved(id: string) {
     const seq = ++loadSeq.current
     resetEditor(); setLoading(true)
@@ -922,7 +931,9 @@ export function CadLab() {
       if (!res.ok) throw new Error('Não foi possível baixar o arquivo salvo.')
       const buf = await res.arrayBuffer()
       if (seq !== loadSeq.current) return
-      await loadDrawing(buf, r.state)
+      const state = await comBlocosAtuais(r.state)
+      if (seq !== loadSeq.current) return
+      await loadDrawing(buf, state)
       setDrawing({ id, name: r.name ?? '' }); setSaveStatus({ kind: 'salvo' })
       setUrlDrawing(id)
     } catch (e: any) {

@@ -91,6 +91,15 @@ export function serializeState(model: CadModel, ed: Edits, layerVis: boolean[], 
   }
 }
 
+/**
+ * Troca as definições guardadas no desenho pelas atuais (de mesmo nome), pra um
+ * bloco consertado na biblioteca aparecer consertado nos desenhos já salvos.
+ */
+export function atualizarBlocos(saved: SavedState, atuais: Map<string, LibBlock>): SavedState {
+  const novo = (b: LibBlock) => atuais.get(b.name) ?? b
+  return { ...saved, libs: (saved.libs ?? []).map(novo), modelos: saved.modelos?.map(m => (m.lib ? { ...m, lib: novo(m.lib) } : m)) }
+}
+
 export function restoreState(base: CadModel, saved: SavedState) {
   const unit = saved.unit ?? base.unitToMeters
   let model: CadModel = unit === base.unitToMeters ? base : { ...base, unitToMeters: unit, unitName: unitName(unit) }
