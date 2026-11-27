@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alinhar } from './cad-align'
+import { alinhar, retasDaCota } from './cad-align'
 
 const base = { pontos: [] as [number, number][], linhas: [] as [number, number, number, number][], tol: 0.2, reto: true }
 const perto = (p: number[], q: number[]) => { expect(p[0]).toBeCloseTo(q[0]); expect(p[1]).toBeCloseTo(q[1]) }
@@ -37,5 +37,22 @@ describe('alinhamento ao desenhar', () => {
   })
   it('longe de tudo, não puxa', () => {
     expect(alinhar({ ...base, pontos: [[3, 4]], cursor: [8, 8] }).guias).toEqual([])
+  })
+})
+
+describe('centro do bloco atraído pelas cotas', () => {
+  // cota horizontal acima e cota vertical à direita, apontando pro mesmo eixo
+  const cotas = [{ ax: 0, ay: 0, bx: 5, by: 0, off: 2 }, { ax: 3, ay: -4, bx: 3, by: -1, off: 1 }]
+  const linhas = cotas.flatMap(retasDaCota)
+  it('cai no cruzamento do eixo da chamada com a linha da outra cota', () => {
+    const r = alinhar({ cursor: [0.08, -0.93], pontos: [], linhas, reto: false, tol: 0.2 })
+    perto(r.p, [0, -1])
+    expect(r.guias).toHaveLength(2)
+  })
+  it('corre em cima do eixo quando só uma linha está perto', () => {
+    perto(alinhar({ cursor: [0.1, -2.5], pontos: [], linhas, reto: false, tol: 0.2 }).p, [0, -2.5])
+  })
+  it('cota encostada na linha continua dando os eixos', () => {
+    expect(retasDaCota({ ax: 0, ay: 0, bx: 5, by: 0, off: 0 })).toHaveLength(3)
   })
 })

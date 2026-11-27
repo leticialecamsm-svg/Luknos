@@ -376,7 +376,8 @@ export function computeRegions(model: CadModel): CadRegion[] {
   const c = 10 / model.unitToMeters // ~10 m
   const cells = new Map<string, { n: number; x0: number; y0: number; x1: number; y1: number }>()
   for (let i = 0; i < model.segLayer.length; i++) {
-    if (!model.layers[model.segLayer[i]].visible) continue
+    // definição de bloco da biblioteca não é parte do desenho (ela mora no ponto zero)
+    if (!model.layers[model.segLayer[i]].visible || model.objs[model.segObj[i]]?.kind === 'LIB') continue
     const x1 = model.segs[i * 4], y1 = model.segs[i * 4 + 1], x2 = model.segs[i * 4 + 2], y2 = model.segs[i * 4 + 3]
     const k = `${Math.floor((x1 + x2) / 2 / c)},${Math.floor((y1 + y2) / 2 / c)}`
     const cell = cells.get(k)

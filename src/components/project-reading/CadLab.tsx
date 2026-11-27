@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { isRoom, polyArea, roomLabel, roomAt } from '@/lib/project-reading/cad-rooms'
 import { buildPlotPdf, plotLayout, plotPadrao, trimArea, PAPEIS, ESCALAS, type PlotInfo, type Papel } from '@/lib/project-reading/cad-plot'
 import { centerline, distribuirLuz, type Seg } from '@/lib/project-reading/cad-commands'
-import { alinhar, type Guia } from '@/lib/project-reading/cad-align'
+import { alinhar, retasDaCota, type Guia } from '@/lib/project-reading/cad-align'
 import { itensDoDesenho } from '@/lib/project-reading/cad-models'
 import { collectItems, guessSpec, qtyLabel, describe, legendLayout, legendPoly, LEGEND_HEADERS, type Item } from '@/lib/project-reading/cad-legend'
 import { CadSpecFields } from './CadSpecFields'
@@ -27,7 +27,7 @@ type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'te
 // ferramentas que usam guias de alinhamento; nas de RETAS o traço já sai reto (Shift solta)
 const COM_GUIAS: string[] = ['linha', 'retangulo', 'circulo', 'perfil', 'fita', 'ambiente', 'texto', 'seta', 'inserir', 'medir', 'distribuir']
 const RETAS: string[] = ['linha', 'perfil', 'fita', 'ambiente', 'seta', 'medir', 'distribuir']
-interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
+interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' | 'centro' }
 const ID6: M6 = [1, 0, 0, 1, 0, 0]
 const mul6 = (p: M6, q: M6): M6 => [
   p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1],
@@ -200,6 +200,7 @@ export function CadLab() {
     grip?: number
     x: number; y: number; cx: number; cy: number
     base?: Edits; start?: [number, number]; moved?: boolean; keys?: string[]; dim?: number
+    centro?: [number, number] // mover bloco: centro dele no início (é o que gruda nas cotas e linhas)
     bx?: number; by?: number
   }>(null)
   const [box, setBoxState] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null)
@@ -413,7 +414,7 @@ export function CadLab() {
   }
   // ── Centerline e Distribuir Luz ──────────────────────────────────────────
   // trecho reto mais próximo do cursor (do arquivo, movido, copiado ou desenhado)
-  function pickSegment(wx: number, wy: number): Seg | null {
+  function pickSegment(wx: number, wy: number, semBlocos?: Set<string>): Seg | null {
     const m = modelRef.current; if (!m) return null
     const e0 = edRef.current, tol = 8 / view.current.scale
     let best: Seg | null = null, bd = tol
@@ -429,8 +430,10 @@ export function CadLab() {
       for (let i = o.s0; i < o.s1; i++) { const [a, b] = ap6(xf, m.segs[i * 4], m.segs[i * 4 + 1]), [c, d] = ap6(xf, m.segs[i * 4 + 2], m.segs[i * 4 + 3]); test(a, b, c, d) }
     }
     for (const k of Object.keys(e0.ov)) { const v = e0.ov[Number(k)]; if (v) inst(Number(k), v) }
-    for (const c of e0.cp) inst(c.src, c.xf)
+    // pro ímã de um bloco, o desenho dos próprios blocos não conta (nem o que está sendo movido)
+    for (const c of e0.cp) if (!semBlocos || (m.objs[c.src]?.kind !== 'LIB' && !semBlocos.has('c' + c.id))) inst(c.src, c.xf)
     for (const s of e0.shapes) {
+      if (semBlocos?.has('s' + s.id)) continue
       const poly = s.kind === 'rect' ? s.pts : s.kind === 'perfil' ? perfilPoly(s) : null
       if (poly) for (let i = 0; i < 8; i += 2) test(poly[i], poly[i + 1], poly[(i + 2) % 8], poly[(i + 3) % 8])
       else if (s.kind === 'line' || s.kind === 'fita') for (let i = 0; i + 3 < s.pts.length; i += 2) test(s.pts[i], s.pts[i + 1], s.pts[i + 2], s.pts[i + 3])
@@ -656,7 +659,15 @@ export function CadLab() {
       }
     }
     for (const k of Object.keys(ed.ov)) { const v = ed.ov[Number(k)]; if (v) inst(Number(k), v, 'o' + k) }
-    for (const c of ed.cp) inst(c.src, c.xf, 'c' + c.id)
+    for (const c of ed.cp) {
+      inst(c.src, c.xf, 'c' + c.id)
+      const [x, y] = centroDoBloco(c.src, c.xf)
+      out.push({ x, y, kind: 'centro', key: 'c' + c.id })
+    }
+    for (const d of ed.dims) { // pontos medidos e pontas da linha de cota
+      const g = dimGeom(d), key = 'd' + d.id
+      for (const [x, y] of [[d.ax, d.ay], [d.bx, d.by], g.p1, g.p2]) out.push({ x, y, kind: 'ponta', key })
+    }
     for (const s of ed.shapes) {
       const key = 's' + s.id
       if (s.kind === 'circle') out.push({ x: s.pts[0], y: s.pts[1], kind: 'bloco', key })
@@ -669,6 +680,29 @@ export function CadLab() {
     return out
   }, [ed, model])
 
+  function centroDoBloco(src: number, xf: M6): [number, number] {
+    const [x0, y0, x1, y1] = model!.objs[src].bbox
+    return ap6(xf, (x0 + x1) / 2, (y0 + y1) / 2)
+  }
+  /**
+   * Ímã do centro de um bloco: pontos (snap), eixos das cotas, linhas desenhadas
+   * e do arquivo, e o alinhamento com o centro dos outros blocos.
+   */
+  function ima(wx: number, wy: number, fora: Set<string> = new Set()): { p: number[]; snap: Snap | null; guias: Guia[] } {
+    const snap = findSnap(wx, wy, fora)
+    if (snap) return { p: [snap.x, snap.y], snap, guias: [] }
+    const m = modelRef.current!, e0 = edRef.current
+    const pontos: [number, number][] = [...refs.current.pontos]
+    for (const c of e0.cp) if (!fora.has('c' + c.id) && m.objs[c.src]?.kind === 'LIB') pontos.push(centroDoBloco(c.src, c.xf))
+    const linhas: Seg[] = [...refs.current.linhas]
+    for (const d of e0.dims) if (!fora.has('d' + d.id)) linhas.push(...retasDaCota(d))
+    for (const s of e0.shapes) if (s.kind === 'line' && !fora.has('s' + s.id)) linhas.push([s.pts[0], s.pts[1], s.pts[2], s.pts[3]])
+    const doArquivo = pickSegment(wx, wy, fora)
+    if (doArquivo) linhas.push(doArquivo)
+    const r = alinhar({ cursor: [wx, wy], reto: false, pontos, linhas, tol: 9 / view.current.scale })
+    return { p: r.p, snap: null, guias: r.guias }
+  }
+  const guiasDoMovimento = useRef<{ p: number[]; snap: Snap | null; guias: Guia[] } | null>(null)
   function findSnap(wx: number, wy: number, exclude?: Set<string>): Snap | null {
     if (!snapIndex || !model) return null
     const rWorld = 12 / view.current.scale
@@ -683,7 +717,7 @@ export function CadLab() {
         for (const i of arr) {
           const p = pts[i]
           if (!layerVis[p.layer]) continue
-          if (p.obj >= 0 && (p.obj in e.ov || exclude?.has('o' + p.obj))) continue
+          if (p.obj >= 0 && (p.obj in e.ov || exclude?.has('o' + p.obj) || model.objs[p.obj]?.kind === 'LIB')) continue
           const d = Math.hypot(p.x - wx, p.y - wy) + (p.kind === 'meio' ? rWorld * 0.05 : 0)
           if (d < bestD) { bestD = d; best = { x: p.x, y: p.y, kind: p.kind } }
         }
@@ -773,7 +807,7 @@ export function CadLab() {
     for (const c of e.cp) consider('c' + c.id, hitObj(c.src, c.xf, wx, wy, tol))
     for (let i = 0; i < model.objs.length; i++) {
       const v = e.ov[i]
-      if (v === null) continue
+      if (v === null || model.objs[i].kind === 'LIB') continue
       consider('o' + i, hitObj(i, v ?? ID6, wx, wy, tol))
     }
     return best
@@ -1008,7 +1042,9 @@ export function CadLab() {
     const naFolha = (c: string) => (printing ? c : cor(c))
     const colorOf = (col: number, layer: number) => naFolha(col ? model.palette[col] : model.layers[layer].color)
     const inView = (b: number[]) => !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1)
-    const dirty = (o: number) => o in ed.ov
+    // fora do desenho de base: o que foi movido e as definições dos blocos da biblioteca
+    // (elas só aparecem onde foram colocadas, em `ed.cp`)
+    const dirty = (o: number) => o in ed.ov || model.objs[o]?.kind === 'LIB'
     const selSet = new Set(printing ? [] : sel)
 
     // pinta um objeto (original, movido ou cópia) com transformação opcional
@@ -1395,6 +1431,7 @@ export function CadLab() {
     const mira = cursor ? mirar(cursor.x, cursor.y, shift) : null
     const cur = hover ? [hover.x, hover.y] : mira ? mira.p : null
     if (COM_GUIAS.includes(tool)) desenharGuias(mira)
+    else if (guiasDoMovimento.current) desenharGuias(guiasDoMovimento.current)
     const guide = (fn: () => void) => { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); fn(); ctx.setLineDash([]) }
     if (cur && draft.length) {
       if (tool === 'linha') guide(() => { const [x1, y1] = toScreen(draft[0][0], draft[0][1], w, h), [x2, y2] = toScreen(cur[0], cur[1], w, h); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke() })
@@ -1490,6 +1527,7 @@ export function CadLab() {
     const snap = findSnap(wx, wy)
     // posicionamento da cota e do lado do distribuir luz são livres
     const livre = !COM_GUIAS.includes(tool) || (tool === 'medir' && draft.length >= 2) || (tool === 'distribuir' && dist.pts.length >= 2)
+    if (tool === 'inserir' && !solto) return ima(wx, wy)
     if (snap) return { p: [snap.x, snap.y], snap, guias: [] as Guia[] }
     if (livre) return { p: [wx, wy], snap, guias: [] as Guia[] }
     const r = alinhar({ cursor: [wx, wy], de: origemDoTraco(), reto: !solto && RETAS.includes(tool), pontos: refs.current.pontos, linhas: refs.current.linhas, tol: 9 / view.current.scale })
@@ -1571,8 +1609,11 @@ export function CadLab() {
       if (hit[0] === 'd' && keys.length === 1) {
         gesture.current = { type: 'dimdrag', x: px, y: py, cx: 0, cy: 0, base: edRef.current, dim: Number(hit.slice(1)), moved: false }
       } else {
-        const s = findSnap(wx, wy, new Set())
-        gesture.current = { type: 'move', x: px, y: py, cx: 0, cy: 0, base: edRef.current, keys, start: s ? [s.x, s.y] : [wx, wy], moved: false }
+        // arrastando bloco, quem gruda é o centro dele; o resto continua pelo ponto clicado
+        const chave = hit[0] === 'c' ? hit : keys.find(k => k[0] === 'c')
+        const bloco = edRef.current.cp.find(c => 'c' + c.id === chave && model!.objs[c.src]?.kind === 'LIB')
+        const s = bloco ? null : findSnap(wx, wy, new Set())
+        gesture.current = { type: 'move', x: px, y: py, cx: 0, cy: 0, base: edRef.current, keys, start: s ? [s.x, s.y] : [wx, wy], moved: false, centro: bloco && centroDoBloco(bloco.src, bloco.xf) }
       }
     } else {
       if (!e.shiftKey) setSel([])
@@ -1591,11 +1632,19 @@ export function CadLab() {
     if (g?.type === 'move' && g.base && g.keys) {
       if (!g.moved && Math.hypot(px - g.x, py - g.y) < 4) return
       g.moved = true
-      const s = findSnap(wx, wy, new Set(g.keys))
-      let [tx, ty] = s ? [s.x, s.y] : [wx, wy]
-      if (e.shiftKey) { if (Math.abs(tx - g.start![0]) > Math.abs(ty - g.start![1])) ty = g.start![1]; else tx = g.start![0] }
-      setHover(s)
-      setEd(applyXf(g.base, g.keys, [1, 0, 0, 1, tx - g.start![0], ty - g.start![1]]))
+      let dx: number, dy: number
+      if (g.centro) {
+        const m = ima(g.centro[0] + wx - g.start![0], g.centro[1] + wy - g.start![1], new Set(g.keys))
+        dx = m.p[0] - g.centro[0]; dy = m.p[1] - g.centro[1]
+        guiasDoMovimento.current = m
+        setHover(m.snap)
+      } else {
+        const s = findSnap(wx, wy, new Set(g.keys))
+        dx = (s ? s.x : wx) - g.start![0]; dy = (s ? s.y : wy) - g.start![1]
+        setHover(s)
+      }
+      if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; guiasDoMovimento.current = null }
+      setEd(applyXf(g.base, g.keys, [1, 0, 0, 1, dx, dy]))
       return
     }
     if (g?.type === 'grip' && g.base) {
@@ -1642,6 +1691,7 @@ export function CadLab() {
   }
   function onUp(e?: React.MouseEvent) {
     arrasto.current = null
+    guiasDoMovimento.current = null
     const g = gesture.current
     gesture.current = null
     if (!g) return
@@ -1672,7 +1722,7 @@ export function CadLab() {
         const touch = !(bb[2] < ax || bb[0] > bx || bb[3] < ay || bb[1] > by)
         if (crossing ? touch : inside) keys.push(k)
       }
-      for (let i = 0; i < model.objs.length; i++) if (layerVis[model.objs[i].layer]) test('o' + i)
+      for (let i = 0; i < model.objs.length; i++) if (layerVis[model.objs[i].layer] && model.objs[i].kind !== 'LIB') test('o' + i)
       e0.cp.forEach(c => test('c' + c.id)); e0.shapes.forEach(s => { if (!(crossing && isRoom(s))) test('s' + s.id) }); e0.dims.forEach(d => test('d' + d.id))
       setSel(prev => (e?.shiftKey ? Array.from(new Set([...prev, ...keys])) : keys))
     }

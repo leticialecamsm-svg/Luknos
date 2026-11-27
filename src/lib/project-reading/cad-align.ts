@@ -67,3 +67,18 @@ export function alinhar(i: AlinharInput): { p: Pt; guias: Guia[] } {
   }
   return perto.length ? { p: projetar(perto[0], c), guias: [perto[0]] } : { p: c, guias: [] }
 }
+
+/**
+ * Retas que atraem o centro de um bloco: a linha de cota e as duas linhas de
+ * chamada de cada cota (como retas infinitas, mesmo com a cota encostada).
+ */
+export function retasDaCota(d: { ax: number; ay: number; bx: number; by: number; off: number }): Seg[] {
+  const dx = d.bx - d.ax, dy = d.by - d.ay, len = Math.hypot(dx, dy)
+  if (!(len > 1e-9)) return []
+  const nx = -dy / len, ny = dx / len, ox = nx * d.off, oy = ny * d.off
+  return [
+    [d.ax + ox, d.ay + oy, d.bx + ox, d.by + oy],
+    [d.ax, d.ay, d.ax + nx, d.ay + ny],
+    [d.bx, d.by, d.bx + nx, d.by + ny],
+  ]
+}
