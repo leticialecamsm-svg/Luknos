@@ -19,7 +19,7 @@ import { CATALOGO_FONTES_12V } from '@/lib/project-reading/calculations'
 import { isTape, tapeMeters, polyLength, perfilPoly, setLength, gripsOf, dragGrip, nearestOnTape, dimensionarFonte } from '@/lib/project-reading/cad-tape'
 import { createClient } from '@/lib/supabase/client'
 import { serializeState, restoreState, refitSizes, EMPTY_EDITS as EMPTY, type M6, type Shape, type Dim, type Edits, type SavedState, type Spec } from '@/lib/project-reading/cad-state'
-import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
+import { listCadDrawings, createCadUpload, finalizeCadDrawing, openCadDrawing, saveCadDrawingState, renameCadDrawing, deleteCadDrawing, duplicateCadDrawing, type CadDrawingRow } from '@/lib/project-reading/cad-drawing-actions'
 
 type Tool = 'select' | 'pan' | 'medir' | 'linha' | 'retangulo' | 'circulo' | 'texto' | 'seta' | 'inserir' | 'perfil' | 'fita' | 'centro' | 'distribuir' | 'plotar' | 'ambiente'
 interface Snap { x: number; y: number; kind: 'ponta' | 'meio' | 'bloco' }
@@ -859,6 +859,18 @@ export function CadLab() {
     const r = await renameCadDrawing(id, v)
     if (r.error) { setError(r.error); return }
     setDrawing(d => (d?.id === id ? { id, name: v.trim() } : d)); refreshDrawings()
+  }
+  async function duplicateDrawing(id: string, atual: string) {
+    // a cópia parte do que está salvo: grava antes o que estiver pendente
+    if (drawingRef.current?.id === id && !(await flushSave())) { setError('Não consegui salvar as últimas alterações, então não dupliquei.'); return }
+    const nome = window.prompt('Nome da cópia:', `${atual} (cópia)`)
+    if (!nome?.trim()) return
+    setError(null); setAviso('Duplicando o desenho...')
+    const r = await duplicateCadDrawing(id, nome).catch(() => ({ error: 'Sem conexão' }) as { id?: string; error?: string })
+    if (r.error || !r.id) { setAviso(null); setError(r.error ?? 'Não foi possível duplicar'); return }
+    await openSaved(r.id)
+    refreshDrawings()
+    setAviso(`Você está na cópia "${nome.trim()}". O original ficou como estava.`)
   }
   async function removeDrawing(id: string, nome: string) {
     if (!window.confirm(`Apagar o desenho "${nome}" e todas as alterações dele? Não dá pra desfazer.`)) return
@@ -1891,6 +1903,7 @@ export function CadLab() {
           <button onClick={closeDrawing} className="text-brand-600 font-medium hover:underline">← Meus desenhos</button>
           <span className="font-semibold text-navy truncate max-w-[40ch]">{drawing.name}</span>
           {drawing.id && <button onClick={() => renameDrawing(drawing.id!, drawing.name)} className="text-xs text-gray-400 hover:text-gray-700 underline">renomear</button>}
+          {drawing.id && <button onClick={() => duplicateDrawing(drawing.id!, drawing.name)} title="Criar uma cópia deste desenho (outra versão ou outra planta do mesmo arquivo)" className="text-xs font-medium border border-brand-600 text-brand-600 rounded-lg px-2.5 py-1 hover:bg-brand-50">Duplicar</button>}
           {saveStatus && (
             <span className={cn('ml-auto text-xs rounded-full px-2.5 py-1', saveStatus.kind === 'erro' ? 'bg-red-50 text-red-600' : saveStatus.kind === 'salvo' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
               {saveStatus.kind === 'salvo' && `✓ Salvo${saveStatus.msg ? ` às ${saveStatus.msg}` : ''}`}
@@ -1916,6 +1929,7 @@ export function CadLab() {
                   <span className="block text-xs text-gray-400 truncate">{d.file_name} · {(d.size_bytes / 1e6).toFixed(1)} MB · alterado em {new Date(d.updated_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
                 </button>
                 <button onClick={() => openSaved(d.id)} className="text-xs font-medium bg-brand-600 text-white rounded-lg px-3 py-1.5">Abrir</button>
+                <button onClick={() => duplicateDrawing(d.id, d.name)} className="text-xs text-gray-500 underline">duplicar</button>
                 <button onClick={() => renameDrawing(d.id, d.name)} className="text-xs text-gray-500 underline">renomear</button>
                 <button onClick={() => removeDrawing(d.id, d.name)} title="Apagar desenho" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
               </div>

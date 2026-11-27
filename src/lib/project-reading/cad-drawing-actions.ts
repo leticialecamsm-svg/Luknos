@@ -66,6 +66,24 @@ export async function saveCadDrawingState(id: string, state: SavedState): Promis
   return data?.length ? {} : { error: 'Desenho não encontrado' }
 }
 
+/** Cópia independente (arquivo e alterações), pra versões ou pra separar plantas. */
+export async function duplicateCadDrawing(id: string, name: string): Promise<{ id?: string; error?: string }> {
+  const userId = await requireUserId()
+  if (!userId) return { error: 'Não autenticado' }
+  if (!name.trim()) return { error: 'Nome vazio' }
+  const admin = createAdminClient()
+  const { data } = await admin.from('cad_drawings').select('file_name, storage_path, size_bytes, state').eq('id', id).eq('owner', userId).single()
+  if (!data) return { error: 'Desenho não encontrado' }
+  const path = `${userId}/${Date.now()}_${data.file_name.replace(/[^\w.\-]/g, '_')}`
+  const copia = await admin.storage.from(BUCKET).copy(data.storage_path, path)
+  if (copia.error) return { error: copia.error.message }
+  const novo = await admin.from('cad_drawings')
+    .insert({ owner: userId, name: name.trim(), file_name: data.file_name, storage_path: path, size_bytes: data.size_bytes, state: data.state })
+    .select('id').single()
+  if (novo.error) { await admin.storage.from(BUCKET).remove([path]); return { error: novo.error.message } }
+  return { id: novo.data.id }
+}
+
 export async function renameCadDrawing(id: string, name: string): Promise<{ error?: string }> {
   const userId = await requireUserId()
   if (!userId) return { error: 'Não autenticado' }

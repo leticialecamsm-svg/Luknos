@@ -1,5 +1,5 @@
 import { describe as suite, it, expect } from 'vitest'
-import { collectItems, guessSpec, qtyLabel, legendLayout } from './cad-legend'
+import { collectItems, describe, guessSpec, qtyLabel, legendLayout } from './cad-legend'
 import { EMPTY_EDITS, serializeState, restoreState, type Edits } from './cad-state'
 import { buildCadModel, appendLibBlock, type LibBlock } from './cad'
 
@@ -41,5 +41,20 @@ suite('itens do projeto e legenda', () => {
     const defs = new Map([[vigo.name, vigo]])
     const saved = JSON.parse(JSON.stringify(serializeState(model, ed, model.layers.map(() => true), defs)))
     expect(restoreState(base, saved).edits.cp[0].spec).toEqual(rosa)
+  })
+})
+
+suite('descrição na legenda', () => {
+  it('não mostra a espessura do perfil e junta perfis que só diferem nela', () => {
+    const outro: Edits = { ...ed, shapes: ed.shapes.map(s => (s.id === 5 ? { ...s, w: 0.07 } : s)) }
+    const perfis = collectItems(model, outro, 1).filter(i => i.kind === 'perfil')
+    expect(perfis).toHaveLength(1)
+    expect(describe(perfis[0])).toBe('Perfil + Fita')
+  })
+  it('mostra potência e tensão junto do nome da fonte, sem repetir', () => {
+    const fonte = collectItems(model, ed, 1).find(i => i.kind === 'fonte')!
+    expect(describe(fonte)).toBe('Fonte 48w 12v')
+    expect(describe({ ...fonte, name: 'Fonte 48W' })).toBe('Fonte 48W 12v')
+    expect(describe({ ...fonte, name: 'Fonte 148w' })).toBe('Fonte 148w 48w 12v')
   })
 })

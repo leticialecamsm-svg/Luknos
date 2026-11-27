@@ -18,7 +18,6 @@ export interface Item {
   light: string
   color: string // '' = cores originais do bloco
   tapeColor?: string
-  thickness?: number // cm (perfil)
   qty: number
   meters: number
   keys: string[] // chaves de seleção no desenho
@@ -42,7 +41,7 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
   const map = new Map<string, Item>()
   const rooms = new Map<string, Set<string>>()
   const add = (it: Omit<Item, 'key' | 'qty' | 'meters' | 'keys' | 'rooms'>, selKey: string, where: [number, number], typed: string | undefined, meters = 0) => {
-    const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.thickness ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
+    const key = [it.kind, it.block ?? '', it.name, it.mounting, it.power, it.light, it.color, it.tapeColor ?? '', it.tapeModel ?? ''].join('|').toLowerCase()
     let cur = map.get(key)
     if (!cur) { cur = { ...it, key, qty: 0, meters: 0, keys: [], rooms: '' }; map.set(key, cur); rooms.set(key, new Set()) }
     cur.qty++; cur.meters += meters; cur.keys.push(selKey)
@@ -64,7 +63,6 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
         kind: s.kind, name: sp?.name || (s.kind === 'perfil' ? 'Perfil + Fita' : 'Fita LED'),
         mounting: sp?.mounting ?? '', power: s.wm ? `${String(s.wm).replace('.', ',')} W/m` : '', light: sp?.light ?? '',
         color: s.stroke, tapeColor: s.kind === 'perfil' ? s.tapeColor : undefined,
-        thickness: s.kind === 'perfil' ? Math.round((s.w ?? 0) * unitToMeters * 1000) / 10 : undefined,
         tapeModel: s.kind === 'perfil' ? sp?.tapeModel?.trim() || undefined : undefined,
       }, 's' + s.id, midOfPath(s.pts), sp?.rooms, tapeMeters(s, unitToMeters))
     } else if (s.kind === 'fonte') {
@@ -79,10 +77,12 @@ export function collectItems(model: CadModel, ed: Edits, unitToMeters: number): 
 
 export const qtyLabel = (it: Item) => (it.kind === 'perfil' || it.kind === 'fita' ? `${br(it.meters)} m (${it.qty} pç)` : `${it.qty} un`)
 
+// o nome digitado vale; o do bloco original e a espessura do perfil não aparecem.
+// Na fonte, potência e tensão vão junto do nome ("Fonte 18w 12v").
 export function describe(it: Item) {
-  const parts = [it.name] // o nome digitado vale; o do bloco original não aparece
-  if (it.thickness) parts.push(`${br(it.thickness, 1)} cm`)
-  return parts.join(' ')
+  if (it.kind !== 'fonte') return it.name
+  const faltam = it.power.toLowerCase().split(' ').filter(p => p && !new RegExp(`(^|[^\\d.,])${p.replace(/([wv])$/, '\\s*$1')}(?![a-z])`, 'i').test(it.name))
+  return [it.name, ...faltam].join(' ')
 }
 
 export const LEGEND_HEADERS = ['Símbolo', 'Descrição', 'Instalação', 'Potência', 'Cor da luz', 'Qtd.', 'Ambientes']
